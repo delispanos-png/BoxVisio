@@ -1,0 +1,133 @@
+{% extends "base_admin.html" %}
+{% block content %}
+<div class="row mt-3">
+  <div class="col-xl-3 col-md-6"><div class="bv-kpi-box bv-kpi-purple"><div class="kpi-icon"><i class="fe fe-users"></i></div><div class="kpi-title">{{ tt(request, 'total_tenants') }}</div><div class="kpi-value">{{ total_tenants }}</div><div class="kpi-meta">Συνολικοί πελάτες που έχουν δημιουργηθεί</div></div></div>
+  <div class="col-xl-3 col-md-6"><div class="bv-kpi-box bv-kpi-green"><div class="kpi-icon"><i class="fe fe-check-circle"></i></div><div class="kpi-title">{{ tt(request, 'active_tenants') }}</div><div class="kpi-value">{{ active_tenants }}</div><div class="kpi-meta">Ενεργοί πελάτες αυτή τη στιγμή</div></div></div>
+  <div class="col-xl-3 col-md-6"><div class="bv-kpi-box bv-kpi-blue"><div class="kpi-icon"><i class="fe fe-user"></i></div><div class="kpi-title">{{ tt(request, 'users') }}</div><div class="kpi-value">{{ total_users }}</div><div class="kpi-meta">Ενεργοί λογαριασμοί portal</div></div></div>
+  <div class="col-xl-3 col-md-6"><div class="bv-kpi-box bv-kpi-orange"><div class="kpi-icon"><i class="fe fe-link"></i></div><div class="kpi-title">{{ tt(request, 'connections') }}</div><div class="kpi-value">{{ total_connections }}</div><div class="kpi-meta">Διασυνδέσεις δεδομένων</div></div></div>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-lg-8">
+    <div class="card content-card">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0">{{ tt(request, 'subscription_distribution') }}</h5>
+        <span id="subChartLoading" class="text-muted"><span class="spinner-border spinner-border-sm"></span> {{ tt(request, 'loading') }}</span>
+      </div>
+      <div class="card-body"><canvas id="subChart" height="120"></canvas></div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card content-card h-100">
+      <div class="card-header"><h5 class="mb-0">{{ tt(request, 'subscription_distribution') }}</h5></div>
+      <div class="card-body">
+        <div class="mb-3">
+          <div class="d-flex justify-content-between"><span class="small text-muted">active</span><span id="pctActive" class="small fw-bold">0%</span></div>
+          <div class="progress progress-sm"><div id="barActive" class="progress-bar bg-success" style="width:0%"></div></div>
+        </div>
+        <div class="mb-3">
+          <div class="d-flex justify-content-between"><span class="small text-muted">trial</span><span id="pctTrial" class="small fw-bold">0%</span></div>
+          <div class="progress progress-sm"><div id="barTrial" class="progress-bar bg-info" style="width:0%"></div></div>
+        </div>
+        <div class="mb-3">
+          <div class="d-flex justify-content-between"><span class="small text-muted">suspended</span><span id="pctSuspended" class="small fw-bold">0%</span></div>
+          <div class="progress progress-sm"><div id="barSuspended" class="progress-bar bg-warning" style="width:0%"></div></div>
+        </div>
+        <div>
+          <div class="d-flex justify-content-between"><span class="small text-muted">canceled</span><span id="pctCanceled" class="small fw-bold">0%</span></div>
+          <div class="progress progress-sm"><div id="barCanceled" class="progress-bar bg-danger" style="width:0%"></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-12">
+    <div class="card content-card">
+      <div class="card-header">
+        <h5 class="mb-0">{{ tt(request, 'server_info') }}</h5>
+      </div>
+      <div class="card-body">
+        <div class="row g-3">
+          <div class="col-lg-4">
+            <div class="bv-stat-strip bv-kpi-style bv-tone-blue">
+              <div class="label">{{ tt(request, 'cpu_usage') }}</div>
+              <div class="value" id="srvCpuPct">{{ '%.2f'|format(server_info.cpu.percent) }}%</div>
+              <div class="small text-muted" id="srvCpuMeta">{{ tt(request, 'used') }} CPU</div>
+            </div>
+          </div>
+          <div class="col-lg-4">
+            <div class="bv-stat-strip bv-kpi-style bv-tone-green">
+              <div class="label">{{ tt(request, 'ram_usage') }}</div>
+              <div class="value" id="srvRamPct">{{ '%.2f'|format(server_info.ram.percent) }}%</div>
+              <div class="small text-muted" id="srvRamMeta">{{ tt(request, 'used') }} {{ '%.2f'|format(server_info.ram.used_gb) }} GB / {{ '%.2f'|format(server_info.ram.total_gb) }} GB</div>
+            </div>
+          </div>
+          <div class="col-lg-4">
+            <div class="bv-stat-strip bv-kpi-style bv-tone-orange">
+              <div class="label">{{ tt(request, 'disk_usage') }}</div>
+              <div class="value" id="srvDiskPct">{{ '%.2f'|format(server_info.disk.percent) }}%</div>
+              <div class="small text-muted" id="srvDiskMeta">{{ tt(request, 'used') }} {{ '%.2f'|format(server_info.disk.used_gb) }} GB / {{ '%.2f'|format(server_info.disk.total_gb) }} GB</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+window.addEventListener('load', () => {
+  const data = {{ status_breakdown | tojson }};
+  const total = Object.values(data).reduce((acc, v) => acc + Number(v || 0), 0) || 1;
+  const fmt1 = new Intl.NumberFormat('el-GR', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  const fmt2 = new Intl.NumberFormat('el-GR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const pct = (key) => (Number(data[key] || 0) / total) * 100;
+  new Chart(document.getElementById('subChart'), {
+    type: 'doughnut',
+    data: {
+      labels: Object.keys(data),
+      datasets: [{ data: Object.values(data), backgroundColor: ['#3b82f6','#22c55e','#f59e0b','#ef4444','#6b7280'] }]
+    },
+    options: { responsive: true, maintainAspectRatio: false }
+  });
+  document.getElementById('pctActive').textContent = `${fmt1.format(pct('active'))}%`;
+  document.getElementById('pctTrial').textContent = `${fmt1.format(pct('trial'))}%`;
+  document.getElementById('pctSuspended').textContent = `${fmt1.format(pct('suspended'))}%`;
+  document.getElementById('pctCanceled').textContent = `${fmt1.format(pct('canceled'))}%`;
+  document.getElementById('barActive').style.width = `${pct('active')}%`;
+  document.getElementById('barTrial').style.width = `${pct('trial')}%`;
+  document.getElementById('barSuspended').style.width = `${pct('suspended')}%`;
+  document.getElementById('barCanceled').style.width = `${pct('canceled')}%`;
+  document.getElementById('subChartLoading').classList.add('d-none');
+
+  const cpuPctEl = document.getElementById('srvCpuPct');
+  const cpuMetaEl = document.getElementById('srvCpuMeta');
+  const ramPctEl = document.getElementById('srvRamPct');
+  const ramMetaEl = document.getElementById('srvRamMeta');
+  const diskPctEl = document.getElementById('srvDiskPct');
+  const diskMetaEl = document.getElementById('srvDiskMeta');
+  const usedLabel = `{{ tt(request, 'used') }}`;
+  async function refreshServerInfo() {
+    try {
+      const res = await fetch('/admin/server-info.json', { cache: 'no-store' });
+      if (!res.ok) return;
+      const data = await res.json();
+      cpuPctEl.textContent = `${fmt2.format(Number(data?.cpu?.percent || 0))}%`;
+      cpuMetaEl.textContent = `${usedLabel} CPU`;
+      ramPctEl.textContent = `${fmt2.format(Number(data?.ram?.percent || 0))}%`;
+      ramMetaEl.textContent = `${usedLabel} ${fmt2.format(Number(data?.ram?.used_gb || 0))} GB / ${fmt2.format(Number(data?.ram?.total_gb || 0))} GB`;
+      diskPctEl.textContent = `${fmt2.format(Number(data?.disk?.percent || 0))}%`;
+      diskMetaEl.textContent = `${usedLabel} ${fmt2.format(Number(data?.disk?.used_gb || 0))} GB / ${fmt2.format(Number(data?.disk?.total_gb || 0))} GB`;
+    } catch (_e) {}
+  }
+
+  refreshServerInfo();
+  setInterval(refreshServerInfo, 5000);
+});
+</script>
+{% endblock %}

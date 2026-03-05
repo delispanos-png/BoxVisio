@@ -1,0 +1,417 @@
+{% extends "base_tenant.html" %}
+{% block filters %}
+<form class="row g-3" id="inventoryFiltersForm">
+  <div class="col-lg-2 col-md-6">
+    <label class="form-label">{{ tt(request, 'snapshot') }}</label>
+    <input class="form-control" type="text" id="invAsOf" data-date-format="dmy" placeholder="ηη/μμ/εεεε" inputmode="numeric">
+  </div>
+  <div class="col-lg-2 col-md-6">
+    <label class="form-label">{{ tt(request, 'branches') }}</label>
+    <div class="bv-multi" id="invBranchesMulti">
+      <button type="button" class="form-select bv-multi-toggle text-start" id="invBranchesToggle">{{ tt(request, 'select') }}</button>
+      <div class="bv-multi-menu" id="invBranchesMenu" hidden>
+        <div class="d-flex gap-2 mb-2">
+          <input type="text" class="form-control form-control-sm" id="invBranchesSearch" placeholder="{{ tt(request, 'search') }}">
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="invBranchesAll">{{ tt(request, 'all') }}</button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="invBranchesClear">{{ tt(request, 'clear') }}</button>
+        </div>
+        <div id="invBranchesOptions" class="bv-multi-options"></div>
+      </div>
+      <div id="invBranchesChips" class="bv-chip-wrap mt-2"></div>
+      <select id="invBranches" multiple hidden></select>
+    </div>
+  </div>
+  <div class="col-lg-2 col-md-6">
+    <label class="form-label">{{ tt(request, 'warehouses') }}</label>
+    <div class="bv-multi" id="invWarehousesMulti">
+      <button type="button" class="form-select bv-multi-toggle text-start" id="invWarehousesToggle">{{ tt(request, 'select') }}</button>
+      <div class="bv-multi-menu" id="invWarehousesMenu" hidden>
+        <div class="d-flex gap-2 mb-2">
+          <input type="text" class="form-control form-control-sm" id="invWarehousesSearch" placeholder="{{ tt(request, 'search') }}">
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="invWarehousesAll">{{ tt(request, 'all') }}</button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="invWarehousesClear">{{ tt(request, 'clear') }}</button>
+        </div>
+        <div id="invWarehousesOptions" class="bv-multi-options"></div>
+      </div>
+      <div id="invWarehousesChips" class="bv-chip-wrap mt-2"></div>
+      <select id="invWarehouses" multiple hidden></select>
+    </div>
+  </div>
+  <div class="col-lg-2 col-md-6">
+    <label class="form-label">{{ tt(request, 'brands') }}</label>
+    <div class="bv-multi" id="invBrandsMulti">
+      <button type="button" class="form-select bv-multi-toggle text-start" id="invBrandsToggle">{{ tt(request, 'select') }}</button>
+      <div class="bv-multi-menu" id="invBrandsMenu" hidden>
+        <div class="d-flex gap-2 mb-2">
+          <input type="text" class="form-control form-control-sm" id="invBrandsSearch" placeholder="{{ tt(request, 'search') }}">
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="invBrandsAll">{{ tt(request, 'all') }}</button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="invBrandsClear">{{ tt(request, 'clear') }}</button>
+        </div>
+        <div id="invBrandsOptions" class="bv-multi-options"></div>
+      </div>
+      <div id="invBrandsChips" class="bv-chip-wrap mt-2"></div>
+      <select id="invBrands" multiple hidden></select>
+    </div>
+  </div>
+  <div class="col-lg-2 col-md-6">
+    <label class="form-label">{{ tt(request, 'categories') }}</label>
+    <div class="bv-multi" id="invCategoriesMulti">
+      <button type="button" class="form-select bv-multi-toggle text-start" id="invCategoriesToggle">{{ tt(request, 'select') }}</button>
+      <div class="bv-multi-menu" id="invCategoriesMenu" hidden>
+        <div class="d-flex gap-2 mb-2">
+          <input type="text" class="form-control form-control-sm" id="invCategoriesSearch" placeholder="{{ tt(request, 'search') }}">
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="invCategoriesAll">{{ tt(request, 'all') }}</button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="invCategoriesClear">{{ tt(request, 'clear') }}</button>
+        </div>
+        <div id="invCategoriesOptions" class="bv-multi-options"></div>
+      </div>
+      <div id="invCategoriesChips" class="bv-chip-wrap mt-2"></div>
+      <select id="invCategories" multiple hidden></select>
+    </div>
+  </div>
+  <div class="col-lg-2 col-md-6">
+    <label class="form-label">{{ tt(request, 'commercial_category') }}</label>
+    <div class="bv-multi" id="invGroupsMulti">
+      <button type="button" class="form-select bv-multi-toggle text-start" id="invGroupsToggle">{{ tt(request, 'select') }}</button>
+      <div class="bv-multi-menu" id="invGroupsMenu" hidden>
+        <div class="d-flex gap-2 mb-2">
+          <input type="text" class="form-control form-control-sm" id="invGroupsSearch" placeholder="{{ tt(request, 'search') }}">
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="invGroupsAll">{{ tt(request, 'all') }}</button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="invGroupsClear">{{ tt(request, 'clear') }}</button>
+        </div>
+        <div id="invGroupsOptions" class="bv-multi-options"></div>
+      </div>
+      <div id="invGroupsChips" class="bv-chip-wrap mt-2"></div>
+      <select id="invGroups" multiple hidden></select>
+    </div>
+  </div>
+  <div class="col-lg-2 col-md-6 d-flex align-items-end">
+    <button type="submit" class="btn btn-primary w-100"><i class="fe fe-filter me-1"></i>{{ tt(request, 'apply') }}</button>
+  </div>
+</form>
+{% endblock %}
+
+{% block content %}
+<div class="inventory-page">
+  {% if feature_locked %}
+  <div class="card border-0 shadow-sm">
+    <div class="card-body p-4">
+      <h4 class="mb-2"><i class="fe fe-lock me-2 text-warning"></i>{{ tt(request, 'inventory_section_unavailable') }}</h4>
+      <p class="text-muted mb-0">{{ tt(request, 'enterprise_pharmacyone_required') }}</p>
+    </div>
+  </div>
+  {% else %}
+  <div id="inventoryError" class="alert alert-danger d-none mb-3"></div>
+  <div class="row g-3 mb-3">
+    <div class="col-xl-3 col-md-6">
+      <div class="bv-kpi-box bv-kpi-blue">
+        <div class="kpi-title">{{ tt(request, 'stock_value') }}</div>
+        <div class="kpi-value" id="kpiStockValue">0.00</div>
+        <div class="kpi-meta">{{ tt(request, 'current_inventory_value') }}</div>
+        <div class="kpi-icon"><i class="fe fe-package"></i></div>
+      </div>
+    </div>
+    <div class="col-xl-3 col-md-6">
+      <div class="bv-kpi-box bv-kpi-purple">
+        <div class="kpi-title">{{ tt(request, 'qty_on_hand') }}</div>
+        <div class="kpi-value" id="kpiQtyOnHand">0</div>
+        <div class="kpi-meta">{{ tt(request, 'total_quantity') }}</div>
+        <div class="kpi-icon"><i class="fe fe-layers"></i></div>
+      </div>
+    </div>
+    <div class="col-xl-3 col-md-6">
+      <div class="bv-kpi-box bv-kpi-green">
+        <div class="kpi-title">{{ tt(request, 'cost_amount') }}</div>
+        <div class="kpi-value" id="kpiCostAmount">0.00</div>
+        <div class="kpi-meta">{{ tt(request, 'total_inventory_cost') }}</div>
+        <div class="kpi-icon"><i class="fe fe-tag"></i></div>
+      </div>
+    </div>
+    <div class="col-xl-3 col-md-6">
+      <div class="bv-kpi-box bv-kpi-orange">
+        <div class="kpi-title">{{ tt(request, 'reserved_qty') }}</div>
+        <div class="kpi-value" id="kpiQtyReserved">0</div>
+        <div class="kpi-meta">{{ tt(request, 'reserved_quantity') }}</div>
+        <div class="kpi-icon"><i class="fe fe-lock"></i></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row g-3">
+    <div class="col-xl-6">
+      <div class="card border-0 shadow-sm h-100">
+        <div class="card-header"><h5 class="mb-0">{{ tt(request, 'stock_aging') }}</h5></div>
+        <div class="card-body">
+          <div style="height:280px"><canvas id="inventoryAgingChart"></canvas></div>
+        </div>
+      </div>
+    </div>
+    <div class="col-xl-6">
+      <div class="card border-0 shadow-sm h-100">
+        <div class="card-header"><h5 class="mb-0">{{ tt(request, 'inventory_by_manufacturer') }}</h5></div>
+        <div class="card-body">
+          <div style="height:280px"><canvas id="inventoryManufacturerChart"></canvas></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row g-3 mt-1">
+    <div class="col-xl-4">
+      <div class="card border-0 shadow-sm h-100">
+        <div class="card-header"><h5 class="mb-0">{{ tt(request, 'commercial_category') }}</h5></div>
+        <div class="card-body p-0">
+          <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0" id="tblInvCommercial">
+              <thead><tr><th>{{ tt(request, 'category') }}</th><th class="text-end">{{ tt(request, 'qty') }}</th><th class="text-end">{{ tt(request, 'value') }}</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="col-xl-4">
+      <div class="card border-0 shadow-sm h-100">
+        <div class="card-header"><h5 class="mb-0">{{ tt(request, 'brands') }}</h5></div>
+        <div class="card-body p-0">
+          <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0" id="tblInvBrand">
+              <thead><tr><th>{{ tt(request, 'brands') }}</th><th class="text-end">{{ tt(request, 'qty') }}</th><th class="text-end">{{ tt(request, 'value') }}</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="col-xl-4">
+      <div class="card border-0 shadow-sm h-100">
+        <div class="card-header"><h5 class="mb-0">{{ tt(request, 'manufacturer') }}</h5></div>
+        <div class="card-body p-0">
+          <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0" id="tblInvManufacturer">
+              <thead><tr><th>{{ tt(request, 'manufacturer') }}</th><th class="text-end">{{ tt(request, 'qty') }}</th><th class="text-end">{{ tt(request, 'value') }}</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if not feature_locked %}
+<script>
+(function(){
+  const asOfEl = document.getElementById('invAsOf');
+  const form = document.getElementById('inventoryFiltersForm');
+  const fmtMoney = (n)=> new Intl.NumberFormat('el-GR',{style:'currency',currency:'EUR'}).format(Number(n||0));
+  const fmtNum = (n)=> new Intl.NumberFormat('el-GR',{maximumFractionDigits:0}).format(Math.round(Number(n||0)));
+  const invFieldDefs = [
+    {key:'branches', selectId:'invBranches', label:'{{ tt(request, "branches") }}'},
+    {key:'warehouses', selectId:'invWarehouses', label:'{{ tt(request, "warehouses") }}'},
+    {key:'brands', selectId:'invBrands', label:'{{ tt(request, "brands") }}'},
+    {key:'categories', selectId:'invCategories', label:'{{ tt(request, "categories") }}'},
+    {key:'groups', selectId:'invGroups', label:'{{ tt(request, "commercial_category") }}'},
+  ];
+  let agingChart, manufacturerChart;
+  function setError(msg){
+    const el = document.getElementById('inventoryError');
+    if(!msg){ el.classList.add('d-none'); el.textContent=''; return; }
+    el.classList.remove('d-none'); el.textContent = msg;
+  }
+  async function fetchJsonStrict(url){
+    const res = await fetch(url);
+    const body = await res.json().catch(()=>({}));
+    if(!res.ok){
+      throw new Error(body.detail || `HTTP ${res.status}`);
+    }
+    return body;
+  }
+
+  function params(){
+    const p = new URLSearchParams();
+    if(asOfEl.value) p.set('as_of', window.bvToIsoDate ? window.bvToIsoDate(asOfEl.value) : asOfEl.value);
+    invFieldDefs.forEach((field)=>{
+      const sel=document.getElementById(field.selectId);
+      Array.from(sel?.selectedOptions || []).forEach(o=>p.append(field.key, o.value));
+    });
+    return p;
+  }
+  function syncInvMultiUI(prefix, label, filterText=''){
+    const select=document.getElementById(prefix);
+    const optionsWrap=document.getElementById(`${prefix}Options`);
+    const chips=document.getElementById(`${prefix}Chips`);
+    const toggle=document.getElementById(`${prefix}Toggle`);
+    if(!select || !optionsWrap || !chips || !toggle) return;
+
+    const selected = Array.from(select.options).filter(o=>o.selected).map(o=>o.value);
+    const normalized = (filterText||'').toLowerCase().trim();
+    optionsWrap.innerHTML='';
+    Array.from(select.options)
+      .filter(o=>!normalized || ((o.dataset.label || o.textContent || o.value).toLowerCase().includes(normalized)))
+      .forEach(o=>{
+        const row=document.createElement('label');
+        row.className='bv-multi-opt';
+        const cb=document.createElement('input');
+        cb.type='checkbox';
+        cb.checked=o.selected;
+        cb.addEventListener('change', ()=>{
+          o.selected=cb.checked;
+          syncInvMultiUI(prefix, label, document.getElementById(`${prefix}Search`)?.value||'');
+        });
+        const span=document.createElement('span');
+        span.textContent=o.dataset.label || o.textContent || o.value;
+        row.appendChild(cb);
+        row.appendChild(span);
+        optionsWrap.appendChild(row);
+      });
+    if(!optionsWrap.children.length){
+      const empty=document.createElement('div');
+      empty.className='bv-multi-empty';
+      empty.textContent='{{ tt(request, "no_options_available") }}';
+      optionsWrap.appendChild(empty);
+    }
+    chips.innerHTML='';
+    selected.forEach(v=>{
+      const chip=document.createElement('span');
+      chip.className='bv-chip';
+      const opt = Array.from(select.options).find(o=>o.value===v);
+      chip.textContent=opt?.dataset.label || opt?.textContent || v;
+      chips.appendChild(chip);
+    });
+    toggle.textContent = selected.length ? `${label} (${selected.length})` : '{{ tt(request, "select") }}';
+  }
+  function initInvMulti(prefix, label){
+    const toggle=document.getElementById(`${prefix}Toggle`);
+    const menu=document.getElementById(`${prefix}Menu`);
+    const search=document.getElementById(`${prefix}Search`);
+    const btnAll=document.getElementById(`${prefix}All`);
+    const btnClear=document.getElementById(`${prefix}Clear`);
+    const select=document.getElementById(prefix);
+    if(!toggle || !menu || !search || !btnAll || !btnClear || !select || toggle.dataset.bound==='1') return;
+    toggle.dataset.bound='1';
+    toggle.addEventListener('click', ()=>{menu.hidden=!menu.hidden;});
+    search.addEventListener('input', ()=>syncInvMultiUI(prefix, label, search.value));
+    btnAll.addEventListener('click', ()=>{
+      Array.from(select.options).forEach(o=>o.selected=true);
+      syncInvMultiUI(prefix, label, search.value);
+    });
+    btnClear.addEventListener('click', ()=>{
+      Array.from(select.options).forEach(o=>o.selected=false);
+      syncInvMultiUI(prefix, label, search.value);
+    });
+    document.addEventListener('click', (e)=>{
+      if(!document.getElementById(`${prefix}Multi`)?.contains(e.target)) menu.hidden=true;
+    });
+  }
+  function populateInvSelect(prefix, label, values, labels={}){
+    const select=document.getElementById(prefix);
+    if(!select) return;
+    const prev = new Set(Array.from(select.selectedOptions || []).map(o=>o.value));
+    select.innerHTML='';
+    const ordered = [...(values || [])].sort((a,b)=>
+      String(labels[a] || a).localeCompare(String(labels[b] || b), 'el', { sensitivity:'base' })
+    );
+    ordered.forEach(v=>{
+      const opt=document.createElement('option');
+      opt.value=v;
+      opt.textContent=labels[v] || v;
+      opt.dataset.label = labels[v] || v;
+      if(prev.has(v)) opt.selected=true;
+      select.appendChild(opt);
+    });
+    syncInvMultiUI(prefix, label, document.getElementById(`${prefix}Search`)?.value || '');
+  }
+  async function loadInvFilterOptions(){
+    const p = new URLSearchParams();
+    if(asOfEl.value) p.set('as_of', window.bvToIsoDate ? window.bvToIsoDate(asOfEl.value) : asOfEl.value);
+    invFieldDefs.forEach((field)=>{
+      const sel=document.getElementById(field.selectId);
+      Array.from(sel?.selectedOptions || []).forEach(o=>p.append(field.key, o.value));
+    });
+    try{
+      const res = await fetch(`/v1/kpi/inventory/filter-options?${p.toString()}`);
+      if(!res.ok) return;
+      const options = await res.json();
+      invFieldDefs.forEach((field)=>{
+        const labels = (options && options.labels && options.labels[field.key]) || {};
+        populateInvSelect(field.selectId, field.label, (options && options[field.key]) || [], labels);
+      });
+    }catch(_err){}
+  }
+  function tableFill(selector, rows, nameKey){
+    const tbody = document.querySelector(selector + ' tbody');
+    tbody.innerHTML = '';
+    if(!rows.length){
+      tbody.innerHTML = '<tr><td colspan="3" class="text-center text-muted py-3">{{ tt(request, "no_data_available") }}</td></tr>';
+      return;
+    }
+    for(const r of rows){
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${r[nameKey] || 'N/A'}</td><td class="text-end">${fmtNum(r.qty_on_hand)}</td><td class="text-end">${fmtMoney(r.value_amount)}</td>`;
+      tbody.appendChild(tr);
+    }
+  }
+  function drawAging(data){
+    const labels = ['0-30','31-60','61-90','90+'];
+    const keys = ['0_30','31_60','61_90','90_plus'];
+    const values = keys.map(k => Number((data[k] || {}).value_amount || 0));
+    if(agingChart) agingChart.destroy();
+    agingChart = new Chart(document.getElementById('inventoryAgingChart'), {
+      type: 'bar',
+      data: { labels, datasets:[{ label:'{{ tt(request, "stock_value") }}', data: values, backgroundColor:['#22c55e','#3b82f6','#f59e0b','#ef4444'] }] },
+      options: { responsive:true, maintainAspectRatio:false }
+    });
+  }
+  function drawManufacturer(rows){
+    const top = rows.slice(0,8);
+    if(manufacturerChart) manufacturerChart.destroy();
+    manufacturerChart = new Chart(document.getElementById('inventoryManufacturerChart'), {
+      type: 'doughnut',
+      data: { labels: top.map(x=>x.manufacturer), datasets:[{ data: top.map(x=>Number(x.value_amount||0)), backgroundColor:['#6f42c1','#22c55e','#f59e0b','#0ea5e9','#ef4444','#14b8a6','#84cc16','#f97316'] }]},
+      options: { responsive:true, maintainAspectRatio:false }
+    });
+  }
+  async function load(){
+    setError('');
+    try{
+      const p = params();
+      const [snap, aging, byBrand, byCommercial, byManufacturer] = await Promise.all([
+        fetchJsonStrict(`/v1/kpi/inventory/snapshot?${p}`),
+        fetchJsonStrict(`/v1/kpi/inventory/stock-aging?${p}`),
+        fetchJsonStrict(`/v1/kpi/inventory/by-brand?${p}`),
+        fetchJsonStrict(`/v1/kpi/inventory/by-commercial-category?${p}`),
+        fetchJsonStrict(`/v1/kpi/inventory/by-manufacturer?${p}`),
+      ]);
+      document.getElementById('kpiStockValue').textContent = fmtMoney(snap.value_amount);
+      document.getElementById('kpiQtyOnHand').textContent = fmtNum(snap.qty_on_hand);
+      document.getElementById('kpiCostAmount').textContent = fmtMoney(snap.cost_amount);
+      document.getElementById('kpiQtyReserved').textContent = fmtNum(snap.qty_reserved);
+      drawAging(aging || {});
+      tableFill('#tblInvBrand', byBrand || [], 'brand');
+      tableFill('#tblInvCommercial', byCommercial || [], 'commercial_category');
+      tableFill('#tblInvManufacturer', byManufacturer || [], 'manufacturer');
+      drawManufacturer(byManufacturer || []);
+    }catch(err){
+      setError(err.message || '{{ tt(request, "load_failed") }}');
+    }
+  }
+
+  asOfEl.value = window.bvToDmyDate
+    ? window.bvToDmyDate(new Date().toISOString().slice(0,10))
+    : new Date().toISOString().slice(0,10);
+  invFieldDefs.forEach((f)=>initInvMulti(f.selectId, f.label));
+  asOfEl.addEventListener('change', loadInvFilterOptions);
+  form.addEventListener('submit', async (e)=>{
+    e.preventDefault();
+    await loadInvFilterOptions();
+    await load();
+  });
+  loadInvFilterOptions().then(load);
+})();
+</script>
+{% endif %}
+{% endblock %}

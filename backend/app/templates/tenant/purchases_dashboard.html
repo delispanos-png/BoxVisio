@@ -1,0 +1,759 @@
+{% extends "base_tenant.html" %}
+{% block filters %}
+<form id="purchasesFilters" class="row g-2">
+  <div class="col-12 col-md-6 col-xl-3">
+    <label class="form-label mb-1">{{ tt(request, 'from') }}</label>
+    <input class="form-control" type="text" name="from" value="{{ default_from.strftime('%d/%m/%Y') if default_from else '' }}" data-date-format="dmy" placeholder="ηη/μμ/εεεε" inputmode="numeric">
+  </div>
+  <div class="col-12 col-md-6 col-xl-3">
+    <label class="form-label mb-1">{{ tt(request, 'to') }}</label>
+    <input class="form-control" type="text" name="to" value="{{ default_to.strftime('%d/%m/%Y') if default_to else '' }}" data-date-format="dmy" placeholder="ηη/μμ/εεεε" inputmode="numeric">
+  </div>
+  <div class="col-12 col-md-6 col-xl-2">
+    <label class="form-label mb-1">{{ tt(request, 'branches') }}</label>
+    <div class="bv-multi" id="purchasesBranchesMulti">
+      <button type="button" class="form-select bv-multi-toggle text-start" id="purchasesBranchesToggle">Επιλογή</button>
+      <div class="bv-multi-menu" id="purchasesBranchesMenu" hidden>
+        <div class="d-flex gap-2 mb-2">
+          <input type="text" class="form-control form-control-sm" id="purchasesBranchesSearch" placeholder="Αναζήτηση...">
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="purchasesBranchesAll">Όλα</button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="purchasesBranchesClear">Καθαρισμός</button>
+        </div>
+        <div id="purchasesBranchesOptions" class="bv-multi-options"></div>
+      </div>
+      <div id="purchasesBranchesChips" class="bv-chip-wrap mt-2"></div>
+      <select name="branches" id="purchasesBranches" multiple hidden></select>
+    </div>
+  </div>
+  <div class="col-12 col-md-6 col-xl-2">
+    <label class="form-label mb-1">{{ tt(request, 'warehouses') }}</label>
+    <div class="bv-multi" id="purchasesWarehousesMulti">
+      <button type="button" class="form-select bv-multi-toggle text-start" id="purchasesWarehousesToggle">Επιλογή</button>
+      <div class="bv-multi-menu" id="purchasesWarehousesMenu" hidden>
+        <div class="d-flex gap-2 mb-2">
+          <input type="text" class="form-control form-control-sm" id="purchasesWarehousesSearch" placeholder="Αναζήτηση...">
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="purchasesWarehousesAll">Όλα</button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="purchasesWarehousesClear">Καθαρισμός</button>
+        </div>
+        <div id="purchasesWarehousesOptions" class="bv-multi-options"></div>
+      </div>
+      <div id="purchasesWarehousesChips" class="bv-chip-wrap mt-2"></div>
+      <select name="warehouses" id="purchasesWarehouses" multiple hidden></select>
+    </div>
+  </div>
+  <div class="col-12 col-md-6 col-xl-2">
+    <label class="form-label mb-1">{{ tt(request, 'brands') }}</label>
+    <div class="bv-multi" id="purchasesBrandsMulti">
+      <button type="button" class="form-select bv-multi-toggle text-start" id="purchasesBrandsToggle">Επιλογή</button>
+      <div class="bv-multi-menu" id="purchasesBrandsMenu" hidden>
+        <div class="d-flex gap-2 mb-2">
+          <input type="text" class="form-control form-control-sm" id="purchasesBrandsSearch" placeholder="Αναζήτηση...">
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="purchasesBrandsAll">Όλα</button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="purchasesBrandsClear">Καθαρισμός</button>
+        </div>
+        <div id="purchasesBrandsOptions" class="bv-multi-options"></div>
+      </div>
+      <div id="purchasesBrandsChips" class="bv-chip-wrap mt-2"></div>
+      <select name="brands" id="purchasesBrands" multiple hidden></select>
+    </div>
+  </div>
+  <div class="col-12 col-md-6 col-xl-2">
+    <label class="form-label mb-1">Κατηγορία 1</label>
+    <div class="bv-multi" id="purchasesCategoryL1Multi">
+      <button type="button" class="form-select bv-multi-toggle text-start" id="purchasesCategoryL1Toggle">Επιλογή</button>
+      <div class="bv-multi-menu" id="purchasesCategoryL1Menu" hidden>
+        <div class="d-flex gap-2 mb-2">
+          <input type="text" class="form-control form-control-sm" id="purchasesCategoryL1Search" placeholder="Αναζήτηση...">
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="purchasesCategoryL1All">Όλα</button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="purchasesCategoryL1Clear">Καθαρισμός</button>
+        </div>
+        <div id="purchasesCategoryL1Options" class="bv-multi-options"></div>
+      </div>
+      <div id="purchasesCategoryL1Chips" class="bv-chip-wrap mt-2"></div>
+      <select id="purchasesCategoryL1" multiple hidden></select>
+    </div>
+  </div>
+  <div class="col-12 col-md-6 col-xl-2">
+    <label class="form-label mb-1">Κατηγορία 2</label>
+    <div class="bv-multi" id="purchasesCategoryL2Multi">
+      <button type="button" class="form-select bv-multi-toggle text-start" id="purchasesCategoryL2Toggle">Επιλογή</button>
+      <div class="bv-multi-menu" id="purchasesCategoryL2Menu" hidden>
+        <div class="d-flex gap-2 mb-2">
+          <input type="text" class="form-control form-control-sm" id="purchasesCategoryL2Search" placeholder="Αναζήτηση...">
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="purchasesCategoryL2All">Όλα</button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="purchasesCategoryL2Clear">Καθαρισμός</button>
+        </div>
+        <div id="purchasesCategoryL2Options" class="bv-multi-options"></div>
+      </div>
+      <div id="purchasesCategoryL2Chips" class="bv-chip-wrap mt-2"></div>
+      <select id="purchasesCategoryL2" multiple hidden></select>
+    </div>
+  </div>
+  <div class="col-12 col-md-6 col-xl-2">
+    <label class="form-label mb-1">Κατηγορία 3</label>
+    <div class="bv-multi" id="purchasesCategoryL3Multi">
+      <button type="button" class="form-select bv-multi-toggle text-start" id="purchasesCategoryL3Toggle">Επιλογή</button>
+      <div class="bv-multi-menu" id="purchasesCategoryL3Menu" hidden>
+        <div class="d-flex gap-2 mb-2">
+          <input type="text" class="form-control form-control-sm" id="purchasesCategoryL3Search" placeholder="Αναζήτηση...">
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="purchasesCategoryL3All">Όλα</button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="purchasesCategoryL3Clear">Καθαρισμός</button>
+        </div>
+        <div id="purchasesCategoryL3Options" class="bv-multi-options"></div>
+      </div>
+      <div id="purchasesCategoryL3Chips" class="bv-chip-wrap mt-2"></div>
+      <select id="purchasesCategoryL3" multiple hidden></select>
+    </div>
+  </div>
+  <select name="categories" id="purchasesCategories" multiple hidden></select>
+  <select name="groups" id="purchasesGroups" multiple hidden></select>
+  <div class="col-12 col-xl-2 d-grid gap-2 align-content-end">
+    <button class="btn btn-primary" type="submit"><i class="fe fe-filter"></i> {{ tt(request, 'apply') }}</button>
+    <a id="exportPurchasesCsv" class="btn btn-outline-secondary" href="#" target="_blank"><i class="fe fe-download"></i> {{ tt(request, 'export_supplier_csv') }}</a>
+  </div>
+</form>
+{% endblock %}
+{% block content %}
+<div id="purchasesError" class="alert alert-danger d-none"></div>
+<style>
+  .supplier-name-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .supplier-name-main {
+    font-weight: 700;
+    color: #0f172a;
+  }
+  .supplier-code {
+    font-size: 11px;
+    color: #64748b;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  }
+  .margin-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border-radius: 999px;
+    padding: 4px 10px;
+    font-size: 11px;
+    font-weight: 700;
+    border: 1px solid transparent;
+  }
+  .margin-badge.good {
+    color: #166534;
+    background: #dcfce7;
+    border-color: #86efac;
+  }
+  .margin-badge.medium {
+    color: #92400e;
+    background: #fef3c7;
+    border-color: #fde68a;
+  }
+  .margin-badge.low {
+    color: #991b1b;
+    background: #fee2e2;
+    border-color: #fecaca;
+  }
+  #costChangeAlerts {
+    list-style: none;
+    padding-left: 0;
+    margin: 0;
+    display: grid;
+    gap: 10px;
+  }
+  .cost-alert-card {
+    border: 1px solid #e2e8f0;
+    border-left: 4px solid #f59e0b;
+    border-radius: 10px;
+    padding: 10px 12px;
+    background: #fffdf7;
+    display: grid;
+    gap: 4px;
+  }
+  .cost-alert-card.up {
+    border-left-color: #ef4444;
+    background: #fff7f7;
+  }
+  .cost-alert-card.down {
+    border-left-color: #22c55e;
+    background: #f7fff8;
+  }
+  .cost-alert-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+  }
+  .cost-alert-supplier {
+    font-weight: 700;
+    color: #0f172a;
+  }
+  .cost-alert-delta {
+    font-weight: 800;
+    font-size: 12px;
+    border-radius: 999px;
+    padding: 2px 8px;
+  }
+  .cost-alert-delta.up {
+    color: #b91c1c;
+    background: #fee2e2;
+  }
+  .cost-alert-delta.down {
+    color: #166534;
+    background: #dcfce7;
+  }
+  .cost-alert-values {
+    font-size: 12px;
+    color: #475569;
+  }
+  .cost-alert-msg {
+    font-size: 12px;
+    color: #1e293b;
+  }
+</style>
+
+<div class="row g-3 mb-3">
+  <div class="col-xl-3 col-md-6">
+    <div class="bv-kpi-box bv-kpi-purple"><div class="kpi-icon"><i class="fe fe-shopping-bag"></i></div><div class="kpi-title">Total Purchases</div><div id="cardTotalPurchases" class="kpi-value">0.00</div><div class="kpi-meta">Procurement Value</div></div>
+  </div>
+  <div class="col-xl-3 col-md-6">
+    <div class="bv-kpi-box bv-kpi-blue"><div class="kpi-icon"><i class="fe fe-credit-card"></i></div><div class="kpi-title">Purchase Cost</div><div id="cardCost" class="kpi-value">0.00</div><div class="kpi-meta">Total Cost</div></div>
+  </div>
+  <div class="col-xl-3 col-md-6">
+    <div class="bv-kpi-box bv-kpi-green"><div class="kpi-icon"><i class="fe fe-layers"></i></div><div class="kpi-title">{{ tt(request, 'purchased_qty') }}</div><div id="cardQty" class="kpi-value">0</div><div class="kpi-meta">{{ tt(request, 'units') }}</div></div>
+  </div>
+  <div class="col-xl-3 col-md-6">
+    <div class="bv-kpi-box bv-kpi-orange"><div class="kpi-icon"><i class="fe fe-activity"></i></div><div class="kpi-title">Margin Proxy %</div><div id="cardMarginProxy" class="kpi-value">0.00%</div><div class="kpi-meta">Efficiency Signal</div></div>
+  </div>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-lg-7">
+    <div class="card border-0 shadow-sm h-100 content-card">
+      <div class="card-header"><h5 class="mb-0">{{ tt(request, 'purchase_trend') }}</h5></div>
+      <div class="card-body"><canvas id="purchaseTrendChart" height="120"></canvas></div>
+    </div>
+  </div>
+  <div class="col-lg-5">
+    <div class="card border-0 shadow-sm h-100 content-card">
+      <div class="card-header"><h5 class="mb-0">{{ tt(request, 'supplier_distribution') }}</h5></div>
+      <div class="card-body"><canvas id="supplierDonutChart" height="120"></canvas></div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3">
+  <div class="col-lg-7">
+    <div class="card border-0 shadow-sm h-100 content-card">
+      <div class="card-header"><h5 class="mb-0">{{ tt(request, 'margin_by_supplier') }}</h5></div>
+      <div class="card-body table-responsive">
+        <table class="table table-sm" id="marginBySupplierTable">
+          <thead><tr><th>{{ tt(request, 'supplier') }}</th><th>{{ tt(request, 'net') }}</th><th>Κόστος</th><th>Μικτό Κέρδος</th><th>Περιθώριο</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-5">
+    <div class="card border-0 shadow-sm h-100 content-card">
+      <div class="card-header"><h5 class="mb-0">{{ tt(request, 'cost_change_detection') }}</h5></div>
+      <div class="card-body">
+        <ul id="costChangeAlerts" class="mb-0"></ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3 mt-1">
+  <div class="col-lg-6">
+    <div class="card border-0 shadow-sm h-100 content-card">
+      <div class="card-header"><h5 class="mb-0">{{ tt(request, 'seasonality_purchases') }}</h5></div>
+      <div class="card-body">
+        <div style="height:260px"><canvas id="purchasesSeasonalityChart"></canvas></div>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card border-0 shadow-sm h-100 content-card">
+      <div class="card-header"><h5 class="mb-0">{{ tt(request, 'new_codes_purchases') }}</h5></div>
+      <div class="card-body table-responsive">
+        <table class="table table-sm" id="purchasesNewCodesTbl">
+          <thead>
+            <tr>
+              <th>{{ tt(request, 'item') }}</th>
+              <th>{{ tt(request, 'first_seen') }}</th>
+              <th class="text-end">{{ tt(request, 'qty') }}</th>
+              <th class="text-end">{{ tt(request, 'value') }}</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let purchaseTrendChart, supplierDonutChart, purchasesSeasonalityChart;
+const purchasesFieldDefs = [
+  {key:'branches', selectId:'purchasesBranches', label:'{{ tt(request, "branches") }}'},
+  {key:'warehouses', selectId:'purchasesWarehouses', label:'{{ tt(request, "warehouses") }}'},
+  {key:'brands', selectId:'purchasesBrands', label:'{{ tt(request, "brands") }}'},
+  {key:'categories', selectId:'purchasesCategories', label:'{{ tt(request, "categories") }}'},
+  {key:'groups', selectId:'purchasesGroups', label:'{{ tt(request, "groups") }}'},
+];
+const purchasesUiFieldDefs = [
+  {selectId:'purchasesBranches', label:'{{ tt(request, "branches") }}'},
+  {selectId:'purchasesWarehouses', label:'{{ tt(request, "warehouses") }}'},
+  {selectId:'purchasesBrands', label:'{{ tt(request, "brands") }}'},
+  {selectId:'purchasesCategoryL1', label:'Κατηγορία 1'},
+  {selectId:'purchasesCategoryL2', label:'Κατηγορία 2'},
+  {selectId:'purchasesCategoryL3', label:'Κατηγορία 3'},
+];
+let purchasesCategoryHierarchy = [];
+let purchasesInitCategoryIds = new Set(new URLSearchParams(window.location.search).getAll('categories'));
+let purchasesInitApplied = false;
+function toNum(v){const n=Number(v||0);return Number.isFinite(n)?n:0}
+function money(v){return new Intl.NumberFormat('el-GR',{style:'currency',currency:'EUR',maximumFractionDigits:2}).format(toNum(v))}
+const fmt2 = new Intl.NumberFormat('el-GR',{ minimumFractionDigits:2, maximumFractionDigits:2 });
+const fmt0 = new Intl.NumberFormat('el-GR',{ maximumFractionDigits:0 });
+function pct(v){return `${fmt2.format(toNum(v))}%`}
+function supplierName(r){
+  const name = (r?.supplier || '').trim();
+  if(!name) return 'N/A';
+  return name.replace(/^SUP_/i, '').replaceAll('_', ' ');
+}
+function cleanItemLabel(v){
+  return String(v || '')
+    .replace(/\s*\(ITM\d+\)\s*$/i, '')
+    .replace(/\s+ITM\d+\s*$/i, '')
+    .trim();
+}
+function marginBadgeClass(v){
+  const n = toNum(v);
+  if(n >= 10) return 'good';
+  if(n >= 5) return 'medium';
+  return 'low';
+}
+
+function params(){
+  const fd=new FormData(document.getElementById('purchasesFilters')); const p=new URLSearchParams();
+  const fromRaw = fd.get('from');
+  const toRaw = fd.get('to');
+  p.set('from', window.bvToIsoDate ? window.bvToIsoDate(fromRaw) : fromRaw);
+  p.set('to', window.bvToIsoDate ? window.bvToIsoDate(toRaw) : toRaw);
+  purchasesFieldDefs.forEach((field)=>{
+    const sel = document.getElementById(field.selectId);
+    Array.from(sel?.selectedOptions || []).forEach(o => p.append(field.key, o.value));
+  });
+  return p;
+}
+
+function syncPurchasesMultiUI(prefix, label, filterText=''){
+  const select=document.getElementById(prefix);
+  const optionsWrap=document.getElementById(`${prefix}Options`);
+  const chips=document.getElementById(`${prefix}Chips`);
+  const toggle=document.getElementById(`${prefix}Toggle`);
+  if(!select || !optionsWrap || !chips || !toggle) return;
+
+  const selected = Array.from(select.options).filter(o=>o.selected).map(o=>o.value);
+  const normalized = (filterText||'').toLowerCase().trim();
+
+  optionsWrap.innerHTML='';
+  Array.from(select.options)
+    .filter(o=>{
+      const display=(o.dataset.label||o.textContent||o.value).toLowerCase();
+      return !normalized || o.value.toLowerCase().includes(normalized) || display.includes(normalized);
+    })
+    .forEach(o=>{
+      const row=document.createElement('label');
+      row.className='bv-multi-opt';
+      const cb=document.createElement('input');
+      cb.type='checkbox';
+      cb.checked=o.selected;
+      cb.addEventListener('change', ()=>{
+        o.selected=cb.checked;
+        select.dispatchEvent(new Event('change'));
+        syncPurchasesMultiUI(prefix, label, document.getElementById(`${prefix}Search`)?.value||'');
+      });
+      const span=document.createElement('span');
+      span.textContent=o.textContent || o.value;
+      row.appendChild(cb);
+      row.appendChild(span);
+      optionsWrap.appendChild(row);
+    });
+  if(!optionsWrap.children.length){
+    const empty=document.createElement('div');
+    empty.className='bv-multi-empty';
+    empty.textContent='Δεν υπάρχουν διαθέσιμες επιλογές';
+    optionsWrap.appendChild(empty);
+  }
+
+  chips.innerHTML='';
+  selected.forEach(v=>{
+    const chip=document.createElement('span');
+    chip.className='bv-chip';
+    const opt = Array.from(select.options).find(o=>o.value===v);
+    chip.textContent=(opt && opt.textContent) ? opt.textContent : v;
+    chips.appendChild(chip);
+  });
+  toggle.textContent = selected.length ? `${label} (${selected.length})` : 'Επιλογή';
+}
+
+function initPurchasesMulti(prefix, label){
+  const toggle=document.getElementById(`${prefix}Toggle`);
+  const menu=document.getElementById(`${prefix}Menu`);
+  const search=document.getElementById(`${prefix}Search`);
+  const btnAll=document.getElementById(`${prefix}All`);
+  const btnClear=document.getElementById(`${prefix}Clear`);
+  const select=document.getElementById(prefix);
+  if(!toggle || !menu || !search || !btnAll || !btnClear || !select || toggle.dataset.bound==='1') return;
+  toggle.dataset.bound='1';
+
+  toggle.addEventListener('click', ()=>{menu.hidden=!menu.hidden;});
+  search.addEventListener('input', ()=>syncPurchasesMultiUI(prefix, label, search.value));
+  btnAll.addEventListener('click', ()=>{Array.from(select.options).forEach(o=>o.selected=true); syncPurchasesMultiUI(prefix, label, search.value);});
+  btnClear.addEventListener('click', ()=>{Array.from(select.options).forEach(o=>o.selected=false); syncPurchasesMultiUI(prefix, label, search.value);});
+  document.addEventListener('click', (e)=>{ if(!document.getElementById(`${prefix}Multi`)?.contains(e.target)) menu.hidden=true; });
+}
+
+function populatePurchasesSelect(prefix, label, values, labels={}){
+  const select=document.getElementById(prefix);
+  if(!select) return;
+  const prev = new Set(Array.from(select.selectedOptions || []).map(o=>o.value));
+  select.innerHTML='';
+  const ordered = [...(values || [])].sort((a,b)=>
+    String(labels[a] || a).localeCompare(String(labels[b] || b), 'el', { sensitivity:'base' })
+  );
+  ordered.forEach(v=>{
+    const opt=document.createElement('option');
+    opt.value=v;
+    const txt = labels[v] ? `${labels[v]}` : v;
+    opt.textContent=txt;
+    opt.dataset.label = labels[v] || v;
+    if(prev.has(v)) opt.selected=true;
+    select.appendChild(opt);
+  });
+  syncPurchasesMultiUI(prefix, label, document.getElementById(`${prefix}Search`)?.value||'');
+}
+
+function selectedValues(selectId){
+  const sel = document.getElementById(selectId);
+  return new Set(Array.from(sel?.selectedOptions || []).map(o => o.value));
+}
+
+function setSelectedByValues(selectId, values){
+  const sel = document.getElementById(selectId);
+  if(!sel) return;
+  const vset = new Set(values || []);
+  Array.from(sel.options || []).forEach(o => { o.selected = vset.has(o.value); });
+  syncPurchasesMultiUI(selectId, purchasesUiFieldDefs.find(f => f.selectId === selectId)?.label || 'Επιλογή');
+}
+
+function rebuildPurchasesHiddenCategories(){
+  const l1 = selectedValues('purchasesCategoryL1');
+  const l2 = selectedValues('purchasesCategoryL2');
+  const l3 = selectedValues('purchasesCategoryL3');
+  const hidden = document.getElementById('purchasesCategories');
+  if(!hidden) return;
+  hidden.innerHTML = '';
+  purchasesCategoryHierarchy
+    .filter(c => !l1.size || l1.has(c.l1))
+    .filter(c => !l2.size || l2.has(c.l2))
+    .filter(c => !l3.size || l3.has(c.l3))
+    .forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c.id;
+      opt.textContent = c.path;
+      opt.selected = true;
+      hidden.appendChild(opt);
+    });
+}
+
+function syncPurchasesCategoryHierarchy(changedLevel){
+  const l1Sel = selectedValues('purchasesCategoryL1');
+  const l2SelBefore = selectedValues('purchasesCategoryL2');
+  const l3SelBefore = selectedValues('purchasesCategoryL3');
+
+  const l2Pool = new Set();
+  purchasesCategoryHierarchy.forEach(c => {
+    if(!l1Sel.size || l1Sel.has(c.l1)) l2Pool.add(c.l2);
+  });
+  populatePurchasesSelect('purchasesCategoryL2', 'Κατηγορία 2', [...l2Pool], {});
+  const l2Valid = [...l2SelBefore].filter(v => l2Pool.has(v));
+  setSelectedByValues('purchasesCategoryL2', l2Valid);
+
+  const l2Sel = selectedValues('purchasesCategoryL2');
+  const l3Pool = new Set();
+  purchasesCategoryHierarchy.forEach(c => {
+    const l1ok = !l1Sel.size || l1Sel.has(c.l1);
+    const l2ok = !l2Sel.size || l2Sel.has(c.l2);
+    if(l1ok && l2ok) l3Pool.add(c.l3);
+  });
+  populatePurchasesSelect('purchasesCategoryL3', 'Κατηγορία 3', [...l3Pool], {});
+  const l3Valid = [...l3SelBefore].filter(v => l3Pool.has(v));
+  setSelectedByValues('purchasesCategoryL3', l3Valid);
+
+  rebuildPurchasesHiddenCategories();
+  if(changedLevel){
+    document.getElementById('purchasesCategories')?.dispatchEvent(new Event('change'));
+  }
+}
+
+function buildPurchasesCategoryHierarchy(categoryIds, categoryLabels){
+  purchasesCategoryHierarchy = (categoryIds || []).map((id) => {
+    const raw = String((categoryLabels && categoryLabels[id]) || id);
+    const parts = raw.split('>').map(x => x.trim()).filter(Boolean);
+    const l1 = parts[0] || raw;
+    const l2 = parts[1] || parts[0] || raw;
+    const l3 = parts[2] || parts[1] || parts[0] || raw;
+    return { id, path: raw, l1, l2, l3 };
+  });
+  const l1All = [...new Set(purchasesCategoryHierarchy.map(c => c.l1))];
+  populatePurchasesSelect('purchasesCategoryL1', 'Κατηγορία 1', l1All, {});
+
+  if(!purchasesInitApplied && purchasesInitCategoryIds.size){
+    const initL1 = new Set();
+    const initL2 = new Set();
+    const initL3 = new Set();
+    purchasesCategoryHierarchy.forEach(c => {
+      if(purchasesInitCategoryIds.has(c.id)){
+        initL1.add(c.l1);
+        initL2.add(c.l2);
+        initL3.add(c.l3);
+      }
+    });
+    setSelectedByValues('purchasesCategoryL1', [...initL1]);
+    syncPurchasesCategoryHierarchy();
+    setSelectedByValues('purchasesCategoryL2', [...initL2]);
+    syncPurchasesCategoryHierarchy();
+    setSelectedByValues('purchasesCategoryL3', [...initL3]);
+    purchasesInitApplied = true;
+    purchasesInitCategoryIds = new Set();
+  }
+  syncPurchasesCategoryHierarchy();
+}
+
+async function loadPurchasesFilterOptions(){
+  const form=document.getElementById('purchasesFilters');
+  if(!form) return;
+  const fd=new FormData(form);
+  const p=new URLSearchParams();
+  p.set('from', window.bvToIsoDate ? window.bvToIsoDate(fd.get('from')) : fd.get('from'));
+  p.set('to', window.bvToIsoDate ? window.bvToIsoDate(fd.get('to')) : fd.get('to'));
+  purchasesFieldDefs.forEach((field)=>{
+    const sel=document.getElementById(field.selectId);
+    Array.from(sel?.selectedOptions || []).forEach(o=>p.append(field.key, o.value));
+  });
+  try{
+    const res=await fetch(`/v1/kpi/purchases/filter-options?${p.toString()}`);
+    if(!res.ok) return;
+    const options=await res.json();
+    ['branches','warehouses','brands'].forEach((key)=>{
+      const field = purchasesFieldDefs.find(f => f.key === key);
+      if(!field) return;
+      const vals=(options && options[key]) || [];
+      const labels=((options && options.labels && options.labels[key]) || {});
+      populatePurchasesSelect(field.selectId, field.label, vals, labels);
+    });
+    buildPurchasesCategoryHierarchy(
+      (options && options.categories) || [],
+      (options && options.labels && options.labels.categories) || {}
+    );
+    document.getElementById('purchasesGroups').innerHTML = '';
+  }catch(_err){}
+}
+
+function setError(msg){
+  const el=document.getElementById('purchasesError');
+  if(!msg){el.classList.add('d-none');el.textContent='';return;}
+  el.classList.remove('d-none'); el.textContent=msg;
+}
+
+function renderCards(summary){
+  document.getElementById('cardTotalPurchases').textContent=money(summary.net_value);
+  document.getElementById('cardCost').textContent=money(summary.cost_amount);
+  document.getElementById('cardQty').textContent=fmt0.format(Math.round(toNum(summary.qty)));
+  const marginValue=toNum(summary.net_value)-toNum(summary.cost_amount);
+  const marginPct=toNum(summary.net_value)>0 ? (marginValue/toNum(summary.net_value))*100 : 0;
+  document.getElementById('cardMarginProxy').textContent=pct(marginPct);
+}
+
+function renderTrend(rows){
+  const labels=rows.map(r=>r.month_start); const data=rows.map(r=>toNum(r.net_value));
+  if(purchaseTrendChart) purchaseTrendChart.destroy();
+  purchaseTrendChart=new Chart(document.getElementById('purchaseTrendChart'),{type:'line',data:{labels,datasets:[{label:'Purchases',data,borderColor:'#f59e0b',backgroundColor:'rgba(245,158,11,.14)',fill:true,tension:.25}]},options:{responsive:true,maintainAspectRatio:false}});
+}
+
+function renderSupplierDistribution(rows){
+  const top=(rows||[]).slice(0,8);
+  const labels=top.map(r=>r.supplier); const data=top.map(r=>toNum(r.net_value));
+  if(supplierDonutChart) supplierDonutChart.destroy();
+  supplierDonutChart=new Chart(document.getElementById('supplierDonutChart'),{type:'doughnut',data:{labels,datasets:[{data,backgroundColor:['#0d6efd','#22c55e','#f59e0b','#ef4444','#6366f1','#14b8a6','#84cc16','#f97316']}]},options:{responsive:true,maintainAspectRatio:false}});
+}
+
+function renderMarginBySupplier(rows){
+  const tbody=document.querySelector('#marginBySupplierTable tbody'); tbody.innerHTML='';
+  (rows||[]).slice(0,12).forEach(r=>{
+    const name = supplierName(r);
+    const code = r.supplier_code || r.supplier || '';
+    const badgeClass = marginBadgeClass(r.margin_pct);
+    const tr=document.createElement('tr');
+    tr.innerHTML=`
+      <td>
+        <div class="supplier-name-wrap">
+          <span class="supplier-name-main">${name}</span>
+          <span class="supplier-code">${code}</span>
+        </div>
+      </td>
+      <td>${money(r.net_value)}</td>
+      <td>${money(r.cost_amount)}</td>
+      <td>${money(r.margin_value)}</td>
+      <td><span class="margin-badge ${badgeClass}">${pct(r.margin_pct)}</span></td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+function renderCostChange(costChange){
+  const ul=document.getElementById('costChangeAlerts'); ul.innerHTML='';
+  const alerts=(costChange&&costChange.alerts)||[];
+  if(!alerts.length){
+    const li=document.createElement('li');
+    li.textContent='{{ tt(request, "no_supplier_cost_changes") }}';
+    ul.appendChild(li);
+    return;
+  }
+  alerts.forEach(a=>{
+    const li=document.createElement('li');
+    const up = toNum(a.delta_pct) >= 0;
+    const deltaClass = up ? 'up' : 'down';
+    const direction = up ? 'Αύξηση' : 'Μείωση';
+    const supplier = supplierName(a);
+    li.className = `cost-alert-card ${deltaClass}`;
+    li.innerHTML = `
+      <div class="cost-alert-head">
+        <span class="cost-alert-supplier">${supplier}</span>
+        <span class="cost-alert-delta ${deltaClass}">${up ? '▲' : '▼'} ${fmt2.format(Math.abs(toNum(a.delta_pct)))}%</span>
+      </div>
+      <div class="cost-alert-values">Προηγούμενο: ${money(a.previous_cost)} | Τρέχον: ${money(a.current_cost)}</div>
+      <div class="cost-alert-msg">${direction} κόστους για την επιλεγμένη περίοδο.</div>
+    `;
+    ul.appendChild(li);
+  });
+}
+
+function renderPurchasesSeasonality(rows){
+  const seasonLabel = {
+    winter: '{{ tt(request, "winter") }}',
+    spring: '{{ tt(request, "spring") }}',
+    summer: '{{ tt(request, "summer") }}',
+    autumn: '{{ tt(request, "autumn") }}',
+  };
+  const labels = (rows || []).map(r => seasonLabel[r.season] || r.season || '-');
+  const valueData = (rows || []).map(r => toNum(r.net_value));
+  const qtyData = (rows || []).map(r => toNum(r.qty));
+  if(purchasesSeasonalityChart) purchasesSeasonalityChart.destroy();
+  purchasesSeasonalityChart = new Chart(document.getElementById('purchasesSeasonalityChart'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: '{{ tt(request, "value") }}',
+          data: valueData,
+          backgroundColor: '#f59e0b',
+          borderRadius: 6,
+          yAxisID: 'y',
+        },
+        {
+          label: '{{ tt(request, "qty") }}',
+          data: qtyData,
+          backgroundColor: '#22c55e',
+          borderRadius: 6,
+          yAxisID: 'y1',
+        },
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { position: 'bottom' } },
+      scales: {
+        y: { beginAtZero: true, position: 'left' },
+        y1: { beginAtZero: true, position: 'right', grid: { drawOnChartArea: false } },
+      }
+    }
+  });
+}
+
+function renderPurchasesNewCodes(rows){
+  const tbody = document.querySelector('#purchasesNewCodesTbl tbody');
+  if(!tbody) return;
+  tbody.innerHTML = '';
+  if(!(rows || []).length){
+    tbody.innerHTML = `<tr><td colspan="4" class="text-center text-muted py-3">{{ tt(request, "no_data_available") }}</td></tr>`;
+    return;
+  }
+  (rows || []).forEach((r) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>
+        <div class="fw-semibold">${cleanItemLabel(r.item_name || r.item_code)}</div>
+        <div class="text-muted small">${r.item_code || '-'}</div>
+      </td>
+      <td>${r.first_seen ? (window.bvToDmyDate ? window.bvToDmyDate(r.first_seen) : r.first_seen) : '-'}</td>
+      <td class="text-end">${fmt0.format(Math.round(toNum(r.purchases_qty)))}</td>
+      <td class="text-end">${money(r.purchases_value)}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+async function reloadPurchases(e){
+  if(e) e.preventDefault();
+  setError(null);
+  try{
+    const p=params();
+    const res=await fetch(`/v1/kpi/purchases/decision-pack?${p.toString()}`);
+    if(!res.ok){
+      if(res.status===403) throw new Error('{{ tt(request, "purchases_plan_required") }}');
+      throw new Error('{{ tt(request, "failed_load_purchases_dashboard") }}');
+    }
+    const data=await res.json();
+    renderCards(data.summary||{});
+    renderTrend(data.purchase_trend||[]);
+    renderSupplierDistribution(data.supplier_distribution||[]);
+    renderMarginBySupplier(data.margin_by_supplier||[]);
+    renderCostChange(data.cost_change_detection||{alerts:[]});
+    renderPurchasesSeasonality(data.seasonality||[]);
+    renderPurchasesNewCodes(data.new_codes||[]);
+    document.getElementById('exportPurchasesCsv').href = `/v1/kpi/purchases/by-supplier/export.csv?${p.toString()}`;
+  }catch(err){setError(err.message||'{{ tt(request, "purchases_dashboard_load_failed") }}');}
+}
+
+document.getElementById('purchasesFilters').addEventListener('submit', reloadPurchases);
+window.addEventListener('load', async () => {
+  purchasesUiFieldDefs.forEach((field)=>initPurchasesMulti(field.selectId, field.label));
+  ['purchasesCategoryL1','purchasesCategoryL2','purchasesCategoryL3'].forEach((id)=>{
+    const el = document.getElementById(id);
+    if(el) el.addEventListener('change', ()=>syncPurchasesCategoryHierarchy(id));
+  });
+  await loadPurchasesFilterOptions();
+  await reloadPurchases();
+});
+document.querySelectorAll('#purchasesFilters input[name="from"],#purchasesFilters input[name="to"]').forEach(el=>{
+  el.addEventListener('change', loadPurchasesFilterOptions);
+  el.addEventListener('blur', loadPurchasesFilterOptions);
+});
+purchasesFieldDefs.forEach((field)=>{
+  const select=document.getElementById(field.selectId);
+  if(select){
+    select.addEventListener('change', loadPurchasesFilterOptions);
+  }
+});
+</script>
+{% endblock %}

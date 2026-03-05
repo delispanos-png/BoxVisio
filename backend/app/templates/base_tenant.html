@@ -1,0 +1,1194 @@
+<!doctype html>
+<html lang="{{ request.cookies.get('lang', 'el') }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ tt(request, title) if title else tt(request, 'app_tenant_title') }}</title>
+  <link rel="icon" href="/static/azea/images/favicon.ico" type="image/x-icon">
+  <link href="/static/azea/plugins/bootstrap/css/bootstrap.min.css" rel="stylesheet">
+  <link href="/static/azea/plugins/iconfonts/icons.css" rel="stylesheet">
+  <link href="/static/azea/css/main.css" rel="stylesheet">
+  <link href="/static/azea/css/themes/all-themes.css" rel="stylesheet">
+  <link href="/static/css/boxvisio-ui.css?v=20260305a" rel="stylesheet">
+  <style>
+    :root {
+      --shell-bg: #f3f5fb;
+      --panel-bg: #ffffff;
+      --panel-border: #e9edf5;
+      --menu-text: #4b5563;
+      --menu-active-bg: #f1efff;
+      --menu-active-text: #6f42c1;
+      --topbar-bg: #ffffff;
+      --topbar-border: #eceff5;
+    }
+    body {
+      background: var(--shell-bg);
+      color: #111827;
+    }
+    .sidebar .admin-image .brand-logo {
+      width: 198px;
+      max-width: 198px;
+      border-radius: 0 !important;
+      float: none !important;
+      display: block;
+      margin: 4px auto;
+    }
+    .azea-shell .left-sidebar,
+    .azea-shell #leftsidebar.sidebar,
+    .azea-shell .main-sidebar {
+      background: var(--panel-bg) !important;
+      border-right: 1px solid var(--panel-border);
+    }
+    .azea-shell .main-sidebar .list .nav-item .nav-link {
+      border-radius: 10px;
+      margin: 2px 10px;
+      color: var(--menu-text) !important;
+      font-weight: 600;
+    }
+    .azea-shell .main-sidebar .list .nav-item .nav-link .sidemenu-label,
+    .azea-shell .main-sidebar .list .nav-item .nav-link .sidemenu-icon {
+      color: inherit !important;
+    }
+    .azea-shell .main-sidebar .list .nav-item.active .nav-link,
+    .azea-shell .main-sidebar .list .nav-item .nav-link:hover {
+      background: var(--menu-active-bg) !important;
+      color: var(--menu-active-text) !important;
+    }
+    .menu-head {
+      padding: 14px 18px 6px;
+      font-size: 11px;
+      letter-spacing: .8px;
+      color: #98a1b2;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+    .content.home {
+      padding-top: 0;
+      background: var(--shell-bg);
+      min-height: 100vh;
+    }
+    .topbar {
+      background: var(--topbar-bg);
+      border: 1px solid var(--topbar-border);
+      border-radius: 0;
+      min-height: 70px;
+    }
+    .topbar .search-wrap {
+      max-width: 420px;
+      width: 100%;
+      position: relative;
+    }
+    .topbar .search-wrap i {
+      position: absolute;
+      left: 12px;
+      top: 10px;
+      color: #94a3b8;
+      font-size: 16px;
+    }
+    .topbar .search-wrap input {
+      width: 100%;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      height: 40px;
+      padding: 0 12px 0 36px;
+      background: #f8fafc;
+    }
+    .topbar .icon-btn {
+      width: 38px;
+      height: 38px;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: #475569;
+      background: #fff;
+    }
+    .dashboard-shell {
+      padding: 22px;
+    }
+    .tenant-shell #leftsidebar.sidebar,
+    .tenant-shell .left-sidebar,
+    .tenant-shell .content.home {
+      transition: all .24s ease;
+    }
+    .tenant-shell.admin-sidebar-collapsed #leftsidebar.sidebar,
+    .tenant-shell.admin-sidebar-collapsed .left-sidebar {
+      transform: none !important;
+      width: 74px !important;
+      min-width: 74px !important;
+      max-width: 74px !important;
+      overflow-x: hidden;
+    }
+    .tenant-shell.admin-sidebar-collapsed .content.home {
+      margin-left: 74px !important;
+    }
+    .tenant-shell.admin-sidebar-collapsed .sidebar .admin-image {
+      padding: 8px 6px;
+      min-height: 66px;
+    }
+    .tenant-mini-expand {
+      display: none;
+      width: 42px;
+      height: 42px;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      background: #ffffff;
+      color: #475569;
+      align-items: center;
+      justify-content: center;
+      margin: 6px auto 8px;
+      cursor: pointer;
+    }
+    .tenant-shell.admin-sidebar-collapsed .tenant-mini-expand {
+      display: inline-flex;
+    }
+    body[data-theme='dark'] .tenant-mini-expand {
+      background: #0f172a;
+      border-color: #334155;
+      color: #cbd5e1;
+    }
+    .tenant-shell.admin-sidebar-collapsed .sidebar .admin-image .brand-logo {
+      width: 42px !important;
+      max-width: 42px !important;
+      height: 42px;
+      object-fit: cover;
+      object-position: left center;
+      border-radius: 10px !important;
+      display: block;
+      margin: 0 auto;
+    }
+    .tenant-shell.admin-sidebar-collapsed .menu-head,
+    .tenant-shell.admin-sidebar-collapsed .main-sidebar .list .nav-item .nav-link .sidemenu-label {
+      display: none !important;
+    }
+    .tenant-shell.admin-sidebar-collapsed .main-sidebar .list .nav-item .nav-link {
+      margin: 4px 8px !important;
+      min-height: 42px;
+      justify-content: center !important;
+      align-items: center !important;
+      padding: 10px 8px !important;
+    }
+    .tenant-shell.admin-sidebar-collapsed .main-sidebar .list .nav-item .nav-link .sidemenu-icon {
+      margin: 0 !important;
+      font-size: 19px;
+      line-height: 1;
+    }
+    body.bv-fullscreen-mode #leftsidebar.sidebar,
+    body.bv-fullscreen-mode .left-sidebar,
+    body.bv-fullscreen-mode .main-sidebar {
+      display: none !important;
+      visibility: hidden !important;
+      width: 0 !important;
+      min-width: 0 !important;
+      max-width: 0 !important;
+    }
+    body.bv-fullscreen-mode .sidebar-overlay,
+    body.bv-fullscreen-mode .overlay {
+      display: none !important;
+    }
+    body.bv-fullscreen-mode section.content.home {
+      margin-left: 0 !important;
+      width: 100% !important;
+      left: 0 !important;
+    }
+    body.bv-fullscreen-mode .dashboard-shell {
+      padding-left: 18px;
+      padding-right: 18px;
+    }
+    .filter-card,
+    .content-card {
+      border: 1px solid var(--panel-border);
+      border-radius: 12px;
+      background: var(--panel-bg);
+    }
+    .filter-card .card-header,
+    .content-card .card-header {
+      background: transparent;
+      border-bottom: 1px solid var(--panel-border);
+    }
+    .powered-by-cloudon {
+      position: fixed;
+      left: 16px;
+      bottom: 12px;
+      z-index: 99999;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .6px;
+      color: #4b5563;
+      background: rgba(255, 255, 255, 0.92);
+      padding: 4px 8px;
+      border-radius: 999px;
+      border: 1px solid #e5e7eb;
+    }
+    .kpi-card-modern .delta {
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: .2px;
+    }
+    .bv-kpi-box .kpi-icon,
+    .bv-stat-strip .kpi-icon {
+      cursor: pointer;
+    }
+    .bv-kpi-help-title {
+      font-weight: 800;
+      font-size: 18px;
+      margin-bottom: 8px;
+      color: #0f172a;
+    }
+    .bv-kpi-help-block {
+      border: 1px solid #e5e7eb;
+      border-radius: 10px;
+      background: #f8fafc;
+      padding: 10px 12px;
+      margin-bottom: 10px;
+    }
+    .bv-kpi-help-block h6 {
+      margin: 0 0 6px;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: .5px;
+      color: #64748b;
+    }
+    .bv-kpi-help-block p {
+      margin: 0;
+      color: #0f172a;
+      font-size: 14px;
+      font-weight: 600;
+    }
+    .insight-chip {
+      border-radius: 999px;
+      background: #eef4ff;
+      color: #0b4cb3;
+      padding: .35rem .65rem;
+      font-size: 12px;
+      display: inline-block;
+      margin-right: .4rem;
+      margin-bottom: .4rem;
+    }
+    .insight-row {
+      border: 1px solid #e6ebf2;
+      border-left-width: 4px;
+      border-radius: 10px;
+      padding: .65rem .8rem;
+      margin-bottom: .55rem;
+      background: #fff;
+    }
+    .insight-low { border-left-color: #0ea5e9; }
+    .insight-medium { border-left-color: #f59e0b; }
+    .insight-high { border-left-color: #ef4444; }
+    .insight-critical { border-left-color: #991b1b; }
+    .insight-head {
+      display: flex;
+      justify-content: space-between;
+      gap: .7rem;
+      font-size: 12px;
+      color: #64748b;
+      margin-bottom: .25rem;
+    }
+    .insight-msg {
+      margin: 0;
+      font-size: 14px;
+      color: #0f172a;
+    }
+    #globalDateModal {
+      position: fixed !important;
+      inset: 0 !important;
+      z-index: 500000 !important;
+      display: none !important;
+      align-items: center;
+      justify-content: center;
+      background: rgba(15, 23, 42, 0.45);
+      pointer-events: auto !important;
+      padding: 16px;
+    }
+    #globalDateModal.show {
+      display: flex !important;
+    }
+    #globalDateModal .modal-dialog {
+      width: 100%;
+      max-width: 560px;
+      margin: 0 !important;
+      pointer-events: auto !important;
+    }
+    #globalDateModal .modal-content {
+      border-radius: 14px;
+      box-shadow: 0 24px 48px rgba(15, 23, 42, 0.28);
+      pointer-events: auto !important;
+      opacity: 1 !important;
+      filter: none !important;
+    }
+    #globalDateModal .modal-content * {
+      pointer-events: auto !important;
+      opacity: 1 !important;
+    }
+    body.bv-global-date-open .overlay,
+    body.bv-global-date-open .sidebar-overlay {
+      display: none !important;
+      pointer-events: none !important;
+    }
+    /* Fallback to avoid unreadable KPI cards if cached CSS misses these classes */
+    .bv-kpi-box.bv-kpi-red {
+      background: linear-gradient(130deg, #ef4444, #f87171) !important;
+      color: #ffffff !important;
+    }
+    .bv-kpi-box.bv-kpi-cyan {
+      background: linear-gradient(130deg, #0891b2, #22d3ee) !important;
+      color: #ffffff !important;
+    }
+    body[data-theme='dark'] {
+      --shell-bg: #0b1220;
+      --panel-bg: #111827;
+      --panel-border: #334155;
+      --menu-text: #e2e8f0;
+      --menu-active-bg: #1f2937;
+      --menu-active-text: #ffffff;
+      --topbar-bg: #0f172a;
+      --topbar-border: #334155;
+      background: #0b1220 !important;
+      color: #e5e7eb !important;
+    }
+    body[data-theme='dark'].azea-shell .left-sidebar,
+    body[data-theme='dark'].azea-shell #leftsidebar.sidebar,
+    body[data-theme='dark'].azea-shell .main-sidebar {
+      background: #0f172a !important;
+      border-color: #334155 !important;
+    }
+    body[data-theme='dark'].azea-shell .menu-head {
+      color: #94a3b8 !important;
+    }
+    body[data-theme='dark'].azea-shell .main-sidebar .list .nav-item .nav-link,
+    body[data-theme='dark'].azea-shell .main-sidebar .list .nav-item .nav-link .sidemenu-label,
+    body[data-theme='dark'].azea-shell .main-sidebar .list .nav-item .nav-link .sidemenu-icon {
+      color: #e2e8f0 !important;
+    }
+    body[data-theme='dark'].azea-shell .main-sidebar .list .nav-item.active .nav-link,
+    body[data-theme='dark'].azea-shell .main-sidebar .list .nav-item .nav-link:hover {
+      background: #1e293b !important;
+      color: #ffffff !important;
+    }
+    body[data-theme='dark'] .topbar .search-wrap input {
+      background: #0b1220;
+      border-color: #334155;
+      color: #e5e7eb;
+    }
+    body[data-theme='dark'] .topbar .icon-btn,
+    body[data-theme='dark'] .btn-outline-secondary,
+    body[data-theme='dark'] .btn-outline-danger {
+      border-color: #334155 !important;
+      color: #cbd5e1 !important;
+      background: #111827 !important;
+    }
+    body[data-theme='dark'] .table,
+    body[data-theme='dark'] .table th,
+    body[data-theme='dark'] .table td,
+    body[data-theme='dark'] .text-muted,
+    body[data-theme='dark'] .insight-msg,
+    body[data-theme='dark'] .insight-head {
+      color: #cbd5e1 !important;
+    }
+    body[data-theme='dark'] .form-control,
+    body[data-theme='dark'] .form-select,
+    body[data-theme='dark'] textarea {
+      background: #0f172a !important;
+      color: #e5e7eb !important;
+      border-color: #334155 !important;
+    }
+    body[data-theme='dark'] .powered-by-cloudon {
+      background: rgba(15, 23, 42, 0.92);
+      border-color: #334155;
+      color: #cbd5e1;
+    }
+    body[data-theme='dark'] .bv-kpi-help-title {
+      color: #e5e7eb;
+    }
+    body[data-theme='dark'] .bv-kpi-help-block {
+      background: #0f172a;
+      border-color: #334155;
+    }
+    body[data-theme='dark'] .bv-kpi-help-block h6 {
+      color: #94a3b8;
+    }
+    body[data-theme='dark'] .bv-kpi-help-block p {
+      color: #e5e7eb;
+    }
+  </style>
+</head>
+<body class="azea-shell tenant-shell" data-theme="{{ request.cookies.get('theme', 'light') }}">
+  <div class="overlay"></div>
+  <div class="sidebar-overlay" data-toggle="sidebar"></div>
+  <section>
+    <aside id="leftsidebar" class="sidebar left-sidebar">
+      <div class="admin-image"><img class="brand-logo" src="/static/azea/images/boxvisio-logo.svg" alt="BoxVisio logo"></div>
+      <div class="text-center">
+        <button id="sidebarExpandMiniBtn" class="tenant-mini-expand" type="button" title="Άνοιγμα μενού">
+          <i class="fe fe-menu"></i>
+        </button>
+      </div>
+      <div class="menu main-sidebar">
+        {% set _inventory_ok = inventory_enabled if inventory_enabled is defined else false %}
+        {% set _cashflow_ok = cashflow_enabled if cashflow_enabled is defined else false %}
+        <ul class="list">
+          <li class="menu-head">{{ tt(request, 'main') }}</li>
+          <li class="nav-item {% if active_page == 'dashboard' %}active{% endif %}"><a class="nav-link" href="/tenant/dashboard"><i class="fe fe-home sidemenu-icon"></i><span class="sidemenu-label">{{ tt(request, 'dashboard') }}</span></a></li>
+          <li class="menu-head">{{ tt(request, 'analytics') }}</li>
+          <li class="nav-item {% if active_page == 'sales' %}active{% endif %}"><a class="nav-link" href="/tenant/sales"><i class="fe fe-bar-chart-2 sidemenu-icon"></i><span class="sidemenu-label">{{ tt(request, 'sales') }}</span></a></li>
+          <li class="nav-item {% if active_page == 'purchases' %}active{% endif %}"><a class="nav-link" href="/tenant/purchases"><i class="fe fe-shopping-cart sidemenu-icon"></i><span class="sidemenu-label">{{ tt(request, 'purchases') }}</span></a></li>
+          <li class="nav-item {% if active_page == 'inventory' %}active{% endif %} {% if not _inventory_ok %}disabled opacity-75{% endif %}">
+            <a class="nav-link" href="/tenant/inventory"><i class="fe fe-layers sidemenu-icon"></i><span class="sidemenu-label">{{ tt(request, 'inventory') }}</span></a>
+          </li>
+          <li class="nav-item {% if active_page == 'supplier_targets' %}active{% endif %}">
+            <a class="nav-link" href="/tenant/supplier-targets"><i class="fe fe-target sidemenu-icon"></i><span class="sidemenu-label">{{ tt(request, 'supplier_targets') }}</span></a>
+          </li>
+          <li class="nav-item {% if active_page == 'price_control' %}active{% endif %}">
+            <a class="nav-link" href="/tenant/price-control"><i class="fe fe-sliders sidemenu-icon"></i><span class="sidemenu-label">{{ tt(request, 'price_control') }}</span></a>
+          </li>
+          <li class="nav-item {% if active_page == 'items' %}active{% endif %}">
+            <a class="nav-link" href="/tenant/items"><i class="fe fe-box sidemenu-icon"></i><span class="sidemenu-label">{{ tt(request, 'items_warehouse') }}</span></a>
+          </li>
+          <li class="nav-item {% if active_page == 'cashflow' %}active{% endif %} {% if not _cashflow_ok %}disabled opacity-75{% endif %}">
+            <a class="nav-link" href="/tenant/cashflow"><i class="fe fe-dollar-sign sidemenu-icon"></i><span class="sidemenu-label">{{ tt(request, 'cashflow') }}</span></a>
+          </li>
+          <li class="nav-item {% if active_page == 'compare' %}active{% endif %}"><a class="nav-link" href="/tenant/compare"><i class="fe fe-repeat sidemenu-icon"></i><span class="sidemenu-label">{{ tt(request, 'comparison') }}</span></a></li>
+          <li class="menu-head">{{ tt(request, 'operations') }}</li>
+          <li class="nav-item {% if active_page == 'insights' %}active{% endif %}"><a class="nav-link" href="/tenant/insights"><i class="fe fe-alert-circle sidemenu-icon"></i><span class="sidemenu-label">{{ tt(request, 'insights') }}</span></a></li>
+        </ul>
+      </div>
+    </aside>
+  </section>
+
+  <section class="content home">
+    <div class="container-fluid p-0">
+      <div class="topbar d-flex align-items-center justify-content-between px-3">
+        <div class="d-flex align-items-center gap-3 flex-grow-1">
+          <button class="icon-btn" id="sidebarToggleBtn" type="button" title="{{ tt(request, 'toggle_filters') }}">
+            <i class="fe fe-menu"></i>
+          </button>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+          {% set _lang = request.cookies.get('lang', 'el') %}
+          {% set _theme = request.cookies.get('theme', 'light') %}
+          <button class="icon-btn" id="themeToggleBtn" data-theme-toggle title="{{ tt(request, 'theme_toggle') }}" data-theme="{{ _theme }}"><i class="fe fe-moon"></i></button>
+          <button class="icon-btn" id="fullscreenToggleBtn" type="button" title="{{ tt(request, 'full_screen') }}"><i class="fe fe-maximize"></i></button>
+          <a class="btn btn-outline-secondary btn-sm" href="/set-language/{{ 'en' if _lang != 'en' else 'el' }}?next={{ request.url.path }}">{{ tt(request, 'lang_en') if _lang == 'en' else tt(request, 'lang_el') }}</a>
+          <button class="btn btn-primary btn-sm" id="globalDateRangeBtn" type="button"><i class="fe fe-calendar"></i> {{ tt(request, 'search_by_date') }}</button>
+          <div class="bv-profile-menu">
+            <button class="bv-profile-toggle" type="button" data-profile-toggle>
+              <span class="bv-avatar-initial">BV</span>
+              <i class="fe fe-chevron-down"></i>
+            </button>
+            <div class="bv-profile-dropdown" data-profile-dropdown hidden>
+              <div class="bv-profile-head">
+                <div class="bv-profile-name">BoxVisio User</div>
+                <div class="bv-profile-role">Tenant Portal</div>
+              </div>
+              <a class="bv-profile-item" href="/tenant/profile"><i class="fe fe-user"></i> Profile</a>
+              <a class="bv-profile-item" href="/tenant/settings"><i class="fe fe-settings"></i> Settings</a>
+              <a class="bv-profile-item" href="/tenant/messages"><i class="fe fe-message-circle"></i> Messages</a>
+              <form method="post" action="/logout" class="mb-0">
+                <button class="bv-profile-item bv-signout" type="submit"><i class="fe fe-log-out"></i> {{ tt(request, 'logout') }}</button>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="dashboard-shell">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <h3 class="mb-0">{{ tt(request, title) if title else tt(request, 'tenant_portal_title') }}</h3>
+        </div>
+
+        {% if active_page in ['dashboard', 'sales', 'purchases', 'inventory', 'supplier_targets', 'price_control', 'items', 'cashflow', 'compare', 'insights'] %}
+        <div class="card filter-card mb-3">
+          <div class="card-header d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">{{ tt(request, 'filters') }}</h5>
+            <button id="toggleFiltersBtn" class="btn btn-sm btn-outline-secondary" data-filter-toggle data-target="pageFiltersCollapse" type="button" aria-expanded="false" aria-controls="pageFiltersCollapse">
+              {{ tt(request, 'toggle_filters') }}
+            </button>
+          </div>
+          <div id="pageFiltersCollapse" class="bv-filters-panel" hidden>
+            <div class="card-body">
+              {% block filters %}{% endblock %}
+            </div>
+          </div>
+        </div>
+        {% endif %}
+
+        <div class="row g-3">
+          <div class="col-12">
+            {% block content %}{% endblock %}
+          </div>
+        </div>
+      </div>
+
+      <div class="modal fade" id="globalDateModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title">{{ tt(request, 'search_by_date') }}</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+              <div class="mb-3">
+                <label class="form-label mb-1">Γρήγορη επιλογή περιόδου</label>
+                <select class="form-select" id="globalDatePreset">
+                  <option value="">Χειροκίνητη επιλογή</option>
+                  <option value="today">Σήμερα</option>
+                  <option value="yesterday">Χθες</option>
+                  <option value="current_week">Τρέχουσα εβδομάδα</option>
+                  <option value="previous_week">Προηγ/νη εβδομάδα</option>
+                  <option value="current_month">Τρέχων μήνας</option>
+                  <option value="previous_month">Προηγ/νος μήνας</option>
+                  <option value="current_year">Τρέχον έτος</option>
+                  <option value="previous_year">Προηγούμενο έτος</option>
+                  <option value="two_years_ago">Πριν 2 έτη</option>
+                </select>
+              </div>
+              <div class="row g-2">
+                <div class="col-12 col-md-6">
+                  <label class="form-label mb-1">{{ tt(request, 'from') }}</label>
+                  <input type="text" class="form-control" id="globalDateFrom" data-date-format="dmy" placeholder="ηη/μμ/εεεε" inputmode="numeric">
+                </div>
+                <div class="col-12 col-md-6">
+                  <label class="form-label mb-1">{{ tt(request, 'to') }}</label>
+                  <input type="text" class="form-control" id="globalDateTo" data-date-format="dmy" placeholder="ηη/μμ/εεεε" inputmode="numeric">
+                </div>
+              </div>
+              <div class="small text-muted mt-2">Η περίοδος θα εφαρμοστεί στα φίλτρα της τρέχουσας σελίδας. Μετά μπορείς να αλλάξεις μεμονωμένα όποιο πεδίο θέλεις.</div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Κλείσιμο</button>
+              <button type="button" class="btn btn-primary" id="globalDateApplyBtn">{{ tt(request, 'apply') }}</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal fade" id="kpiHelpModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title">KPI</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+              <div id="kpiHelpTitle" class="bv-kpi-help-title">KPI</div>
+              <div class="bv-kpi-help-block">
+                <h6 id="kpiHelpWhatLabel">Τι δείχνει</h6>
+                <p id="kpiHelpWhat">-</p>
+              </div>
+              <div class="bv-kpi-help-block">
+                <h6 id="kpiHelpFormulaLabel">Υπολογισμός</h6>
+                <p id="kpiHelpFormula">-</p>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-primary" data-bs-dismiss="modal">OK</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <script src="/static/azea/bundles/libscripts.bundle.js"></script>
+  <script src="/static/azea/bundles/vendorscripts.bundle.js"></script>
+  <script src="/static/azea/bundles/mainscripts.bundle.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="/static/azea/js/custom.js"></script>
+  <script src="/static/azea/js/boxvisio-ui.js"></script>
+  <script>
+    function getCookie(name) {
+      const parts = document.cookie.split(';').map(v => v.trim());
+      for (const p of parts) {
+        if (p.startsWith(name + '=')) return decodeURIComponent(p.substring(name.length + 1));
+      }
+      return '';
+    }
+    const csrfToken = getCookie('csrf_token');
+    if (csrfToken) {
+      document.querySelectorAll('form').forEach((form) => {
+        if (!form.querySelector('input[name="csrf_token"]')) {
+          const input = document.createElement('input');
+          input.type = 'hidden';
+          input.name = 'csrf_token';
+          input.value = csrfToken;
+          form.appendChild(input);
+        }
+      });
+      const originalFetch = window.fetch;
+      window.fetch = function(url, options) {
+        const opts = options || {};
+        opts.headers = opts.headers || {};
+        if (!opts.headers['X-CSRF-Token']) {
+          opts.headers['X-CSRF-Token'] = csrfToken;
+        }
+        return originalFetch(url, opts);
+      };
+    }
+
+    function formatDateToDMY(raw) {
+      if (!raw) return raw;
+      const full = String(raw).trim().match(/^(\d{4})-(\d{2})-(\d{2})(?:[T\s](\d{2}):(\d{2})(?::(\d{2}))?(?:\.\d{1,6})?)?(?:Z|[+-]\d{2}:\d{2})?$/);
+      if (!full) return raw;
+      const [, y, m, d, hh, mm, ss] = full;
+      const datePart = `${d}/${m}/${y}`;
+      if (hh && mm) {
+        return `${datePart} ${hh}:${mm}${ss ? `:${ss}` : ''}`;
+      }
+      return datePart;
+    }
+
+    function normalizeKpiKey(raw) {
+      if (!raw) return '';
+      return String(raw)
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .replace(/[^a-z0-9%]+/g, ' ')
+        .trim();
+    }
+
+    function kpiDictionary(lang) {
+      const isEl = lang !== 'en';
+      const t = (el, en) => (isEl ? el : en);
+      return [
+        { keys: ['τζιρος ημερας', 'day turnover', 'daily turnover'], title: t('Τζίρος Ημέρας', 'Daily Turnover'), what: t('Συνολική καθαρή αξία πωλήσεων για τη σημερινή ημέρα.', 'Total net sales value for today.'), formula: t('Άθροισμα καθαρής αξίας πωλήσεων (net_amount) για την ημέρα.', 'Sum of sales net amount for the day.') },
+        { keys: ['τζιρος εβδομαδας', 'week turnover', 'weekly turnover'], title: t('Τζίρος Εβδομάδας', 'Weekly Turnover'), what: t('Συνολική καθαρή αξία πωλήσεων από αρχή εβδομάδας μέχρι σήμερα.', 'Total net sales value from week start until today.'), formula: t('Άθροισμα net_amount στο διάστημα εβδομάδας.', 'Sum of net_amount for the selected week range.') },
+        { keys: ['τζιρος μηνα', 'month turnover', 'monthly turnover'], title: t('Τζίρος Μήνα', 'Monthly Turnover'), what: t('Συνολική καθαρή αξία πωλήσεων του μήνα.', 'Total net sales value for the month.'), formula: t('Άθροισμα net_amount στο μηνιαίο διάστημα.', 'Sum of net_amount in monthly range.') },
+        { keys: ['total turnover', 'συνολικος τζιρος', 'πωλησεις περιοδου'], title: t('Πωλήσεις Περιόδου', 'Period Sales'), what: t('Συνολικός τζίρος για το επιλεγμένο διάστημα.', 'Total turnover for selected period.'), formula: t('Άθροισμα net_amount για όλα τα παραστατικά πωλήσεων.', 'Sum of sales net_amount across all rows.') },
+        { keys: ['gross profit', 'μικτο κερδος'], title: t('Μικτό Κέρδος', 'Gross Profit'), what: t('Το μικτό αποτέλεσμα πωλήσεων (κέρδος πριν λειτουργικά έξοδα).', 'Gross sales result before operating expenses.'), formula: t('Μικτό Κέρδος = Πωλήσεις - Κόστος.', 'Gross Profit = Sales - Cost.') },
+        { keys: ['margin', 'margin %', 'περιθωριο', 'μεσο περιθωριο'], title: t('Περιθώριο %', 'Margin %'), what: t('Ποσοστό κερδοφορίας σε σχέση με τις πωλήσεις.', 'Profitability percentage over sales.'), formula: t('Περιθώριο % = (Πωλήσεις - Κόστος) / Πωλήσεις * 100.', 'Margin % = (Sales - Cost) / Sales * 100.') },
+        { keys: ['quantity sold', 'πωληθεισα ποσοτητα', 'ποσοτητα μηνα', 'units sold'], title: t('Πωληθείσα Ποσότητα', 'Sold Quantity'), what: t('Σύνολο τεμαχίων που πουλήθηκαν στο διάστημα.', 'Total sold units in selected period.'), formula: t('Άθροισμα qty από γραμμές πωλήσεων.', 'Sum of sales qty.') },
+        { keys: ['αγορες περιοδου', 'total purchases', 'purchase cost', 'purchased qty'], title: t('Αγορές Περιόδου', 'Period Purchases'), what: t('Συνολικό κόστος αγορών προμηθειών.', 'Total procurement value/cost in period.'), formula: t('Άθροισμα net/cost amount από fact_purchases.', 'Sum of purchases net/cost amount from fact_purchases.') },
+        { keys: ['ρυθμος αγορων πωλησεων', 'purchases to sales'], title: t('Ρυθμός Αγορών / Πωλήσεων', 'Purchases to Sales Ratio'), what: t('Δείχνει τι ποσοστό των πωλήσεων καλύπτει το κόστος αγορών.', 'Shows what share of sales is represented by purchase costs.'), formula: t('Λόγος = Αγορές Περιόδου / Πωλήσεις Περιόδου * 100.', 'Ratio = Period Purchases / Period Sales * 100.') },
+        { keys: ['ενεργα υποκαταστηματα', 'active branches'], title: t('Ενεργά Υποκαταστήματα', 'Active Branches'), what: t('Πλήθος υποκαταστημάτων με θετικό τζίρο στο διάστημα.', 'Count of branches with positive turnover in period.'), formula: t('Count(branch) όπου net_amount > 0.', 'Count(branch) where net_amount > 0.') },
+        { keys: ['συγκεντρωση κορυφαιου καταστηματος', 'top branch concentration', 'top branch share'], title: t('Συγκέντρωση Κορυφαίου Καταστήματος', 'Top Branch Concentration'), what: t('Το ποσοστό τζίρου που παράγει το #1 υποκατάστημα.', 'Turnover share generated by the #1 branch.'), formula: t('Top Branch Share = Τζίρος κορυφαίου / Συνολικός τζίρος * 100.', 'Top Branch Share = Top branch turnover / Total turnover * 100.') },
+        { keys: ['μεσος ημερησιος τζιρος', 'avg daily turnover'], title: t('Μέσος Ημερήσιος Τζίρος', 'Avg Daily Turnover'), what: t('Μέσος ημερήσιος τζίρος στο επιλεγμένο διάστημα.', 'Average daily turnover in selected period.'), formula: t('Μέσος = Συνολικός τζίρος / Πλήθος ημερών.', 'Average = Total turnover / Number of days.') },
+        { keys: ['μικτο κερδος ετους', 'gross profit year'], title: t('Μικτό Κέρδος Έτους', 'Year Gross Profit'), what: t('Μικτό κέρδος από αρχή έτους μέχρι σήμερα.', 'Gross profit from year start to current date.'), formula: t('Πωλήσεις YTD - Κόστος YTD.', 'Sales YTD - Cost YTD.') },
+        { keys: ['τζιρος 2025', 'τζιρος 2026', 'ytd vs full', 'full year', 'ytd'], title: t('Σύγκριση Ετών', 'Year Comparison'), what: t('Σύγκριση τζίρου τρέχοντος έτους με προηγούμενο (YTD ή full year).', 'Current year turnover compared with previous year (YTD or full year).'), formula: t('Δ% = (Τρέχον - Προηγούμενο) / Προηγούμενο * 100.', 'Delta% = (Current - Previous) / Previous * 100.') },
+        { keys: ['stock value', 'αξια αποθεματος'], title: t('Αξία Αποθέματος', 'Stock Value'), what: t('Τρέχουσα αποτίμηση αποθέματος σε αξία.', 'Current stock valuation amount.'), formula: t('Άθροισμα stock_value σε όλα τα είδη.', 'Sum of stock_value across all items.') },
+        { keys: ['qty on hand', 'ποσοτητα αποθεματος'], title: t('Ποσότητα Αποθέματος', 'Qty On Hand'), what: t('Συνολικά διαθέσιμα τεμάχια στην αποθήκη.', 'Total available units in stock.'), formula: t('Άθροισμα stock_qty.', 'Sum of stock_qty.') },
+        { keys: ['cost amount', 'κοστος αποθεματος'], title: t('Κόστος Αποθέματος', 'Inventory Cost'), what: t('Συνολικό λογιστικό κόστος του αποθέματος.', 'Total inventory book cost.'), formula: t('Άθροισμα cost_amount αποθέματος.', 'Sum of inventory cost_amount.') },
+        { keys: ['reserved qty', 'δεσμευμενη ποσοτητα'], title: t('Δεσμευμένη Ποσότητα', 'Reserved Quantity'), what: t('Ποσότητα που έχει δεσμευτεί και δεν είναι άμεσα διαθέσιμη.', 'Quantity reserved and not immediately available.'), formula: t('Άθροισμα reserved_qty.', 'Sum of reserved_qty.') },
+        { keys: ['cash in', 'εισροες'], title: t('Εισροές', 'Cash In'), what: t('Συνολικά χρηματικά ποσά που εισέρχονται.', 'Total incoming cash amount.'), formula: t('Άθροισμα ποσών τύπου inflow.', 'Sum of amounts with type inflow.') },
+        { keys: ['cash out', 'εκροες'], title: t('Εκροές', 'Cash Out'), what: t('Συνολικά χρηματικά ποσά που εξέρχονται.', 'Total outgoing cash amount.'), formula: t('Άθροισμα ποσών τύπου outflow.', 'Sum of amounts with type outflow.') },
+        { keys: ['net cash', 'καθαρη ροη'], title: t('Καθαρή Ροή', 'Net Cash'), what: t('Καθαρό αποτέλεσμα ροής στο διάστημα.', 'Net cash result for selected period.'), formula: t('Καθαρή Ροή = Εισροές - Εκροές.', 'Net Cash = Cash In - Cash Out.') },
+        { keys: ['entries', 'εγγραφες'], title: t('Εγγραφές', 'Entries'), what: t('Πλήθος εγγραφών ταμειακών κινήσεων.', 'Number of cashflow entries.'), formula: t('Count εγγραφών cashflow.', 'Count of cashflow rows.') }
+      ];
+    }
+
+    function resolveKpiHelp(titleRaw, lang) {
+      const key = normalizeKpiKey(titleRaw);
+      if (!key) {
+        return {
+          title: titleRaw || (lang === 'en' ? 'KPI' : 'KPI'),
+          what: lang === 'en'
+            ? 'This metric summarizes the selected business value for the active filters.'
+            : 'Το KPI συνοψίζει την επιχειρηματική τιμή για τα ενεργά φίλτρα.',
+          formula: lang === 'en'
+            ? 'Calculated from aggregated data based on selected date range and filters.'
+            : 'Υπολογίζεται από τα συγκεντρωτικά δεδομένα βάσει ημερομηνιακού διαστήματος και φίλτρων.'
+        };
+      }
+      const dict = kpiDictionary(lang);
+      let best = null;
+      let bestScore = -1;
+      for (const item of dict) {
+        for (const candidate of item.keys) {
+          const c = normalizeKpiKey(candidate);
+          if (!c) continue;
+          if (key === c) return item;
+          let score = -1;
+          if (key.startsWith(`${c} `) || key.endsWith(` ${c}`) || key.includes(` ${c} `)) {
+            score = c.length + 20;
+          } else if (c.length >= 6 && key.includes(c)) {
+            score = c.length;
+          }
+          if (score > bestScore) {
+            bestScore = score;
+            best = item;
+          }
+        }
+      }
+      if (best && bestScore >= 6) return best;
+      return {
+        title: titleRaw || (lang === 'en' ? 'KPI' : 'KPI'),
+        what: lang === 'en'
+          ? 'This metric summarizes the selected business value for the active filters.'
+          : 'Το KPI συνοψίζει την επιχειρηματική τιμή για τα ενεργά φίλτρα.',
+        formula: lang === 'en'
+          ? 'Calculated from aggregated data based on selected date range and filters.'
+          : 'Υπολογίζεται από τα συγκεντρωτικά δεδομένα βάσει ημερομηνιακού διαστήματος και φίλτρων.'
+      };
+    }
+
+    function replaceIsoDatesInText(text) {
+      if (!text || typeof text !== 'string') return text;
+      return text.replace(
+        /\b(\d{4})-(\d{2})-(\d{2})(?:[T\s](\d{2}):(\d{2})(?::(\d{2}))?(?:\.\d{1,6})?)?(?:Z|[+-]\d{2}:\d{2})?\b/g,
+        (m, y, mo, d, hh, mm, ss) => {
+          const datePart = `${d}/${mo}/${y}`;
+          if (hh && mm) {
+            return `${datePart} ${hh}:${mm}${ss ? `:${ss}` : ''}`;
+          }
+          return datePart;
+        }
+      );
+    }
+
+    function bvToIsoDate(raw) {
+      if (!raw) return '';
+      const value = String(raw).trim();
+      if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+      const m = value.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+      if (!m) return value;
+      const d = Number(m[1]);
+      const mo = Number(m[2]);
+      const y = Number(m[3]);
+      if (!y || mo < 1 || mo > 12 || d < 1 || d > 31) return value;
+      return `${String(y).padStart(4, '0')}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    }
+
+    function bvToDmyDate(raw) {
+      if (!raw) return '';
+      const value = String(raw).trim();
+      const iso = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (iso) return `${iso[3]}/${iso[2]}/${iso[1]}`;
+      const dmy = value.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+      if (dmy) return `${String(Number(dmy[1])).padStart(2, '0')}/${String(Number(dmy[2])).padStart(2, '0')}/${dmy[3]}`;
+      return value;
+    }
+
+    function bvNormalizeDmyInput(el) {
+      if (!el) return;
+      el.placeholder = 'ηη/μμ/εεεε';
+      el.setAttribute('inputmode', 'numeric');
+      el.value = bvToDmyDate(el.value);
+    }
+
+    function findPrimaryFilterForm() {
+      const byId = document.getElementById('pageFiltersCollapse');
+      if (byId) {
+        const f = byId.querySelector('form');
+        if (f) return f;
+      }
+      return document.querySelector('form[id$="Filters"]');
+    }
+
+    function isFromField(el) {
+      const key = `${el?.name || ''} ${el?.id || ''}`.toLowerCase();
+      return /\b(from|a_from|b_from|cffrom)\b/.test(key);
+    }
+
+    function isToField(el) {
+      const key = `${el?.name || ''} ${el?.id || ''}`.toLowerCase();
+      return /\b(to|a_to|b_to|snapshot|as_of|cfto|invasof|itasof)\b/.test(key);
+    }
+
+    function normalizeAndSetDateInput(el, val) {
+      if (!el || !val) return;
+      el.value = bvToDmyDate(val);
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+
+    function applyGlobalDateRange(fromVal, toVal) {
+      const root = document.getElementById('pageFiltersCollapse') || document;
+      const fromDate = bvToDmyDate(fromVal || '');
+      const toDate = bvToDmyDate(toVal || '');
+      if (!fromDate && !toDate) return;
+
+      const dateInputs = Array.from(root.querySelectorAll('input[data-date-format="dmy"], input[name], input[id]'))
+        .filter((el) => (el.tagName || '').toLowerCase() === 'input')
+        .filter((el) => (el.type || 'text').toLowerCase() !== 'hidden')
+        .filter((el) => {
+          const key = `${el.name || ''} ${el.id || ''}`.toLowerCase();
+          return el.hasAttribute('data-date-format') || /(from|to|snapshot|as_of|date|asof)/.test(key);
+        });
+
+      let setCount = 0;
+      dateInputs.forEach((el) => {
+        if (isFromField(el) && fromDate) {
+          normalizeAndSetDateInput(el, fromDate);
+          setCount += 1;
+          return;
+        }
+        if (isToField(el) && toDate) {
+          normalizeAndSetDateInput(el, toDate);
+          setCount += 1;
+        }
+      });
+
+      if (setCount === 0) {
+        const genericDateInputs = Array.from(root.querySelectorAll('input[data-date-format="dmy"]'));
+        if (genericDateInputs.length >= 1 && toDate) {
+          normalizeAndSetDateInput(genericDateInputs[0], fromDate || toDate);
+        }
+        if (genericDateInputs.length >= 2 && toDate) {
+          normalizeAndSetDateInput(genericDateInputs[1], toDate);
+        }
+      }
+
+      bvInitDmyDateInputs(root);
+      const form = findPrimaryFilterForm();
+      if (form) {
+        if (typeof form.requestSubmit === 'function') {
+          form.requestSubmit();
+        } else {
+          form.submit();
+        }
+      }
+    }
+
+    function bvInitDmyDateInputs(rootNode = document) {
+      rootNode.querySelectorAll('input[data-date-format="dmy"]').forEach((el) => {
+        if (el.dataset.bvDateBound !== '1') {
+          el.dataset.bvDateBound = '1';
+          el.addEventListener('blur', () => bvNormalizeDmyInput(el));
+        }
+        bvNormalizeDmyInput(el);
+      });
+    }
+
+    function applyDateFormatGlobal(rootNode = document.body) {
+      bvInitDmyDateInputs(document);
+      const walker = document.createTreeWalker(rootNode, NodeFilter.SHOW_TEXT, null);
+      const nodes = [];
+      let n;
+      while ((n = walker.nextNode())) nodes.push(n);
+      nodes.forEach((textNode) => {
+        const parent = textNode.parentElement;
+        if (!parent) return;
+        if (parent.closest('script, style, code, pre, textarea')) return;
+        if (parent.dataset.noDateFormat === '1') return;
+        const src = textNode.nodeValue || '';
+        const fmt = replaceIsoDatesInText(src);
+        if (fmt !== src) textNode.nodeValue = fmt;
+      });
+    }
+
+    document.querySelectorAll('[data-profile-toggle]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const dd = btn.parentElement.querySelector('[data-profile-dropdown]');
+        if (!dd) return;
+        dd.hidden = !dd.hidden;
+      });
+    });
+    document.addEventListener('click', () => {
+      document.querySelectorAll('[data-profile-dropdown]').forEach((dd) => {
+        dd.hidden = true;
+      });
+    });
+    function syncFullscreenLayout() {
+      const isFs = !!document.fullscreenElement;
+      document.body.classList.toggle('bv-fullscreen-mode', isFs);
+    }
+    function setFullscreenIcon() {
+      const btn = document.getElementById('fullscreenToggleBtn');
+      if (!btn) return;
+      const icon = btn.querySelector('i');
+      const isFs = !!document.fullscreenElement;
+      if (icon) {
+        icon.classList.remove('fe-maximize', 'fe-minimize');
+        icon.classList.add(isFs ? 'fe-minimize' : 'fe-maximize');
+      }
+      syncFullscreenLayout();
+    }
+    async function toggleFullscreen() {
+      try {
+        if (document.fullscreenElement) {
+          await document.exitFullscreen();
+        } else {
+          await document.documentElement.requestFullscreen();
+        }
+      } catch (_err) {
+        // no-op
+      } finally {
+        setFullscreenIcon();
+      }
+    }
+    document.addEventListener('DOMContentLoaded', () => {
+      const sidebarToggleBtn = document.getElementById('sidebarToggleBtn');
+      const sidebarExpandMiniBtn = document.getElementById('sidebarExpandMiniBtn');
+      const SIDEBAR_KEY = 'bv_tenant_sidebar_collapsed';
+      function applySidebarState(collapsed) {
+        document.body.classList.toggle('admin-sidebar-collapsed', !!collapsed);
+      }
+      const savedCollapsed = localStorage.getItem(SIDEBAR_KEY) === '1';
+      applySidebarState(savedCollapsed);
+      if (sidebarToggleBtn && sidebarToggleBtn.dataset.bound !== '1') {
+        sidebarToggleBtn.dataset.bound = '1';
+        sidebarToggleBtn.addEventListener('click', () => {
+          const collapsedNow = !document.body.classList.contains('admin-sidebar-collapsed');
+          applySidebarState(collapsedNow);
+          localStorage.setItem(SIDEBAR_KEY, collapsedNow ? '1' : '0');
+        });
+      }
+      if (sidebarExpandMiniBtn && sidebarExpandMiniBtn.dataset.bound !== '1') {
+        sidebarExpandMiniBtn.dataset.bound = '1';
+        sidebarExpandMiniBtn.addEventListener('click', () => {
+          applySidebarState(false);
+          localStorage.setItem(SIDEBAR_KEY, '0');
+        });
+      }
+
+      const fsBtn = document.getElementById('fullscreenToggleBtn');
+      if (fsBtn && fsBtn.dataset.bound !== '1') {
+        fsBtn.dataset.bound = '1';
+        fsBtn.addEventListener('click', toggleFullscreen);
+      }
+      document.addEventListener('fullscreenchange', setFullscreenIcon);
+      setFullscreenIcon();
+      syncFullscreenLayout();
+      window.bvToIsoDate = bvToIsoDate;
+      window.bvToDmyDate = bvToDmyDate;
+      window.bvInitDmyDateInputs = bvInitDmyDateInputs;
+
+      document.addEventListener('submit', (e) => {
+        const form = e.target;
+        if (!form || !form.querySelectorAll) return;
+        form.querySelectorAll('input[data-date-format="dmy"]').forEach((el) => {
+          const iso = bvToIsoDate(el.value);
+          if (iso && /^\d{4}-\d{2}-\d{2}$/.test(iso)) el.value = iso;
+        });
+      });
+
+      applyDateFormatGlobal();
+      const globalDateBtn = document.getElementById('globalDateRangeBtn');
+      const globalDateApplyBtn = document.getElementById('globalDateApplyBtn');
+      const globalDateModalEl = document.getElementById('globalDateModal');
+      const globalDateFromEl = document.getElementById('globalDateFrom');
+      const globalDateToEl = document.getElementById('globalDateTo');
+      const globalDatePresetEl = document.getElementById('globalDatePreset');
+      const globalDateModal = null;
+
+      function fallbackModalShow() {
+        if (!globalDateModalEl) return;
+        globalDateModalEl.style.display = 'block';
+        globalDateModalEl.classList.add('show');
+        globalDateModalEl.removeAttribute('aria-hidden');
+        document.body.classList.add('modal-open', 'bv-global-date-open');
+      }
+
+      function fallbackModalHide() {
+        if (!globalDateModalEl) return;
+        globalDateModalEl.classList.remove('show');
+        globalDateModalEl.style.display = 'none';
+        globalDateModalEl.setAttribute('aria-hidden', 'true');
+        document.body.classList.remove('modal-open', 'bv-global-date-open');
+      }
+
+      function openGlobalDateModal() {
+        if (globalDateModal) {
+          globalDateModal.show();
+          return;
+        }
+        fallbackModalShow();
+      }
+
+      function closeGlobalDateModal() {
+        if (globalDateModal) {
+          globalDateModal.hide();
+          return;
+        }
+        fallbackModalHide();
+      }
+
+      function dmyFromDate(dateObj) {
+        if (!(dateObj instanceof Date)) return '';
+        return `${String(dateObj.getDate()).padStart(2, '0')}/${String(dateObj.getMonth() + 1).padStart(2, '0')}/${dateObj.getFullYear()}`;
+      }
+
+      function startOfWeekMonday(dateObj) {
+        const d = new Date(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate());
+        const day = d.getDay();
+        const diff = day === 0 ? -6 : (1 - day);
+        d.setDate(d.getDate() + diff);
+        return d;
+      }
+
+      function applyPresetRange(preset) {
+        if (!globalDateFromEl || !globalDateToEl || !preset) return;
+        const today = new Date();
+        const end = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+        let start = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+        let to = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+
+        if (preset === 'today') {
+          start = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+          to = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+        } else if (preset === 'yesterday' || preset === 'prev_day') {
+          start.setDate(start.getDate() - 1);
+          to = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+        } else if (preset === 'current_week') {
+          start = startOfWeekMonday(end);
+        } else if (preset === 'previous_week') {
+          const currentWeekStart = startOfWeekMonday(end);
+          start = new Date(currentWeekStart.getFullYear(), currentWeekStart.getMonth(), currentWeekStart.getDate());
+          start.setDate(start.getDate() - 7);
+          to = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+          to.setDate(to.getDate() + 6);
+        } else if (preset === 'current_month') {
+          start = new Date(end.getFullYear(), end.getMonth(), 1);
+        } else if (preset === 'previous_month') {
+          start = new Date(end.getFullYear(), end.getMonth() - 1, 1);
+          to = new Date(end.getFullYear(), end.getMonth(), 0);
+        } else if (preset === 'current_year') {
+          start = new Date(end.getFullYear(), 0, 1);
+        } else if (preset === 'previous_year') {
+          start = new Date(end.getFullYear() - 1, 0, 1);
+          to = new Date(end.getFullYear() - 1, 11, 31);
+        } else if (preset === 'two_years_ago') {
+          start = new Date(end.getFullYear() - 2, 0, 1);
+          to = new Date(end.getFullYear() - 2, 11, 31);
+        } else {
+          return;
+        }
+
+        globalDateFromEl.value = dmyFromDate(start);
+        globalDateToEl.value = dmyFromDate(to);
+        bvInitDmyDateInputs(globalDateModalEl || document);
+      }
+
+      if (globalDateBtn && globalDateFromEl && globalDateToEl) {
+        globalDateBtn.addEventListener('click', () => {
+          const form = findPrimaryFilterForm();
+          const allDateInputs = Array.from(form?.querySelectorAll?.('input[data-date-format="dmy"], input[name], input[id]') || [])
+            .filter((el) => {
+              const key = `${el.name || ''} ${el.id || ''}`.toLowerCase();
+              return el.hasAttribute('data-date-format') || /(from|to|snapshot|as_of|date|asof)/.test(key);
+            });
+          const fromInput = allDateInputs.find((el) => isFromField(el)) || allDateInputs[0];
+          const toInput = allDateInputs.find((el) => isToField(el)) || allDateInputs[1] || allDateInputs[0];
+          const defaultFrom = bvToDmyDate(fromInput?.value || '');
+          const defaultTo = bvToDmyDate(toInput?.value || '');
+          const now = new Date();
+          const nowDmy = `${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()}`;
+          const toSeed = defaultTo || nowDmy;
+          const yearMatch = String(toSeed).match(/(\d{4})$/);
+          const seedYear = yearMatch ? yearMatch[1] : String(now.getFullYear());
+          const fromSeed = defaultFrom || `01/01/${seedYear}`;
+          globalDateFromEl.value = fromSeed;
+          globalDateToEl.value = toSeed;
+          if (globalDatePresetEl) globalDatePresetEl.value = '';
+          bvInitDmyDateInputs(globalDateModalEl || document);
+          openGlobalDateModal();
+        });
+      }
+      if (globalDatePresetEl) {
+        globalDatePresetEl.addEventListener('change', () => {
+          applyPresetRange(globalDatePresetEl.value);
+        });
+      }
+      if (globalDateApplyBtn && globalDateFromEl && globalDateToEl) {
+        globalDateApplyBtn.addEventListener('click', () => {
+          applyGlobalDateRange(globalDateFromEl.value, globalDateToEl.value);
+          closeGlobalDateModal();
+        });
+      }
+      if (globalDateModalEl) {
+        globalDateModalEl.querySelectorAll('[data-bs-dismiss="modal"]').forEach((btn) => {
+          btn.addEventListener('click', () => closeGlobalDateModal());
+        });
+        globalDateModalEl.addEventListener('click', (e) => {
+          if (!globalDateModal && e.target === globalDateModalEl) {
+            closeGlobalDateModal();
+          }
+        });
+      }
+
+      const kpiHelpModalEl = document.getElementById('kpiHelpModal');
+      const kpiHelpTitle = document.getElementById('kpiHelpTitle');
+      const kpiHelpWhat = document.getElementById('kpiHelpWhat');
+      const kpiHelpFormula = document.getElementById('kpiHelpFormula');
+      const kpiHelpWhatLabel = document.getElementById('kpiHelpWhatLabel');
+      const kpiHelpFormulaLabel = document.getElementById('kpiHelpFormulaLabel');
+      const kpiHelpLang = (document.documentElement.lang || 'el').toLowerCase().startsWith('en') ? 'en' : 'el';
+      if (kpiHelpWhatLabel) kpiHelpWhatLabel.textContent = kpiHelpLang === 'en' ? 'What it shows' : 'Τι δείχνει';
+      if (kpiHelpFormulaLabel) kpiHelpFormulaLabel.textContent = kpiHelpLang === 'en' ? 'Formula' : 'Υπολογισμός';
+
+      function getCardTitle(card) {
+        if (!card) return '';
+        const explicit = (card.dataset.kpiTitle || '').trim();
+        if (explicit) return explicit;
+        const direct = card.querySelector(':scope > .kpi-title, :scope > .label');
+        if (direct && (direct.textContent || '').trim()) return direct.textContent.trim();
+        const fallback = card.querySelector('.kpi-title, .label');
+        return (fallback?.textContent || '').trim();
+      }
+
+      document.querySelectorAll('.bv-kpi-box, .bv-stat-strip').forEach((card) => {
+        const title = getCardTitle(card);
+        if (title) {
+          card.dataset.kpiTitle = title;
+          const icon = card.querySelector('.kpi-icon');
+          if (icon) icon.dataset.kpiTitle = title;
+        }
+      });
+
+      function openKpiHelpForCard(card, trigger) {
+        if (!kpiHelpModalEl || !card) return;
+        const titleText = (trigger?.dataset?.kpiTitle || card?.dataset?.kpiTitle || getCardTitle(card) || '').trim();
+        const info = resolveKpiHelp(titleText, kpiHelpLang);
+        if (kpiHelpTitle) kpiHelpTitle.textContent = info.title;
+        if (kpiHelpWhat) kpiHelpWhat.textContent = info.what;
+        if (kpiHelpFormula) kpiHelpFormula.textContent = info.formula;
+        kpiHelpModalEl.style.display = 'block';
+        kpiHelpModalEl.classList.add('show');
+        kpiHelpModalEl.removeAttribute('aria-hidden');
+        document.body.classList.add('modal-open');
+      }
+
+      function closeKpiHelp() {
+        if (!kpiHelpModalEl) return;
+        kpiHelpModalEl.classList.remove('show');
+        kpiHelpModalEl.style.display = 'none';
+        kpiHelpModalEl.setAttribute('aria-hidden', 'true');
+        document.body.classList.remove('modal-open');
+      }
+
+      document.addEventListener('click', (e) => {
+        const icon = e.target.closest('.bv-kpi-box .kpi-icon, .bv-stat-strip .kpi-icon');
+        if (icon) {
+          e.preventDefault();
+          e.stopPropagation();
+          const card = icon.closest('.bv-kpi-box, .bv-stat-strip');
+          openKpiHelpForCard(card, icon);
+          return;
+        }
+        if (e.target.closest('#kpiHelpModal [data-bs-dismiss="modal"]')) {
+          closeKpiHelp();
+          return;
+        }
+        if (e.target === kpiHelpModalEl) {
+          closeKpiHelp();
+        }
+      });
+
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && globalDateModalEl && globalDateModalEl.classList.contains('show')) {
+          closeGlobalDateModal();
+        }
+        if (e.key === 'Escape' && kpiHelpModalEl && kpiHelpModalEl.classList.contains('show')) {
+          closeKpiHelp();
+        }
+      });
+      const observer = new MutationObserver((mutations) => {
+        for (const m of mutations) {
+          if (m.type === 'childList' && m.addedNodes && m.addedNodes.length) {
+            m.addedNodes.forEach((node) => {
+              if (node.nodeType === Node.TEXT_NODE) return;
+              applyDateFormatGlobal(node);
+              if (node.querySelectorAll) bvInitDmyDateInputs(node);
+            });
+          }
+        }
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+    });
+  </script>
+  {% block scripts %}{% endblock %}
+  <div class="powered-by-cloudon">{{ tt(request, 'powered_by') }}</div>
+</body>
+</html>

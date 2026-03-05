@@ -1,0 +1,13 @@
+route:
+  receiver: default
+  group_by: ['alertname', 'severity']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 2h
+
+receivers:
+  - name: default
+    # Example webhook receiver. Replace with Slack/Teams/PagerDuty as needed.
+    webhook_configs:
+      - url: http://localhost:5001/
+        send_resolved: true

@@ -1,0 +1,60 @@
+{% extends "base_admin.html" %}
+{% block content %}
+<div class="card mt-3">
+  <div class="card-header">
+    <h5 class="mb-0">Επεξεργασία Πελάτη: {{ tenant.name }}</h5>
+  </div>
+  <div class="card-body">
+    <form method="post" action="/admin/tenants/{{ tenant.id }}/edit" class="row g-2">
+      <input type="hidden" name="next_url" value="{{ next_url }}">
+      <div class="col-md-6">
+        <label class="form-label">Όνομα</label>
+        <input class="form-control" name="name" value="{{ tenant.name }}" required>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Slug</label>
+        <input class="form-control" name="slug" value="{{ tenant.slug }}" pattern="[a-z0-9-]+" title="Μόνο a-z, 0-9 και -" required>
+        <small class="text-muted">Μορφή: μόνο πεζά λατινικά, αριθμοί και παύλα (π.χ. cloudon-athens).</small>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">{{ tt(request, 'plan') }}</label>
+        <select class="form-select" name="plan">
+          <option value="standard" {% if tenant.plan.value == 'standard' %}selected{% endif %}>Standard</option>
+          <option value="pro" {% if tenant.plan.value == 'pro' %}selected{% endif %}>Pro</option>
+          <option value="enterprise" {% if tenant.plan.value == 'enterprise' %}selected{% endif %}>Enterprise</option>
+        </select>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">{{ tt(request, 'source') }}</label>
+        <select class="form-select" name="source">
+          <option value="pharmacyone" {% if tenant.source == 'pharmacyone' %}selected{% endif %}>SQL</option>
+          <option value="external" {% if tenant.source == 'external' %}selected{% endif %}>API</option>
+          <option value="files" {% if tenant.source == 'files' %}selected{% endif %}>Αρχεία</option>
+        </select>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">{{ tt(request, 'status') }}</label>
+        <select class="form-select" name="tenant_status">
+          <option value="active" {% if tenant.status.value == 'active' %}selected{% endif %}>ενεργός</option>
+          <option value="suspended" {% if tenant.status.value == 'suspended' %}selected{% endif %}>σε αναστολή</option>
+          <option value="terminated" {% if tenant.status.value == 'terminated' %}selected{% endif %}>τερματισμένος</option>
+        </select>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">{{ tt(request, 'subscriptions') }}</label>
+        <select class="form-select" name="subscription_status">
+          <option value="trial" {% if tenant.subscription_status.value == 'trial' %}selected{% endif %}>δοκιμή</option>
+          <option value="active" {% if tenant.subscription_status.value == 'active' %}selected{% endif %}>ενεργή</option>
+          <option value="past_due" {% if tenant.subscription_status.value == 'past_due' %}selected{% endif %}>ληξιπρόθεσμη</option>
+          <option value="suspended" {% if tenant.subscription_status.value == 'suspended' %}selected{% endif %}>σε αναστολή</option>
+          <option value="canceled" {% if tenant.subscription_status.value == 'canceled' %}selected{% endif %}>ακυρωμένη</option>
+        </select>
+      </div>
+      <div class="col-12 d-flex gap-2 mt-3">
+        <button type="submit" class="btn bv-action-btn bv-action-save"><i class="fe fe-save"></i>Αποθήκευση Αλλαγών</button>
+        <a href="{{ next_url }}" class="btn bv-action-btn bv-action-edit"><i class="fe fe-arrow-left"></i>Ακύρωση</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

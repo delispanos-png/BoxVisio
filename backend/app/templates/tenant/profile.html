@@ -1,0 +1,37 @@
+{% extends "base_tenant.html" %}
+
+{% block content %}
+<div class="card content-card">
+  <div class="card-header"><h5 class="mb-0">Profile</h5></div>
+  <div class="card-body">
+    {% if request.query_params.get('saved') == '1' %}
+    <div class="alert alert-success">Οι αλλαγές αποθηκεύτηκαν.</div>
+    {% endif %}
+    <form method="post" action="/tenant/profile" class="row g-3">
+      <div class="col-md-6">
+        <label class="form-label">Ονοματεπώνυμο</label>
+        <input class="form-control" type="text" name="full_name" value="{{ user.full_name or '' }}">
+      </div>
+      <div class="col-md-6">
+        <label class="form-label">Τηλέφωνο</label>
+        <input class="form-control" type="text" name="phone" value="{{ user.phone or '' }}">
+      </div>
+      <div class="col-md-6">
+        <label class="form-label">Email</label>
+        <input class="form-control" type="text" value="{{ user.email }}" readonly>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Ρόλος</label>
+        <input class="form-control" type="text" value="{{ user.role.value }}" readonly>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Tenant</label>
+        <input class="form-control" type="text" value="{{ tenant.slug }}" readonly>
+      </div>
+      <div class="col-12 d-flex justify-content-end">
+        <button class="btn btn-primary" type="submit"><i class="fe fe-save"></i> Αποθήκευση</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

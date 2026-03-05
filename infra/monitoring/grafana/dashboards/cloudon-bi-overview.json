@@ -1,0 +1,141 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "API Latency p95 / p99 (s)",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(cloudon_http_request_duration_seconds_bucket[5m])))",
+          "legendFormat": "p95"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(cloudon_http_request_duration_seconds_bucket[5m])))",
+          "legendFormat": "p99"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "API Error Rate (%)",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "targets": [
+        {
+          "expr": "100 * sum(rate(cloudon_http_requests_total{status_code=~\"5..\"}[5m])) / clamp_min(sum(rate(cloudon_http_requests_total[5m])), 1)",
+          "legendFormat": "5xx %"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Ingestion Throughput (jobs/s)",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "targets": [
+        {
+          "expr": "sum(rate(cloudon_ingest_jobs_total{status=\"ok\"}[5m])) by (connector, entity)",
+          "legendFormat": "{{connector}}/{{entity}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Queue Depth per Tenant",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+      "targets": [
+        {
+          "expr": "cloudon_ingest_queue_depth{tenant=~\"$tenant\"}",
+          "legendFormat": "{{tenant}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "DLQ Growth (events / 15m)",
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 16},
+      "targets": [
+        {
+          "expr": "increase(cloudon_ingest_dead_letters_total[15m])",
+          "legendFormat": "{{connector}}/{{entity}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "DLQ Depth per Tenant",
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 16},
+      "targets": [
+        {
+          "expr": "cloudon_ingest_dlq_depth{tenant=~\"$tenant\"}",
+          "legendFormat": "{{tenant}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Worker Failures / Retries (15m)",
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 16},
+      "targets": [
+        {
+          "expr": "increase(cloudon_ingest_jobs_total{status=\"failed\"}[15m])",
+          "legendFormat": "failed"
+        },
+        {
+          "expr": "increase(cloudon_ingest_retries_total[15m])",
+          "legendFormat": "retries"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "DB Pool Saturation",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 24},
+      "targets": [
+        {
+          "expr": "cloudon_db_pool_checked_out / clamp_min(cloudon_db_pool_size + cloudon_db_pool_overflow, 1)",
+          "legendFormat": "{{pool}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Postgres Connections (exporter)",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 24},
+      "targets": [
+        {
+          "expr": "sum(pg_stat_activity_count) by (datname)",
+          "legendFormat": "{{datname}}"
+        }
+      ]
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "style": "dark",
+  "tags": ["cloudon", "bi", "api", "ingest"],
+  "templating": {
+    "list": [
+      {
+        "name": "tenant",
+        "type": "query",
+        "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+        "query": "label_values(cloudon_ingest_queue_depth, tenant)",
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true
+      }
+    ]
+  },
+  "time": {"from": "now-6h", "to": "now"},
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "CloudOn BI - Monitoring Overview",
+  "uid": "cloudon-bi-overview",
+  "version": 1,
+  "weekStart": ""
+}

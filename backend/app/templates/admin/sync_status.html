@@ -1,0 +1,28 @@
+{% extends "base_admin.html" %}
+{% block content %}
+<div class="card mt-3">
+  <div class="card-header"><h5 class="mb-0">{{ tt(request, 'sync_status_title') }}</h5></div>
+  <div class="card-body">
+    <div class="table-responsive">
+      <table class="table table-hover">
+        <thead><tr><th>{{ tt(request, 'tenant') }}</th><th>Connector</th><th>{{ tt(request, 'status') }}</th><th>{{ tt(request, 'last_sync') }}</th><th>{{ tt(request, 'action') }}</th></tr></thead>
+        <tbody>
+          {% for row in rows %}
+          <tr>
+            <td>{{ row[1].name }}<div class="text-muted small">{{ row[1].slug }}</div></td>
+            <td>{{ row[0].connector_type }}</td>
+            <td>{{ row[0].sync_status }}</td>
+            <td>{{ row[0].last_sync_at or '-' }}</td>
+            <td>
+              <form method="post" action="/admin/sync-status/{{ row[1].id }}/trigger">
+                <button class="btn btn-sm bv-action-btn bv-action-save" type="submit"><i class="fe fe-play"></i> {{ tt(request, 'trigger_queue_drain') }}</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

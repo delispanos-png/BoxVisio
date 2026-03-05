@@ -1,0 +1,27 @@
+{% extends "base_admin.html" %}
+
+{% block content %}
+<div class="card content-card">
+  <div class="card-header"><h5 class="mb-0">Settings</h5></div>
+  <div class="card-body">
+    <div class="row g-3">
+      <div class="col-md-6">
+        <div class="border rounded p-3 h-100">
+          <h6 class="mb-2">Γλώσσα</h6>
+          <p class="text-muted mb-3">Αλλαγή γλώσσας διεπαφής.</p>
+          <a class="btn btn-outline-secondary btn-sm" href="/set-language/el?next=/admin/settings">Ελληνικά</a>
+          <a class="btn btn-outline-secondary btn-sm" href="/set-language/en?next=/admin/settings">English</a>
+        </div>
+      </div>
+      <div class="col-md-6">
+        <div class="border rounded p-3 h-100">
+          <h6 class="mb-2">Theme</h6>
+          <p class="text-muted mb-3">Επιλογή φωτεινού ή σκοτεινού theme.</p>
+          <a class="btn btn-outline-secondary btn-sm" href="/set-theme/light?next=/admin/settings">Light</a>
+          <a class="btn btn-outline-secondary btn-sm" href="/set-theme/dark?next=/admin/settings">Dark</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

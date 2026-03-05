@@ -1,0 +1,110 @@
+groups:
+  - name: cloudon-bi-alerts
+    rules:
+      - alert: CloudOnApiHighErrorRate
+        expr: |
+          (
+            sum(rate(cloudon_http_requests_total{status_code=~"5.."}[5m]))
+            /
+            clamp_min(sum(rate(cloudon_http_requests_total[5m])), 1)
+          ) > 0.05
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "API 5xx error rate is high"
+          description: "5xx ratio is above 5% for 10 minutes."
+
+      - alert: CloudOnQueueStuckPerTenant
+        expr: |
+          max by (tenant) (cloudon_ingest_queue_depth) > 0
+          and
+          increase(cloudon_ingest_jobs_tenant_total{status="ok"}[15m]) == 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Tenant ingest queue appears stuck"
+          description: "Queue depth exists but no successful job progress for 15m."
+
+      - alert: CloudOnDlqSpike
+        expr: increase(cloudon_ingest_dead_letters_total[10m]) > 20
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Dead-letter volume spike"
+          description: "More than 20 dead-lettered jobs in the last 10 minutes."
+
+      - alert: CloudOnWorkerFailuresHigh
+        expr: increase(cloudon_ingest_jobs_total{status="failed"}[10m]) > 20
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Worker failures increased"
+          description: "More than 20 failed ingestion jobs in 10 minutes."
+
+      - alert: CloudOnWorkerRetriesHigh
+        expr: increase(cloudon_ingest_retries_total[10m]) > 50
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Worker retries are high"
+          description: "More than 50 retries in 10 minutes."
+
+      - alert: CloudOnBackupFailure
+        expr: cloudon_backup_success == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Latest backup run failed"
+          description: "nightly_backup.sh reported failure in the latest run."
+
+      - alert: CloudOnBackupTooOld
+        expr: (time() - cloudon_backup_last_success_timestamp_seconds) > 90000
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "No recent successful backup"
+          description: "Last successful backup is older than 25 hours."
+
+      - alert: CloudOnLowDiskSpace
+        expr: |
+          (
+            node_filesystem_avail_bytes{fstype!~"tmpfs|overlay"}
+            /
+            node_filesystem_size_bytes{fstype!~"tmpfs|overlay"}
+          ) < 0.10
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Low disk space"
+          description: "Available disk space is below 10%."
+
+      - alert: CloudOnPostgresDown
+        expr: up{job="postgres_exporter"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PostgreSQL exporter is down"
+          description: "Cannot scrape postgres_exporter for more than 2 minutes."
+
+      - alert: CloudOnDbPoolSaturation
+        expr: |
+          max(
+            cloudon_db_pool_checked_out
+            /
+            clamp_min(cloudon_db_pool_size + cloudon_db_pool_overflow, 1)
+          ) > 0.9
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "DB pool saturation is high"
+          description: "Checked-out DB connections exceed 90% of configured pool capacity."

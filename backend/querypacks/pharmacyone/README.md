@@ -1,0 +1,21 @@
+# PharmacyOne QueryPack Structure
+
+This folder is intentionally split so query intent does not get mixed:
+
+- `facts/`:
+  - Row-level ingestion queries only.
+  - Used by worker ingestion jobs and backfill.
+  - Production source for canonical facts (`fact_sales`, `fact_purchases`, `fact_inventory`, `fact_cashflows`).
+- `kpi_validation/`:
+  - Optional legacy-style KPI queries for temporary validation against old system.
+  - Never used by production dashboard endpoints.
+- `admin_discovery/`:
+  - Discovery/helper queries for admin mapping (tables/columns/sample rows).
+  - Never used for ingestion or dashboard reads.
+
+Rules:
+
+1. Keep ingestion SQL in `facts/` only.
+2. Keep validation SQL in `kpi_validation/` only.
+3. Keep discovery SQL in `admin_discovery/` only.
+4. Dashboard APIs must read only Postgres aggregates/facts, never remote SQL Server.

@@ -1,0 +1,159 @@
+{% extends "base_admin.html" %}
+{% block content %}
+<div class="admin-users-page">
+{% if request.query_params.get('updated') == '1' %}
+<div class="alert alert-success mt-3 mb-3">Η ενέργεια ολοκληρώθηκε επιτυχώς.</div>
+{% elif request.query_params.get('updated') == '0' %}
+<div class="alert alert-danger mt-3 mb-3">Η ενέργεια απέτυχε. Αιτία: {{ request.query_params.get('reason') or 'unknown' }}</div>
+{% endif %}
+{% if request.query_params.get('deleted') == '1' %}
+<div class="alert alert-success mt-3 mb-3">Ο χρήστης διαγράφηκε επιτυχώς.</div>
+{% elif request.query_params.get('deleted') == '0' %}
+<div class="alert alert-danger mt-3 mb-3">Η διαγραφή απέτυχε.</div>
+{% endif %}
+
+{% set active_count = users | selectattr('is_active') | list | length %}
+{% set total_count = users | length %}
+{% set tenant_scoped_count = users | selectattr('tenant_id') | list | length %}
+
+<div class="row g-3 mb-3 mt-1">
+  <div class="col-xl-3 col-md-4 col-6">
+    <div class="bv-stat-strip">
+      <div class="label">Σύνολο χρηστών</div>
+      <div class="value">{{ total_count }}</div>
+    </div>
+  </div>
+  <div class="col-xl-3 col-md-4 col-6">
+    <div class="bv-stat-strip">
+      <div class="label">Ενεργοί χρήστες</div>
+      <div class="value">{{ active_count }}</div>
+    </div>
+  </div>
+  <div class="col-xl-3 col-md-4 col-6">
+    <div class="bv-stat-strip">
+      <div class="label">Χρήστες πελατών</div>
+      <div class="value">{{ tenant_scoped_count }}</div>
+    </div>
+  </div>
+</div>
+
+<div class="card mt-3 shadow-sm">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <h5 class="mb-0">{{ tt(request, 'create_user') }}</h5>
+    <small class="text-muted">Πλήρωσε μόνο τα απαιτούμενα πεδία: Email, Ρόλος.</small>
+  </div>
+  <div class="card-body pb-4">
+    <form method="post" action="/admin/users/create" class="row g-3 align-items-end admin-user-create-form">
+      <div class="col-xl-3 col-lg-4 col-md-6">
+        <label class="form-label">{{ tt(request, 'name') }}</label>
+        <input class="form-control" name="full_name" placeholder="Πλήρες όνομα">
+      </div>
+      <div class="col-xl-2 col-lg-3 col-md-6">
+        <label class="form-label">{{ tt(request, 'phone') if tt(request, 'phone') != 'phone' else 'Phone' }}</label>
+        <input class="form-control" name="phone" placeholder="+30 69X XXX XXXX">
+      </div>
+      <div class="col-xl-3 col-lg-5 col-md-6">
+        <label class="form-label">{{ tt(request, 'email') }}</label>
+        <input class="form-control" type="email" name="email" placeholder="user@tenant.com" required>
+      </div>
+      <div class="col-xl-2 col-lg-3 col-md-6">
+        <label class="form-label">{{ tt(request, 'role') }}</label>
+        <select class="form-select" name="role">
+          <option value="tenant_user">Χρήστης Πελάτη</option>
+          <option value="tenant_admin">Διαχειριστής Πελάτη</option>
+          <option value="cloudon_admin">CloudOn Admin</option>
+        </select>
+      </div>
+
+      <div class="col-xl-4 col-lg-5 col-md-6">
+        <label class="form-label">{{ tt(request, 'tenant') }}</label>
+        <select class="form-select" name="tenant_id">
+          <option value="">{{ tt(request, 'no_tenant') }}</option>
+          {% for t in tenants %}
+          <option value="{{ t.id }}">{{ t.name }} ({{ t.slug }})</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-xl-3 col-lg-4 col-md-6">
+        <label class="form-label">{{ tt(request, 'access_from') if tt(request, 'access_from') != 'access_from' else 'Access from' }}</label>
+        <input class="form-control" type="datetime-local" name="access_starts_at">
+      </div>
+      <div class="col-xl-3 col-lg-4 col-md-6">
+        <label class="form-label">{{ tt(request, 'access_until') if tt(request, 'access_until') != 'access_until' else 'Access until' }}</label>
+        <input class="form-control" type="datetime-local" name="access_expires_at">
+      </div>
+      <div class="col-xl-2 col-lg-4 col-md-6">
+        <button class="btn btn-primary w-100" type="submit">
+          <i class="fe fe-user-plus me-1"></i>{{ tt(request, 'create') }}
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="card mt-3 shadow-sm">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <h5 class="mb-0">{{ tt(request, 'users') }}</h5>
+    <small class="text-muted">Επεξεργασία / εναλλαγή / διαγραφή ανά χρήστη.</small>
+  </div>
+  <div class="card-body">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle users-table">
+        <thead>
+          <tr>
+            <th>{{ tt(request, 'name') }}</th>
+            <th>{{ tt(request, 'email') }}</th>
+            <th>{{ tt(request, 'role') }}</th>
+            <th>{{ tt(request, 'tenant') }}</th>
+            <th>{{ tt(request, 'phone') if tt(request, 'phone') != 'phone' else 'Phone' }}</th>
+            <th>{{ tt(request, 'access_from') if tt(request, 'access_from') != 'access_from' else 'Access From' }}</th>
+            <th>{{ tt(request, 'access_until') if tt(request, 'access_until') != 'access_until' else 'Access Until' }}</th>
+            <th>{{ tt(request, 'status') }}</th>
+            <th>{{ tt(request, 'created') }}</th>
+            <th class="text-end">{{ tt(request, 'actions') }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for u in users %}
+          <tr>
+            <td class="fw-semibold" style="white-space: pre-line;">{{ u.full_name or '-' }}</td>
+            <td class="text-break">{{ u.email }}</td>
+            <td>
+              <span class="badge bg-light text-dark border">{{ u.role.value }}</span>
+            </td>
+            <td>{{ u.tenant_id or '-' }}</td>
+            <td>{{ u.phone or '-' }}</td>
+            <td>{{ u.access_starts_at or '-' }}</td>
+            <td>{{ u.access_expires_at or '-' }}</td>
+            <td>
+              {% if u.is_active %}
+              <span class="badge bg-success">{{ tt(request, 'active') }}</span>
+              {% else %}
+              <span class="badge bg-secondary">{{ tt(request, 'inactive') }}</span>
+              {% endif %}
+            </td>
+            <td>{{ u.created_at }}</td>
+            <td class="text-end text-nowrap">
+              <a class="btn btn-sm bv-action-btn bv-action-edit me-1 mb-1" href="/admin/users/{{ u.id }}/edit?next=/admin/users">
+                <i class="fe fe-edit-2 me-1"></i>Επεξεργασία
+              </a>
+              <form method="post" action="/admin/users/{{ u.id }}/toggle" class="d-inline-block me-1 mb-1">
+                <button class="btn btn-sm bv-action-btn bv-action-toggle" type="submit">
+                  <i class="fe fe-refresh-cw me-1"></i>{{ tt(request, 'toggle') }}
+                </button>
+              </form>
+              <form method="post" action="/admin/users/{{ u.id }}/delete" class="d-inline-block mb-1" onsubmit="return confirm('Διαγραφή χρήστη {{ u.email }};');">
+                <button class="btn btn-sm bv-action-btn bv-action-delete" type="submit">
+                  <i class="fe fe-trash-2 me-1"></i>Διαγραφή
+                </button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+</div>
+{% endblock %}

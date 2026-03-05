@@ -1,0 +1,295 @@
+{% extends "base_tenant.html" %}
+{% block filters %}
+<form class="row g-3" id="cashflowFiltersForm">
+  <div class="col-lg-3 col-md-6">
+    <label class="form-label">{{ tt(request, 'from') }}</label>
+    <input class="form-control" type="text" id="cfFrom" data-date-format="dmy" placeholder="ηη/μμ/εεεε" inputmode="numeric">
+  </div>
+  <div class="col-lg-3 col-md-6">
+    <label class="form-label">{{ tt(request, 'to') }}</label>
+    <input class="form-control" type="text" id="cfTo" data-date-format="dmy" placeholder="ηη/μμ/εεεε" inputmode="numeric">
+  </div>
+  <div class="col-lg-3 col-md-6">
+    <label class="form-label">{{ tt(request, 'branches') }}</label>
+    <div class="bv-multi" id="cfBranchesMulti">
+      <button type="button" class="form-select bv-multi-toggle text-start" id="cfBranchesToggle">{{ tt(request, 'select') }}</button>
+      <div class="bv-multi-menu" id="cfBranchesMenu" hidden>
+        <div class="d-flex gap-2 mb-2">
+          <input type="text" class="form-control form-control-sm" id="cfBranchesSearch" placeholder="{{ tt(request, 'search') }}">
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="cfBranchesAll">{{ tt(request, 'all') }}</button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="cfBranchesClear">{{ tt(request, 'clear') }}</button>
+        </div>
+        <div id="cfBranchesOptions" class="bv-multi-options"></div>
+      </div>
+      <div id="cfBranchesChips" class="bv-chip-wrap mt-2"></div>
+      <select id="cfBranches" multiple hidden></select>
+    </div>
+  </div>
+  <div class="col-lg-3 col-md-6 d-flex align-items-end">
+    <button type="submit" class="btn btn-primary w-100"><i class="fe fe-filter me-1"></i>{{ tt(request, 'apply') }}</button>
+  </div>
+</form>
+{% endblock %}
+
+{% block content %}
+<div class="inventory-page">
+  {% if feature_locked %}
+  <div class="card border-0 shadow-sm">
+    <div class="card-body p-4">
+      <h4 class="mb-2"><i class="fe fe-lock me-2 text-warning"></i>{{ tt(request, 'cashflow_section_unavailable') }}</h4>
+      <p class="text-muted mb-0">{{ tt(request, 'enterprise_pharmacyone_required') }}</p>
+    </div>
+  </div>
+  {% else %}
+  <div class="row g-3 mb-3">
+    <div class="col-xl-3 col-md-6">
+      <div class="bv-kpi-box bv-kpi-green"><div class="kpi-title">{{ tt(request, 'cash_in') }}</div><div class="kpi-value" id="kpiCashIn">0.00</div><div class="kpi-meta">{{ tt(request, 'cash_in') }}</div><div class="kpi-icon"><i class="fe fe-arrow-down-circle"></i></div></div>
+    </div>
+    <div class="col-xl-3 col-md-6">
+      <div class="bv-kpi-box bv-kpi-orange"><div class="kpi-title">{{ tt(request, 'cash_out') }}</div><div class="kpi-value" id="kpiCashOut">0.00</div><div class="kpi-meta">{{ tt(request, 'cash_out') }}</div><div class="kpi-icon"><i class="fe fe-arrow-up-circle"></i></div></div>
+    </div>
+    <div class="col-xl-3 col-md-6">
+      <div class="bv-kpi-box bv-kpi-blue"><div class="kpi-title">{{ tt(request, 'net_cash') }}</div><div class="kpi-value" id="kpiCashNet">0.00</div><div class="kpi-meta">{{ tt(request, 'net_cash') }}</div><div class="kpi-icon"><i class="fe fe-trending-up"></i></div></div>
+    </div>
+    <div class="col-xl-3 col-md-6">
+      <div class="bv-kpi-box bv-kpi-purple"><div class="kpi-title">{{ tt(request, 'entries') }}</div><div class="kpi-value" id="kpiCashEntries">0</div><div class="kpi-meta">{{ tt(request, 'entries') }}</div><div class="kpi-icon"><i class="fe fe-list"></i></div></div>
+    </div>
+  </div>
+
+  <div class="row g-3">
+    <div class="col-xl-8">
+      <div class="card border-0 shadow-sm h-100">
+        <div class="card-header"><h5 class="mb-0">{{ tt(request, 'monthly_cashflow_trend') }}</h5></div>
+        <div class="card-body"><div style="height:300px"><canvas id="cashflowTrendChart"></canvas></div></div>
+      </div>
+    </div>
+    <div class="col-xl-4">
+      <div class="card border-0 shadow-sm h-100">
+        <div class="card-header"><h5 class="mb-0">{{ tt(request, 'distribution_by_entry_type') }}</h5></div>
+        <div class="card-body"><div style="height:300px"><canvas id="cashflowTypeChart"></canvas></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card border-0 shadow-sm mt-3">
+    <div class="card-header"><h5 class="mb-0">{{ tt(request, 'entry_type_details') }}</h5></div>
+    <div class="card-body p-0">
+      <div class="table-responsive">
+        <table class="table table-sm table-hover mb-0" id="tblCashType">
+          <thead><tr><th>{{ tt(request, 'type') }}</th><th class="text-end">{{ tt(request, 'entries') }}</th><th class="text-end">{{ tt(request, 'value') }}</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if not feature_locked %}
+<script>
+(function(){
+  const form = document.getElementById('cashflowFiltersForm');
+  const fromEl = document.getElementById('cfFrom');
+  const toEl = document.getElementById('cfTo');
+  const fmtMoney = (n)=> new Intl.NumberFormat('el-GR',{style:'currency',currency:'EUR'}).format(Number(n||0));
+  const fmtInt = (n)=> new Intl.NumberFormat('el-GR',{maximumFractionDigits:0}).format(Math.round(Number(n||0)));
+  const cfFieldDefs = [{key:'branches', selectId:'cfBranches', label:'{{ tt(request, "branches") }}'}];
+  let trendChart, typeChart;
+  function entryTypeLabel(raw){
+    const v = String(raw || '').trim().toLowerCase();
+    if(v === 'inflow' || v === 'in') return '{{ tt(request, "inflow") }}';
+    if(v === 'outflow' || v === 'out') return '{{ tt(request, "outflow") }}';
+    if(v === 'refund') return '{{ tt(request, "refund") }}';
+    return raw || '-';
+  }
+
+  function defaultRange(){
+    const to = new Date();
+    const from = new Date();
+    from.setFullYear(to.getFullYear() - 2);
+    const fromIso = from.toISOString().slice(0,10);
+    const toIso = to.toISOString().slice(0,10);
+    fromEl.value = window.bvToDmyDate ? window.bvToDmyDate(fromIso) : fromIso;
+    toEl.value = window.bvToDmyDate ? window.bvToDmyDate(toIso) : toIso;
+  }
+
+  function params(){
+    const p = new URLSearchParams();
+    if(fromEl.value) p.set('from', window.bvToIsoDate ? window.bvToIsoDate(fromEl.value) : fromEl.value);
+    if(toEl.value) p.set('to', window.bvToIsoDate ? window.bvToIsoDate(toEl.value) : toEl.value);
+    cfFieldDefs.forEach((field)=>{
+      const sel=document.getElementById(field.selectId);
+      Array.from(sel?.selectedOptions || []).forEach(o=>p.append(field.key, o.value));
+    });
+    return p;
+  }
+  function syncCfMultiUI(prefix, label, filterText=''){
+    const select=document.getElementById(prefix);
+    const optionsWrap=document.getElementById(`${prefix}Options`);
+    const chips=document.getElementById(`${prefix}Chips`);
+    const toggle=document.getElementById(`${prefix}Toggle`);
+    if(!select || !optionsWrap || !chips || !toggle) return;
+
+    const selected = Array.from(select.options).filter(o=>o.selected).map(o=>o.value);
+    const normalized = (filterText||'').toLowerCase().trim();
+    optionsWrap.innerHTML='';
+    Array.from(select.options)
+      .filter(o=>!normalized || ((o.dataset.label || o.textContent || o.value).toLowerCase().includes(normalized)))
+      .forEach(o=>{
+        const row=document.createElement('label');
+        row.className='bv-multi-opt';
+        const cb=document.createElement('input');
+        cb.type='checkbox';
+        cb.checked=o.selected;
+        cb.addEventListener('change', ()=>{
+          o.selected=cb.checked;
+          syncCfMultiUI(prefix, label, document.getElementById(`${prefix}Search`)?.value||'');
+        });
+        const span=document.createElement('span');
+        span.textContent=o.dataset.label || o.textContent || o.value;
+        row.appendChild(cb);
+        row.appendChild(span);
+        optionsWrap.appendChild(row);
+      });
+    if(!optionsWrap.children.length){
+      const empty=document.createElement('div');
+      empty.className='bv-multi-empty';
+      empty.textContent='{{ tt(request, "no_options_available") }}';
+      optionsWrap.appendChild(empty);
+    }
+    chips.innerHTML='';
+    selected.forEach(v=>{
+      const chip=document.createElement('span');
+      chip.className='bv-chip';
+      const opt = Array.from(select.options).find(o=>o.value===v);
+      chip.textContent=opt?.dataset.label || opt?.textContent || v;
+      chips.appendChild(chip);
+    });
+    toggle.textContent = selected.length ? `${label} (${selected.length})` : '{{ tt(request, "select") }}';
+  }
+  function initCfMulti(prefix, label){
+    const toggle=document.getElementById(`${prefix}Toggle`);
+    const menu=document.getElementById(`${prefix}Menu`);
+    const search=document.getElementById(`${prefix}Search`);
+    const btnAll=document.getElementById(`${prefix}All`);
+    const btnClear=document.getElementById(`${prefix}Clear`);
+    const select=document.getElementById(prefix);
+    if(!toggle || !menu || !search || !btnAll || !btnClear || !select || toggle.dataset.bound==='1') return;
+    toggle.dataset.bound='1';
+    toggle.addEventListener('click', ()=>{menu.hidden=!menu.hidden;});
+    search.addEventListener('input', ()=>syncCfMultiUI(prefix, label, search.value));
+    btnAll.addEventListener('click', ()=>{
+      Array.from(select.options).forEach(o=>o.selected=true);
+      syncCfMultiUI(prefix, label, search.value);
+    });
+    btnClear.addEventListener('click', ()=>{
+      Array.from(select.options).forEach(o=>o.selected=false);
+      syncCfMultiUI(prefix, label, search.value);
+    });
+    document.addEventListener('click', (e)=>{
+      if(!document.getElementById(`${prefix}Multi`)?.contains(e.target)) menu.hidden=true;
+    });
+  }
+  function populateCfSelect(prefix, label, values, labels={}){
+    const select=document.getElementById(prefix);
+    if(!select) return;
+    const prev = new Set(Array.from(select.selectedOptions || []).map(o=>o.value));
+    select.innerHTML='';
+    (values || []).forEach(v=>{
+      const opt=document.createElement('option');
+      opt.value=v;
+      opt.textContent=labels[v] || v;
+      opt.dataset.label = labels[v] || v;
+      if(prev.has(v)) opt.selected=true;
+      select.appendChild(opt);
+    });
+    syncCfMultiUI(prefix, label, document.getElementById(`${prefix}Search`)?.value || '');
+  }
+  async function loadCfFilterOptions(){
+    const p = new URLSearchParams();
+    if(fromEl.value) p.set('from', window.bvToIsoDate ? window.bvToIsoDate(fromEl.value) : fromEl.value);
+    if(toEl.value) p.set('to', window.bvToIsoDate ? window.bvToIsoDate(toEl.value) : toEl.value);
+    cfFieldDefs.forEach((field)=>{
+      const sel=document.getElementById(field.selectId);
+      Array.from(sel?.selectedOptions || []).forEach(o=>p.append(field.key, o.value));
+    });
+    try{
+      const res = await fetch(`/v1/kpi/sales/filter-options?${p.toString()}`);
+      if(!res.ok) return;
+      const options = await res.json();
+      cfFieldDefs.forEach((field)=>{
+        const labels = ((options && options.labels && options.labels[field.key]) || {});
+        populateCfSelect(field.selectId, field.label, (options && options[field.key]) || [], labels);
+      });
+    }catch(_err){}
+  }
+
+  function renderTypeTable(rows){
+    const tbody = document.querySelector('#tblCashType tbody');
+    tbody.innerHTML = '';
+    if(!rows.length){
+      tbody.innerHTML = '<tr><td colspan="3" class="text-center text-muted py-3">{{ tt(request, "no_data_available") }}</td></tr>';
+      return;
+    }
+    rows.forEach(r=>{
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${entryTypeLabel(r.entry_type)}</td><td class="text-end">${fmtInt(r.entries)}</td><td class="text-end">${fmtMoney(r.amount)}</td>`;
+      tbody.appendChild(tr);
+    });
+  }
+
+  function renderTrend(rows){
+    const labels = rows.map(x => x.month.slice(0,7));
+    if(trendChart) trendChart.destroy();
+    trendChart = new Chart(document.getElementById('cashflowTrendChart'), {
+      type:'line',
+      data:{labels, datasets:[
+        {label:'{{ tt(request, "cash_in") }}', data: rows.map(x=>x.inflows), borderColor:'#22c55e', backgroundColor:'rgba(34,197,94,.12)', fill:true, tension:.2},
+        {label:'{{ tt(request, "cash_out") }}', data: rows.map(x=>x.outflows), borderColor:'#f97316', backgroundColor:'rgba(249,115,22,.10)', fill:true, tension:.2},
+        {label:'{{ tt(request, "net_cash") }}', data: rows.map(x=>x.net), borderColor:'#0ea5e9', backgroundColor:'rgba(14,165,233,.08)', fill:false, tension:.2}
+      ]},
+      options:{responsive:true, maintainAspectRatio:false}
+    });
+  }
+
+  function renderTypeChart(rows){
+    if(typeChart) typeChart.destroy();
+    typeChart = new Chart(document.getElementById('cashflowTypeChart'), {
+      type:'doughnut',
+      data:{labels:rows.map(x=>entryTypeLabel(x.entry_type)), datasets:[{data:rows.map(x=>x.amount), backgroundColor:['#22c55e','#f97316','#ef4444','#6f42c1','#0ea5e9']}]},
+      options:{responsive:true, maintainAspectRatio:false}
+    });
+  }
+
+  async function load(){
+    const p = params();
+    const [summary, trend, byType] = await Promise.all([
+      fetch(`/v1/kpi/cashflow/summary?${p}`).then(r=>r.json()),
+      fetch(`/v1/kpi/cashflow/trend-monthly?${p}`).then(r=>r.json()),
+      fetch(`/v1/kpi/cashflow/by-type?${p}`).then(r=>r.json()),
+    ]);
+    document.getElementById('kpiCashIn').textContent = fmtMoney(summary.inflows);
+    document.getElementById('kpiCashOut').textContent = fmtMoney(summary.outflows);
+    document.getElementById('kpiCashNet').textContent = fmtMoney(summary.net);
+    document.getElementById('kpiCashEntries').textContent = fmtInt(summary.entries || 0);
+    renderTrend(trend || []);
+    renderTypeChart(byType || []);
+    renderTypeTable(byType || []);
+  }
+
+  defaultRange();
+  cfFieldDefs.forEach((f)=>initCfMulti(f.selectId, f.label));
+  fromEl.addEventListener('change', loadCfFilterOptions);
+  toEl.addEventListener('change', loadCfFilterOptions);
+  form.addEventListener('submit', async (e)=>{
+    e.preventDefault();
+    await loadCfFilterOptions();
+    await load();
+  });
+  loadCfFilterOptions().then(load);
+})();
+</script>
+{% endif %}
+{% endblock %}

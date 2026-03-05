@@ -1,0 +1,405 @@
+{% extends "base_tenant.html" %}
+
+{% block filters %}
+<form id="compareFilters" class="row g-2">
+  <div class="col-12 col-md-6"><label class="form-label mb-1">A {{ tt(request, 'from') }}</label><input class="form-control" type="text" name="A_from" value="{{ a_from.strftime('%d/%m/%Y') if a_from else '' }}" data-date-format="dmy" placeholder="ηη/μμ/εεεε" inputmode="numeric"></div>
+  <div class="col-12 col-md-6"><label class="form-label mb-1">A {{ tt(request, 'to') }}</label><input class="form-control" type="text" name="A_to" value="{{ a_to.strftime('%d/%m/%Y') if a_to else '' }}" data-date-format="dmy" placeholder="ηη/μμ/εεεε" inputmode="numeric"></div>
+  <div class="col-12 col-md-6"><label class="form-label mb-1">B {{ tt(request, 'from') }}</label><input class="form-control" type="text" name="B_from" value="{{ b_from.strftime('%d/%m/%Y') if b_from else '' }}" data-date-format="dmy" placeholder="ηη/μμ/εεεε" inputmode="numeric"></div>
+  <div class="col-12 col-md-6"><label class="form-label mb-1">B {{ tt(request, 'to') }}</label><input class="form-control" type="text" name="B_to" value="{{ b_to.strftime('%d/%m/%Y') if b_to else '' }}" data-date-format="dmy" placeholder="ηη/μμ/εεεε" inputmode="numeric"></div>
+
+  <div class="col-12 col-md-6 col-xl-2">
+    <label class="form-label mb-1">{{ tt(request, 'branches') }}</label>
+    <div class="bv-multi" id="cmpBranchesMulti">
+      <button type="button" class="form-select bv-multi-toggle text-start" id="cmpBranchesToggle">Επιλογή</button>
+      <div class="bv-multi-menu" id="cmpBranchesMenu" hidden>
+        <div class="d-flex gap-2 mb-2">
+          <input type="text" class="form-control form-control-sm" id="cmpBranchesSearch" placeholder="Αναζήτηση...">
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="cmpBranchesAll">Όλα</button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="cmpBranchesClear">Καθαρισμός</button>
+        </div>
+        <div id="cmpBranchesOptions" class="bv-multi-options"></div>
+      </div>
+      <div id="cmpBranchesChips" class="bv-chip-wrap mt-2"></div>
+      <select id="cmpBranches" multiple hidden></select>
+    </div>
+  </div>
+  <div class="col-12 col-md-6 col-xl-2">
+    <label class="form-label mb-1">{{ tt(request, 'warehouses') }}</label>
+    <div class="bv-multi" id="cmpWarehousesMulti">
+      <button type="button" class="form-select bv-multi-toggle text-start" id="cmpWarehousesToggle">Επιλογή</button>
+      <div class="bv-multi-menu" id="cmpWarehousesMenu" hidden>
+        <div class="d-flex gap-2 mb-2">
+          <input type="text" class="form-control form-control-sm" id="cmpWarehousesSearch" placeholder="Αναζήτηση...">
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="cmpWarehousesAll">Όλα</button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="cmpWarehousesClear">Καθαρισμός</button>
+        </div>
+        <div id="cmpWarehousesOptions" class="bv-multi-options"></div>
+      </div>
+      <div id="cmpWarehousesChips" class="bv-chip-wrap mt-2"></div>
+      <select id="cmpWarehouses" multiple hidden></select>
+    </div>
+  </div>
+  <div class="col-12 col-md-6 col-xl-2">
+    <label class="form-label mb-1">{{ tt(request, 'brands') }}</label>
+    <div class="bv-multi" id="cmpBrandsMulti">
+      <button type="button" class="form-select bv-multi-toggle text-start" id="cmpBrandsToggle">Επιλογή</button>
+      <div class="bv-multi-menu" id="cmpBrandsMenu" hidden>
+        <div class="d-flex gap-2 mb-2">
+          <input type="text" class="form-control form-control-sm" id="cmpBrandsSearch" placeholder="Αναζήτηση...">
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="cmpBrandsAll">Όλα</button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="cmpBrandsClear">Καθαρισμός</button>
+        </div>
+        <div id="cmpBrandsOptions" class="bv-multi-options"></div>
+      </div>
+      <div id="cmpBrandsChips" class="bv-chip-wrap mt-2"></div>
+      <select id="cmpBrands" multiple hidden></select>
+    </div>
+  </div>
+  <div class="col-12 col-md-6 col-xl-3">
+    <label class="form-label mb-1">{{ tt(request, 'categories') }}</label>
+    <div class="bv-multi" id="cmpCategoriesMulti">
+      <button type="button" class="form-select bv-multi-toggle text-start" id="cmpCategoriesToggle">Επιλογή κατηγοριών</button>
+      <div class="bv-multi-menu" id="cmpCategoriesMenu" hidden>
+        <div class="d-flex gap-2 mb-2">
+          <input type="text" class="form-control form-control-sm" id="cmpCategoriesSearch" placeholder="Αναζήτηση...">
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="cmpCategoriesAll">Όλα</button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="cmpCategoriesClear">Καθαρισμός</button>
+        </div>
+        <div id="cmpCategoriesOptions" class="bv-multi-options"></div>
+      </div>
+      <div id="cmpCategoriesChips" class="bv-chip-wrap mt-2"></div>
+      <select id="cmpCategories" multiple hidden></select>
+    </div>
+  </div>
+  <div class="col-12 col-md-6 col-xl-2">
+    <label class="form-label mb-1">{{ tt(request, 'groups') }}</label>
+    <div class="bv-multi" id="cmpGroupsMulti">
+      <button type="button" class="form-select bv-multi-toggle text-start" id="cmpGroupsToggle">Επιλογή</button>
+      <div class="bv-multi-menu" id="cmpGroupsMenu" hidden>
+        <div class="d-flex gap-2 mb-2">
+          <input type="text" class="form-control form-control-sm" id="cmpGroupsSearch" placeholder="Αναζήτηση...">
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="cmpGroupsAll">Όλα</button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="cmpGroupsClear">Καθαρισμός</button>
+        </div>
+        <div id="cmpGroupsOptions" class="bv-multi-options"></div>
+      </div>
+      <div id="cmpGroupsChips" class="bv-chip-wrap mt-2"></div>
+      <select id="cmpGroups" multiple hidden></select>
+    </div>
+  </div>
+  <div class="col-12 col-xl-1 d-grid align-content-end">
+    <button class="btn btn-primary" type="submit">{{ tt(request, 'compare') }}</button>
+  </div>
+</form>
+{% endblock %}
+
+{% block content %}
+<div id="cmpError" class="alert alert-danger d-none"></div>
+<style>
+  .cmp-chart-wrap {
+    position: relative;
+    width: 100%;
+    height: 360px;
+    max-height: 360px;
+  }
+  #compareChart {
+    width: 100% !important;
+    height: 100% !important;
+    max-height: 360px !important;
+  }
+</style>
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <h5 class="mb-0">{{ tt(request, 'sales_ab_comparison') }}</h5>
+    <div id="cmpLoading" class="text-muted"><span class="spinner-border spinner-border-sm"></span> {{ tt(request, 'loading') }}</div>
+  </div>
+  <div class="card-body">
+    <div class="alert alert-info py-2">
+      Σύγκριση δύο περιόδων:
+      <strong id="periodAText">A</strong> vs <strong id="periodBText">B</strong>.
+      Το γράφημα δείχνει Καθαρή Αξία, Μικτή Αξία και Ποσότητα.
+    </div>
+    <div class="row g-2 mb-3">
+      <div class="col-md-4">
+        <div class="border rounded p-2">
+          <div class="text-muted small">{{ tt(request, 'net') }} Δ%</div>
+          <div id="deltaNet" class="fw-bold">-</div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="border rounded p-2">
+          <div class="text-muted small">{{ tt(request, 'gross') }} Δ%</div>
+          <div id="deltaGross" class="fw-bold">-</div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="border rounded p-2">
+          <div class="text-muted small">{{ tt(request, 'qty') }} Δ%</div>
+          <div id="deltaQty" class="fw-bold">-</div>
+        </div>
+      </div>
+    </div>
+    <div class="cmp-chart-wrap">
+      <canvas id="compareChart"></canvas>
+    </div>
+    <div class="table-responsive mt-3">
+      <table class="table table-bordered" id="compareTable">
+        <thead><tr><th>Period</th><th>{{ tt(request, 'net') }}</th><th>{{ tt(request, 'gross') }}</th><th>{{ tt(request, 'qty') }}</th></tr></thead>
+        <tbody>
+          <tr><td>A</td><td id="aNet">-</td><td id="aGross">-</td><td id="aQty">-</td></tr>
+          <tr><td>B</td><td id="bNet">-</td><td id="bGross">-</td><td id="bQty">-</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let cmpChart;
+const cmpFieldDefs = [
+  {key:'branches', selectId:'cmpBranches', label:'{{ tt(request, "branches") }}'},
+  {key:'warehouses', selectId:'cmpWarehouses', label:'{{ tt(request, "warehouses") }}'},
+  {key:'brands', selectId:'cmpBrands', label:'{{ tt(request, "brands") }}'},
+  {key:'categories', selectId:'cmpCategories', label:'{{ tt(request, "categories") }}'},
+  {key:'groups', selectId:'cmpGroups', label:'{{ tt(request, "groups") }}'},
+];
+
+function paramsFromForm() {
+  const fd = new FormData(document.getElementById('compareFilters'));
+  const params = new URLSearchParams();
+  ['A_from','A_to','B_from','B_to'].forEach((k) => {
+    const raw = fd.get(k);
+    params.set(k, window.bvToIsoDate ? window.bvToIsoDate(raw) : raw);
+  });
+  cmpFieldDefs.forEach((field)=>{
+    const sel = document.getElementById(field.selectId);
+    Array.from(sel?.selectedOptions || []).forEach(o => params.append(field.key, o.value));
+  });
+  return params;
+}
+
+function setCmpError(msg) {
+  const el = document.getElementById('cmpError');
+  if (!msg) { el.classList.add('d-none'); el.textContent = ''; return; }
+  el.classList.remove('d-none');
+  el.textContent = msg;
+}
+
+function pctDelta(a, b) {
+  const av = Number(a || 0);
+  const bv = Number(b || 0);
+  const fmt1 = new Intl.NumberFormat('el-GR', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  if (!bv) return av ? `${fmt1.format(100)}%` : `${fmt1.format(0)}%`;
+  return `${fmt1.format(((av - bv) / bv) * 100)}%`;
+}
+
+function fmtMoney(v) {
+  return new Intl.NumberFormat('el-GR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 2 }).format(Number(v || 0));
+}
+
+function fmtNum(v) {
+  return new Intl.NumberFormat('el-GR', { maximumFractionDigits: 0 }).format(Math.round(Number(v || 0)));
+}
+
+function syncCmpMultiUI(prefix, label, filterText=''){
+  const select=document.getElementById(`${prefix}`);
+  const optionsWrap=document.getElementById(`${prefix}Options`);
+  const chips=document.getElementById(`${prefix}Chips`);
+  const toggle=document.getElementById(`${prefix}Toggle`);
+  if(!select || !optionsWrap || !chips || !toggle) return;
+  const selected = Array.from(select.options).filter(o=>o.selected).map(o=>o.value);
+  const normalized = (filterText||'').toLowerCase().trim();
+  optionsWrap.innerHTML='';
+  Array.from(select.options)
+    .filter(o=>{
+      const display=(o.dataset.label||o.textContent||o.value).toLowerCase();
+      return !normalized || o.value.toLowerCase().includes(normalized) || display.includes(normalized);
+    })
+    .forEach(o=>{
+      const row=document.createElement('label');
+      row.className='bv-multi-opt';
+      const cb=document.createElement('input');
+      cb.type='checkbox';
+      cb.checked=o.selected;
+      cb.addEventListener('change', ()=>{
+        o.selected=cb.checked;
+        syncCmpMultiUI(prefix, label, document.getElementById(`${prefix}Search`)?.value||'');
+      });
+      const span=document.createElement('span');
+      span.textContent=o.textContent || o.value;
+      row.appendChild(cb);
+      row.appendChild(span);
+      optionsWrap.appendChild(row);
+    });
+  if(!optionsWrap.children.length){
+    const empty=document.createElement('div');
+    empty.className='bv-multi-empty';
+    empty.textContent='Δεν υπάρχουν διαθέσιμες επιλογές';
+    optionsWrap.appendChild(empty);
+  }
+  chips.innerHTML='';
+  selected.forEach(v=>{
+    const chip=document.createElement('span');
+    chip.className='bv-chip';
+    const opt = Array.from(select.options).find(o=>o.value===v);
+    chip.textContent=(opt && opt.textContent) ? opt.textContent : v;
+    chips.appendChild(chip);
+  });
+  toggle.textContent = selected.length ? `${label} (${selected.length})` : 'Επιλογή';
+}
+
+function initCmpMulti(prefix, label){
+  const toggle=document.getElementById(`${prefix}Toggle`);
+  const menu=document.getElementById(`${prefix}Menu`);
+  const search=document.getElementById(`${prefix}Search`);
+  const btnAll=document.getElementById(`${prefix}All`);
+  const btnClear=document.getElementById(`${prefix}Clear`);
+  const select=document.getElementById(`${prefix}`);
+  if(!toggle || !menu || !search || !btnAll || !btnClear || !select || toggle.dataset.bound==='1') return;
+  toggle.dataset.bound='1';
+  toggle.addEventListener('click', ()=>{menu.hidden=!menu.hidden;});
+  search.addEventListener('input', ()=>syncCmpMultiUI(prefix, label, search.value));
+  btnAll.addEventListener('click', ()=>{Array.from(select.options).forEach(o=>o.selected=true); syncCmpMultiUI(prefix, label, search.value);});
+  btnClear.addEventListener('click', ()=>{Array.from(select.options).forEach(o=>o.selected=false); syncCmpMultiUI(prefix, label, search.value);});
+  document.addEventListener('click', (e)=>{ if(!document.getElementById(`${prefix}Multi`)?.contains(e.target)) menu.hidden=true; });
+}
+
+function populateCmpSelect(prefix, label, values, labels={}){
+  const select=document.getElementById(prefix);
+  if(!select) return;
+  const prev = new Set(Array.from(select.selectedOptions || []).map(o=>o.value));
+  select.innerHTML='';
+  const ordered = [...(values || [])].sort((a,b)=>
+    String(labels[a] || a).localeCompare(String(labels[b] || b), 'el', { sensitivity:'base' })
+  );
+  ordered.forEach(v=>{
+    const opt=document.createElement('option');
+    opt.value=v;
+    const txt = labels[v] ? `${labels[v]}` : v;
+    opt.textContent=txt;
+    opt.dataset.label = labels[v] || v;
+    if(prev.has(v)) opt.selected=true;
+    select.appendChild(opt);
+  });
+  syncCmpMultiUI(prefix, label, document.getElementById(`${prefix}Search`)?.value||'');
+}
+
+async function loadCmpFilterOptions(){
+  const form=document.getElementById('compareFilters');
+  if(!form) return;
+  const fd=new FormData(form);
+  const p=new URLSearchParams();
+  p.set('from', window.bvToIsoDate ? window.bvToIsoDate(fd.get('A_from')) : fd.get('A_from'));
+  p.set('to', window.bvToIsoDate ? window.bvToIsoDate(fd.get('A_to')) : fd.get('A_to'));
+  cmpFieldDefs.forEach((field)=>{
+    const sel=document.getElementById(field.selectId);
+    Array.from(sel?.selectedOptions || []).forEach(o=>p.append(field.key, o.value));
+  });
+  try{
+    const res=await fetch(`/v1/kpi/sales/filter-options?${p.toString()}`);
+    if(!res.ok) return;
+    const options=await res.json();
+    cmpFieldDefs.forEach((field)=>{
+      const vals=(options && options[field.key]) || [];
+      const labels=((options && options.labels && options.labels[field.key]) || {});
+      populateCmpSelect(field.selectId, field.label, vals, labels);
+    });
+  }catch(_err){}
+}
+
+async function runCompare(e) {
+  if (e) e.preventDefault();
+  document.getElementById('cmpLoading').classList.remove('d-none');
+  setCmpError(null);
+  try {
+    const res = await fetch(`/v1/kpi/sales/compare?${paramsFromForm().toString()}`);
+    if (!res.ok) throw new Error('{{ tt(request, "comparison_request_failed") }}');
+    const data = await res.json();
+
+    const A = data.A || {};
+    const B = data.B || {};
+    const fd = new FormData(document.getElementById('compareFilters'));
+    const aFrom = fd.get('A_from');
+    const aTo = fd.get('A_to');
+    const bFrom = fd.get('B_from');
+    const bTo = fd.get('B_to');
+    document.getElementById('periodAText').textContent = `A: ${aFrom} → ${aTo}`;
+    document.getElementById('periodBText').textContent = `B: ${bFrom} → ${bTo}`;
+
+    document.getElementById('aNet').textContent = fmtMoney(A.net_value || 0);
+    document.getElementById('aGross').textContent = fmtMoney(A.gross_value || 0);
+    document.getElementById('aQty').textContent = fmtNum(A.qty || 0);
+
+    document.getElementById('bNet').textContent = fmtMoney(B.net_value || 0);
+    document.getElementById('bGross').textContent = fmtMoney(B.gross_value || 0);
+    document.getElementById('bQty').textContent = fmtNum(B.qty || 0);
+
+    document.getElementById('deltaNet').textContent = pctDelta(A.net_value, B.net_value);
+    document.getElementById('deltaGross').textContent = pctDelta(A.gross_value, B.gross_value);
+    document.getElementById('deltaQty').textContent = pctDelta(A.qty, B.qty);
+
+    if (cmpChart) cmpChart.destroy();
+    cmpChart = new Chart(document.getElementById('compareChart'), {
+      type: 'bar',
+      data: {
+        labels: [`A (${aFrom}–${aTo})`,`B (${bFrom}–${bTo})`],
+        datasets: [
+          { label: '{{ tt(request, "net") }} (€)', data: [Number(A.net_value || 0), Number(B.net_value || 0)], backgroundColor: '#2563eb' },
+          { label: '{{ tt(request, "gross") }} (€)', data: [Number(A.gross_value || 0), Number(B.gross_value || 0)], backgroundColor: '#16a34a' },
+          { label: '{{ tt(request, "qty") }}', data: [Number(A.qty || 0), Number(B.qty || 0)], backgroundColor: '#f59e0b', yAxisID: 'yQty' }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: true,
+        aspectRatio: 2.8,
+        interaction: { mode: 'index', intersect: false },
+        plugins: { legend: { position: 'bottom' } },
+        scales: {
+          y: {
+            beginAtZero: true,
+            ticks: { callback: (v) => new Intl.NumberFormat('el-GR').format(v) }
+          },
+          yQty: {
+            beginAtZero: true,
+            position: 'right',
+            grid: { drawOnChartArea: false },
+            ticks: { callback: (v) => new Intl.NumberFormat('el-GR').format(v) }
+          }
+        },
+        datasets: {
+          bar: {
+            borderRadius: 8,
+            barPercentage: 0.62,
+            categoryPercentage: 0.58
+          }
+        }
+      }
+    });
+  } catch (err) {
+    setCmpError(err.message || '{{ tt(request, "comparison_failed") }}');
+  } finally {
+    document.getElementById('cmpLoading').classList.add('d-none');
+  }
+}
+
+document.getElementById('compareFilters').addEventListener('submit', runCompare);
+window.addEventListener('load', async () => {
+  cmpFieldDefs.forEach((field)=>initCmpMulti(field.selectId, field.label));
+  await loadCmpFilterOptions();
+  await runCompare();
+});
+document.querySelectorAll('#compareFilters input[name="A_from"],#compareFilters input[name="A_to"]').forEach(el=>{
+  el.addEventListener('change', loadCmpFilterOptions);
+  el.addEventListener('blur', loadCmpFilterOptions);
+});
+cmpFieldDefs.forEach((field)=>{
+  const select=document.getElementById(field.selectId);
+  if(select){
+    select.addEventListener('change', loadCmpFilterOptions);
+  }
+});
+</script>
+{% endblock %}

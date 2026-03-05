@@ -1,0 +1,27 @@
+{% extends "base_admin.html" %}
+
+{% block content %}
+<div class="card content-card">
+  <div class="card-header"><h5 class="mb-0">Messages</h5></div>
+  <div class="card-body">
+    {% if not messages %}
+    <div class="alert alert-info mb-0">Δεν υπάρχουν μηνύματα.</div>
+    {% else %}
+    <div class="table-responsive">
+      <table class="table table-sm">
+        <thead><tr><th>Πότε</th><th>Ενέργεια</th><th>Οντότητα</th></tr></thead>
+        <tbody>
+        {% for m in messages %}
+          <tr>
+            <td>{{ m.created_at }}</td>
+            <td>{{ m.action }}</td>
+            <td>{{ m.entity_type }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

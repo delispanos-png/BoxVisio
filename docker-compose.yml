@@ -1,0 +1,157 @@
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${TENANT_DB_SUPERUSER:-postgres}
+      POSTGRES_PASSWORD: ${TENANT_DB_SUPERPASS:-postgres}
+      POSTGRES_DB: ${CONTROL_DB_NAME:-bi_control}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${TENANT_DB_SUPERUSER:-postgres} -d ${CONTROL_DB_NAME:-bi_control}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    expose:
+      - "5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - bi_net
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    expose:
+      - "6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - bi_net
+
+  api:
+    image: python:3.12-slim-bookworm
+    working_dir: /opt/cloudon-bi/backend
+    command:
+      - /bin/sh
+      - -lc
+      - ln -sf /usr/local/bin/python /usr/bin/python3 && exec /opt/cloudon-bi/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      PYTHONPATH: /opt/cloudon-bi/backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/ready', timeout=3)\" >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - /opt/cloudon-bi:/opt/cloudon-bi
+      - /lib/x86_64-linux-gnu/libodbc.so.2:/lib/x86_64-linux-gnu/libodbc.so.2:ro
+      - /lib/x86_64-linux-gnu/libodbcinst.so.2:/lib/x86_64-linux-gnu/libodbcinst.so.2:ro
+    expose:
+      - "8000"
+    networks:
+      - bi_net
+
+  worker:
+    image: python:3.12-slim-bookworm
+    working_dir: /opt/cloudon-bi
+    command:
+      - /bin/sh
+      - -lc
+      - ln -sf /usr/local/bin/python /usr/bin/python3 && exec /opt/cloudon-bi/.venv/bin/celery -A worker.celery_app worker -l INFO -Q default,ingest
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      PYTHONPATH: /opt/cloudon-bi/backend:/opt/cloudon-bi
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/cloudon-bi/.venv/bin/celery -A worker.celery_app inspect ping -d celery@$$HOSTNAME >/dev/null 2>&1 || pgrep -f 'celery.*worker' >/dev/null"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    volumes:
+      - /opt/cloudon-bi:/opt/cloudon-bi
+      - /lib/x86_64-linux-gnu/libodbc.so.2:/lib/x86_64-linux-gnu/libodbc.so.2:ro
+      - /lib/x86_64-linux-gnu/libodbcinst.so.2:/lib/x86_64-linux-gnu/libodbcinst.so.2:ro
+    networks:
+      - bi_net
+
+  worker_beat:
+    image: python:3.12-slim-bookworm
+    working_dir: /opt/cloudon-bi
+    command:
+      - /bin/sh
+      - -lc
+      - ln -sf /usr/local/bin/python /usr/bin/python3 && exec /opt/cloudon-bi/.venv/bin/celery -A worker.celery_app beat -l INFO
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      PYTHONPATH: /opt/cloudon-bi/backend:/opt/cloudon-bi
+    depends_on:
+      redis:
+        condition: service_healthy
+      worker:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "tr '\\0' ' ' < /proc/1/cmdline | grep -q 'celery'"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    volumes:
+      - /opt/cloudon-bi:/opt/cloudon-bi
+    networks:
+      - bi_net
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "nginx -t >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - ./infra/nginx/upstreams.conf:/etc/nginx/conf.d/upstreams.conf:ro
+      - ./infra/nginx/common_security.conf:/etc/nginx/conf.d/common_security.conf:ro
+      - ./infra/nginx/bi.boxvisio.com.conf:/etc/nginx/conf.d/bi.boxvisio.com.conf:ro
+      - ./infra/nginx/adminpanel.boxvisio.com.conf:/etc/nginx/conf.d/adminpanel.boxvisio.com.conf:ro
+      - ./infra/nginx/admin_allowlist.conf:/etc/nginx/snippets/admin_allowlist.conf:ro
+      - ./infra/certbot/www:/var/www/certbot
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+      - nginx_logs:/var/log/nginx
+    ports:
+      - "${NGINX_HTTP_PORT:-80}:80"
+      - "${NGINX_HTTPS_PORT:-443}:443"
+    networks:
+      - bi_net
+
+volumes:
+  postgres_data:
+  redis_data:
+  nginx_logs:
+
+networks:
+  bi_net:
+    driver: bridge

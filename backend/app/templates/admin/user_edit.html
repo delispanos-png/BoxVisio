@@ -1,0 +1,57 @@
+{% extends "base_admin.html" %}
+{% block content %}
+<div class="admin-users-page">
+<div class="card mt-3 shadow-sm">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <h5 class="mb-0">Επεξεργασία Χρήστη: {{ user.email }}</h5>
+    <small class="text-muted">Ανανέωσε ρόλο, tenant και χρονικό παράθυρο πρόσβασης.</small>
+  </div>
+  <div class="card-body">
+    <form method="post" action="/admin/users/{{ user.id }}/edit" class="row g-3 admin-user-create-form">
+      <input type="hidden" name="next_url" value="{{ next_url }}">
+      <div class="col-xl-4 col-md-6">
+        <label class="form-label">{{ tt(request, 'name') }}</label>
+        <input class="form-control" name="full_name" value="{{ user.full_name or '' }}">
+      </div>
+      <div class="col-xl-2 col-md-6">
+        <label class="form-label">{{ tt(request, 'phone') if tt(request, 'phone') != 'phone' else 'Phone' }}</label>
+        <input class="form-control" name="phone" value="{{ user.phone or '' }}">
+      </div>
+      <div class="col-xl-4 col-md-6">
+        <label class="form-label">{{ tt(request, 'email') }}</label>
+        <input class="form-control" type="email" name="email" value="{{ user.email }}" required>
+      </div>
+      <div class="col-xl-2 col-md-6">
+        <label class="form-label">{{ tt(request, 'role') }}</label>
+        <select class="form-select" name="role">
+          <option value="tenant_user" {% if user.role.value == 'tenant_user' %}selected{% endif %}>Χρήστης Πελάτη</option>
+          <option value="tenant_admin" {% if user.role.value == 'tenant_admin' %}selected{% endif %}>Διαχειριστής Πελάτη</option>
+          <option value="cloudon_admin" {% if user.role.value == 'cloudon_admin' %}selected{% endif %}>CloudOn Admin</option>
+        </select>
+      </div>
+      <div class="col-xl-4 col-md-6">
+        <label class="form-label">{{ tt(request, 'tenant_id') }}</label>
+        <select class="form-select" name="tenant_id">
+          <option value="">{{ tt(request, 'no_tenant') }}</option>
+          {% for t in tenants %}
+          <option value="{{ t.id }}" {% if user.tenant_id == t.id %}selected{% endif %}>{{ t.name }} ({{ t.slug }})</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-xl-4 col-md-6">
+        <label class="form-label">{{ tt(request, 'access_from') if tt(request, 'access_from') != 'access_from' else 'Access From' }}</label>
+        <input class="form-control" type="datetime-local" name="access_starts_at" value="{{ user.access_starts_at.strftime('%Y-%m-%dT%H:%M') if user.access_starts_at else '' }}">
+      </div>
+      <div class="col-xl-4 col-md-6">
+        <label class="form-label">{{ tt(request, 'access_until') if tt(request, 'access_until') != 'access_until' else 'Access Until' }}</label>
+        <input class="form-control" type="datetime-local" name="access_expires_at" value="{{ user.access_expires_at.strftime('%Y-%m-%dT%H:%M') if user.access_expires_at else '' }}">
+      </div>
+      <div class="col-12 d-flex gap-2 mt-2">
+        <button class="btn bv-action-btn bv-action-save" type="submit"><i class="fe fe-save me-1"></i>{{ tt(request, 'save') }}</button>
+        <a class="btn bv-action-btn bv-action-edit" href="{{ next_url }}"><i class="fe fe-arrow-left me-1"></i>Ακύρωση</a>
+      </div>
+    </form>
+  </div>
+</div>
+</div>
+{% endblock %}

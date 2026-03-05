@@ -1,0 +1,236 @@
+{% extends "base_admin.html" %}
+{% block content %}
+<div class="card mt-3">
+  <div class="card-body">
+    <h5 class="mb-2">{{ tt(request, 'sqlserver_connection') }}</h5>
+    <p class="text-muted mb-3">
+      {{ tt(request, 'allowlist_helper') }} <b>{{ server_public_ip or 'SET SERVER_PUBLIC_IP IN ENV' }}</b> {{ tt(request, 'on_sqlserver_port') }} <b>{{ sqlserver_port }}</b> {{ tt(request, 'default_1433') }}
+    </p>
+    <div class="alert alert-info mb-3">
+      <strong>Πώς δουλεύει:</strong> 1) Συμπλήρωσε σύνδεση SQL, 2) Πάτησε <b>Έλεγχος Σύνδεσης</b>, 3) Πάτησε <b>Discovery</b> για πίνακες/στήλες,
+      4) όρισε mapping και <b>Αποθήκευση Mapping Profile</b>.
+    </div>
+    {% if result %}
+      <div class="alert {% if result.status == 'ok' %}alert-success{% else %}alert-danger{% endif %}">
+        {{ result.message }}
+      </div>
+    {% endif %}
+    <form method="post" action="/admin/connections/test" class="row g-2">
+      <div class="col-12">
+        <div class="border rounded p-3 h-100">
+          <h6 class="mb-1">Βήμα 1: Στοιχεία Σύνδεσης</h6>
+          <div class="small text-muted mb-3">Δώσε credentials του SQL Server πελάτη (readonly user προτείνεται).</div>
+          <div class="row g-2">
+            <div class="col-md-3">
+              <label class="form-label">{{ tt(request, 'tenant') }}</label>
+              <select class="form-select" name="tenant_id" required>
+                {% for t in tenants %}
+                  <option value="{{ t.id }}" {% if form_values.tenant_id == t.id %}selected{% endif %}>{{ t.name }} ({{ t.slug }})</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-3"><label class="form-label">{{ tt(request, 'host') }}</label><input class="form-control" name="host" value="{{ form_values.host or '' }}" placeholder="sql.customer.local ή 1.2.3.4" required></div>
+            <div class="col-md-1"><label class="form-label">{{ tt(request, 'port') }}</label><input class="form-control" name="port" value="{{ form_values.port or '1433' }}" required></div>
+            <div class="col-md-2"><label class="form-label">{{ tt(request, 'database') }}</label><input class="form-control" name="database" value="{{ form_values.database or '' }}" placeholder="BV_PharmacyXXX" required></div>
+            <div class="col-md-1"><label class="form-label">{{ tt(request, 'username') }}</label><input class="form-control" name="username" value="{{ form_values.username or '' }}" required></div>
+            <div class="col-md-2"><label class="form-label">{{ tt(request, 'password') }}</label><input class="form-control" type="password" name="password" required></div>
+            <div class="col-md-12">
+              <label class="form-label">{{ tt(request, 'options') }}</label>
+              <input class="form-control" name="options" value="{{ form_values.options or 'Encrypt=yes;TrustServerCertificate=yes' }}">
+              <div class="form-text">Format: key=value;key2=value2 (π.χ. Encrypt=yes;TrustServerCertificate=yes)</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-12">
+        <div class="border rounded p-3 h-100">
+          <h6 class="mb-1">Βήμα 2: Discovery (πίνακες/στήλες)</h6>
+          <div class="small text-muted mb-3">Χρησιμοποίησε αυτό το βήμα για να βρεις σωστό schema/table πριν ορίσεις queries.</div>
+          <div class="row g-2">
+            <div class="col-md-3"><label class="form-label">{{ tt(request, 'discovery_schema') }}</label><input class="form-control" name="selected_schema" value="{{ form_values.selected_schema or '' }}" placeholder="dbo"></div>
+            <div class="col-md-4"><label class="form-label">{{ tt(request, 'discovery_object') }}</label><input class="form-control" name="selected_object" value="{{ form_values.selected_object or '' }}" placeholder="SalesLines / PurchaseLines"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-12">
+        <div class="form-check form-switch mt-1">
+          <input class="form-check-input" type="checkbox" id="enableQueryEdit">
+          <label class="form-check-label" for="enableQueryEdit">{{ tt(request, 'enable_query_editing') }}</label>
+        </div>
+      </div>
+
+      <div class="col-12">
+        <div class="border rounded p-3 h-100">
+          <h6 class="mb-1">Βήμα 3: Query Templates</h6>
+          <div class="small text-muted mb-3">Τα queries πρέπει να επιστρέφουν row-level γραμμές για ingestion.</div>
+          <div class="row g-2">
+            <div class="col-md-12"><label class="form-label">{{ tt(request, 'sales_query_template') }}</label><textarea class="form-control qp-editable" name="sales_query_template" rows="3" readonly>{{ form_values.sales_query_template or 'SELECT TOP 5000 * FROM dbo.SalesLines' }}</textarea></div>
+            <div class="col-md-12"><label class="form-label">{{ tt(request, 'purchases_query_template') }}</label><textarea class="form-control qp-editable" name="purchases_query_template" rows="3" readonly>{{ form_values.purchases_query_template or 'SELECT TOP 5000 * FROM dbo.PurchaseLines' }}</textarea></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-12">
+        <div class="border rounded p-3 h-100">
+          <h6 class="mb-1">Βήμα 4: Mapping Στηλών</h6>
+          <div class="small text-muted mb-3">Αντιστοίχισε τις στήλες του πελάτη στα canonical πεδία BI.</div>
+          <div class="row g-2">
+            <div class="col-md-3"><label class="form-label">Incremental Timestamp Column</label><input class="form-control" name="updated_at_column" value="{{ form_values.updated_at_column or 'UpdatedAt' }}" placeholder="UpdatedAt"></div>
+            <div class="col-md-3"><label class="form-label">Incremental ID Column</label><input class="form-control" name="id_column" value="{{ form_values.id_column or 'LineId' }}" placeholder="LineId"></div>
+            <div class="col-md-3"><label class="form-label">Document Date Column</label><input class="form-control" name="date_column" value="{{ form_values.date_column or 'DocDate' }}" placeholder="DocDate"></div>
+            <div class="col-md-3"><label class="form-label">Branch Column</label><input class="form-control" name="branch_column" value="{{ form_values.branch_column or 'branch_external_id' }}" placeholder="branch_external_id"></div>
+            <div class="col-md-3"><label class="form-label">Item Column</label><input class="form-control" name="item_column" value="{{ form_values.item_column or 'item_external_id' }}" placeholder="item_external_id"></div>
+            <div class="col-md-3"><label class="form-label">Net Amount Column</label><input class="form-control" name="net_amount_column" value="{{ form_values.net_amount_column or 'net_amount' }}" placeholder="net_amount"></div>
+            <div class="col-md-3"><label class="form-label">Cost Amount Column</label><input class="form-control" name="cost_column" value="{{ form_values.cost_column or 'cost_amount' }}" placeholder="cost_amount"></div>
+            <div class="col-md-3"><label class="form-label">Quantity Column</label><input class="form-control" name="qty_column" value="{{ form_values.qty_column or 'qty' }}" placeholder="qty"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-12 d-flex flex-wrap gap-2 mt-2">
+        <button class="btn bv-action-btn bv-action-edit" type="submit" formaction="/admin/connections/discovery"><i class="fe fe-search"></i> {{ tt(request, 'discovery') }}</button>
+        <button class="btn bv-action-btn bv-action-toggle" type="submit"><i class="fe fe-link"></i> {{ tt(request, 'test_connection') }}</button>
+        <button class="btn bv-action-btn bv-action-save" type="submit" formaction="/admin/connections/save"><i class="fe fe-save"></i> {{ tt(request, 'save_mapping_profile') }}</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="card mt-3">
+  <div class="card-body">
+    <h5 class="mb-3">{{ tt(request, 'querypack_backfill') }}</h5>
+    <div class="row g-3">
+      <div class="col-lg-6">
+        <form method="post" action="/admin/connections/apply-pack" class="row g-2">
+          <div class="col-md-8">
+            <label class="form-label">{{ tt(request, 'tenant') }}</label>
+            <select class="form-select" name="tenant_id" required>
+              {% for t in tenants %}
+                <option value="{{ t.id }}">{{ t.name }} ({{ t.slug }})</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-4 d-flex align-items-end">
+            <button class="btn btn-primary w-100" type="submit"><i class="fe fe-download-cloud"></i>{{ tt(request, 'apply_default_querypack') }}</button>
+          </div>
+        </form>
+      </div>
+      <div class="col-lg-6">
+        <form method="post" action="/admin/connections/backfill" class="row g-2">
+          <div class="col-md-4">
+            <label class="form-label">{{ tt(request, 'tenant') }}</label>
+            <select class="form-select" name="tenant_id" required>
+              {% for t in tenants %}
+                <option value="{{ t.id }}">{{ t.name }} ({{ t.slug }})</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">{{ tt(request, 'from') }}</label>
+            <input class="form-control" type="text" name="from_date" data-date-format="dmy" placeholder="ηη/μμ/εεεε" inputmode="numeric" required>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">{{ tt(request, 'to') }}</label>
+            <input class="form-control" type="text" name="to_date" data-date-format="dmy" placeholder="ηη/μμ/εεεε" inputmode="numeric" required>
+          </div>
+          <div class="col-md-2">
+            <label class="form-label">{{ tt(request, 'chunk_days') }}</label>
+            <input class="form-control" type="number" min="1" max="31" name="chunk_days" value="7">
+          </div>
+          <div class="col-12 d-flex align-items-center gap-2">
+            <input class="form-check-input" type="checkbox" name="include_purchases" id="includePurchases" checked>
+            <label class="form-check-label" for="includePurchases">{{ tt(request, 'include_purchases') }}</label>
+            <button class="btn bv-action-btn bv-action-save ms-auto" type="submit"><i class="fe fe-play-circle"></i>{{ tt(request, 'initial_backfill') }}</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% if discovery %}
+<div class="card mt-3">
+  <div class="card-body">
+    <h5 class="mb-3">{{ tt(request, 'discovery_results') }}</h5>
+    {% if discovery.objects %}
+    <div class="table-responsive mb-3">
+      <table class="table table-sm table-hover">
+        <thead><tr><th>{{ tt(request, 'schema') }}</th><th>{{ tt(request, 'object') }}</th><th>{{ tt(request, 'type') }}</th></tr></thead>
+        <tbody>
+          {% for o in discovery.objects %}
+          <tr>
+            <td>{{ o.schema }}</td>
+            <td>{{ o.name }}</td>
+            <td>{{ o.type }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+
+    {% if discovery.columns %}
+    <h6>{{ tt(request, 'columns') }} {{ discovery.selected_schema }}.{{ discovery.selected_object }}</h6>
+    <div class="table-responsive mb-3">
+      <table class="table table-sm table-striped">
+        <thead><tr><th>{{ tt(request, 'name') }}</th><th>{{ tt(request, 'type') }}</th><th>{{ tt(request, 'tags') }}</th></tr></thead>
+        <tbody>
+          {% for c in discovery.columns %}
+          <tr>
+            <td>{{ c.name }}</td>
+            <td>{{ c.data_type }}</td>
+            <td>{{ c.tags|join(', ') }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+
+    {% if discovery.sample_rows %}
+    <h6>{{ tt(request, 'sample_rows_top5') }}</h6>
+    <pre class="bg-light p-2 border rounded small">{{ discovery.sample_rows | tojson(indent=2) }}</pre>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
+<div class="card mt-3">
+  <div class="card-body">
+    <h5 class="mb-3">{{ tt(request, 'connections') }}</h5>
+    <div class="table-responsive">
+      <table class="table table-hover">
+        <thead><tr><th>ID</th><th>{{ tt(request, 'tenant_id') }}</th><th>Connector</th><th>{{ tt(request, 'encrypted') }}</th><th>{{ tt(request, 'incremental') }}</th><th>{{ tt(request, 'last_test_ok') }}</th><th>{{ tt(request, 'last_test_error') }}</th><th>{{ tt(request, 'sync_status') }}</th><th>{{ tt(request, 'last_sync') }}</th></tr></thead>
+        <tbody>
+          {% for c in connections %}
+          <tr>
+            <td>{{ c.id }}</td>
+            <td>{{ c.tenant_id }}</td>
+            <td>{{ c.connector_type }}</td>
+            <td>{% if c.enc_payload %}{{ tt(request, 'yes') }}{% else %}{{ tt(request, 'no') }}{% endif %}</td>
+            <td>{{ c.incremental_column }}</td>
+            <td>{{ c.last_test_ok_at or '-' }}</td>
+            <td>{{ c.last_test_error or '-' }}</td>
+            <td>{{ c.sync_status }}</td>
+            <td>{{ c.last_sync_at or '-' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+  (function () {
+    const toggle = document.getElementById('enableQueryEdit');
+    if (!toggle) return;
+    const targets = document.querySelectorAll('.qp-editable');
+    toggle.addEventListener('change', function () {
+      targets.forEach(function (el) { el.readOnly = !toggle.checked; });
+    });
+  })();
+</script>
+{% endblock %}

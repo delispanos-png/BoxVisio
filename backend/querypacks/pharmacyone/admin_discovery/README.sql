@@ -1,0 +1,1 @@
+-- Optional admin discovery helper queries go here.

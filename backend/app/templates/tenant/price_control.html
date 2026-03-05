@@ -1,0 +1,293 @@
+{% extends "base_tenant.html" %}
+
+{% block filters %}
+<form id="pcFiltersForm" class="row g-3">
+  <div class="col-xl-2 col-md-6">
+    <label class="form-label">{{ tt(request, 'from') }}</label>
+    <input id="pcFrom" type="text" class="form-control" data-date-format="dmy" value="{{ default_from.strftime('%d/%m/%Y') if default_from else '' }}" placeholder="ηη/μμ/εεεε" inputmode="numeric">
+  </div>
+  <div class="col-xl-2 col-md-6">
+    <label class="form-label">{{ tt(request, 'to') }}</label>
+    <input id="pcTo" type="text" class="form-control" data-date-format="dmy" value="{{ default_to.strftime('%d/%m/%Y') if default_to else '' }}" placeholder="ηη/μμ/εεεε" inputmode="numeric">
+  </div>
+  <div class="col-xl-2 col-md-6">
+    <label class="form-label">{{ tt(request, 'supplier_filter') }}</label>
+    <select id="pcSupplier" class="form-select">
+      <option value="">{{ tt(request, 'all') }}</option>
+    </select>
+  </div>
+  <div class="col-xl-2 col-md-6">
+    <label class="form-label">{{ tt(request, 'target') }}</label>
+    <select id="pcTarget" class="form-select">
+      <option value="">{{ tt(request, 'all') }}</option>
+    </select>
+  </div>
+  <div class="col-xl-2 col-md-6">
+    <label class="form-label">{{ tt(request, 'target_margin') }}</label>
+    <input id="pcTargetMargin" type="number" min="0" max="95" step="0.1" class="form-control" value="{{ default_target_margin }}">
+  </div>
+  <div class="col-xl-2 col-md-6">
+    <label class="form-label">{{ tt(request, 'discount_pct') }}</label>
+    <input id="pcDiscountPct" type="number" min="0" max="99" step="0.1" class="form-control" value="0">
+  </div>
+
+  <div class="col-xl-4 col-md-6">
+    <label class="form-label">{{ tt(request, 'categories') }}</label>
+    <select id="pcCategories" class="form-select" multiple size="4"></select>
+    <small class="text-muted">Ctrl/Cmd για πολλαπλή επιλογή</small>
+  </div>
+  <div class="col-xl-4 col-md-6">
+    <label class="form-label">{{ tt(request, 'groups') }}</label>
+    <select id="pcGroups" class="form-select" multiple size="4"></select>
+    <small class="text-muted">Ctrl/Cmd για πολλαπλή επιλογή</small>
+  </div>
+  <div class="col-xl-4 col-md-12">
+    <label class="form-label">{{ tt(request, 'item_codes') }}</label>
+    <select id="pcItems" class="form-select" multiple size="4"></select>
+    <small class="text-muted">Όταν επιλέγεις στόχο, εμφανίζονται μόνο τα είδη του στόχου.</small>
+  </div>
+
+  <div class="col-12 d-flex gap-2">
+    <button type="submit" class="btn btn-primary"><i class="fe fe-filter me-1"></i>{{ tt(request, 'apply') }}</button>
+    <button id="pcResetBtn" type="button" class="btn btn-outline-secondary">{{ tt(request, 'clear') }}</button>
+  </div>
+</form>
+{% endblock %}
+
+{% block content %}
+<div id="pcError" class="alert alert-danger d-none mb-3"></div>
+
+<div class="row g-3 mb-3">
+  <div class="col-lg-4">
+    <div class="bv-kpi-box bv-kpi-blue">
+      <div class="kpi-title">{{ tt(request, 'item_codes') }}</div>
+      <div id="pcItemsCount" class="kpi-value">0</div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="bv-kpi-box bv-kpi-green">
+      <div class="kpi-title">{{ tt(request, 'margin') }}</div>
+      <div id="pcAvgMargin" class="kpi-value">0.00%</div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="bv-kpi-box bv-kpi-orange">
+      <div class="kpi-title">{{ tt(request, 'discount_pct') }}</div>
+      <div id="pcEffectiveDiscount" class="kpi-value">0.00%</div>
+    </div>
+  </div>
+</div>
+
+<div class="card border-0 shadow-sm content-card">
+  <div class="card-header">
+    <h5 class="mb-0">{{ tt(request, 'price_control') }}</h5>
+  </div>
+  <div class="card-body table-responsive">
+    <table class="table table-sm table-hover align-middle" id="pcTable">
+      <thead>
+        <tr>
+          <th>{{ tt(request, 'item') }}</th>
+          <th>{{ tt(request, 'barcode') }}</th>
+          <th>{{ tt(request, 'supplier_filter') }}</th>
+          <th>{{ tt(request, 'brands') }}</th>
+          <th>{{ tt(request, 'categories') }}</th>
+          <th>{{ tt(request, 'groups') }}</th>
+          <th class="text-end">{{ tt(request, 'wholesale_unit') }}</th>
+          <th class="text-end">{{ tt(request, 'acquisition_after_discount') }}</th>
+          <th class="text-end">{{ tt(request, 'sale_unit') }}</th>
+          <th class="text-end">{{ tt(request, 'unit_profit') }}</th>
+          <th class="text-end">{{ tt(request, 'margin') }}</th>
+          <th class="text-end">{{ tt(request, 'required_total_discount') }}</th>
+          <th class="text-end">{{ tt(request, 'recommended_discount') }}</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function(){
+  const fmtMoney = (n)=>new Intl.NumberFormat('el-GR',{style:'currency',currency:'EUR',maximumFractionDigits:2}).format(Number(n||0));
+  const fmtPct = (n)=>`${new Intl.NumberFormat('el-GR',{minimumFractionDigits:2,maximumFractionDigits:2}).format(Number(n||0))}%`;
+
+  const form = document.getElementById('pcFiltersForm');
+  const errEl = document.getElementById('pcError');
+  const fromEl = document.getElementById('pcFrom');
+  const toEl = document.getElementById('pcTo');
+  const supplierEl = document.getElementById('pcSupplier');
+  const targetEl = document.getElementById('pcTarget');
+  const targetMarginEl = document.getElementById('pcTargetMargin');
+  const discountEl = document.getElementById('pcDiscountPct');
+  const categoriesEl = document.getElementById('pcCategories');
+  const groupsEl = document.getElementById('pcGroups');
+  const itemsEl = document.getElementById('pcItems');
+
+  const summaryItemsEl = document.getElementById('pcItemsCount');
+  const summaryAvgEl = document.getElementById('pcAvgMargin');
+  const summaryDiscEl = document.getElementById('pcEffectiveDiscount');
+  const tbody = document.querySelector('#pcTable tbody');
+
+  function setError(msg){
+    if(!msg){ errEl.classList.add('d-none'); errEl.textContent=''; return; }
+    errEl.classList.remove('d-none');
+    errEl.textContent = msg;
+  }
+
+  function selectedValues(el){
+    return Array.from(el?.selectedOptions || []).map(o=>o.value).filter(Boolean);
+  }
+
+  function clearAndFillSelect(el, rows){
+    const prev = new Set(selectedValues(el));
+    el.innerHTML = '';
+    const ordered = [...(rows || [])].sort((a, b) =>
+      String(a.label || a.value || '').localeCompare(String(b.label || b.value || ''), 'el', { sensitivity: 'base' })
+    );
+    ordered.forEach(r=>{
+      const opt=document.createElement('option');
+      opt.value = r.value;
+      opt.textContent = r.label || r.value;
+      if(prev.has(opt.value)) opt.selected = true;
+      el.appendChild(opt);
+    });
+  }
+
+  async function loadFilterOptions(){
+    const qs = new URLSearchParams();
+    if(supplierEl.value) qs.set('supplier_ext_id', supplierEl.value);
+    if(targetEl.value) qs.set('target_id', targetEl.value);
+    const res = await fetch(`/v1/kpi/price-control/filter-options?${qs.toString()}`);
+    if(!res.ok){
+      const t = await res.text();
+      throw new Error(t || 'Filter options failed');
+    }
+    const data = await res.json();
+
+    const supplierPrev = supplierEl.value;
+    const targetPrev = targetEl.value;
+
+    supplierEl.innerHTML = `<option value="">{{ tt(request, 'all') }}</option>`;
+    (data.suppliers || []).forEach(r=>{
+      const o = document.createElement('option');
+      o.value = r.value; o.textContent = r.label || r.value;
+      supplierEl.appendChild(o);
+    });
+    if(supplierPrev) supplierEl.value = supplierPrev;
+    if(data.target_supplier_ext_id && targetEl.value){
+      supplierEl.value = data.target_supplier_ext_id;
+    }
+
+    targetEl.innerHTML = `<option value="">{{ tt(request, 'all') }}</option>`;
+    (data.targets || []).forEach(r=>{
+      const o = document.createElement('option');
+      o.value = r.value; o.textContent = r.label || r.value;
+      o.dataset.rebate = String(r.rebate_percent || 0);
+      targetEl.appendChild(o);
+    });
+    if(targetPrev) targetEl.value = targetPrev;
+
+    clearAndFillSelect(categoriesEl, data.categories || []);
+    clearAndFillSelect(groupsEl, data.groups || []);
+    clearAndFillSelect(itemsEl, data.items || []);
+
+    if(targetEl.value){
+      const selected = targetEl.options[targetEl.selectedIndex];
+      if(selected){
+        const rebate = Number(selected.dataset.rebate || data.target_rebate_percent || 0);
+        if(!Number.isNaN(rebate)) discountEl.value = String(rebate);
+      }
+    }
+  }
+
+  function makeParams(){
+    const qs = new URLSearchParams();
+    const fromIso = window.bvToIsoDate ? window.bvToIsoDate(fromEl.value) : fromEl.value;
+    const toIso = window.bvToIsoDate ? window.bvToIsoDate(toEl.value) : toEl.value;
+    if(fromIso) qs.set('from', fromIso);
+    if(toIso) qs.set('to', toIso);
+    if(supplierEl.value) qs.set('supplier_ext_id', supplierEl.value);
+    if(targetEl.value) qs.set('target_id', targetEl.value);
+    selectedValues(categoriesEl).forEach(v=>qs.append('categories', v));
+    selectedValues(groupsEl).forEach(v=>qs.append('groups', v));
+    selectedValues(itemsEl).forEach(v=>qs.append('item_codes', v));
+    qs.set('target_margin_pct', String(targetMarginEl.value || 35));
+    qs.set('discount_pct', String(discountEl.value || 0));
+    qs.set('limit', '2000');
+    return qs;
+  }
+
+  function renderRows(rows){
+    tbody.innerHTML = '';
+    if(!rows.length){
+      tbody.innerHTML = `<tr><td colspan="13" class="text-center text-muted py-3">{{ tt(request, 'no_data_available') }}</td></tr>`;
+      return;
+    }
+    rows.forEach(r=>{
+      const tr = document.createElement('tr');
+      const req = r.required_total_discount_pct == null ? '-' : fmtPct(r.required_total_discount_pct);
+      const rec = r.recommended_extra_discount_pct == null ? '-' : fmtPct(r.recommended_extra_discount_pct);
+      const recClass = Number(r.recommended_extra_discount_pct || 0) > 0 ? 'text-danger fw-bold' : 'text-success fw-bold';
+      tr.innerHTML = `
+        <td><div class="fw-semibold">${r.item_name || '-'}</div><div class="small text-muted">${r.item_code || '-'}</div></td>
+        <td>${r.barcode || '-'}</td>
+        <td>${r.supplier || '-'}</td>
+        <td>${r.brand || '-'}</td>
+        <td>${r.category || '-'}</td>
+        <td>${r.group || '-'}</td>
+        <td class="text-end">${fmtMoney(r.wholesale_unit)}</td>
+        <td class="text-end">${fmtMoney(r.acquisition_after_discount)}</td>
+        <td class="text-end">${fmtMoney(r.sale_unit)}</td>
+        <td class="text-end">${fmtMoney(r.unit_profit)}</td>
+        <td class="text-end fw-bold">${fmtPct(r.margin_pct)}</td>
+        <td class="text-end">${req}</td>
+        <td class="text-end ${recClass}">${rec}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  async function loadTable(){
+    setError('');
+    const res = await fetch(`/v1/kpi/price-control/items?${makeParams().toString()}`);
+    let data = null;
+    try{ data = await res.json(); }catch(_e){}
+    if(!res.ok){
+      throw new Error(data?.detail || 'Load failed');
+    }
+    const summary = data.summary || {};
+    summaryItemsEl.textContent = String(summary.items || 0);
+    summaryAvgEl.textContent = fmtPct(summary.avg_margin_pct || 0);
+    summaryDiscEl.textContent = fmtPct(data.effective_discount_pct || 0);
+    renderRows(data.rows || []);
+  }
+
+  async function refreshAndLoad(){
+    try{
+      await loadFilterOptions();
+      await loadTable();
+    }catch(err){
+      setError(err?.message || 'Internal Server Error');
+    }
+  }
+
+  supplierEl.addEventListener('change', refreshAndLoad);
+  targetEl.addEventListener('change', refreshAndLoad);
+  form.addEventListener('submit', (e)=>{ e.preventDefault(); loadTable().catch(err=>setError(err?.message || 'Internal Server Error')); });
+  document.getElementById('pcResetBtn').addEventListener('click', ()=>{
+    supplierEl.value = '';
+    targetEl.value = '';
+    targetMarginEl.value = '{{ default_target_margin }}';
+    discountEl.value = '0';
+    Array.from(categoriesEl.options).forEach(o=>{o.selected=false;});
+    Array.from(groupsEl.options).forEach(o=>{o.selected=false;});
+    Array.from(itemsEl.options).forEach(o=>{o.selected=false;});
+    refreshAndLoad();
+  });
+
+  refreshAndLoad();
+})();
+</script>
+{% endblock %}

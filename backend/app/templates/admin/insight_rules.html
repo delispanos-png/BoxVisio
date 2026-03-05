@@ -1,0 +1,56 @@
+{% extends "base_admin.html" %}
+{% block content %}
+{% if request.query_params.get('saved') == '1' %}
+<div class="alert alert-success mt-3">Ο κανόνας αποθηκεύτηκε επιτυχώς.</div>
+{% elif request.query_params.get('saved') == '0' %}
+<div class="alert alert-danger mt-3">Αποτυχία αποθήκευσης κανόνα.</div>
+{% endif %}
+<div class="card mt-3">
+  <div class="card-header"><h5 class="mb-0">{{ tt(request, 'rule_management') }}</h5></div>
+  <div class="card-body">
+    <form method="get" action="/admin/insight-rules" class="row g-2 mb-3">
+      <div class="col-md-4">
+        <label class="form-label">{{ tt(request, 'tenant') }}</label>
+        <select class="form-select" name="tenant_id" required>
+          {% for t in tenants %}
+          <option value="{{ t.id }}" {% if selected_tenant and selected_tenant.id == t.id %}selected{% endif %}>
+            {{ t.name or t.slug }}{% if t.slug and t.name and t.slug != t.name %} ({{ t.slug }}){% endif %}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2 align-self-end"><button class="btn btn-primary w-100" type="submit"><i class="fe fe-search"></i>{{ tt(request, 'load') }}</button></div>
+    </form>
+
+    {% if selected_tenant %}
+    <div class="mb-3">
+      <form method="post" action="/admin/insight-rules/{{ selected_tenant.id }}/run" style="display:inline">
+        <button class="btn btn-sm bv-action-btn bv-action-save" type="submit"><i class="fe fe-play"></i>{{ tt(request, 'run_insights_now') }}</button>
+      </form>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-hover">
+        <thead><tr><th>{{ tt(request, 'code') }}</th><th>Όνομα KPI</th><th>{{ tt(request, 'category') }}</th><th class="text-end">{{ tt(request, 'actions') }}</th></tr></thead>
+        <tbody>
+          {% for r in rules %}
+          <tr>
+            <td>{{ r.code }}</td>
+            <td>
+              <div class="fw-semibold">{{ r.name_display }}</div>
+              <div class="small text-muted">{{ r.description_display }}</div>
+            </td>
+            <td>{{ r.category_display }}</td>
+            <td class="text-end">
+              <a class="btn btn-sm bv-action-btn bv-action-edit" href="/admin/insight-rules/{{ selected_tenant.id }}/{{ r.code }}/edit">
+                <i class="fe fe-edit-2"></i>Επεξεργασία
+              </a>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,169 @@
+{% extends "base_admin.html" %}
+{% block content %}
+{% if request.query_params.get('updated') == '1' %}
+<div class="alert alert-success mt-3">Ο πελάτης ενημερώθηκε επιτυχώς.</div>
+{% elif request.query_params.get('updated') == '0' %}
+{% set _reason = request.query_params.get('reason') or 'unknown' %}
+<div class="alert alert-danger mt-3">
+  Αποτυχία ενημέρωσης πελάτη.
+  {% if _reason == 'slug_exists' %}
+    Αιτία: το slug υπάρχει ήδη.
+  {% elif _reason == 'bad_slug' %}
+    Αιτία: μη έγκυρο slug (επιτρέπονται μόνο a-z, 0-9, -).
+  {% else %}
+    Αιτία: {{ _reason }}
+  {% endif %}
+</div>
+{% endif %}
+{% if request.query_params.get('deleted') == '1' %}
+<div class="alert alert-success mt-3">Ο πελάτης διαγράφηκε επιτυχώς.</div>
+{% elif request.query_params.get('deleted') == '0' %}
+<div class="alert alert-danger mt-3">Αποτυχία διαγραφής πελάτη.</div>
+{% endif %}
+{% if error %}
+<div class="alert alert-danger mt-3">{{ error }}</div>
+{% endif %}
+{% if provisioning_result and provisioning_result.status == 'ok' %}
+<div class="alert alert-success mt-3">
+  <div class="fw-bold">{{ tt(request, 'provisioning_completed') }}</div>
+  <div>{{ tt(request, 'tenant') }}: <code>{{ provisioning_result.slug }}</code> | {{ tt(request, 'plan') }}: <code>{{ provisioning_result.plan }}</code> | {{ tt(request, 'subscriptions') }}: <code>{{ provisioning_result.subscription_status }}</code></div>
+  <div>Invite token: <code>{{ provisioning_result.invite_token }}</code></div>
+  <div>API Key ID: <code>{{ provisioning_result.api_key_id }}</code></div>
+  <div>API Key Secret: <code>{{ provisioning_result.api_key_secret }}</code></div>
+</div>
+{% elif provisioning_result and provisioning_result.status == 'error' and provisioning_result.steps %}
+<div class="alert alert-warning mt-3">
+  <div class="fw-bold">{{ tt(request, 'provisioning_failed') }}</div>
+  <div class="small text-muted">{{ tt(request, 'review_steps_troubleshoot') }}</div>
+</div>
+{% endif %}
+
+<div class="card mt-3">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h5 class="mb-0">{{ tt(request, 'tenant_wizard') }}</h5>
+      <a class="btn btn-sm bv-action-btn bv-action-edit" href="/admin/plans"><i class="fe fe-sliders"></i>{{ tt(request, 'manage_plan_features') }}</a>
+    </div>
+    <form id="tenantCreateForm" method="post" action="/admin/tenants/create" class="row g-2">
+      <div class="col-md-2"><input class="form-control" name="name" placeholder="{{ tt(request, 'tenant_name') }}" required></div>
+      <div class="col-md-2"><input class="form-control" name="slug" placeholder="tenant-slug" required></div>
+      <div class="col-md-2"><input class="form-control" name="admin_email" placeholder="admin@tenant.com" required></div>
+      <div class="col-md-2">
+        <select class="form-select" name="plan">
+          <option value="standard">Standard</option>
+          <option value="pro">Pro</option>
+          <option value="enterprise">Enterprise</option>
+        </select>
+      </div>
+      <div class="col-md-2">
+        <select class="form-select" name="source">
+          <option value="pharmacyone">SQL</option>
+          <option value="external">API</option>
+          <option value="files">Αρχεία</option>
+        </select>
+      </div>
+      <div class="col-md-2">
+        <select class="form-select" name="subscription_status">
+          <option value="trial">trial</option>
+          <option value="active">active</option>
+          <option value="past_due">past_due</option>
+          <option value="suspended">suspended</option>
+          <option value="canceled">canceled</option>
+        </select>
+      </div>
+      <div class="col-md-2"><input class="form-control" type="number" min="0" name="trial_days" value="14" placeholder="{{ tt(request, 'trial_days') }}"></div>
+      <div class="col-md-2"><button id="tenantCreateBtn" class="btn btn-primary w-100" type="submit"><i class="fe fe-plus-circle"></i>{{ tt(request, 'create_tenant') }}</button></div>
+      <div class="col-12"><small class="text-muted">Βήματα: στοιχεία πελάτη -> πλάνο -> πηγή -> δημιουργία DB -> tenant migrations -> admin user -> API keys</small></div>
+    </form>
+  </div>
+</div>
+
+{% if provisioning_result and provisioning_result.steps %}
+<div class="card mt-3">
+  <div class="card-body">
+    <h5 class="mb-3">{{ tt(request, 'last_provisioning_run') }}</h5>
+    <div class="table-responsive">
+      <table class="table table-sm">
+        <thead><tr><th>{{ tt(request, 'step') }}</th><th>{{ tt(request, 'title') }}</th><th>{{ tt(request, 'status') }}</th><th>{{ tt(request, 'message') }}</th></tr></thead>
+        <tbody>
+          {% for s in provisioning_result.steps %}
+          <tr>
+            <td>{{ s.step }}</td>
+            <td>{{ s.title }}</td>
+            <td><span class="badge {% if s.status == 'ok' %}bg-success{% else %}bg-danger{% endif %}">{{ s.status }}</span></td>
+            <td>{{ s.message }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<div class="card">
+  <div class="card-body">
+    <h5 class="mb-3">{{ tt(request, 'tenants_list') }}</h5>
+    <div class="table-responsive">
+      <table class="table table-hover align-middle">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>{{ tt(request, 'name') }}</th>
+            <th>Slug</th>
+            <th>{{ tt(request, 'plan') }}</th>
+            <th>{{ tt(request, 'status') }}</th>
+            <th>{{ tt(request, 'subscriptions') }}</th>
+            <th>{{ tt(request, 'source') }}</th>
+            <th>{{ tt(request, 'created') }}</th>
+            <th class="text-end">{{ tt(request, 'actions') }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for t in tenants %}
+          <tr>
+            <td>{{ t.id }}</td>
+            <td>{{ t.name }}</td>
+            <td>{{ t.slug }}</td>
+            <td>{{ t.plan.value }}</td>
+            <td>
+              <span class="badge {% if t.status.value == 'active' %}bg-success{% elif t.status.value == 'suspended' %}bg-warning text-dark{% else %}bg-secondary{% endif %}">
+                {{ t.status.value }}
+              </span>
+            </td>
+            <td>
+              <span class="badge {% if t.subscription_status.value in ['active','trial'] %}bg-info text-dark{% elif t.subscription_status.value in ['past_due','suspended'] %}bg-warning text-dark{% else %}bg-secondary{% endif %}">
+                {{ t.subscription_status.value }}
+              </span>
+            </td>
+            <td>
+              {% if t.source == 'pharmacyone' %}SQL{% elif t.source == 'external' %}API{% elif t.source == 'files' %}Αρχεία{% else %}{{ t.source }}{% endif %}
+            </td>
+            <td>{{ t.created_at }}</td>
+            <td class="text-end">
+              <a class="btn btn-sm bv-action-btn bv-action-edit" href="/admin/tenants/{{ t.id }}/edit?next=/admin/tenants">
+                <i class="fe fe-edit-2"></i>Επεξεργασία
+              </a>
+              <form method="post" action="/admin/tenants/{{ t.id }}/delete" class="d-inline" onsubmit="return confirm('Να διαγραφεί ο πελάτης {{ t.name }}; Θα τερματιστεί η πρόσβαση (soft delete).');">
+                <input type="hidden" name="next_url" value="/admin/tenants">
+                <button class="btn btn-sm bv-action-btn bv-action-delete" type="submit"><i class="fe fe-trash-2"></i>Διαγραφή</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('tenantCreateForm').addEventListener('submit', function () {
+  const btn = document.getElementById('tenantCreateBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> {{ tt(request, "loading") }}';
+});
+</script>
+{% endblock %}

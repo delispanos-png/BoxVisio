@@ -1,0 +1,460 @@
+{% extends "base_tenant.html" %}
+
+{% block filters %}
+<form id="insightFilters" class="row g-2">
+  <div class="col-12"><label class="form-label mb-1">{{ tt(request, 'category') }}</label><select class="form-select" name="category"><option value="">{{ tt(request, 'all') }}</option><option value="sales">{{ tt(request, 'sales') }}</option><option value="purchases">{{ tt(request, 'purchases') }}</option><option value="inventory">{{ tt(request, 'inventory') }}</option><option value="cashflow">{{ tt(request, 'cashflow') }}</option></select></div>
+  <div class="col-12"><label class="form-label mb-1">{{ tt(request, 'severity') }}</label><select class="form-select" name="severity"><option value="">{{ tt(request, 'all') }}</option><option value="critical">{{ tt(request, 'critical') }}</option><option value="warning">{{ tt(request, 'warning') }}</option><option value="info">{{ tt(request, 'info') }}</option></select></div>
+  <div class="col-12"><label class="form-label mb-1">{{ tt(request, 'status') }}</label><select class="form-select" name="status"><option value="">{{ tt(request, 'all') }}</option><option value="open">{{ tt(request, 'open') }}</option><option value="acknowledged">{{ tt(request, 'acknowledged') }}</option><option value="resolved">{{ tt(request, 'resolved') }}</option></select></div>
+  <div class="col-12"><label class="form-label mb-1">{{ tt(request, 'from') }}</label><input class="form-control" type="text" name="from" value="{{ default_from.strftime('%d/%m/%Y') if default_from else '' }}" data-date-format="dmy" placeholder="ηη/μμ/εεεε" inputmode="numeric"></div>
+  <div class="col-12"><label class="form-label mb-1">{{ tt(request, 'to') }}</label><input class="form-control" type="text" name="to" value="{{ default_to.strftime('%d/%m/%Y') if default_to else '' }}" data-date-format="dmy" placeholder="ηη/μμ/εεεε" inputmode="numeric"></div>
+  <input type="hidden" name="context_type" value="">
+  <div class="col-12 d-grid gap-2">
+    <button class="btn btn-primary" type="submit"><i class="fe fe-filter"></i>{{ tt(request, 'apply') }}</button>
+    <button class="btn bv-action-btn bv-action-save" type="button" id="runNowBtn"><i class="fe fe-play"></i>{{ tt(request, 'run_insights_now') }}</button>
+  </div>
+</form>
+{% endblock %}
+
+{% block content %}
+<div id="insightsError" class="alert alert-danger d-none"></div>
+<div class="card border-0 shadow-sm">
+  <div class="card-header bg-white"><h5 class="mb-0">{{ tt(request, 'insights') }}</h5></div>
+  <div class="card-body">
+    <div class="row g-2 mb-3 align-items-end">
+      <div class="col-12 col-md-5">
+        <label class="form-label mb-1">Ταξινόμηση</label>
+        <select id="insightsSort" class="form-select">
+          <option value="created_desc">Ημερομηνία (νεότερα)</option>
+          <option value="created_asc">Ημερομηνία (παλαιότερα)</option>
+          <option value="severity_desc">Σοβαρότητα (κρίσιμο -> πληροφορία)</option>
+          <option value="severity_asc">Σοβαρότητα (πληροφορία -> κρίσιμο)</option>
+          <option value="value_desc">Μετρική (μεγαλύτερη)</option>
+          <option value="value_asc">Μετρική (μικρότερη)</option>
+        </select>
+      </div>
+      <div class="col-6 col-md-3">
+        <label class="form-label mb-1">Ανά σελίδα</label>
+        <select id="insightsPageSize" class="form-select">
+          <option value="10">10</option>
+          <option value="20" selected>20</option>
+          <option value="50">50</option>
+          <option value="100">100</option>
+        </select>
+      </div>
+      <div class="col-6 col-md-4 text-md-end">
+        <small id="insightsInfo" class="text-muted"></small>
+      </div>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-hover" id="insightsTable">
+        <thead><tr><th>{{ tt(request, 'when') }}</th><th>{{ tt(request, 'category') }}</th><th>{{ tt(request, 'severity') }}</th><th>{{ tt(request, 'title') }}</th><th>{{ tt(request, 'entity') }}</th><th>{{ tt(request, 'status') }}</th><th>{{ tt(request, 'drilldown') }}</th><th>{{ tt(request, 'actions') }}</th></tr></thead>
+        <tbody>
+          {% for r in (initial_insights or []) %}
+          {% set drill = '/tenant/sales' %}
+          {% if r.category == 'purchases' %}{% set drill = '/tenant/purchases' %}{% endif %}
+          {% if r.category == 'inventory' %}{% set drill = '/tenant/inventory' %}{% endif %}
+          {% if r.category == 'cashflow' %}{% set drill = '/tenant/cashflow' %}{% endif %}
+          {% if r.metadata_json and r.metadata_json.get('drilldown') %}{% set drill = r.metadata_json.get('drilldown') %}{% endif %}
+          <tr>
+            <td>{{ r.created_at or '-' }}</td>
+            <td>{{ r.category or '-' }}</td>
+            <td>
+              {% if (r.severity or '') == 'critical' %}
+              <span class="badge bg-danger">🔴 {{ tt(request, "critical") }}</span>
+              {% elif (r.severity or '') == 'warning' %}
+              <span class="badge bg-warning text-dark">🟡 {{ tt(request, "warning") }}</span>
+              {% else %}
+              <span class="badge bg-info text-dark">🔵 {{ tt(request, "info") }}</span>
+              {% endif %}
+            </td>
+            <td>
+              <div><strong>{{ r.title or '-' }}</strong></div>
+              <div class="text-muted small">{{ r.message or '-' }}</div>
+            </td>
+            <td>{{ r.entity_name or r.entity_external_id or '-' }}</td>
+            <td>{{ r.status or '-' }}</td>
+            <td><a class="btn btn-sm bv-action-btn bv-action-edit" href="{{ drill }}"><i class="fe fe-external-link"></i>{{ tt(request, 'view_details') }}</a></td>
+            <td>
+              <button class="btn btn-sm bv-action-btn bv-action-edit me-1" data-detail="{{ r.id }}"><i class="fe fe-eye"></i>{{ tt(request, 'detail') }}</button>
+              {% if (r.status or '') == 'open' %}
+              <button class="btn btn-sm bv-action-btn bv-action-save" data-ack="{{ r.id }}"><i class="fe fe-check-circle"></i>{{ tt(request, 'acknowledge') }}</button>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+          {% if not (initial_insights or []) %}
+          <tr><td colspan="8" class="text-muted">Δεν υπάρχουν insights για το τρέχον διάστημα.</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+    <div class="d-flex justify-content-between align-items-center mt-2">
+      <button type="button" class="btn btn-sm btn-outline-secondary" id="insightsPrevBtn"><i class="fe fe-chevron-left"></i> Προηγούμενη</button>
+      <span id="insightsPageLabel" class="small text-muted">Σελίδα 1</span>
+      <button type="button" class="btn btn-sm btn-outline-secondary" id="insightsNextBtn">Επόμενη <i class="fe fe-chevron-right"></i></button>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="insightDetailModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="insightDetailTitle">{{ tt(request, 'insight_details') }}</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-2 text-muted" id="insightDetailMeta"></div>
+        <p class="mb-3" id="insightDetailMessage"></p>
+        <div class="row g-2 mb-3">
+          <div class="col-md-3"><div class="border rounded p-2"><small class="text-muted d-block">{{ tt(request, 'current') }}</small><strong id="insightDetailCurrent">-</strong></div></div>
+          <div class="col-md-3"><div class="border rounded p-2"><small class="text-muted d-block">{{ tt(request, 'baseline') }}</small><strong id="insightDetailBaseline">-</strong></div></div>
+          <div class="col-md-3"><div class="border rounded p-2"><small class="text-muted d-block">{{ tt(request, 'delta') }}</small><strong id="insightDetailDelta">-</strong></div></div>
+          <div class="col-md-3"><div class="border rounded p-2"><small class="text-muted d-block">Delta %</small><strong id="insightDetailDeltaPct">-</strong></div></div>
+        </div>
+        <h6 class="mb-2">{{ tt(request, 'why_am_i_seeing_this') }}</h6>
+        <div class="mb-3 p-2 border rounded bg-light small" id="insightDetailWhy">-</div>
+        <h6 class="mb-2">{{ tt(request, 'recommended_actions') }}</h6>
+        <ul id="insightDetailActions" class="mb-0"></ul>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let _insightRows = {};
+let _allRows = [];
+let _currentPage = 1;
+const _initialInsights = {{ (initial_insights or []) | tojson }};
+function parseFromUrl(){
+  const p = new URLSearchParams(window.location.search || '');
+  const form = document.getElementById('insightFilters');
+  if(!form) return;
+  ['category','severity','status','from','to','context_type'].forEach((k)=>{
+    const v = p.get(k);
+    if(v !== null){
+      const el = form.querySelector(`[name="${k}"]`);
+      if(el) {
+        if ((k === 'from' || k === 'to') && window.bvToDmyDate) {
+          el.value = window.bvToDmyDate(v);
+        } else {
+          el.value = v;
+        }
+      }
+    }
+  });
+}
+function toParams(){
+  const formEl = document.getElementById('insightFilters');
+  if(!(formEl instanceof HTMLFormElement)){
+    return new URLSearchParams([['limit','500']]);
+  }
+  const fd=new FormData(formEl);
+  const p=new URLSearchParams();
+  ['category','severity','status','from','to'].forEach((k) => {
+    const v = fd.get(k);
+    if (!v) return;
+    if ((k === 'from' || k === 'to') && window.bvToIsoDate) {
+      p.set(k, window.bvToIsoDate(v));
+      return;
+    }
+    p.set(k, v);
+  });
+  p.set('limit','500');
+  return p;
+}
+function dmyDate(iso){
+  if(!iso) return '-';
+  const dt = new Date(iso);
+  if (Number.isNaN(dt.getTime())) return String(iso);
+  return dt.toLocaleString('el-GR');
+}
+function severityRank(sev){
+  const s = String(sev || '').toLowerCase();
+  if (s === 'critical') return 3;
+  if (s === 'warning') return 2;
+  if (s === 'info') return 1;
+  return 0;
+}
+function sortRows(rows){
+  const mode = document.getElementById('insightsSort')?.value || 'created_desc';
+  const out = [...rows];
+  out.sort((a,b)=>{
+    if(mode === 'created_asc') return String(a.created_at||'').localeCompare(String(b.created_at||''));
+    if(mode === 'severity_desc') return severityRank(b.severity)-severityRank(a.severity);
+    if(mode === 'severity_asc') return severityRank(a.severity)-severityRank(b.severity);
+    if(mode === 'value_desc') return (Number(b.value)||0)-(Number(a.value)||0);
+    if(mode === 'value_asc') return (Number(a.value)||0)-(Number(b.value)||0);
+    return String(b.created_at||'').localeCompare(String(a.created_at||''));
+  });
+  return out;
+}
+function paginateRows(rows){
+  const pageSize = Math.max(1, Number(document.getElementById('insightsPageSize')?.value || 20));
+  const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
+  if (_currentPage > totalPages) _currentPage = totalPages;
+  if (_currentPage < 1) _currentPage = 1;
+  const start = (_currentPage - 1) * pageSize;
+  const pageRows = rows.slice(start, start + pageSize);
+  return { pageRows, pageSize, totalPages, start, total: rows.length };
+}
+function updatePager(totalPages){
+  const prevBtn = document.getElementById('insightsPrevBtn');
+  const nextBtn = document.getElementById('insightsNextBtn');
+  const pageLabel = document.getElementById('insightsPageLabel');
+  if (pageLabel) pageLabel.textContent = `Σελίδα ${_currentPage} / ${totalPages}`;
+  if (prevBtn) prevBtn.disabled = _currentPage <= 1;
+  if (nextBtn) nextBtn.disabled = _currentPage >= totalPages;
+}
+function renderTableRows(rows){
+  _insightRows = {};
+  const tbody=document.querySelector('#insightsTable tbody');
+  tbody.innerHTML='';
+  rows.forEach(r=>{
+    _insightRows[r.id] = r;
+    const tr=document.createElement('tr');
+    const entity = r.entity_name || r.entity_external_id || '-';
+    const canAck = (r.status||'')==='open';
+    let drill = '/tenant/sales';
+    if((r.category||'')==='purchases') drill='/tenant/purchases';
+    if((r.category||'')==='inventory') drill='/tenant/inventory';
+    if((r.category||'')==='cashflow') drill='/tenant/cashflow';
+    if(r.metadata_json && r.metadata_json.drilldown) drill = String(r.metadata_json.drilldown);
+    const whyText = `${(r.metadata_json && r.metadata_json.why) ? String(r.metadata_json.why) : '{{ tt(request, "no_explanation_available") }}'}${(r.metadata_json && r.metadata_json.formula) ? ' Formula: ' + String(r.metadata_json.formula) : ''}`;
+    const whyBtn = `<button class="btn btn-sm bv-action-btn bv-action-toggle me-1" data-bs-toggle="popover" data-bs-trigger="focus" title="{{ tt(request, 'why_am_i_seeing_this') }}" data-bs-content="${esc(whyText)}"><i class="fe fe-help-circle"></i>Why</button>`;
+    tr.innerHTML = `<td>${esc(dmyDate(r.created_at||''))}</td><td>${esc(r.category||'')}</td><td>${sevBadge(r.severity)}</td><td><div><strong>${esc(r.title||'')}</strong></div><div class="text-muted small">${esc(r.message||'')}</div></td><td>${esc(entity)}</td><td>${esc(r.status||'')}</td><td><a class="btn btn-sm bv-action-btn bv-action-edit" href="${drill}"><i class="fe fe-external-link"></i>{{ tt(request, 'view_details') }}</a></td><td>${whyBtn}<button class="btn btn-sm bv-action-btn bv-action-edit me-1" data-detail="${esc(r.id)}"><i class="fe fe-eye"></i>{{ tt(request, 'detail') }}</button>${canAck?`<button class="btn btn-sm bv-action-btn bv-action-save" data-ack="${esc(r.id)}"><i class="fe fe-check-circle"></i>{{ tt(request, 'acknowledge') }}</button>`:''}</td>`;
+    tbody.appendChild(tr);
+  });
+  document.querySelectorAll('[data-bs-toggle="popover"]').forEach(el => new bootstrap.Popover(el));
+}
+function rerenderInsightsTable(){
+  const sorted = sortRows(_allRows || []);
+  const { pageRows, totalPages, start, total } = paginateRows(sorted);
+  renderTableRows(pageRows);
+  updatePager(totalPages);
+  const info = document.getElementById('insightsInfo');
+  if (info) {
+    const to = Math.min(start + pageRows.length, total);
+    info.textContent = total ? `Εμφάνιση ${start + 1}-${to} από ${total}` : 'Δεν υπάρχουν αποτελέσματα';
+  }
+}
+function setError(msg){
+  const el=document.getElementById('insightsError');
+  if(!msg){el.classList.add('d-none');el.textContent='';return;}
+  el.classList.remove('d-none');el.textContent=msg;
+}
+function sevBadge(sev){
+  const s=(sev||'info').toLowerCase();
+  if(s==='critical') return '<span class="badge bg-danger">🔴 {{ tt(request, "critical") }}</span>';
+  if(s==='warning') return '<span class="badge bg-warning text-dark">🟡 {{ tt(request, "warning") }}</span>';
+  return '<span class="badge bg-info text-dark">🔵 {{ tt(request, "info") }}</span>';
+}
+function esc(v){return String(v??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;');}
+function fmt(v){
+  if(v===null || v===undefined || v==='') return '-';
+  const n=Number(v);
+  return Number.isFinite(n)
+    ? new Intl.NumberFormat('el-GR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)
+    : esc(v);
+}
+function normalizeFallbackRowsFromDecisionPack(pack){
+  const rows = [];
+  const nowIso = new Date().toISOString();
+  const pushRow = (title, message, value=null, baseline=null, deltaPct=null, category='sales') => {
+    rows.push({
+      id: `fallback-${rows.length + 1}`,
+      created_at: nowIso,
+      category,
+      severity: 'info',
+      title: String(title || '{{ tt(request, "insight") }}'),
+      message: String(message || ''),
+      entity_name: '-',
+      entity_external_id: '-',
+      status: 'open',
+      value,
+      baseline_value: baseline,
+      delta_pct: deltaPct,
+      metadata_json: {'drilldown':'/tenant/sales'},
+    });
+  };
+
+  const plainInsights = Array.isArray(pack?.insights) ? pack.insights : [];
+  plainInsights.forEach((msg) => pushRow('{{ tt(request, "insight") }}', msg));
+
+  const best = (pack && pack.best_entities && typeof pack.best_entities === 'object') ? pack.best_entities : {};
+  const labels = {
+    product: 'Καλύτερο είδος',
+    brand: 'Καλύτερη μάρκα',
+    category: 'Καλύτερη κατηγορία',
+    group: 'Καλύτερη ομάδα',
+    branch: 'Καλύτερο κατάστημα',
+  };
+  const modes = {
+    profitability: 'Κερδοφορία',
+    quantity: 'Ποσότητα',
+    seasonality: 'Εποχικότητα',
+  };
+  Object.keys(best).forEach((entityKey) => {
+    const entity = best[entityKey] || {};
+    Object.keys(modes).forEach((modeKey) => {
+      const d = entity[modeKey];
+      if (!d || typeof d !== 'object') return;
+      const name = String(d.name || d.code || '-');
+      if (!name || name === '-') return;
+      if (modeKey === 'seasonality') {
+        const season = String(d.season || '-');
+        pushRow(
+          `${labels[entityKey] || 'Κορυφαία οντότητα'} (${modes[modeKey]})`,
+          `${labels[entityKey] || 'Οντότητα'}: ${name} (${season}).`,
+          Number(d.season_net_value || 0),
+          null,
+          Number(d.season_share_pct || 0),
+        );
+      } else if (modeKey === 'profitability') {
+        pushRow(
+          `${labels[entityKey] || 'Κορυφαία οντότητα'} (${modes[modeKey]})`,
+          `${labels[entityKey] || 'Οντότητα'}: ${name}.`,
+          Number(d.profit_value || 0),
+          Number(d.margin_pct || 0),
+          Number((d.net_value || 0) > 0 ? (d.profit_value || 0) / (d.net_value || 1) * 100 : 0),
+        );
+      } else {
+        pushRow(
+          `${labels[entityKey] || 'Κορυφαία οντότητα'} (${modes[modeKey]})`,
+          `${labels[entityKey] || 'Οντότητα'}: ${name}.`,
+          Number(d.qty || 0),
+          null,
+          null,
+        );
+      }
+    });
+  });
+
+  return rows;
+}
+function openDetail(id){
+  const r=_insightRows[id];
+  if(!r) return;
+  document.getElementById('insightDetailTitle').textContent = r.title || '{{ tt(request, "insight_details") }}';
+  document.getElementById('insightDetailMeta').textContent = `${r.category || '-'} | ${r.severity || '-'} | ${r.period_from || '-'} to ${r.period_to || '-'}`;
+  document.getElementById('insightDetailMessage').textContent = r.message || '';
+  document.getElementById('insightDetailCurrent').textContent = fmt(r.value);
+  document.getElementById('insightDetailBaseline').textContent = fmt(r.baseline_value);
+  document.getElementById('insightDetailDelta').textContent = fmt(r.delta_value);
+  document.getElementById('insightDetailDeltaPct').textContent = fmt(r.delta_pct);
+  const why = (r.metadata_json && r.metadata_json.why) ? String(r.metadata_json.why) : '{{ tt(request, "no_explanation_available") }}';
+  const formula = (r.metadata_json && r.metadata_json.formula) ? ` Formula: ${String(r.metadata_json.formula)}` : '';
+  document.getElementById('insightDetailWhy').textContent = `${why}${formula}`;
+  const list = document.getElementById('insightDetailActions');
+  const actions = (r.metadata_json && Array.isArray(r.metadata_json.actions)) ? r.metadata_json.actions : [];
+  list.innerHTML = '';
+  if(actions.length===0){
+    const li=document.createElement('li');
+    li.textContent='{{ tt(request, "no_suggested_actions") }}';
+    list.appendChild(li);
+  } else {
+    actions.forEach(a=>{const li=document.createElement('li'); li.textContent=String(a); list.appendChild(li);});
+  }
+  const modal = new bootstrap.Modal(document.getElementById('insightDetailModal'));
+  modal.show();
+}
+async function loadInsights(e){
+  if(e) e.preventDefault();
+  setError(null);
+  const p=toParams();
+  try{
+    const res=await fetch(`/v1/intelligence/insights?${p.toString()}`);
+    if(!res.ok) throw new Error('{{ tt(request, "failed_load_insights") }}');
+    let rows=await res.json();
+    if(!Array.isArray(rows)) rows = [];
+    if(rows.length===0){
+      const decisionRes = await fetch(`/v1/kpi/sales/decision-pack?${p.toString()}`);
+      if(decisionRes.ok){
+        const pack = await decisionRes.json();
+        rows = normalizeFallbackRowsFromDecisionPack(pack);
+      }
+    }
+    if(rows.length===0){
+      const now = new Date();
+      const y = now.getFullYear();
+      const ytd = new URLSearchParams();
+      ytd.set('from', `${y}-01-01`);
+      ytd.set('to', now.toISOString().slice(0,10));
+      const ytdRes = await fetch(`/v1/kpi/sales/decision-pack?${ytd.toString()}`);
+      if(ytdRes.ok){
+        const ytdPack = await ytdRes.json();
+        rows = normalizeFallbackRowsFromDecisionPack(ytdPack);
+      }
+    }
+    if(rows.length===0){
+      rows = [{
+        id: 'fallback-empty-1',
+        created_at: new Date().toISOString(),
+        category: 'sales',
+        severity: 'info',
+        title: '{{ tt(request, "insight") }}',
+        message: 'Δεν βρέθηκαν αποθηκευμένα insights για το τρέχον φίλτρο. Πάτησε «Εκτέλεση Insights Τώρα» ή άλλαξε διάστημα.',
+        entity_name: '-',
+        entity_external_id: '-',
+        status: 'open',
+        metadata_json: {'drilldown':'/tenant/sales'},
+      }];
+    }
+    const contextType = document.querySelector('#insightFilters [name="context_type"]')?.value || '';
+    if (contextType) {
+      const filtered = rows.filter(r => String((r.type || r.rule_code || '')).toLowerCase() === String(contextType).toLowerCase());
+      if (filtered.length > 0) {
+        rows = filtered;
+      }
+    }
+    if (rows.length === 0 && Array.isArray(_initialInsights) && _initialInsights.length > 0) {
+      rows = _initialInsights;
+    }
+    _allRows = Array.isArray(rows) ? rows : [];
+    _currentPage = 1;
+    rerenderInsightsTable();
+  }catch(err){setError(err.message||'{{ tt(request, "failed_load_insights") }}');}
+}
+async function acknowledge(id){
+  const res=await fetch(`/v1/intelligence/insights/${id}/acknowledge`, {method:'POST'});
+  if(!res.ok) throw new Error('{{ tt(request, "acknowledge_failed") }}');
+}
+document.getElementById('insightsTable').addEventListener('click', async (e)=>{
+  const detail=e.target.closest('button[data-detail]');
+  if(detail){
+    openDetail(detail.getAttribute('data-detail'));
+    return;
+  }
+  const btn=e.target.closest('button[data-ack]');
+  if(!btn) return;
+  try{
+    await acknowledge(btn.getAttribute('data-ack'));
+    await loadInsights();
+  }catch(err){setError(err.message||'{{ tt(request, "acknowledge_failed") }}');}
+});
+document.getElementById('runNowBtn').addEventListener('click', async ()=>{
+  setError(null);
+  try{
+    const res=await fetch('/v1/intelligence/run-now', {method:'POST'});
+    if(!res.ok) throw new Error('{{ tt(request, "run_now_failed") }}');
+    await loadInsights();
+  }catch(err){setError(err.message||'{{ tt(request, "run_now_failed") }}');}
+});
+document.getElementById('insightFilters').addEventListener('submit', loadInsights);
+document.getElementById('insightsSort').addEventListener('change', ()=>{ _currentPage = 1; rerenderInsightsTable(); });
+document.getElementById('insightsPageSize').addEventListener('change', ()=>{ _currentPage = 1; rerenderInsightsTable(); });
+document.getElementById('insightsPrevBtn').addEventListener('click', ()=>{ _currentPage -= 1; rerenderInsightsTable(); });
+document.getElementById('insightsNextBtn').addEventListener('click', ()=>{ _currentPage += 1; rerenderInsightsTable(); });
+window.addEventListener('load', () => {
+  parseFromUrl();
+  if (Array.isArray(_initialInsights) && _initialInsights.length > 0) {
+    _allRows = _initialInsights;
+    _currentPage = 1;
+    rerenderInsightsTable();
+  }
+  loadInsights();
+});
+</script>
+{% endblock %}

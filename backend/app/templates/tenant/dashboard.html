@@ -1,0 +1,787 @@
+{% extends "base_tenant.html" %}
+
+{% block filters %}
+<form id="centralFilters" class="row g-2">
+  <div class="col-12 col-md-6 col-xl-3">
+    <label class="form-label mb-1">{{ tt(request, 'from') }}</label>
+    <input class="form-control" type="text" name="from" value="{{ default_from.strftime('%d/%m/%Y') if default_from else '' }}" data-date-format="dmy" placeholder="ηη/μμ/εεεε" inputmode="numeric">
+  </div>
+  <div class="col-12 col-md-6 col-xl-3">
+    <label class="form-label mb-1">{{ tt(request, 'to') }}</label>
+    <input class="form-control" type="text" name="to" value="{{ default_to.strftime('%d/%m/%Y') if default_to else '' }}" data-date-format="dmy" placeholder="ηη/μμ/εεεε" inputmode="numeric">
+  </div>
+  <div class="col-12 col-md-6 col-xl-4">
+    <label class="form-label mb-1">{{ tt(request, 'branches') }}</label>
+    <div class="bv-multi" id="centralBranchesMulti">
+      <button type="button" class="form-select bv-multi-toggle text-start" id="centralBranchesToggle">Επιλογή</button>
+      <div class="bv-multi-menu" id="centralBranchesMenu" hidden>
+        <div class="d-flex gap-2 mb-2">
+          <input type="text" class="form-control form-control-sm" id="centralBranchesSearch" placeholder="Αναζήτηση...">
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="centralBranchesAll">Όλα</button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="centralBranchesClear">Καθαρισμός</button>
+        </div>
+        <div id="centralBranchesOptions" class="bv-multi-options"></div>
+      </div>
+      <div id="centralBranchesChips" class="bv-chip-wrap mt-2"></div>
+      <select name="branches" id="centralBranches" multiple hidden></select>
+    </div>
+  </div>
+  <div class="col-12 col-md-6 col-xl-2 d-grid align-content-end">
+    <button class="btn btn-primary" type="submit"><i class="fe fe-filter"></i> {{ tt(request, 'apply') }}</button>
+  </div>
+</form>
+{% endblock %}
+
+{% block content %}
+<div id="centralError" class="alert alert-danger d-none"></div>
+<style>
+  #companyTrendChart {
+    width: 100% !important;
+    height: 320px !important;
+    max-height: 320px !important;
+  }
+  .branch-donut-card {
+    height: 100%;
+  }
+  .branch-donut-card .card-body {
+    min-height: 510px;
+    display: flex;
+    flex-direction: column;
+  }
+  .branch-donut-canvas-wrap {
+    height: 220px;
+    min-height: 220px;
+    max-height: 220px;
+  }
+  .branch-donut-canvas-wrap canvas {
+    width: 100% !important;
+    height: 100% !important;
+    max-height: 220px !important;
+  }
+  .branch-donut-table-wrap {
+    margin-top: 12px;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+  }
+  .branch-donut-table-wrap .table-responsive {
+    max-height: 250px;
+    overflow-y: auto;
+  }
+  .branch-month-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 12px;
+  }
+  .branch-month-section {
+    margin-top: 14px;
+  }
+  .branch-month-row {
+    border: 1px solid #e6ebf4;
+    border-radius: 12px;
+    background: #fff;
+    padding: 12px;
+  }
+  .branch-month-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .branch-month-name {
+    font-weight: 800;
+    color: #1f2a44;
+  }
+  .branch-month-value {
+    font-weight: 800;
+    color: #0f172a;
+  }
+  .branch-month-track {
+    height: 10px;
+    border-radius: 999px;
+    background: #e9eef8;
+    overflow: hidden;
+    margin: 8px 0 10px;
+  }
+  .branch-month-fill {
+    height: 100%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, #5b7fff 0%, #2eb1d3 100%);
+  }
+  .branch-month-foot {
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    color: #64748b;
+    font-weight: 700;
+  }
+  .branch-month-delta-up { color: #16a34a; }
+  .branch-month-delta-down { color: #dc2626; }
+  .branch-month-delta-neutral { color: #64748b; }
+  #tblDayByBranch,
+  #tblMonthByBranch,
+  #tblYearByBranch {
+    margin-bottom: 0 !important;
+  }
+  #kpiYearDelta,
+  #kpiYearToDateFullCmpDelta {
+    font-size: .95rem !important;
+    line-height: 1.25;
+    font-weight: 700;
+    display: block;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+</style>
+
+<div class="row row-cols-1 row-cols-md-2 row-cols-xl-5 g-3 mb-3">
+  <div class="col"><div class="bv-stat-strip bv-kpi-style bv-tone-cyan"><div class="kpi-icon"><i class="fe fe-sun"></i></div><div class="label">Τζίρος Ημέρας</div><div id="kpiDay" class="value">0.00</div></div></div>
+  <div class="col"><div class="bv-stat-strip bv-kpi-style bv-tone-green"><div class="kpi-icon"><i class="fe fe-calendar"></i></div><div class="label">Τζίρος Εβδομάδας</div><div id="kpiWeek" class="value">0.00</div></div></div>
+  <div class="col"><div class="bv-stat-strip bv-kpi-style bv-tone-orange"><div class="kpi-icon"><i class="fe fe-bar-chart"></i></div><div class="label">Τζίρος Μήνα</div><div id="kpiMonth" class="value">0.00</div></div></div>
+  <div class="col"><div class="bv-stat-strip bv-kpi-style bv-tone-red"><div class="kpi-icon"><i class="fe fe-clock"></i></div><div class="label">Τζίρος <span id="kpiPrevYearLabel">{{ default_to.year - 1 }}</span> (YTD)</div><div id="kpiPrevYear" class="value">0.00</div><div id="kpiPrevYearCutoff" class="small text-muted mt-1">-</div></div></div>
+  <div class="col"><div class="bv-stat-strip bv-kpi-style bv-tone-blue"><div class="kpi-icon"><i class="fe fe-trending-up"></i></div><div class="label">Τζίρος <span id="kpiYearLabel">{{ default_to.year }}</span> (YTD)</div><div id="kpiYear" class="value">0.00</div><div id="kpiYearDelta" class="small text-muted mt-1">-</div></div></div>
+</div>
+
+<div class="card border-0 shadow-sm mb-3 content-card">
+  <div class="card-header d-flex align-items-center justify-content-between gap-2">
+    <h5 class="mb-0">Συνολική εικόνα εταιρείας</h5>
+    <button id="toggleCompanyOverview" type="button" class="btn btn-sm btn-outline-secondary">
+      <i class="fe fe-chevron-up"></i>
+      <span>Απόκρυψη</span>
+    </button>
+  </div>
+  <div id="companyOverviewBody" class="card-body">
+    <div class="row g-3">
+      <div class="col-xl-3 col-md-6">
+        <div class="bv-stat-strip bv-kpi-style bv-tone-blue">
+          <div class="kpi-icon"><i class="fe fe-shopping-bag"></i></div>
+          <div class="label">Πωλήσεις περιόδου</div>
+          <div id="kpiTotalSalesPeriod" class="value">0.00</div>
+          <div class="small text-muted">Από κύκλωμα Πωλήσεων</div>
+        </div>
+      </div>
+      <div class="col-xl-3 col-md-6">
+        <div class="bv-stat-strip bv-kpi-style bv-tone-orange">
+          <div class="kpi-icon"><i class="fe fe-shopping-cart"></i></div>
+          <div class="label">Αγορές περιόδου</div>
+          <div id="kpiTotalPurchasesPeriod" class="value">-</div>
+          <div class="small text-muted">Από κύκλωμα Αγορών</div>
+        </div>
+      </div>
+      <div class="col-xl-3 col-md-6">
+        <div class="bv-stat-strip bv-kpi-style bv-tone-green">
+          <div class="kpi-icon"><i class="fe fe-award"></i></div>
+          <div class="label">Μικτό Κέρδος περιόδου</div>
+          <div id="kpiGrossProfitPeriod" class="value">0.00</div>
+          <div class="small text-muted">Πωλήσεις - κόστος</div>
+        </div>
+      </div>
+      <div class="col-xl-3 col-md-6">
+        <div class="bv-stat-strip bv-kpi-style bv-tone-purple">
+          <div class="kpi-icon"><i class="fe fe-percent"></i></div>
+          <div class="label">Μέσο Περιθώριο %</div>
+          <div id="kpiMarginPctPeriod" class="value">0.00%</div>
+          <div class="small text-muted">Κερδοφορία εταιρείας</div>
+        </div>
+      </div>
+      <div class="col-xl-3 col-md-6">
+        <div class="bv-stat-strip bv-kpi-style bv-tone-cyan">
+          <div class="kpi-icon"><i class="fe fe-repeat"></i></div>
+          <div class="label">Ρυθμός αγορών / πωλήσεων</div>
+          <div id="kpiPurchasesToSales" class="value">-</div>
+          <div class="small text-muted">Αναλογία κόστους ανεφοδιασμού</div>
+        </div>
+      </div>
+      <div class="col-xl-3 col-md-6">
+        <div class="bv-stat-strip bv-kpi-style bv-tone-blue">
+          <div class="kpi-icon"><i class="fe fe-home"></i></div>
+          <div class="label">Ενεργά υποκαταστήματα</div>
+          <div id="kpiActiveBranches" class="value">0</div>
+          <div class="small text-muted">Με θετικό τζίρο στο έτος</div>
+        </div>
+      </div>
+      <div class="col-xl-3 col-md-6">
+        <div class="bv-stat-strip bv-kpi-style bv-tone-purple">
+          <div class="kpi-icon"><i class="fe fe-pie-chart"></i></div>
+          <div class="label">Συγκέντρωση κορυφαίου καταστήματος</div>
+          <div id="kpiTopBranchShare" class="value">0.00%</div>
+          <div class="small text-muted">Ποσοστό τζίρου από το #1 κατάστημα</div>
+        </div>
+      </div>
+      <div class="col-xl-3 col-md-6">
+        <div class="bv-stat-strip bv-kpi-style bv-tone-green">
+          <div class="kpi-icon"><i class="fe fe-activity"></i></div>
+          <div class="label">Μέσος ημερήσιος τζίρος</div>
+          <div id="kpiAvgDailyTurnover" class="value">0.00</div>
+          <div class="small text-muted">Για το επιλεγμένο διάστημα</div>
+        </div>
+      </div>
+      <div class="col-xl-3 col-md-6">
+        <div class="bv-stat-strip bv-kpi-style bv-tone-red">
+          <div class="kpi-icon"><i class="fe fe-dollar-sign"></i></div>
+          <div class="label">Μικτό Κέρδος έτους</div>
+          <div id="kpiGrossProfitYear" class="value">0.00</div>
+          <div class="small text-muted">Από αρχή έτους έως σήμερα</div>
+        </div>
+      </div>
+      <div class="col-xl-3 col-md-6">
+        <div class="bv-stat-strip bv-kpi-style bv-tone-orange">
+          <div class="kpi-icon"><i class="fe fe-package"></i></div>
+          <div class="label">Ποσότητα μήνα</div>
+          <div id="kpiMonthQty" class="value">0</div>
+          <div class="small text-muted">Συνολικές μονάδες πωλήσεων</div>
+        </div>
+      </div>
+      <div class="col-xl-3 col-md-6">
+        <div class="bv-stat-strip bv-kpi-style bv-tone-red">
+          <div class="kpi-icon"><i class="fe fe-calendar"></i></div>
+          <div class="label">Τζίρος <span id="kpiPrevYearFullLabel">{{ default_to.year - 1 }}</span> (FULL YEAR)</div>
+          <div id="kpiPrevYearFull" class="value">0.00</div>
+          <div id="kpiPrevYearFullRange" class="small text-muted mt-1">-</div>
+        </div>
+      </div>
+      <div class="col-xl-3 col-md-6">
+        <div class="bv-stat-strip bv-kpi-style bv-tone-blue">
+          <div class="kpi-icon"><i class="fe fe-flag"></i></div>
+          <div class="label">Τζίρος <span id="kpiYearToDateLabel">{{ default_to.year }}</span> (YTD vs FULL)</div>
+          <div id="kpiYearToDateFullCmp" class="value">0.00</div>
+          <div id="kpiYearToDateFullCmpDelta" class="small text-muted mt-1">-</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card border-0 shadow-sm mb-3 content-card">
+  <div class="card-header"><h5 class="mb-0">Εξειδίκευση ανά κύκλωμα</h5></div>
+  <div class="card-body">
+    <div class="d-flex flex-wrap gap-2">
+      <a class="btn bv-action-btn bv-action-edit" href="/tenant/sales"><i class="fe fe-bar-chart-2"></i>Πωλήσεις</a>
+      <a class="btn bv-action-btn bv-action-toggle" href="/tenant/purchases"><i class="fe fe-shopping-cart"></i>Αγορές</a>
+      <a class="btn bv-action-btn bv-action-save {% if not inventory_enabled %}disabled{% endif %}" href="/tenant/inventory"><i class="fe fe-layers"></i>Απόθεμα</a>
+      <a class="btn bv-action-btn bv-action-save {% if not cashflow_enabled %}disabled{% endif %}" href="/tenant/cashflow"><i class="fe fe-dollar-sign"></i>Cashflow</a>
+      <a class="btn bv-action-btn bv-action-edit" href="/tenant/insights"><i class="fe fe-alert-circle"></i>Insights</a>
+    </div>
+  </div>
+</div>
+
+<div class="card border-0 shadow-sm mb-3 content-card">
+  <div class="card-header"><h5 class="mb-0">Τζίρος Εταιρείας / Έτος</h5></div>
+  <div class="card-body"><canvas id="companyTrendChart" height="110"></canvas></div>
+</div>
+
+<div class="row g-3">
+  <div class="col-lg-4">
+    <div class="card border-0 shadow-sm content-card branch-donut-card">
+      <div class="card-header"><h5 class="mb-0">Τζίρος Ημέρας / Υποκατάστημα</h5></div>
+      <div class="card-body">
+        <div class="branch-donut-canvas-wrap">
+          <canvas id="dayByBranchDonut"></canvas>
+        </div>
+        <div class="branch-donut-table-wrap">
+          <div class="table-responsive">
+            <table class="table table-sm mb-0" id="tblDayByBranch">
+              <thead><tr><th>{{ tt(request, 'branch') }}</th><th class="text-end">{{ tt(request, 'net') }}</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card border-0 shadow-sm content-card branch-donut-card">
+      <div class="card-header"><h5 class="mb-0">Τζίρος Μήνα / Υποκατάστημα</h5></div>
+      <div class="card-body">
+        <div class="branch-donut-canvas-wrap">
+          <canvas id="monthByBranchDonut"></canvas>
+        </div>
+        <div class="branch-donut-table-wrap">
+          <div class="table-responsive">
+            <table class="table table-sm mb-0" id="tblMonthByBranch">
+              <thead><tr><th>{{ tt(request, 'branch') }}</th><th class="text-end">{{ tt(request, 'net') }}</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card border-0 shadow-sm content-card branch-donut-card">
+      <div class="card-header"><h5 class="mb-0">Τζίρος Έτους / Υποκατάστημα</h5></div>
+      <div class="card-body">
+        <div class="branch-donut-canvas-wrap">
+          <canvas id="yearByBranchDonut"></canvas>
+        </div>
+        <div class="branch-donut-table-wrap">
+          <div class="table-responsive">
+            <table class="table table-sm mb-0" id="tblYearByBranch">
+              <thead><tr><th>{{ tt(request, 'branch') }}</th><th class="text-end">{{ tt(request, 'net') }}</th><th class="text-end">%</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card border-0 shadow-sm mb-3 content-card branch-month-section">
+  <div class="card-header"><h5 class="mb-0">Απόδοση Καταστημάτων (Τρέχων Μήνας)</h5></div>
+  <div class="card-body">
+    <div id="branchMonthPerfGrid" class="branch-month-grid"></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let companyTrendChart, yearByBranchDonut;
+const branchDonutCharts = {};
+const centralFieldDefs = [
+  {key:'branches', selectId:'centralBranches', label:'{{ tt(request, "branches") }}'},
+];
+
+function toNum(v){const n=Number(v||0);return Number.isFinite(n)?n:0}
+const fmt2 = new Intl.NumberFormat('el-GR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmt0 = new Intl.NumberFormat('el-GR', { maximumFractionDigits: 0 });
+function money(v){return fmt2.format(toNum(v))}
+function pct(v){if(v===null||v===undefined) return '-'; return `${fmt2.format(toNum(v))}%`;}
+function dtISO(d){ return d.toISOString().slice(0,10); }
+function parseISOToDate(iso){
+  if(!iso || typeof iso !== 'string') return null;
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if(!m) return null;
+  const d = new Date(Number(m[1]), Number(m[2])-1, Number(m[3]));
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+function formatDMY(iso){
+  const d = parseISOToDate(iso);
+  if(!d) return '-';
+  const dd = String(d.getDate()).padStart(2,'0');
+  const mm = String(d.getMonth()+1).padStart(2,'0');
+  const yy = d.getFullYear();
+  return `${dd}/${mm}/${yy}`;
+}
+function startOfWeek(d){ const x=new Date(d); const day=(x.getDay()+6)%7; x.setDate(x.getDate()-day); return x; }
+function startOfMonth(d){ return new Date(d.getFullYear(), d.getMonth(), 1); }
+function startOfYear(d){ return new Date(d.getFullYear(), 0, 1); }
+
+function setError(msg){
+  const el=document.getElementById('centralError');
+  if(!msg){el.classList.add('d-none');el.textContent='';return;}
+  el.classList.remove('d-none'); el.textContent=msg;
+}
+
+function filtersToParams(fromOverride=null, toOverride=null){
+  const fd=new FormData(document.getElementById('centralFilters'));
+  const p=new URLSearchParams();
+  const fromRaw = fromOverride || fd.get('from');
+  const toRaw = toOverride || fd.get('to');
+  p.set('from', window.bvToIsoDate ? window.bvToIsoDate(fromRaw) : fromRaw);
+  p.set('to', window.bvToIsoDate ? window.bvToIsoDate(toRaw) : toRaw);
+  centralFieldDefs.forEach((field)=>{
+    const sel = document.getElementById(field.selectId);
+    Array.from(sel?.selectedOptions || []).forEach(o => p.append(field.key, o.value));
+  });
+  return p;
+}
+
+function syncCentralMultiUI(prefix, label, filterText=''){
+  const select=document.getElementById(`${prefix}`);
+  const optionsWrap=document.getElementById(`${prefix}Options`);
+  const chips=document.getElementById(`${prefix}Chips`);
+  const toggle=document.getElementById(`${prefix}Toggle`);
+  if(!select || !optionsWrap || !chips || !toggle) return;
+
+  const selected = Array.from(select.options).filter(o=>o.selected).map(o=>o.value);
+  const normalized = (filterText||'').toLowerCase().trim();
+
+  optionsWrap.innerHTML='';
+  Array.from(select.options)
+    .filter(o=>{
+      const display=(o.dataset.label||o.textContent||o.value).toLowerCase();
+      return !normalized || o.value.toLowerCase().includes(normalized) || display.includes(normalized);
+    })
+    .forEach(o=>{
+      const row=document.createElement('label');
+      row.className='bv-multi-opt';
+      const cb=document.createElement('input');
+      cb.type='checkbox';
+      cb.checked=o.selected;
+      cb.addEventListener('change', ()=>{
+        o.selected=cb.checked;
+        syncCentralMultiUI(prefix, label, document.getElementById(`${prefix}Search`)?.value||'');
+      });
+      const span=document.createElement('span');
+      span.textContent=o.textContent || o.value;
+      row.appendChild(cb);
+      row.appendChild(span);
+      optionsWrap.appendChild(row);
+    });
+
+  if(!optionsWrap.children.length){
+    const empty=document.createElement('div');
+    empty.className='bv-multi-empty';
+    empty.textContent='Δεν υπάρχουν διαθέσιμες επιλογές';
+    optionsWrap.appendChild(empty);
+  }
+
+  chips.innerHTML='';
+  selected.forEach(v=>{
+    const chip=document.createElement('span');
+    chip.className='bv-chip';
+    const opt = Array.from(select.options).find(o=>o.value===v);
+    chip.textContent=(opt && opt.textContent) ? opt.textContent : v;
+    chips.appendChild(chip);
+  });
+  toggle.textContent = selected.length ? `${label} (${selected.length})` : 'Επιλογή';
+}
+
+function initCentralMulti(prefix, label){
+  const toggle=document.getElementById(`${prefix}Toggle`);
+  const menu=document.getElementById(`${prefix}Menu`);
+  const search=document.getElementById(`${prefix}Search`);
+  const btnAll=document.getElementById(`${prefix}All`);
+  const btnClear=document.getElementById(`${prefix}Clear`);
+  const select=document.getElementById(`${prefix}`);
+  if(!toggle || !menu || !search || !btnAll || !btnClear || !select || toggle.dataset.bound==='1') return;
+  toggle.dataset.bound='1';
+
+  toggle.addEventListener('click', ()=>{menu.hidden=!menu.hidden;});
+  search.addEventListener('input', ()=>syncCentralMultiUI(prefix, label, search.value));
+  btnAll.addEventListener('click', ()=>{
+    Array.from(select.options).forEach(o=>o.selected=true);
+    syncCentralMultiUI(prefix, label, search.value);
+  });
+  btnClear.addEventListener('click', ()=>{
+    Array.from(select.options).forEach(o=>o.selected=false);
+    syncCentralMultiUI(prefix, label, search.value);
+  });
+  document.addEventListener('click', (e)=>{
+    if(!document.getElementById(`${prefix}Multi`)?.contains(e.target)) menu.hidden=true;
+  });
+}
+
+function populateCentralSelect(prefix, label, values, labels={}){
+  const select=document.getElementById(prefix);
+  if(!select) return;
+  const prev = new Set(Array.from(select.selectedOptions || []).map(o=>o.value));
+  select.innerHTML='';
+  const ordered = [...(values || [])].sort((a,b)=>
+    String(labels[a] || a).localeCompare(String(labels[b] || b), 'el', { sensitivity:'base' })
+  );
+  ordered.forEach(v=>{
+    const opt=document.createElement('option');
+    opt.value=v;
+    const txt = labels[v] ? `${labels[v]}` : v;
+    opt.textContent=txt;
+    opt.dataset.label = labels[v] || v;
+    if(prev.has(v)) opt.selected=true;
+    select.appendChild(opt);
+  });
+  syncCentralMultiUI(prefix, label, document.getElementById(`${prefix}Search`)?.value||'');
+}
+
+async function loadCentralFilterOptions(){
+  const form=document.getElementById('centralFilters');
+  if(!form) return;
+  const fd=new FormData(form);
+  const p=new URLSearchParams();
+  p.set('from', window.bvToIsoDate ? window.bvToIsoDate(fd.get('from')) : fd.get('from'));
+  p.set('to', window.bvToIsoDate ? window.bvToIsoDate(fd.get('to')) : fd.get('to'));
+  centralFieldDefs.forEach((field)=>{
+    const sel=document.getElementById(field.selectId);
+    Array.from(sel?.selectedOptions || []).forEach(o=>p.append(field.key, o.value));
+  });
+  try{
+    const res=await fetch(`/v1/kpi/sales/filter-options?${p.toString()}`);
+    if(!res.ok) return;
+    const options=await res.json();
+    centralFieldDefs.forEach((field)=>{
+      const vals=(options && options[field.key]) || [];
+      const labels=((options && options.labels && options.labels[field.key]) || {});
+      populateCentralSelect(field.selectId, field.label, vals, labels);
+    });
+  }catch(_err){}
+}
+
+function fillTable(tableId, rows, withPct=false){
+  const tbody=document.querySelector(`#${tableId} tbody`);
+  if(!tbody) return;
+  tbody.innerHTML='';
+  const total=(rows||[]).reduce((s,r)=>s+toNum(r.net_value),0);
+  (rows||[]).forEach(r=>{
+    const share = total>0 ? (toNum(r.net_value)/total)*100 : 0;
+    const tr=document.createElement('tr');
+    tr.innerHTML = withPct
+      ? `<td>${r.branch}</td><td class="text-end">${money(r.net_value)}</td><td class="text-end">${pct(share)}</td>`
+      : `<td>${r.branch}</td><td class="text-end">${money(r.net_value)}</td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+function renderYearDonut(rows){
+  const colors=['#3b82f6','#14b8a6','#f59e0b','#94a3b8','#8b5cf6','#22c55e','#ef4444'];
+  const labels=(rows||[]).map(r=>r.branch);
+  const values=(rows||[]).map(r=>toNum(r.net_value));
+  if(yearByBranchDonut) yearByBranchDonut.destroy();
+  yearByBranchDonut = new Chart(document.getElementById('yearByBranchDonut'), {
+    type:'doughnut',
+    data:{labels, datasets:[{data:values, backgroundColor:colors}]},
+    options:{responsive:true, maintainAspectRatio:false}
+  });
+}
+
+function renderSmallDonut(canvasId, rows){
+  const colors=['#3b82f6','#14b8a6','#f59e0b','#94a3b8','#8b5cf6','#22c55e','#ef4444'];
+  const labels=(rows||[]).map(r=>r.branch);
+  const values=(rows||[]).map(r=>toNum(r.net_value));
+  if(branchDonutCharts[canvasId] && typeof branchDonutCharts[canvasId].destroy === 'function'){
+    branchDonutCharts[canvasId].destroy();
+  }
+  branchDonutCharts[canvasId] = new Chart(document.getElementById(canvasId), {
+    type:'doughnut',
+    data:{labels, datasets:[{data:values, backgroundColor:colors}]},
+    options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{display:true, position:'top'}}}
+  });
+}
+
+function ratioByMax(v, max){
+  if(max <= 0) return 0;
+  const pct = (toNum(v) / max) * 100;
+  return Math.max(6, Math.min(100, pct));
+}
+
+function renderMonthlyBranchPerformance(rows, prevRows){
+  const wrap = document.getElementById('branchMonthPerfGrid');
+  if(!wrap) return;
+  const curr = Array.isArray(rows) ? [...rows] : [];
+  const prevMap = new Map((Array.isArray(prevRows) ? prevRows : []).map(r => [String(r.branch || ''), toNum(r.net_value)]));
+  curr.sort((a,b) => toNum(b.net_value) - toNum(a.net_value));
+  if(!curr.length){
+    wrap.innerHTML = '<div class="text-muted">Δεν υπάρχουν δεδομένα για το τρέχον μήνα.</div>';
+    return;
+  }
+  const maxVal = curr.reduce((m,r) => Math.max(m, toNum(r.net_value)), 0);
+  wrap.innerHTML = curr.map((r)=>{
+    const branch = String(r.branch || '-');
+    const value = toNum(r.net_value);
+    const prev = prevMap.get(branch) || 0;
+    const deltaPct = prev > 0 ? ((value - prev) / prev) * 100 : null;
+    const deltaCls = deltaPct === null
+      ? 'branch-month-delta-neutral'
+      : deltaPct > 0 ? 'branch-month-delta-up' : (deltaPct < 0 ? 'branch-month-delta-down' : 'branch-month-delta-neutral');
+    const deltaText = deltaPct === null
+      ? 'n/a'
+      : `${deltaPct >= 0 ? '+' : ''}${fmt2.format(deltaPct)}%`;
+    const width = ratioByMax(value, maxVal);
+    return `
+      <div class="branch-month-row">
+        <div class="branch-month-head">
+          <div class="branch-month-name">${branch}</div>
+          <div class="branch-month-value">${money(value)}</div>
+        </div>
+        <div class="branch-month-track"><div class="branch-month-fill" style="width:${width}%"></div></div>
+        <div class="branch-month-foot">
+          <span>vs προηγούμενος μήνας</span>
+          <span class="${deltaCls}">${deltaText}</span>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderTrend(monthly){
+  const labels=['Ιαν', 'Φεβ', 'Μαρ', 'Απρ', 'Μαϊ', 'Ιουν', 'Ιουλ', 'Αυγ', 'Σεπ', 'Οκτ', 'Νοε', 'Δεκ'];
+  const datasets = [];
+  (monthly||[]).forEach((entry, idx) => {
+    const values = new Array(12).fill(0);
+    (entry.rows || []).forEach((row) => {
+      const d = new Date(row.month_start);
+      const monthIdx = Number.isFinite(d.getMonth()) ? d.getMonth() : null;
+      if (monthIdx !== null) {
+        values[monthIdx] = toNum(row.net_value);
+      }
+    });
+    const style = [
+      { border: '#eab308', fill: 'rgba(234,179,8,.12)' },
+      { border: '#ef4444', fill: 'rgba(239,68,68,.10)' },
+      { border: '#16a34a', fill: 'rgba(22,163,74,.10)' }
+    ][idx] || { border: '#1d4ed8', fill: 'rgba(29,78,216,.10)' };
+    datasets.push({
+      label: String(entry.year),
+      data: values,
+      borderColor: style.border,
+      backgroundColor: style.fill,
+      tension: .32,
+      pointRadius: 3,
+      fill: false
+    });
+  });
+  if(companyTrendChart) companyTrendChart.destroy();
+  companyTrendChart = new Chart(document.getElementById('companyTrendChart'), {
+    type:'line',
+    data:{labels, datasets},
+    options:{responsive:true, maintainAspectRatio:true, aspectRatio:2.8}
+  });
+}
+
+async function fetchJsonStrict(url){
+  const res = await fetch(url);
+  if(!res.ok){
+    throw new Error(`${res.status}`);
+  }
+  return res.json();
+}
+
+async function reloadCentralDashboard(e){
+  if(e) e.preventDefault();
+  setError(null);
+  try{
+    const fd = new FormData(document.getElementById('centralFilters'));
+    const toIsoRaw = window.bvToIsoDate ? window.bvToIsoDate(fd.get('to')) : fd.get('to');
+    const anchorDate = parseISOToDate(toIsoRaw) || new Date();
+    const dayFrom = dtISO(anchorDate);
+    const weekFrom = dtISO(startOfWeek(anchorDate));
+    const monthFrom = dtISO(startOfMonth(anchorDate));
+    const yearFrom = dtISO(startOfYear(anchorDate));
+    const ytdTo = dtISO(anchorDate);
+
+    const currentYear = anchorDate.getFullYear();
+    const prev1Year = currentYear - 1;
+    const prev2Year = currentYear - 2;
+    const prevYtdFrom = dtISO(new Date(prev1Year, 0, 1));
+    const prevYtdTo = dtISO(new Date(prev1Year, anchorDate.getMonth(), anchorDate.getDate()));
+    const cutoffLabel = formatDMY(ytdTo);
+    const prevCutoffLabel = formatDMY(prevYtdTo);
+
+    const prevMonthDate = new Date(anchorDate.getFullYear(), anchorDate.getMonth(), 0);
+    const prevMonthFrom = dtISO(startOfMonth(prevMonthDate));
+    const prevMonthToRaw = new Date(prevMonthDate.getFullYear(), prevMonthDate.getMonth(), anchorDate.getDate());
+    const prevMonthTo = dtISO(prevMonthToRaw > prevMonthDate ? prevMonthDate : prevMonthToRaw);
+
+    const [day, week, month, year, prevYear, prevYearFull, dayByBranch, monthByBranch, yearByBranch, prevMonthByBranch, pack, trendY0, trendY1, trendY2] = await Promise.all([
+      fetchJsonStrict(`/v1/kpi/sales/summary?${filtersToParams(dayFrom, ytdTo).toString()}`),
+      fetchJsonStrict(`/v1/kpi/sales/summary?${filtersToParams(weekFrom, ytdTo).toString()}`),
+      fetchJsonStrict(`/v1/kpi/sales/summary?${filtersToParams(monthFrom, ytdTo).toString()}`),
+      fetchJsonStrict(`/v1/kpi/sales/summary?${filtersToParams(yearFrom, ytdTo).toString()}`),
+      fetchJsonStrict(`/v1/kpi/sales/summary?${filtersToParams(prevYtdFrom, prevYtdTo).toString()}`),
+      fetchJsonStrict(`/v1/kpi/sales/summary?${filtersToParams(dtISO(new Date(prev1Year, 0, 1)), dtISO(new Date(prev1Year, 11, 31))).toString()}`),
+      fetchJsonStrict(`/v1/kpi/sales/by-branch?${filtersToParams(dayFrom, ytdTo).toString()}`),
+      fetchJsonStrict(`/v1/kpi/sales/by-branch?${filtersToParams(monthFrom, ytdTo).toString()}`),
+      fetchJsonStrict(`/v1/kpi/sales/by-branch?${filtersToParams(yearFrom, ytdTo).toString()}`),
+      fetchJsonStrict(`/v1/kpi/sales/by-branch?${filtersToParams(prevMonthFrom, prevMonthTo).toString()}`),
+      fetchJsonStrict(`/v1/kpi/sales/decision-pack?${filtersToParams().toString()}`),
+      fetchJsonStrict(`/v1/kpi/sales/decision-pack?${filtersToParams(dtISO(new Date(currentYear, 0, 1)), dtISO(new Date(currentYear, 11, 31))).toString()}`),
+      fetchJsonStrict(`/v1/kpi/sales/decision-pack?${filtersToParams(dtISO(new Date(prev1Year, 0, 1)), dtISO(new Date(prev1Year, 11, 31))).toString()}`),
+      fetchJsonStrict(`/v1/kpi/sales/decision-pack?${filtersToParams(dtISO(new Date(prev2Year, 0, 1)), dtISO(new Date(prev2Year, 11, 31))).toString()}`)
+    ]);
+
+    const yearVal=toNum(year.net_value||year.turnover||0);
+    const prevYearVal=toNum(prevYear.net_value||prevYear.turnover||0);
+    const prevYearFullVal=toNum(prevYearFull.net_value||prevYearFull.turnover||0);
+    const yoyAmount = yearVal - prevYearVal;
+    const yoy = prevYearVal>0 ? ((yearVal-prevYearVal)/prevYearVal)*100 : null;
+    const fullDeltaPct = prevYearFullVal>0 ? ((yearVal-prevYearFullVal)/prevYearFullVal)*100 : null;
+
+    document.getElementById('kpiDay').textContent = money(day.net_value||day.turnover||0);
+    document.getElementById('kpiWeek').textContent = money(week.net_value||week.turnover||0);
+    document.getElementById('kpiMonth').textContent = money(month.net_value||month.turnover||0);
+    document.getElementById('kpiPrevYearLabel').textContent = String(prev1Year);
+    document.getElementById('kpiYearLabel').textContent = String(currentYear);
+    document.getElementById('kpiPrevYear').textContent = money(prevYearVal);
+    document.getElementById('kpiPrevYearCutoff').textContent = `01/01/${prev1Year} - ${prevCutoffLabel}`;
+    document.getElementById('kpiYear').textContent = money(yearVal);
+    document.getElementById('kpiYearDelta').textContent = yoy===null
+      ? `Δ ${money(yoyAmount)} vs ${prev1Year}`
+      : `${yoy >= 0 ? '+' : '-'}${pct(Math.abs(yoy))} vs ${prev1Year} | ${cutoffLabel}`;
+    document.getElementById('kpiPrevYearFullLabel').textContent = String(prev1Year);
+    document.getElementById('kpiYearToDateLabel').textContent = String(currentYear);
+    document.getElementById('kpiPrevYearFull').textContent = money(prevYearFullVal);
+    document.getElementById('kpiPrevYearFullRange').textContent = `01/01/${prev1Year} - 31/12/${prev1Year}`;
+    document.getElementById('kpiYearToDateFullCmp').textContent = money(yearVal);
+    document.getElementById('kpiYearToDateFullCmpDelta').textContent = fullDeltaPct===null
+      ? `Δ ${money(yearVal-prevYearFullVal)} vs ${prev1Year} full`
+      : `${fullDeltaPct < 0 ? 'Υστέρηση' : 'Πάνω'} ${pct(Math.abs(fullDeltaPct))} vs ${prev1Year} full | ${cutoffLabel}`;
+    document.getElementById('kpiTotalSalesPeriod').textContent = money(toNum(pack.cards?.turnover));
+    document.getElementById('kpiGrossProfitPeriod').textContent = money(toNum(pack.cards?.gross_profit));
+    document.getElementById('kpiMarginPctPeriod').textContent = pct(pack.cards?.margin_pct);
+    document.getElementById('kpiAvgDailyTurnover').textContent = money(toNum(pack.cards?.avg_sale_per_day));
+    document.getElementById('kpiGrossProfitYear').textContent = money(toNum(year.profit_value || year.gross_profit));
+    document.getElementById('kpiMonthQty').textContent = fmt0.format(Math.round(toNum(month.qty || month.quantity || month.qty_total)));
+
+    const activeBranches = (yearByBranch||[]).filter(r => toNum(r.net_value) > 0).length;
+    document.getElementById('kpiActiveBranches').textContent = fmt0.format(activeBranches);
+    const yearTotal = (yearByBranch||[]).reduce((s, r) => s + toNum(r.net_value), 0);
+    const topBranch = (yearByBranch||[]).reduce((mx, r) => Math.max(mx, toNum(r.net_value)), 0);
+    const topShare = yearTotal > 0 ? (topBranch / yearTotal) * 100 : 0;
+    document.getElementById('kpiTopBranchShare').textContent = pct(topShare);
+
+    const purchasesRes = await fetch(`/v1/kpi/purchases/summary?${filtersToParams().toString()}`);
+    if (purchasesRes.ok) {
+      const purchases = await purchasesRes.json();
+      const purchasesVal = toNum(purchases.net_value || purchases.total_cost || 0);
+      document.getElementById('kpiTotalPurchasesPeriod').textContent = money(purchasesVal);
+      const salesVal = toNum(pack.cards?.turnover);
+      const ratio = salesVal > 0 ? (purchasesVal / salesVal) * 100 : null;
+      document.getElementById('kpiPurchasesToSales').textContent = ratio === null ? '-' : pct(ratio);
+    } else {
+      document.getElementById('kpiTotalPurchasesPeriod').textContent = '-';
+      document.getElementById('kpiPurchasesToSales').textContent = '-';
+    }
+
+    renderTrend([
+      { year: prev2Year, rows: trendY2.trend_monthly || [] },
+      { year: prev1Year, rows: trendY1.trend_monthly || [] },
+      { year: currentYear, rows: trendY0.trend_monthly || [] }
+    ]);
+    fillTable('tblDayByBranch', dayByBranch, false);
+    fillTable('tblMonthByBranch', monthByBranch, false);
+    fillTable('tblYearByBranch', yearByBranch, true);
+    renderSmallDonut('dayByBranchDonut', dayByBranch||[]);
+    renderSmallDonut('monthByBranchDonut', monthByBranch||[]);
+    renderYearDonut(yearByBranch||[]);
+    renderMonthlyBranchPerformance(monthByBranch||[], prevMonthByBranch||[]);
+  }catch(err){
+    setError(err.message || '{{ tt(request, "dashboard_load_failed") }}');
+  }
+}
+
+document.getElementById('centralFilters').addEventListener('submit', reloadCentralDashboard);
+window.addEventListener('load', async ()=>{
+  const overviewKey = 'bv:tenant:company-overview:collapsed';
+  const overviewBody = document.getElementById('companyOverviewBody');
+  const overviewToggle = document.getElementById('toggleCompanyOverview');
+  const overviewIcon = overviewToggle?.querySelector('i');
+  const overviewText = overviewToggle?.querySelector('span');
+  const applyOverviewState = (collapsed)=>{
+    if(!overviewBody || !overviewToggle) return;
+    overviewBody.classList.toggle('d-none', collapsed);
+    overviewToggle.setAttribute('aria-expanded', String(!collapsed));
+    if(overviewIcon){
+      overviewIcon.className = collapsed ? 'fe fe-chevron-down' : 'fe fe-chevron-up';
+    }
+    if(overviewText){
+      overviewText.textContent = collapsed ? 'Εμφάνιση' : 'Απόκρυψη';
+    }
+  };
+  const storedCollapsed = localStorage.getItem(overviewKey) === '1';
+  applyOverviewState(storedCollapsed);
+  overviewToggle?.addEventListener('click', ()=>{
+    const collapsed = !overviewBody.classList.contains('d-none');
+    localStorage.setItem(overviewKey, collapsed ? '1' : '0');
+    applyOverviewState(collapsed);
+  });
+
+  initCentralMulti('centralBranches', '{{ tt(request, "branches") }}');
+  await loadCentralFilterOptions();
+  await reloadCentralDashboard();
+});
+</script>
+{% endblock %}

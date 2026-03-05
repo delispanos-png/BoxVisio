@@ -1,0 +1,732 @@
+{% extends "base_tenant.html" %}
+{% block filters %}
+<form class="row g-3" id="itemsFiltersForm">
+  <div class="col-lg-2 col-md-6">
+    <label class="form-label">{{ tt(request, 'as_of') }}</label>
+    <input class="form-control" type="text" id="itAsOf" value="{{ default_as_of.strftime('%d/%m/%Y') if default_as_of else '' }}" data-date-format="dmy" placeholder="ηη/μμ/εεεε" inputmode="numeric">
+  </div>
+  <div class="col-lg-2 col-md-6">
+    <label class="form-label">{{ tt(request, 'search') }}</label>
+    <input class="form-control" type="text" id="itSearch" placeholder="Όνομα ή κωδικός είδους">
+  </div>
+  <div class="col-lg-2 col-md-6">
+    <label class="form-label">{{ tt(request, 'status_filter') }}</label>
+    <select class="form-select" id="itStatus">
+      <option value="all">{{ tt(request, 'all') }}</option>
+      <option value="active">{{ tt(request, 'active_items') }}</option>
+      <option value="inactive">{{ tt(request, 'inactive_items') }}</option>
+    </select>
+  </div>
+  <div class="col-lg-2 col-md-6">
+    <label class="form-label">{{ tt(request, 'movement_filter') }}</label>
+    <select class="form-select" id="itMovement">
+      <option value="all">{{ tt(request, 'all') }}</option>
+      <option value="fast">{{ tt(request, 'fast_items') }}</option>
+      <option value="normal">{{ tt(request, 'normal') }}</option>
+      <option value="slow">{{ tt(request, 'slow_items') }}</option>
+    </select>
+  </div>
+  <div class="col-lg-2 col-md-6">
+    <label class="form-label">{{ tt(request, 'brands') }}</label>
+    <div class="bv-multi" id="itBrandsMulti">
+      <button type="button" class="form-select bv-multi-toggle text-start" id="itBrandsToggle">{{ tt(request, 'select') }}</button>
+      <div class="bv-multi-menu" id="itBrandsMenu" hidden>
+        <div class="d-flex gap-2 mb-2">
+          <input type="text" class="form-control form-control-sm" id="itBrandsSearch" placeholder="{{ tt(request, 'search') }}">
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="itBrandsAll">{{ tt(request, 'all') }}</button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="itBrandsClear">{{ tt(request, 'clear') }}</button>
+        </div>
+        <div id="itBrandsOptions" class="bv-multi-options"></div>
+      </div>
+      <div id="itBrandsChips" class="bv-chip-wrap mt-2"></div>
+      <select id="itBrands" multiple hidden></select>
+    </div>
+  </div>
+  <div class="col-lg-2 col-md-6">
+    <label class="form-label">Κατηγορία 1</label>
+    <div class="bv-multi" id="itCategoryL1Multi">
+      <button type="button" class="form-select bv-multi-toggle text-start" id="itCategoryL1Toggle">{{ tt(request, 'select') }}</button>
+      <div class="bv-multi-menu" id="itCategoryL1Menu" hidden>
+        <div class="d-flex gap-2 mb-2">
+          <input type="text" class="form-control form-control-sm" id="itCategoryL1Search" placeholder="{{ tt(request, 'search') }}">
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="itCategoryL1All">{{ tt(request, 'all') }}</button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="itCategoryL1Clear">{{ tt(request, 'clear') }}</button>
+        </div>
+        <div id="itCategoryL1Options" class="bv-multi-options"></div>
+      </div>
+      <div id="itCategoryL1Chips" class="bv-chip-wrap mt-2"></div>
+      <select id="itCategoryL1" multiple hidden></select>
+    </div>
+  </div>
+  <div class="col-lg-2 col-md-6">
+    <label class="form-label">Κατηγορία 2</label>
+    <div class="bv-multi" id="itCategoryL2Multi">
+      <button type="button" class="form-select bv-multi-toggle text-start" id="itCategoryL2Toggle">{{ tt(request, 'select') }}</button>
+      <div class="bv-multi-menu" id="itCategoryL2Menu" hidden>
+        <div class="d-flex gap-2 mb-2">
+          <input type="text" class="form-control form-control-sm" id="itCategoryL2Search" placeholder="{{ tt(request, 'search') }}">
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="itCategoryL2All">{{ tt(request, 'all') }}</button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="itCategoryL2Clear">{{ tt(request, 'clear') }}</button>
+        </div>
+        <div id="itCategoryL2Options" class="bv-multi-options"></div>
+      </div>
+      <div id="itCategoryL2Chips" class="bv-chip-wrap mt-2"></div>
+      <select id="itCategoryL2" multiple hidden></select>
+    </div>
+  </div>
+  <div class="col-lg-2 col-md-6">
+    <label class="form-label">Κατηγορία 3</label>
+    <div class="bv-multi" id="itCategoryL3Multi">
+      <button type="button" class="form-select bv-multi-toggle text-start" id="itCategoryL3Toggle">{{ tt(request, 'select') }}</button>
+      <div class="bv-multi-menu" id="itCategoryL3Menu" hidden>
+        <div class="d-flex gap-2 mb-2">
+          <input type="text" class="form-control form-control-sm" id="itCategoryL3Search" placeholder="{{ tt(request, 'search') }}">
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="itCategoryL3All">{{ tt(request, 'all') }}</button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="itCategoryL3Clear">{{ tt(request, 'clear') }}</button>
+        </div>
+        <div id="itCategoryL3Options" class="bv-multi-options"></div>
+      </div>
+      <div id="itCategoryL3Chips" class="bv-chip-wrap mt-2"></div>
+      <select id="itCategoryL3" multiple hidden></select>
+    </div>
+  </div>
+  <select id="itCategories" multiple hidden></select>
+  <div class="col-lg-2 col-md-6 d-flex align-items-end">
+    <button type="submit" class="btn btn-primary w-100"><i class="fe fe-filter me-1"></i>{{ tt(request, 'apply') }}</button>
+  </div>
+</form>
+{% endblock %}
+
+{% block content %}
+<div id="itemsError" class="alert alert-danger d-none mb-3"></div>
+
+<div class="row g-3 mb-3">
+  <div class="col-xl-2 col-md-4">
+    <div class="bv-kpi-box bv-kpi-blue"><div class="kpi-title">{{ tt(request, 'total_items') }}</div><div class="kpi-value" id="itTotalItems">0</div></div>
+  </div>
+  <div class="col-xl-2 col-md-4">
+    <div class="bv-kpi-box bv-kpi-green"><div class="kpi-title">{{ tt(request, 'active_items') }}</div><div class="kpi-value" id="itActiveItems">0</div></div>
+  </div>
+  <div class="col-xl-2 col-md-4">
+    <div class="bv-kpi-box bv-kpi-orange"><div class="kpi-title">{{ tt(request, 'inactive_items') }}</div><div class="kpi-value" id="itInactiveItems">0</div></div>
+  </div>
+  <div class="col-xl-2 col-md-4">
+    <div class="bv-kpi-box bv-kpi-purple"><div class="kpi-title">{{ tt(request, 'fast_items') }}</div><div class="kpi-value" id="itFastItems">0</div></div>
+  </div>
+  <div class="col-xl-2 col-md-4">
+    <div class="bv-kpi-box bv-kpi-red"><div class="kpi-title">{{ tt(request, 'slow_items') }}</div><div class="kpi-value" id="itSlowItems">0</div></div>
+  </div>
+  <div class="col-xl-2 col-md-4">
+    <div class="bv-kpi-box bv-kpi-cyan"><div class="kpi-title">{{ tt(request, 'stock_value') }}</div><div class="kpi-value" id="itStockValue">0.00</div></div>
+  </div>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-lg-12">
+    <div class="card border-0 shadow-sm content-card">
+      <div class="card-header"><h5 class="mb-0">{{ tt(request, 'fast_items') }}</h5></div>
+      <div class="card-body"><canvas id="itemsFastChart" height="100"></canvas></div>
+    </div>
+  </div>
+</div>
+
+<div class="card border-0 shadow-sm content-card">
+  <div class="card-header"><h5 class="mb-0">{{ tt(request, 'items_warehouse') }}</h5></div>
+  <div class="card-body table-responsive items-table-scroll">
+    <table class="table table-sm table-hover" id="itemsTable">
+      <thead>
+        <tr>
+          <th>{{ tt(request, 'item') }}</th>
+          <th>{{ tt(request, 'barcode') }}</th>
+          <th>{{ tt(request, 'brands') }}</th>
+          <th>{{ tt(request, 'categories') }}</th>
+          <th>{{ tt(request, 'groups') }}</th>
+          <th class="text-end">{{ tt(request, 'stock_qty') }}</th>
+          <th class="text-end">{{ tt(request, 'stock_value') }}</th>
+          <th class="text-end">{{ tt(request, 'sales_30d') }}</th>
+          <th class="text-end">{{ tt(request, 'purchases_30d') }}</th>
+          <th>{{ tt(request, 'last_sale') }}</th>
+          <th>{{ tt(request, 'first_seen') }}</th>
+          <th>{{ tt(request, 'status') }}</th>
+          <th>{{ tt(request, 'movement') }}</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</div>
+
+<div class="modal fade" id="itemDetailModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">{{ tt(request, 'items_warehouse') }} - Καρτέλα Είδους</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-4">
+          <div class="col-xl-5">
+            <div class="border rounded p-3 h-100">
+              <div class="mb-3">
+                <div class="small text-uppercase text-muted fw-semibold">{{ tt(request, 'item') }}</div>
+                <div class="h5 mb-0" id="itdName">-</div>
+                <div class="text-muted" id="itdCode">-</div>
+              </div>
+              <div class="row g-2 mb-3">
+                <div class="col-12">
+                  <div class="small text-muted">{{ tt(request, 'barcode') }}</div>
+                  <div class="fw-semibold" id="itdBarcode">-</div>
+                </div>
+                <div class="col-12">
+                  <div class="small text-muted">{{ tt(request, 'brands') }}</div>
+                  <div id="itdBrand">-</div>
+                </div>
+                <div class="col-12">
+                  <div class="small text-muted">{{ tt(request, 'categories') }}</div>
+                  <div id="itdCategory">-</div>
+                </div>
+                <div class="col-12">
+                  <div class="small text-muted">{{ tt(request, 'groups') }}</div>
+                  <div id="itdGroup">-</div>
+                </div>
+              </div>
+              <div class="row g-2">
+                <div class="col-6">
+                  <div class="small text-muted">{{ tt(request, 'stock_qty') }}</div>
+                  <div class="fw-semibold" id="itdQty">0</div>
+                </div>
+                <div class="col-6">
+                  <div class="small text-muted">Δεσμευμένη ποσότητα</div>
+                  <div class="fw-semibold" id="itdQtyReserved">0</div>
+                </div>
+                <div class="col-6">
+                  <div class="small text-muted">{{ tt(request, 'stock_value') }}</div>
+                  <div class="fw-semibold" id="itdStockValue">0,00 €</div>
+                </div>
+                <div class="col-6">
+                  <div class="small text-muted">Κόστος αποθέματος</div>
+                  <div class="fw-semibold" id="itdCostAmount">0,00 €</div>
+                </div>
+                <div class="col-6">
+                  <div class="small text-muted">{{ tt(request, 'sales_30d') }}</div>
+                  <div class="fw-semibold" id="itdSales30">0</div>
+                </div>
+                <div class="col-6">
+                  <div class="small text-muted">{{ tt(request, 'purchases_30d') }}</div>
+                  <div class="fw-semibold" id="itdPurch30">0</div>
+                </div>
+                <div class="col-6">
+                  <div class="small text-muted">{{ tt(request, 'last_sale') }}</div>
+                  <div id="itdLastSale">-</div>
+                </div>
+                <div class="col-6">
+                  <div class="small text-muted">{{ tt(request, 'first_seen') }}</div>
+                  <div id="itdFirstSeen">-</div>
+                </div>
+                <div class="col-6">
+                  <div class="small text-muted">{{ tt(request, 'status') }}</div>
+                  <div id="itdStatus">-</div>
+                </div>
+                <div class="col-6">
+                  <div class="small text-muted">{{ tt(request, 'movement') }}</div>
+                  <div id="itdMovement">-</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="col-xl-7">
+            <div class="border rounded p-3 h-100">
+              <div class="d-flex justify-content-between align-items-center mb-2">
+                <h6 class="mb-0">Πλήρη Πεδία Βάσης</h6>
+                <small class="text-muted">
+                  <span id="itdSnapshotMeta">-</span>
+                  <span class="mx-1">|</span>
+                  Πεδία: <span id="itdRawCount">0</span>
+                </small>
+              </div>
+              <div class="table-responsive border rounded" style="max-height: 470px;">
+                <table class="table table-sm align-middle mb-0">
+                  <thead class="table-light sticky-top">
+                    <tr>
+                      <th style="width: 32%;">Πεδίο</th>
+                      <th>Τιμή</th>
+                    </tr>
+                  </thead>
+                  <tbody id="itdRawBody">
+                    <tr><td colspan="2" class="text-muted">Δεν υπάρχουν διαθέσιμα πεδία.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ tt(request, 'close') if tt(request, 'close') != 'close' else 'Κλείσιμο' }}</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function(){
+  const form = document.getElementById('itemsFiltersForm');
+  const asOfEl = document.getElementById('itAsOf');
+  const qEl = document.getElementById('itSearch');
+  const statusEl = document.getElementById('itStatus');
+  const movementEl = document.getElementById('itMovement');
+  const fmtQty = (n)=> new Intl.NumberFormat('el-GR',{maximumFractionDigits:0}).format(Math.round(Number(n||0)));
+  const fmtMoney = (n)=> new Intl.NumberFormat('el-GR',{style:'currency',currency:'EUR'}).format(Number(n||0));
+  let fastChart;
+  const itemDetailModalEl = document.getElementById('itemDetailModal');
+  const itemDetailModal = itemDetailModalEl && window.bootstrap?.Modal
+    ? new window.bootstrap.Modal(itemDetailModalEl)
+    : null;
+  let itemDetailBackdrop = null;
+
+  function hideItemDetailModal(){
+    if(itemDetailModal){
+      itemDetailModal.hide();
+      return;
+    }
+    if(!itemDetailModalEl) return;
+    itemDetailModalEl.classList.remove('show');
+    itemDetailModalEl.classList.add('d-none');
+    itemDetailModalEl.style.display = 'none';
+    itemDetailModalEl.setAttribute('aria-hidden', 'true');
+    itemDetailModalEl.removeAttribute('aria-modal');
+    document.body.classList.remove('modal-open');
+    if(itemDetailBackdrop){
+      itemDetailBackdrop.remove();
+      itemDetailBackdrop = null;
+    }
+  }
+
+  function showItemDetailModal(){
+    if(itemDetailModal){
+      itemDetailModal.show();
+      return;
+    }
+    if(!itemDetailModalEl) return;
+    itemDetailModalEl.classList.remove('d-none');
+    itemDetailModalEl.classList.add('show');
+    itemDetailModalEl.style.display = 'block';
+    itemDetailModalEl.setAttribute('aria-hidden', 'false');
+    itemDetailModalEl.setAttribute('aria-modal', 'true');
+    document.body.classList.add('modal-open');
+    if(!itemDetailBackdrop){
+      itemDetailBackdrop = document.createElement('div');
+      itemDetailBackdrop.className = 'modal-backdrop fade show';
+      itemDetailBackdrop.addEventListener('click', hideItemDetailModal);
+      document.body.appendChild(itemDetailBackdrop);
+    }
+  }
+
+  const fieldDefs = [
+    {key:'brands', selectId:'itBrands', label:'{{ tt(request, "brands") }}'},
+    {key:'categories', selectId:'itCategories', label:'{{ tt(request, "categories") }}'},
+  ];
+  const uiFieldDefs = [
+    {selectId:'itBrands', label:'{{ tt(request, "brands") }}'},
+    {selectId:'itCategoryL1', label:'Κατηγορία 1'},
+    {selectId:'itCategoryL2', label:'Κατηγορία 2'},
+    {selectId:'itCategoryL3', label:'Κατηγορία 3'},
+  ];
+  let categoryHierarchy = [];
+
+  function setError(msg){
+    const el = document.getElementById('itemsError');
+    if(!msg){ el.classList.add('d-none'); el.textContent=''; return; }
+    el.classList.remove('d-none'); el.textContent = msg;
+  }
+
+  function syncMulti(prefix, label, filterText=''){
+    const select=document.getElementById(prefix);
+    const optionsWrap=document.getElementById(`${prefix}Options`);
+    const chips=document.getElementById(`${prefix}Chips`);
+    const toggle=document.getElementById(`${prefix}Toggle`);
+    if(!select || !optionsWrap || !chips || !toggle) return;
+    const selected = Array.from(select.options).filter(o=>o.selected).map(o=>o.value);
+    const normalized = (filterText||'').toLowerCase().trim();
+    optionsWrap.innerHTML='';
+    Array.from(select.options)
+      .filter(o=>(o.textContent||o.value).toLowerCase().includes(normalized))
+      .forEach(o=>{
+        const row=document.createElement('label');
+        row.className='bv-multi-opt';
+        const cb=document.createElement('input');
+        cb.type='checkbox'; cb.checked=o.selected;
+        cb.addEventListener('change', ()=>{o.selected=cb.checked; syncMulti(prefix,label,document.getElementById(`${prefix}Search`)?.value||'');});
+        const span=document.createElement('span');
+        span.textContent=o.textContent||o.value;
+        row.append(cb,span);
+        optionsWrap.appendChild(row);
+      });
+    chips.innerHTML='';
+    selected.forEach(v=>{
+      const chip=document.createElement('span');
+      chip.className='bv-chip';
+      const opt = Array.from(select.options).find(o=>o.value===v);
+      chip.textContent=opt?.textContent||v;
+      chips.appendChild(chip);
+    });
+    toggle.textContent = selected.length ? `${label} (${selected.length})` : '{{ tt(request, "select") }}';
+  }
+
+  function initMulti(prefix, label){
+    const toggle=document.getElementById(`${prefix}Toggle`);
+    const menu=document.getElementById(`${prefix}Menu`);
+    const search=document.getElementById(`${prefix}Search`);
+    const btnAll=document.getElementById(`${prefix}All`);
+    const btnClear=document.getElementById(`${prefix}Clear`);
+    const select=document.getElementById(prefix);
+    if(!toggle || toggle.dataset.bound==='1') return;
+    toggle.dataset.bound='1';
+    toggle.addEventListener('click', ()=>{menu.hidden=!menu.hidden;});
+    search.addEventListener('input', ()=>syncMulti(prefix,label,search.value));
+    btnAll.addEventListener('click', ()=>{Array.from(select.options).forEach(o=>o.selected=true); syncMulti(prefix,label,search.value);});
+    btnClear.addEventListener('click', ()=>{Array.from(select.options).forEach(o=>o.selected=false); syncMulti(prefix,label,search.value);});
+    document.addEventListener('click', (e)=>{ if(!document.getElementById(`${prefix}Multi`)?.contains(e.target)) menu.hidden=true; });
+  }
+
+  function populateSelect(selectId, label, values, labels={}){
+    const select=document.getElementById(selectId);
+    if(!select) return;
+    const prev = new Set(Array.from(select.selectedOptions).map(o=>o.value));
+    select.innerHTML='';
+    const ordered = [...(values || [])].sort((a,b)=>
+      String(labels[a] || a).localeCompare(String(labels[b] || b), 'el', { sensitivity:'base' })
+    );
+    ordered.forEach(v=>{
+      const opt=document.createElement('option');
+      opt.value=v;
+      opt.textContent=labels[v] || v;
+      if(prev.has(v)) opt.selected=true;
+      select.appendChild(opt);
+    });
+    syncMulti(selectId, label);
+  }
+
+  function selectedValues(selectId){
+    const sel = document.getElementById(selectId);
+    return new Set(Array.from(sel?.selectedOptions || []).map(o => o.value));
+  }
+
+  function setSelectedByValues(selectId, values){
+    const sel = document.getElementById(selectId);
+    if(!sel) return;
+    const wanted = new Set(values || []);
+    Array.from(sel.options || []).forEach(o => { o.selected = wanted.has(o.value); });
+    const label = (uiFieldDefs.find(f => f.selectId === selectId)?.label) || '{{ tt(request, "select") }}';
+    syncMulti(selectId, label);
+  }
+
+  function rebuildHiddenCategories(){
+    const l1 = selectedValues('itCategoryL1');
+    const l2 = selectedValues('itCategoryL2');
+    const l3 = selectedValues('itCategoryL3');
+    const hidden = document.getElementById('itCategories');
+    if(!hidden) return;
+    hidden.innerHTML = '';
+    categoryHierarchy
+      .filter(c => !l1.size || l1.has(c.l1))
+      .filter(c => !l2.size || l2.has(c.l2))
+      .filter(c => !l3.size || l3.has(c.l3))
+      .forEach(c => {
+        const opt = document.createElement('option');
+        opt.value = c.id;
+        opt.textContent = c.path;
+        opt.selected = true;
+        hidden.appendChild(opt);
+      });
+  }
+
+  function syncCategoryHierarchy(){
+    const l1Sel = selectedValues('itCategoryL1');
+    const l2SelBefore = selectedValues('itCategoryL2');
+    const l3SelBefore = selectedValues('itCategoryL3');
+
+    const l2Pool = new Set();
+    categoryHierarchy.forEach(c => {
+      if(!l1Sel.size || l1Sel.has(c.l1)) l2Pool.add(c.l2);
+    });
+    populateSelect('itCategoryL2', 'Κατηγορία 2', [...l2Pool], {});
+    const l2Valid = [...l2SelBefore].filter(v => l2Pool.has(v));
+    setSelectedByValues('itCategoryL2', l2Valid);
+
+    const l2Sel = selectedValues('itCategoryL2');
+    const l3Pool = new Set();
+    categoryHierarchy.forEach(c => {
+      const l1ok = !l1Sel.size || l1Sel.has(c.l1);
+      const l2ok = !l2Sel.size || l2Sel.has(c.l2);
+      if(l1ok && l2ok) l3Pool.add(c.l3);
+    });
+    populateSelect('itCategoryL3', 'Κατηγορία 3', [...l3Pool], {});
+    const l3Valid = [...l3SelBefore].filter(v => l3Pool.has(v));
+    setSelectedByValues('itCategoryL3', l3Valid);
+
+    rebuildHiddenCategories();
+  }
+
+  function buildCategoryHierarchy(categoryIds, categoryLabels){
+    categoryHierarchy = (categoryIds || []).map((id) => {
+      const raw = String((categoryLabels && categoryLabels[id]) || id);
+      const parts = raw.split('>').map(x => x.trim()).filter(Boolean);
+      const l1 = parts[0] || raw;
+      const l2 = parts[1] || parts[0] || raw;
+      const l3 = parts[2] || parts[1] || parts[0] || raw;
+      return { id, path: raw, l1, l2, l3 };
+    });
+    const l1All = [...new Set(categoryHierarchy.map(c => c.l1))];
+    populateSelect('itCategoryL1', 'Κατηγορία 1', l1All, {});
+    syncCategoryHierarchy();
+  }
+
+  function params(){
+    const p = new URLSearchParams();
+    if(asOfEl.value) p.set('as_of', window.bvToIsoDate ? window.bvToIsoDate(asOfEl.value) : asOfEl.value);
+    if(qEl.value) p.set('q', qEl.value.trim());
+    p.set('status', statusEl.value || 'all');
+    p.set('movement', movementEl.value || 'all');
+    p.set('limit', '300');
+    fieldDefs.forEach((f)=>{
+      const sel=document.getElementById(f.selectId);
+      Array.from(sel?.selectedOptions || []).forEach(o=>p.append(f.key, o.value));
+    });
+    return p;
+  }
+
+  async function loadFilterOptions(){
+    const p = new URLSearchParams();
+    if(asOfEl.value) p.set('as_of', window.bvToIsoDate ? window.bvToIsoDate(asOfEl.value) : asOfEl.value);
+    try{
+      const res=await fetch(`/v1/kpi/inventory/filter-options?${p.toString()}`);
+      if(!res.ok) return;
+      const data=await res.json();
+      populateSelect('itBrands', '{{ tt(request, "brands") }}', data.brands || [], (data.labels && data.labels.brands) || {});
+      buildCategoryHierarchy(
+        data.categories || [],
+        (data.labels && data.labels.categories) || {}
+      );
+    }catch(_e){}
+  }
+
+  function renderSummary(s){
+    document.getElementById('itTotalItems').textContent = String(s.total_items || 0);
+    document.getElementById('itActiveItems').textContent = String(s.active_items || 0);
+    document.getElementById('itInactiveItems').textContent = String(s.inactive_items || 0);
+    document.getElementById('itFastItems').textContent = String(s.fast_items || 0);
+    document.getElementById('itSlowItems').textContent = String(s.slow_items || 0);
+    document.getElementById('itStockValue').textContent = fmtMoney(s.stock_value || 0);
+  }
+
+  function renderRows(rows){
+    const tbody = document.querySelector('#itemsTable tbody');
+    tbody.innerHTML='';
+    if(!rows.length){
+      tbody.innerHTML = `<tr><td colspan="13" class="text-center text-muted py-3">{{ tt(request, "no_data_available") }}</td></tr>`;
+      return;
+    }
+    rows.forEach(r=>{
+      const statusBadge = r.status === 'active'
+        ? '<span class="badge bg-success">{{ tt(request, "active") }}</span>'
+        : '<span class="badge bg-secondary">{{ tt(request, "inactive") }}</span>';
+      let movementBadge = '<span class="badge bg-info">{{ tt(request, "normal") }}</span>';
+      if(r.movement === 'fast') movementBadge = '<span class="badge bg-primary">{{ tt(request, "fast_items") }}</span>';
+      if(r.movement === 'slow') movementBadge = '<span class="badge bg-warning text-dark">{{ tt(request, "slow_items") }}</span>';
+      const tr = document.createElement('tr');
+      tr.style.cursor = 'pointer';
+      tr.tabIndex = 0;
+      tr.title = 'Διπλό κλικ για καρτέλα είδους';
+      tr.innerHTML = `
+        <td><div class="fw-semibold">${r.item_name || '-'}</div><div class="text-muted small">${r.item_code || '-'}</div></td>
+        <td>${r.barcode || '-'}</td>
+        <td>${r.brand || '-'}</td>
+        <td>${r.category || '-'}</td>
+        <td>${r.group || '-'}</td>
+        <td class="text-end">${fmtQty(r.qty_on_hand)}</td>
+        <td class="text-end">${fmtMoney(r.stock_value)}</td>
+        <td class="text-end">${fmtQty(r.sales_qty_30)}</td>
+        <td class="text-end">${fmtQty(r.purchases_qty_30)}</td>
+        <td>${r.last_sale_date ? (window.bvToDmyDate ? window.bvToDmyDate(r.last_sale_date) : r.last_sale_date) : '-'}</td>
+        <td>${r.first_seen ? (window.bvToDmyDate ? window.bvToDmyDate(r.first_seen) : r.first_seen) : '-'}</td>
+        <td>${statusBadge}</td>
+        <td>${movementBadge}</td>
+      `;
+      tr.addEventListener('dblclick', ()=> openItemDetail(r));
+      tr.addEventListener('keydown', (e)=>{
+        if(e.key === 'Enter' || e.key === ' '){
+          e.preventDefault();
+          openItemDetail(r);
+        }
+      });
+      tbody.appendChild(tr);
+    });
+  }
+
+  function movementLabel(code){
+    if(code === 'fast') return '{{ tt(request, "fast_items") }}';
+    if(code === 'slow') return '{{ tt(request, "slow_items") }}';
+    return '{{ tt(request, "normal") }}';
+  }
+
+  function statusLabel(code){
+    if(code === 'active') return '{{ tt(request, "active") }}';
+    if(code === 'inactive') return '{{ tt(request, "inactive") }}';
+    return '-';
+  }
+
+  function setRawFields(rawFields){
+    const body = document.getElementById('itdRawBody');
+    const countEl = document.getElementById('itdRawCount');
+    if(!body) return;
+    body.innerHTML = '';
+    const rows = Array.isArray(rawFields) ? rawFields : [];
+    if(countEl) countEl.textContent = String(rows.length || 0);
+    if(!rows.length){
+      body.innerHTML = '<tr><td colspan="2" class="text-muted">Δεν υπάρχουν διαθέσιμα πεδία.</td></tr>';
+      return;
+    }
+    rows.forEach((f)=>{
+      const tr = document.createElement('tr');
+      const key = document.createElement('td');
+      key.className = 'text-muted';
+      key.textContent = f?.label || f?.key || '-';
+      const value = document.createElement('td');
+      const raw = f?.value;
+      let text = '-';
+      if(raw !== null && raw !== undefined && raw !== ''){
+        if(typeof raw === 'number'){
+          if((f?.key || '').includes('qty')) text = fmtQty(raw);
+          else if((f?.key || '').includes('amount') || (f?.key || '').includes('value')) text = fmtMoney(raw);
+          else text = new Intl.NumberFormat('el-GR', {maximumFractionDigits: 4}).format(raw);
+        }else{
+          text = String(raw);
+          if(/^\d{4}-\d{2}-\d{2}/.test(text) && window.bvToDmyDate){
+            text = window.bvToDmyDate(text);
+          }
+        }
+      }
+      value.textContent = text;
+      tr.append(key, value);
+      body.appendChild(tr);
+    });
+  }
+
+  function setItemDetailData(r){
+    document.getElementById('itdName').textContent = r?.item_name || '-';
+    document.getElementById('itdCode').textContent = r?.item_code || '-';
+    document.getElementById('itdBarcode').textContent = r?.barcode || '-';
+    document.getElementById('itdBrand').textContent = r?.brand || '-';
+    document.getElementById('itdCategory').textContent = r?.category || '-';
+    document.getElementById('itdGroup').textContent = r?.group || '-';
+    document.getElementById('itdQty').textContent = fmtQty(r?.qty_on_hand);
+    const qtyReservedEl = document.getElementById('itdQtyReserved');
+    if(qtyReservedEl) qtyReservedEl.textContent = fmtQty(r?.qty_reserved);
+    document.getElementById('itdStockValue').textContent = fmtMoney(r?.stock_value);
+    const costEl = document.getElementById('itdCostAmount');
+    if(costEl) costEl.textContent = fmtMoney(r?.cost_amount);
+    document.getElementById('itdSales30').textContent = fmtQty(r?.sales_qty_30);
+    document.getElementById('itdPurch30').textContent = fmtQty(r?.purchases_qty_30);
+    document.getElementById('itdLastSale').textContent = r?.last_sale_date ? (window.bvToDmyDate ? window.bvToDmyDate(r.last_sale_date) : r.last_sale_date) : '-';
+    document.getElementById('itdFirstSeen').textContent = r?.first_seen ? (window.bvToDmyDate ? window.bvToDmyDate(r.first_seen) : r.first_seen) : '-';
+    document.getElementById('itdStatus').textContent = statusLabel(r?.status);
+    document.getElementById('itdMovement').textContent = movementLabel(r?.movement);
+    const snap = document.getElementById('itdSnapshotMeta');
+    if(snap){
+      snap.textContent = r?.snapshot_date
+        ? `Snapshot: ${window.bvToDmyDate ? window.bvToDmyDate(r.snapshot_date) : r.snapshot_date}`
+        : '-';
+    }
+    setRawFields(r?.raw_fields || []);
+  }
+
+  async function openItemDetail(r){
+    if(!r || !r.item_code || !itemDetailModalEl) return;
+    setItemDetailData(r);
+    showItemDetailModal();
+    try{
+      const p = params();
+      p.delete('q');
+      p.delete('status');
+      p.delete('movement');
+      p.delete('limit');
+      const endpoint = `/v1/kpi/inventory/items/${encodeURIComponent(r.item_code)}/detail?${p.toString()}`;
+      const res = await fetch(endpoint);
+      const data = await res.json();
+      if(!res.ok){
+        throw new Error(data?.detail || 'Αποτυχία φόρτωσης λεπτομερειών είδους');
+      }
+      setItemDetailData(data || r);
+    }catch(_e){
+      const body = document.getElementById('itdRawBody');
+      if(body){
+        body.innerHTML = '<tr><td colspan="2" class="text-danger">Αποτυχία φόρτωσης πλήρων πεδίων βάσης.</td></tr>';
+      }
+    }
+  }
+
+  function renderFastChart(rows){
+    const top = (rows || []).slice().sort((a,b)=>Number(b.sales_qty_30||0)-Number(a.sales_qty_30||0)).slice(0, 10);
+    if(fastChart) fastChart.destroy();
+    fastChart = new Chart(document.getElementById('itemsFastChart'), {
+      type:'bar',
+      data:{
+        labels: top.map(x=>x.item_name || x.item_code),
+        datasets:[
+          {label:'{{ tt(request, "sales_30d") }}', data: top.map(x=>Math.round(Number(x.sales_qty_30||0))), backgroundColor:'#22c55e'},
+          {label:'{{ tt(request, "stock_qty") }}', data: top.map(x=>Math.round(Number(x.qty_on_hand||0))), backgroundColor:'#3b82f6'}
+        ]
+      },
+      options:{responsive:true, maintainAspectRatio:false}
+    });
+  }
+
+  async function load(){
+    setError(null);
+    try{
+      const res = await fetch(`/v1/kpi/inventory/items?${params().toString()}`);
+      const data = await res.json();
+      if(!res.ok) throw new Error(data.detail || 'Load failed');
+      renderSummary(data.summary || {});
+      renderRows(data.rows || []);
+      renderFastChart(data.rows || []);
+    }catch(e){
+      setError(e.message || '{{ tt(request, "load_failed") }}');
+    }
+  }
+
+  form.addEventListener('submit', (e)=>{e.preventDefault(); load();});
+  statusEl.addEventListener('change', load);
+  movementEl.addEventListener('change', load);
+  ['change','blur'].forEach(ev=>asOfEl.addEventListener(ev, ()=>{loadFilterOptions(); load();}));
+  uiFieldDefs.forEach((f)=>initMulti(f.selectId, f.label));
+  const brandsSel = document.getElementById('itBrands');
+  if(brandsSel) brandsSel.addEventListener('change', load);
+  ['itCategoryL1','itCategoryL2','itCategoryL3'].forEach((id)=>{
+    const sel = document.getElementById(id);
+    if(!sel) return;
+    sel.addEventListener('change', ()=>{
+      syncCategoryHierarchy();
+      load();
+    });
+  });
+  qEl.addEventListener('keydown', (e)=>{ if(e.key === 'Enter'){ e.preventDefault(); load(); }});
+  if(itemDetailModalEl){
+    itemDetailModalEl.querySelectorAll('[data-bs-dismiss="modal"], .btn-close').forEach((btn)=>{
+      btn.addEventListener('click', hideItemDetailModal);
+    });
+    itemDetailModalEl.addEventListener('click', (e)=>{
+      if(e.target === itemDetailModalEl) hideItemDetailModal();
+    });
+  }
+  document.addEventListener('keydown', (e)=>{
+    if(e.key === 'Escape') hideItemDetailModal();
+  });
+
+  loadFilterOptions().then(load);
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,16 @@
+[Unit]
+Description=CloudOn BI Docker Compose Stack
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/cloudon-bi
+ExecStart=/usr/bin/docker compose -f docker-compose.yml -f infra/production/compose.prod.yml up -d
+ExecStop=/usr/bin/docker compose -f docker-compose.yml -f infra/production/compose.prod.yml down
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,1847 @@
+{% extends "base_tenant.html" %}
+
+{% block filters %}
+<form id="salesFilters" class="row g-2">
+  <div class="col-12 col-md-6 col-xl-3">
+    <label class="form-label mb-1">{{ tt(request, 'from') }}</label>
+    <input class="form-control" type="text" name="from" value="{{ default_from.strftime('%d/%m/%Y') if default_from else '' }}" data-date-format="dmy" placeholder="ηη/μμ/εεεε" inputmode="numeric">
+  </div>
+  <div class="col-12 col-md-6 col-xl-3">
+    <label class="form-label mb-1">{{ tt(request, 'to') }}</label>
+    <input class="form-control" type="text" name="to" value="{{ default_to.strftime('%d/%m/%Y') if default_to else '' }}" data-date-format="dmy" placeholder="ηη/μμ/εεεε" inputmode="numeric">
+  </div>
+  <div class="col-12 col-md-6 col-xl-2">
+    <label class="form-label mb-1">{{ tt(request, 'branches') }}</label>
+    <div class="bv-multi" id="salesBranchesMulti">
+      <button type="button" class="form-select bv-multi-toggle text-start" id="salesBranchesToggle">Επιλογή</button>
+      <div class="bv-multi-menu" id="salesBranchesMenu" hidden>
+        <div class="d-flex gap-2 mb-2">
+          <input type="text" class="form-control form-control-sm" id="salesBranchesSearch" placeholder="Αναζήτηση...">
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="salesBranchesAll">Όλα</button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="salesBranchesClear">Καθαρισμός</button>
+        </div>
+        <div id="salesBranchesOptions" class="bv-multi-options"></div>
+      </div>
+      <div id="salesBranchesChips" class="bv-chip-wrap mt-2"></div>
+      <select name="branches" id="salesBranches" multiple hidden></select>
+    </div>
+  </div>
+  <div class="col-12 col-md-6 col-xl-2">
+    <label class="form-label mb-1">{{ tt(request, 'warehouses') }}</label>
+    <div class="bv-multi" id="salesWarehousesMulti">
+      <button type="button" class="form-select bv-multi-toggle text-start" id="salesWarehousesToggle">Επιλογή</button>
+      <div class="bv-multi-menu" id="salesWarehousesMenu" hidden>
+        <div class="d-flex gap-2 mb-2">
+          <input type="text" class="form-control form-control-sm" id="salesWarehousesSearch" placeholder="Αναζήτηση...">
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="salesWarehousesAll">Όλα</button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="salesWarehousesClear">Καθαρισμός</button>
+        </div>
+        <div id="salesWarehousesOptions" class="bv-multi-options"></div>
+      </div>
+      <div id="salesWarehousesChips" class="bv-chip-wrap mt-2"></div>
+      <select name="warehouses" id="salesWarehouses" multiple hidden></select>
+    </div>
+  </div>
+  <div class="col-12 col-md-6 col-xl-2">
+    <label class="form-label mb-1">{{ tt(request, 'brands') }}</label>
+    <div class="bv-multi" id="salesBrandsMulti">
+      <button type="button" class="form-select bv-multi-toggle text-start" id="salesBrandsToggle">Επιλογή</button>
+      <div class="bv-multi-menu" id="salesBrandsMenu" hidden>
+        <div class="d-flex gap-2 mb-2">
+          <input type="text" class="form-control form-control-sm" id="salesBrandsSearch" placeholder="Αναζήτηση...">
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="salesBrandsAll">Όλα</button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="salesBrandsClear">Καθαρισμός</button>
+        </div>
+        <div id="salesBrandsOptions" class="bv-multi-options"></div>
+      </div>
+      <div id="salesBrandsChips" class="bv-chip-wrap mt-2"></div>
+      <select name="brands" id="salesBrands" multiple hidden></select>
+    </div>
+  </div>
+  <div class="col-12 col-md-6 col-xl-2">
+    <label class="form-label mb-1">Κατηγορία 1</label>
+    <div class="bv-multi" id="salesCategoryL1Multi">
+      <button type="button" class="form-select bv-multi-toggle text-start" id="salesCategoryL1Toggle">Επιλογή</button>
+      <div class="bv-multi-menu" id="salesCategoryL1Menu" hidden>
+        <div class="d-flex gap-2 mb-2">
+          <input type="text" class="form-control form-control-sm" id="salesCategoryL1Search" placeholder="Αναζήτηση...">
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="salesCategoryL1All">Όλα</button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="salesCategoryL1Clear">Καθαρισμός</button>
+        </div>
+        <div id="salesCategoryL1Options" class="bv-multi-options"></div>
+      </div>
+      <div id="salesCategoryL1Chips" class="bv-chip-wrap mt-2"></div>
+      <select id="salesCategoryL1" multiple hidden></select>
+    </div>
+  </div>
+  <div class="col-12 col-md-6 col-xl-2">
+    <label class="form-label mb-1">Κατηγορία 2</label>
+    <div class="bv-multi" id="salesCategoryL2Multi">
+      <button type="button" class="form-select bv-multi-toggle text-start" id="salesCategoryL2Toggle">Επιλογή</button>
+      <div class="bv-multi-menu" id="salesCategoryL2Menu" hidden>
+        <div class="d-flex gap-2 mb-2">
+          <input type="text" class="form-control form-control-sm" id="salesCategoryL2Search" placeholder="Αναζήτηση...">
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="salesCategoryL2All">Όλα</button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="salesCategoryL2Clear">Καθαρισμός</button>
+        </div>
+        <div id="salesCategoryL2Options" class="bv-multi-options"></div>
+      </div>
+      <div id="salesCategoryL2Chips" class="bv-chip-wrap mt-2"></div>
+      <select id="salesCategoryL2" multiple hidden></select>
+    </div>
+  </div>
+  <div class="col-12 col-md-6 col-xl-2">
+    <label class="form-label mb-1">Κατηγορία 3</label>
+    <div class="bv-multi" id="salesCategoryL3Multi">
+      <button type="button" class="form-select bv-multi-toggle text-start" id="salesCategoryL3Toggle">Επιλογή</button>
+      <div class="bv-multi-menu" id="salesCategoryL3Menu" hidden>
+        <div class="d-flex gap-2 mb-2">
+          <input type="text" class="form-control form-control-sm" id="salesCategoryL3Search" placeholder="Αναζήτηση...">
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="salesCategoryL3All">Όλα</button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="salesCategoryL3Clear">Καθαρισμός</button>
+        </div>
+        <div id="salesCategoryL3Options" class="bv-multi-options"></div>
+      </div>
+      <div id="salesCategoryL3Chips" class="bv-chip-wrap mt-2"></div>
+      <select id="salesCategoryL3" multiple hidden></select>
+    </div>
+  </div>
+  <select name="categories" id="salesCategories" multiple hidden></select>
+  <select name="groups" id="salesGroups" multiple hidden></select>
+  <div class="col-12 col-xl-2 d-grid gap-2 align-content-end">
+    <button class="btn btn-primary" type="submit"><i class="fe fe-filter"></i> {{ tt(request, 'apply') }}</button>
+    <a id="exportBranchCsv" class="btn btn-outline-secondary" href="#" target="_blank"><i class="fe fe-download"></i> {{ tt(request, 'export_branch_csv') }}</a>
+  </div>
+</form>
+{% endblock %}
+
+{% block content %}
+<div id="salesError" class="alert alert-danger d-none"></div>
+<style>
+  .insights-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(460px, 1fr));
+    gap: 12px;
+  }
+  .insight-card-modern {
+    position: relative;
+    border-radius: 14px;
+    border: 1px solid #d4deef;
+    background: linear-gradient(180deg, #ffffff 0%, #f7fbff 100%);
+    padding: 14px 14px 12px;
+    box-shadow: 0 8px 18px rgba(15, 23, 42, 0.06);
+    overflow: hidden;
+    transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease;
+  }
+  .insight-card-modern:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 14px 30px rgba(15, 23, 42, 0.10);
+    border-color: #c2d3ef;
+  }
+  .insight-card-modern::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 5px;
+    background: #94a3b8;
+  }
+  .insight-card-modern.is-critical::before { background: #ef4444; }
+  .insight-card-modern.is-warning::before { background: #f59e0b; }
+  .insight-card-modern.is-info::before { background: #3b82f6; }
+  .insight-card-modern .top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+  .insight-card-modern .title-wrap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+  .insight-card-modern .icon {
+    width: 30px;
+    height: 30px;
+    border-radius: 10px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-size: 14px;
+    font-weight: 700;
+    flex: 0 0 auto;
+  }
+  .insight-card-modern .icon i {
+    font-size: 15px;
+    line-height: 1;
+  }
+  .insight-card-modern.is-critical .icon { background: #ef4444; }
+  .insight-card-modern.is-warning .icon { background: #f59e0b; }
+  .insight-card-modern.is-info .icon { background: #3b82f6; }
+  .insight-card-modern .title {
+    margin: 0;
+    font-size: 0.90rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    color: #0f172a;
+    letter-spacing: .02em;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+  }
+  .insight-card-modern .kind-pill {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    padding: 3px 9px;
+    border: 1px solid #c7d2fe;
+    background: #eef2ff;
+    color: #3730a3;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: .03em;
+    text-transform: uppercase;
+  }
+  .insight-badge {
+    border-radius: 999px;
+    padding: 4px 10px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .03em;
+    text-transform: uppercase;
+    border: 1px solid transparent;
+  }
+  .insight-badge.critical { color: #b91c1c; background: #fee2e2; border-color: #fecaca; }
+  .insight-badge.warning { color: #92400e; background: #fef3c7; border-color: #fde68a; }
+  .insight-badge.info { color: #1e3a8a; background: #dbeafe; border-color: #bfdbfe; }
+  .insight-card-modern .msg {
+    margin: 0 0 10px;
+    font-size: 1rem;
+    color: #1f2937;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+  }
+  .insight-card-modern .meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+  .insight-card-modern .meta-pill {
+    border-radius: 999px;
+    padding: 5px 12px;
+    font-size: 12px;
+    font-weight: 700;
+    background: #eef2ff;
+    color: #312e81;
+    border: 1px solid #c7d2fe;
+  }
+  .insight-card-modern .foot {
+    display: flex;
+    justify-content: flex-end;
+  }
+  .insight-card-modern .details-link {
+    font-size: .78rem;
+    font-weight: 800;
+    letter-spacing: .02em;
+    text-transform: uppercase;
+    color: #4338ca;
+    text-decoration: none;
+    border: 1px solid #c7d2fe;
+    background: #eef2ff;
+    border-radius: 999px;
+    padding: 5px 10px;
+  }
+  .insight-card-modern .details-link:hover {
+    color: #312e81;
+    border-color: #a5b4fc;
+    background: #e0e7ff;
+  }
+  .insights-toolbar-btn {
+    min-width: 168px;
+  }
+  @media (max-width: 768px) {
+    .insights-grid { grid-template-columns: 1fr; }
+  }
+  .insights-empty {
+    border: 1px dashed #cbd5e1;
+    border-radius: 12px;
+    padding: 20px;
+    color: #64748b;
+    text-align: center;
+    background: #f8fafc;
+    font-weight: 600;
+  }
+  .top-products-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .top-products-controls .form-select {
+    min-width: 96px;
+    border-radius: 10px;
+    border-color: #cbd5e1;
+    font-weight: 600;
+  }
+  .top-products-table th { font-size: 12px; text-transform: uppercase; letter-spacing: .03em; color: #64748b; }
+  .top-products-table td { vertical-align: middle; }
+  .top-products-rank {
+    display: inline-flex;
+    width: 26px;
+    height: 26px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 800;
+    color: #1e293b;
+    background: #e2e8f0;
+  }
+  .top-products-rank.r1 { background: #fbbf24; color: #78350f; }
+  .top-products-rank.r2 { background: #cbd5e1; color: #334155; }
+  .top-products-rank.r3 { background: #fdba74; color: #7c2d12; }
+  .top-products-item {
+    font-weight: 700;
+    color: #0f172a;
+  }
+  .top-products-net {
+    font-weight: 700;
+    color: #0f172a;
+  }
+  .top-products-share {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 180px;
+  }
+  .top-products-share .progress {
+    flex: 1;
+    height: 8px;
+    border-radius: 999px;
+    background: #e2e8f0;
+  }
+  .top-products-share .progress-bar {
+    background: linear-gradient(90deg, #6366f1, #0ea5e9);
+  }
+  .top-products-empty {
+    border: 1px dashed #cbd5e1;
+    border-radius: 12px;
+    padding: 18px;
+    text-align: center;
+    color: #64748b;
+    font-weight: 600;
+  }
+  .movers-lists {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-top: 12px;
+  }
+  .movers-list-card {
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 10px 12px;
+    background: #fff;
+  }
+  .movers-list-title {
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  .movers-list-title.fast { color: #166534; }
+  .movers-list-title.purchases { color: #92400e; }
+  .movers-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 6px;
+  }
+  .movers-list li {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 13px;
+    border-bottom: 1px dashed #e2e8f0;
+    padding-bottom: 4px;
+  }
+  .movers-list li:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
+  }
+  .movers-item-name {
+    color: #0f172a;
+    font-weight: 600;
+    line-height: 1.3;
+  }
+  .movers-item-val {
+    color: #334155;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  .seasonality-wrap {
+    display: grid;
+    grid-template-columns: minmax(0, 1.9fr) minmax(290px, 1fr);
+    gap: 14px;
+    align-items: stretch;
+  }
+  .seasonality-chart-pane {
+    min-height: 300px;
+  }
+  .seasonality-side {
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    background: #f8fbff;
+    padding: 12px;
+  }
+  .seasonality-top {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    align-items: flex-start;
+    margin-bottom: 10px;
+    padding-bottom: 10px;
+    border-bottom: 1px dashed #dbe4f0;
+  }
+  .seasonality-top .label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    color: #64748b;
+    font-weight: 700;
+    margin-bottom: 2px;
+  }
+  .seasonality-top .value {
+    font-size: 17px;
+    font-weight: 800;
+    color: #0f172a;
+    line-height: 1.2;
+  }
+  .seasonality-list {
+    display: grid;
+    gap: 8px;
+  }
+  .seasonality-row {
+    border: 1px solid #dbe4f0;
+    border-radius: 10px;
+    background: #fff;
+    padding: 8px 10px;
+  }
+  .seasonality-row-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 700;
+    color: #1f2937;
+    margin-bottom: 5px;
+  }
+  .seasonality-row-sub {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: #64748b;
+    margin-bottom: 6px;
+  }
+  .seasonality-row .progress {
+    height: 7px;
+    border-radius: 999px;
+    background: #e2e8f0;
+  }
+  .seasonality-row .progress-bar {
+    background: linear-gradient(90deg, #6366f1, #06b6d4);
+  }
+  @media (max-width: 992px) {
+    .movers-lists { grid-template-columns: 1fr; }
+    .seasonality-wrap { grid-template-columns: 1fr; }
+    .seasonality-chart-pane { min-height: 260px; }
+  }
+  body[data-theme='dark'] .insight-card-modern {
+    border-color: #334155;
+    background: linear-gradient(180deg, #111827 0%, #0f172a 100%);
+    box-shadow: 0 10px 24px rgba(2, 6, 23, 0.45);
+  }
+  body[data-theme='dark'] .insight-card-modern .title {
+    color: #e2e8f0;
+  }
+  body[data-theme='dark'] .insight-card-modern .kind-pill {
+    background: #1e1b4b;
+    color: #c7d2fe;
+    border-color: #4338ca;
+  }
+  body[data-theme='dark'] .insight-card-modern .msg {
+    color: #cbd5e1;
+  }
+  body[data-theme='dark'] .insight-card-modern .meta-pill {
+    background: #1e1b4b;
+    color: #c7d2fe;
+    border-color: #4338ca;
+  }
+  body[data-theme='dark'] .insight-card-modern .details-link {
+    background: #1e1b4b;
+    color: #c7d2fe;
+    border-color: #4338ca;
+  }
+  body[data-theme='dark'] .insight-card-modern .details-link:hover {
+    background: #312e81;
+    color: #e0e7ff;
+    border-color: #6366f1;
+  }
+  body[data-theme='dark'] .insight-badge.critical {
+    color: #fecaca;
+    background: #3b1118;
+    border-color: #b91c1c;
+  }
+  body[data-theme='dark'] .insight-badge.warning {
+    color: #fde68a;
+    background: #3f2a0d;
+    border-color: #d97706;
+  }
+  body[data-theme='dark'] .insight-badge.info {
+    color: #bfdbfe;
+    background: #172554;
+    border-color: #1d4ed8;
+  }
+  body[data-theme='dark'] .insights-empty {
+    border-color: #334155;
+    background: #0f172a;
+    color: #94a3b8;
+  }
+  body[data-theme='dark'] .movers-list-card {
+    border-color: #334155;
+    background: #0f172a;
+  }
+  body[data-theme='dark'] .movers-list li {
+    border-bottom-color: #334155;
+  }
+  body[data-theme='dark'] .movers-item-name {
+    color: #e2e8f0;
+  }
+  body[data-theme='dark'] .movers-item-val {
+    color: #cbd5e1;
+  }
+  body[data-theme='dark'] .seasonality-side {
+    background: #0f172a;
+    border-color: #334155;
+  }
+  body[data-theme='dark'] .seasonality-top {
+    border-bottom-color: #334155;
+  }
+  body[data-theme='dark'] .seasonality-top .label {
+    color: #94a3b8;
+  }
+  body[data-theme='dark'] .seasonality-top .value {
+    color: #e2e8f0;
+  }
+  body[data-theme='dark'] .seasonality-row {
+    background: #111827;
+    border-color: #334155;
+  }
+  body[data-theme='dark'] .seasonality-row-head {
+    color: #e2e8f0;
+  }
+  body[data-theme='dark'] .seasonality-row-sub {
+    color: #94a3b8;
+  }
+  body[data-theme='dark'] .seasonality-row .progress {
+    background: #1f2937;
+  }
+</style>
+
+<div class="row g-3 mb-3">
+  <div class="col-xl-3 col-md-6">
+    <div class="bv-kpi-box bv-kpi-purple">
+      <div class="kpi-icon"><i class="fe fe-trending-up"></i></div>
+      <div class="kpi-title">{{ tt(request, 'total_turnover') }}</div>
+      <div id="cardTurnover" class="kpi-value">0.00</div>
+      <div id="deltaGrowth" class="kpi-meta">-</div>
+    </div>
+  </div>
+  <div class="col-xl-3 col-md-6">
+    <div class="bv-kpi-box bv-kpi-green">
+      <div class="kpi-icon"><i class="fe fe-award"></i></div>
+      <div class="kpi-title">{{ tt(request, 'gross_profit') }}</div>
+      <div id="cardGrossProfit" class="kpi-value">0.00</div>
+      <div id="deltaMargin" class="kpi-meta">-</div>
+    </div>
+  </div>
+  <div class="col-xl-3 col-md-6">
+    <div class="bv-kpi-box bv-kpi-orange">
+      <div class="kpi-icon"><i class="fe fe-percent"></i></div>
+      <div class="kpi-title">{{ tt(request, 'margin') if tt(request, 'margin') != 'margin' else 'Margin %' }}</div>
+      <div id="cardMarginPct" class="kpi-value">0.00%</div>
+      <div class="kpi-meta">{{ tt(request, 'operational_profitability') }}</div>
+    </div>
+  </div>
+  <div class="col-xl-3 col-md-6">
+    <div class="bv-kpi-box bv-kpi-blue">
+      <div class="kpi-icon"><i class="fe fe-package"></i></div>
+      <div class="kpi-title">{{ tt(request, 'quantity_sold') }}</div>
+      <div id="cardQty" class="kpi-value">0</div>
+      <div class="kpi-meta">{{ tt(request, 'units_sold') }}</div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-xl-4 col-md-6">
+    <div class="bv-stat-strip bv-kpi-style bv-tone-cyan">
+      <div class="kpi-icon"><i class="fe fe-activity"></i></div>
+      <div class="label">{{ tt(request, 'avg_sale_per_day') }}</div>
+      <div id="cardAvgSalePerDay" class="value">0.00</div>
+      <div class="small">{{ tt(request, 'turnover_per_days') }}</div>
+    </div>
+  </div>
+  <div class="col-xl-4 col-md-6">
+    <div class="bv-stat-strip bv-kpi-style bv-tone-blue">
+      <div class="kpi-icon"><i class="fe fe-trending-up"></i></div>
+      <div class="label">{{ tt(request, 'growth_vs_prev') }}</div>
+      <div id="cardGrowthPct" class="value">-</div>
+      <div class="small">{{ tt(request, 'period_over_period') }}</div>
+    </div>
+  </div>
+  <div class="col-xl-4 col-md-6">
+    <div class="bv-stat-strip bv-kpi-style bv-tone-purple">
+      <div class="kpi-icon"><i class="fe fe-percent"></i></div>
+      <div class="label">{{ tt(request, 'avg_margin_per_branch') }}</div>
+      <div id="cardAvgMarginBranch" class="value">0.00%</div>
+      <div class="small">{{ tt(request, 'mean_branch_margin') }}</div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-xl-3 col-md-6">
+    <div class="bv-stat-strip bv-kpi-style bv-tone-red">
+      <div class="kpi-icon"><i class="fe fe-clock"></i></div>
+      <div class="label">Τζίρος <span id="salesPrevYearLabel">{{ default_to.year - 1 }}</span> (YTD)</div>
+      <div id="salesPrevYearValue" class="value">0.00</div>
+      <div id="salesPrevYearCutoff" class="small">-</div>
+    </div>
+  </div>
+  <div class="col-xl-3 col-md-6">
+    <div class="bv-stat-strip bv-kpi-style bv-tone-blue">
+      <div class="kpi-icon"><i class="fe fe-trending-up"></i></div>
+      <div class="label">Τζίρος <span id="salesYearLabel">{{ default_to.year }}</span> (YTD)</div>
+      <div id="salesYearValue" class="value">0.00</div>
+      <div id="salesYearDelta" class="small">-</div>
+    </div>
+  </div>
+  <div class="col-xl-3 col-md-6">
+    <div class="bv-stat-strip bv-kpi-style bv-tone-red">
+      <div class="kpi-icon"><i class="fe fe-calendar"></i></div>
+      <div class="label">Τζίρος <span id="salesFullPrevYearLabel">{{ default_to.year - 1 }}</span> (FULL YEAR)</div>
+      <div id="salesFullPrevYearValue" class="value">0.00</div>
+      <div id="salesFullPrevYearRange" class="small">-</div>
+    </div>
+  </div>
+  <div class="col-xl-3 col-md-6">
+    <div class="bv-stat-strip bv-kpi-style bv-tone-blue">
+      <div class="kpi-icon"><i class="fe fe-flag"></i></div>
+      <div class="label">Τζίρος <span id="salesFullCurrentYearLabel">{{ default_to.year }}</span> (YTD)</div>
+      <div id="salesFullCurrentYearValue" class="value">0.00</div>
+      <div id="salesFullCurrentYearDelta" class="small">-</div>
+    </div>
+  </div>
+</div>
+
+<div class="card border-0 shadow-sm mb-3 content-card">
+  <div class="card-header d-flex justify-content-between align-items-center gap-2 flex-wrap">
+    <h5 class="mb-0">{{ tt(request, 'insights') }}</h5>
+    <button id="toggleInsightsBtn" class="btn btn-sm btn-outline-secondary insights-toolbar-btn" type="button">ΕΜΦΑΝΙΣΗ/ΑΠΟΚΡΥΨΗ INSIGHTS</button>
+  </div>
+  <div class="card-body" id="insightsCollapse">
+    <div id="insightsWrap"></div>
+  </div>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-lg-8">
+    <div class="card border-0 shadow-sm h-100 content-card">
+      <div class="card-header"><h5 class="mb-0">{{ tt(request, 'sales_trend_12m') }}</h5></div>
+      <div class="card-body"><canvas id="trendChart" height="120"></canvas></div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card border-0 shadow-sm h-100 content-card">
+      <div class="card-header"><h5 class="mb-0">{{ tt(request, 'sales_distribution_by_branch') }}</h5></div>
+      <div class="card-body"><canvas id="branchDonut" height="120"></canvas></div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-lg-7">
+    <div class="card border-0 shadow-sm h-100 content-card">
+      <div class="card-header"><h5 class="mb-0">{{ tt(request, 'sales_by_branch') }}</h5></div>
+      <div class="card-body"><canvas id="branchBar" height="120"></canvas></div>
+    </div>
+  </div>
+  <div class="col-lg-5">
+    <div class="card border-0 shadow-sm h-100 content-card">
+      <div class="card-header"><h5 class="mb-0">{{ tt(request, 'margin_erosion_alerts') }}</h5></div>
+      <div class="card-body">
+        <ul id="marginAlerts" class="mb-0"></ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card border-0 shadow-sm mb-3 content-card">
+  <div class="card-header"><h5 class="mb-0">{{ tt(request, 'branch_contribution') }}</h5></div>
+  <div class="card-body table-responsive">
+    <table class="table table-sm" id="branchContributionTbl">
+      <thead><tr><th>{{ tt(request, 'branch') }}</th><th>{{ tt(request, 'net') }}</th><th>Contribution %</th><th>Margin %</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-lg-6">
+    <div class="card border-0 shadow-sm h-100 content-card">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0">{{ tt(request, 'seasonality_sales') }}</h5>
+        <span class="badge bg-light text-dark border" id="seasonalityTotalBadge">0.00</span>
+      </div>
+      <div class="card-body">
+        <div class="seasonality-wrap">
+          <div class="seasonality-chart-pane">
+            <canvas id="salesSeasonalityChart"></canvas>
+          </div>
+          <aside class="seasonality-side">
+            <div class="seasonality-top">
+              <div>
+                <div class="label">Κορυφαία εποχή</div>
+                <div class="value" id="seasonalityTopSeason">-</div>
+              </div>
+              <div class="text-end">
+                <div class="label">Μερίδιο</div>
+                <div class="value" id="seasonalityTopShare">-</div>
+              </div>
+            </div>
+            <div id="seasonalityRows" class="seasonality-list"></div>
+          </aside>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card border-0 shadow-sm h-100 content-card">
+      <div class="card-header"><h5 class="mb-0">{{ tt(request, 'new_codes_sales') }}</h5></div>
+      <div class="card-body table-responsive">
+        <table class="table table-sm" id="newCodesTbl">
+          <thead>
+            <tr>
+              <th>{{ tt(request, 'item') }}</th>
+              <th>{{ tt(request, 'first_seen') }}</th>
+              <th class="text-end">{{ tt(request, 'qty') }}</th>
+              <th class="text-end">{{ tt(request, 'net') }}</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3">
+  <div class="col-lg-6">
+    <div class="card border-0 shadow-sm h-100 content-card">
+      <div class="card-header d-flex justify-content-between align-items-center gap-2 flex-wrap">
+        <h5 class="mb-0">{{ tt(request, 'top_products') }}</h5>
+        <div class="top-products-controls">
+          <label class="small text-muted mb-0" for="topProductsLimit">{{ tt(request, 'products_to_show') }}</label>
+          <select class="form-select form-select-sm" id="topProductsLimit" name="top_n">
+            <option value="5">5</option>
+            <option value="10" selected>10</option>
+            <option value="20">20</option>
+            <option value="30">30</option>
+            <option value="50">50</option>
+          </select>
+        </div>
+      </div>
+      <div class="card-body table-responsive">
+        <table class="table table-sm top-products-table" id="topProductsTbl">
+          <thead>
+            <tr>
+              <th style="width:44px">{{ tt(request, 'rank') }}</th>
+              <th>{{ tt(request, 'product') }}</th>
+              <th>{{ tt(request, 'qty') }}</th>
+              <th>{{ tt(request, 'net') }}</th>
+              <th>{{ tt(request, 'share') }}</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+        <div id="topProductsEmpty" class="top-products-empty d-none">{{ tt(request, 'no_data_available') }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card border-0 shadow-sm h-100 content-card">
+      <div class="card-header"><h5 class="mb-0">{{ tt(request, 'fast_products_and_purchases') }}</h5></div>
+      <div class="card-body">
+        <div style="height:320px"><canvas id="moversChart"></canvas></div>
+        <div id="moversEmpty" class="text-muted small mt-2 d-none">{{ tt(request, 'no_movers_data') }}</div>
+        <div class="movers-lists">
+          <div class="movers-list-card">
+            <div class="movers-list-title fast">{{ tt(request, 'fast_products') }}</div>
+            <ul class="movers-list" id="moversFastList"></ul>
+          </div>
+          <div class="movers-list-card">
+            <div class="movers-list-title purchases">{{ tt(request, 'product_purchases') }}</div>
+            <ul class="movers-list" id="moversPurchasesList"></ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let trendChart, donutChart, barChart, moversChart, seasonalityChart;
+let salesFilterLabels = { branches:{}, brands:{}, categories:{}, groups:{}, warehouses:{} };
+const salesFieldDefs = [
+  {key:'branches', selectId:'salesBranches', label:'{{ tt(request, "branches") }}'},
+  {key:'warehouses', selectId:'salesWarehouses', label:'{{ tt(request, "warehouses") }}'},
+  {key:'brands', selectId:'salesBrands', label:'{{ tt(request, "brands") }}'},
+  {key:'categories', selectId:'salesCategories', label:'{{ tt(request, "categories") }}'},
+  {key:'groups', selectId:'salesGroups', label:'{{ tt(request, "groups") }}'},
+];
+const salesUiFieldDefs = [
+  {selectId:'salesBranches', label:'{{ tt(request, "branches") }}'},
+  {selectId:'salesWarehouses', label:'{{ tt(request, "warehouses") }}'},
+  {selectId:'salesBrands', label:'{{ tt(request, "brands") }}'},
+  {selectId:'salesCategoryL1', label:'Κατηγορία 1'},
+  {selectId:'salesCategoryL2', label:'Κατηγορία 2'},
+  {selectId:'salesCategoryL3', label:'Κατηγορία 3'},
+];
+let salesCategoryHierarchy = [];
+let salesInitCategoryIds = new Set(new URLSearchParams(window.location.search).getAll('categories'));
+let salesInitApplied = false;
+function toNum(v){const n=Number(v||0);return Number.isFinite(n)?n:0}
+const fmt2 = new Intl.NumberFormat('el-GR',{ minimumFractionDigits:2, maximumFractionDigits:2 });
+const fmt0 = new Intl.NumberFormat('el-GR',{ maximumFractionDigits:0 });
+function money(v){return fmt2.format(toNum(v))}
+function pct(v){if(v===null||v===undefined) return '-'; return `${fmt2.format(toNum(v))}%`}
+function cleanItemLabel(v){
+  return String(v || '')
+    .replace(/\s*\(ITM\d+\)\s*$/i, '')
+    .replace(/\s+ITM\d+\s*$/i, '')
+    .trim();
+}
+function toIsoDate(raw){
+  const v=String(raw||'').trim();
+  if(!v) return '';
+  if(/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
+  const m=v.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if(!m) return v;
+  const dd=String(m[1]).padStart(2,'0');
+  const mm=String(m[2]).padStart(2,'0');
+  const yyyy=m[3];
+  return `${yyyy}-${mm}-${dd}`;
+}
+function normalizeDmyInput(el){
+  if(!el) return;
+  const raw=String(el.value||'').trim();
+  if(!raw) return;
+  if(/^\d{4}-\d{2}-\d{2}$/.test(raw)){
+    const [y,m,d]=raw.split('-');
+    el.value=`${d}/${m}/${y}`;
+    return;
+  }
+  const m=raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if(!m) return;
+  el.value=`${String(m[1]).padStart(2,'0')}/${String(m[2]).padStart(2,'0')}/${m[3]}`;
+}
+
+function params(){
+  const fd=new FormData(document.getElementById('salesFilters')); const p=new URLSearchParams();
+  p.set('from',toIsoDate(fd.get('from'))); p.set('to',toIsoDate(fd.get('to')));
+  p.set('top_n', document.getElementById('topProductsLimit')?.value || '10');
+  salesFieldDefs.forEach((field)=>{
+    const sel = document.getElementById(field.selectId);
+    Array.from(sel?.selectedOptions || []).forEach(o => p.append(field.key, o.value));
+  });
+  return p;
+}
+
+function sameDayPreviousYear(dateObj){
+  const y = dateObj.getUTCFullYear() - 1;
+  const m = dateObj.getUTCMonth();
+  const d = dateObj.getUTCDate();
+  let dt = new Date(Date.UTC(y, m, d));
+  if (dt.getUTCMonth() !== m) {
+    dt = new Date(Date.UTC(y, m + 1, 0));
+  }
+  return dt;
+}
+
+function dateToIso(d){
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function dateToDmy(d){
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  return `${day}/${m}/${y}`;
+}
+
+function insightsDetailsHref(){
+  const p = params();
+  const q = new URLSearchParams();
+  const from = p.get('from');
+  const to = p.get('to');
+  if (from) q.set('from', from);
+  if (to) q.set('to', to);
+  q.set('category', 'sales');
+  return `/tenant/insights?${q.toString()}`;
+}
+
+
+function syncSalesMultiUI(prefix, label, filterText=''){
+  const select=document.getElementById(`${prefix}`);
+  const optionsWrap=document.getElementById(`${prefix}Options`);
+  const chips=document.getElementById(`${prefix}Chips`);
+  const toggle=document.getElementById(`${prefix}Toggle`);
+  if(!select || !optionsWrap || !chips || !toggle) return;
+
+  const selected = Array.from(select.options).filter(o=>o.selected).map(o=>o.value);
+  const normalized = (filterText||'').toLowerCase().trim();
+
+  optionsWrap.innerHTML='';
+  Array.from(select.options)
+    .filter(o=>{
+      const display=(o.dataset.label||o.textContent||o.value).toLowerCase();
+      return !normalized || o.value.toLowerCase().includes(normalized) || display.includes(normalized);
+    })
+    .forEach(o=>{
+      const row=document.createElement('label');
+      row.className='bv-multi-opt';
+      const cb=document.createElement('input');
+      cb.type='checkbox';
+      cb.checked=o.selected;
+      cb.addEventListener('change', ()=>{
+        o.selected=cb.checked;
+        select.dispatchEvent(new Event('change'));
+        syncSalesMultiUI(prefix, label, document.getElementById(`${prefix}Search`)?.value||'');
+      });
+      const span=document.createElement('span');
+      span.textContent=o.textContent || o.value;
+      row.appendChild(cb);
+      row.appendChild(span);
+      optionsWrap.appendChild(row);
+    });
+  if(!optionsWrap.children.length){
+    const empty=document.createElement('div');
+    empty.className='bv-multi-empty';
+    empty.textContent='Δεν υπάρχουν διαθέσιμες επιλογές';
+    optionsWrap.appendChild(empty);
+  }
+
+  chips.innerHTML='';
+  selected.forEach(v=>{
+    const chip=document.createElement('span');
+    chip.className='bv-chip';
+    const opt = Array.from(select.options).find(o=>o.value===v);
+    chip.textContent=(opt && opt.textContent) ? opt.textContent : v;
+    chips.appendChild(chip);
+  });
+  toggle.textContent = selected.length ? `${label} (${selected.length})` : 'Επιλογή';
+}
+
+function initSalesMulti(prefix, label){
+  const toggle=document.getElementById(`${prefix}Toggle`);
+  const menu=document.getElementById(`${prefix}Menu`);
+  const search=document.getElementById(`${prefix}Search`);
+  const btnAll=document.getElementById(`${prefix}All`);
+  const btnClear=document.getElementById(`${prefix}Clear`);
+  const select=document.getElementById(`${prefix}`);
+  if(!toggle || !menu || !search || !btnAll || !btnClear || !select || toggle.dataset.bound==='1') return;
+  toggle.dataset.bound='1';
+
+  toggle.addEventListener('click', ()=>{menu.hidden=!menu.hidden;});
+  search.addEventListener('input', ()=>syncSalesMultiUI(prefix, label, search.value));
+  btnAll.addEventListener('click', ()=>{Array.from(select.options).forEach(o=>o.selected=true); syncSalesMultiUI(prefix, label, search.value);});
+  btnClear.addEventListener('click', ()=>{Array.from(select.options).forEach(o=>o.selected=false); syncSalesMultiUI(prefix, label, search.value);});
+  document.addEventListener('click', (e)=>{ if(!document.getElementById(`${prefix}Multi`)?.contains(e.target)) menu.hidden=true; });
+}
+
+function populateSalesSelect(prefix, label, values, labels={}){
+  const select=document.getElementById(prefix);
+  if(!select) return;
+  const prev = new Set(Array.from(select.selectedOptions || []).map(o=>o.value));
+  select.innerHTML='';
+  const ordered = [...(values || [])].sort((a,b)=>
+    String(labels[a] || a).localeCompare(String(labels[b] || b), 'el', { sensitivity:'base' })
+  );
+  ordered.forEach(v=>{
+    const opt=document.createElement('option');
+    opt.value=v;
+    const txt = labels[v] ? `${labels[v]}` : v;
+    opt.textContent=txt;
+    opt.dataset.label = labels[v] || v;
+    if(prev.has(v)) opt.selected=true;
+    select.appendChild(opt);
+  });
+  syncSalesMultiUI(prefix, label, document.getElementById(`${prefix}Search`)?.value||'');
+}
+
+function selectedValues(selectId){
+  const sel = document.getElementById(selectId);
+  return new Set(Array.from(sel?.selectedOptions || []).map(o => o.value));
+}
+
+function setSelectedByValues(selectId, values){
+  const sel = document.getElementById(selectId);
+  if(!sel) return;
+  const vset = new Set(values || []);
+  Array.from(sel.options || []).forEach(o => { o.selected = vset.has(o.value); });
+  syncSalesMultiUI(selectId, salesUiFieldDefs.find(f => f.selectId === selectId)?.label || 'Επιλογή');
+}
+
+function rebuildSalesHiddenCategories(){
+  const l1 = selectedValues('salesCategoryL1');
+  const l2 = selectedValues('salesCategoryL2');
+  const l3 = selectedValues('salesCategoryL3');
+  const hidden = document.getElementById('salesCategories');
+  if(!hidden) return;
+  hidden.innerHTML = '';
+  salesCategoryHierarchy
+    .filter(c => !l1.size || l1.has(c.l1))
+    .filter(c => !l2.size || l2.has(c.l2))
+    .filter(c => !l3.size || l3.has(c.l3))
+    .forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c.id;
+      opt.textContent = c.path;
+      opt.selected = true;
+      hidden.appendChild(opt);
+    });
+}
+
+function syncSalesCategoryHierarchy(changedLevel){
+  const l1Sel = selectedValues('salesCategoryL1');
+  const l2SelBefore = selectedValues('salesCategoryL2');
+  const l3SelBefore = selectedValues('salesCategoryL3');
+
+  const l2Pool = new Set();
+  salesCategoryHierarchy.forEach(c => {
+    if(!l1Sel.size || l1Sel.has(c.l1)) l2Pool.add(c.l2);
+  });
+  populateSalesSelect('salesCategoryL2', 'Κατηγορία 2', [...l2Pool], {});
+  const l2Valid = [...l2SelBefore].filter(v => l2Pool.has(v));
+  setSelectedByValues('salesCategoryL2', l2Valid);
+
+  const l2Sel = selectedValues('salesCategoryL2');
+  const l3Pool = new Set();
+  salesCategoryHierarchy.forEach(c => {
+    const l1ok = !l1Sel.size || l1Sel.has(c.l1);
+    const l2ok = !l2Sel.size || l2Sel.has(c.l2);
+    if(l1ok && l2ok) l3Pool.add(c.l3);
+  });
+  populateSalesSelect('salesCategoryL3', 'Κατηγορία 3', [...l3Pool], {});
+  const l3Valid = [...l3SelBefore].filter(v => l3Pool.has(v));
+  setSelectedByValues('salesCategoryL3', l3Valid);
+
+  rebuildSalesHiddenCategories();
+  if(changedLevel){
+    document.getElementById('salesCategories')?.dispatchEvent(new Event('change'));
+  }
+}
+
+function buildSalesCategoryHierarchy(categoryIds, categoryLabels){
+  salesCategoryHierarchy = (categoryIds || []).map((id) => {
+    const raw = String((categoryLabels && categoryLabels[id]) || id);
+    const parts = raw.split('>').map(x => x.trim()).filter(Boolean);
+    const l1 = parts[0] || raw;
+    const l2 = parts[1] || parts[0] || raw;
+    const l3 = parts[2] || parts[1] || parts[0] || raw;
+    return { id, path: raw, l1, l2, l3 };
+  });
+  const l1All = [...new Set(salesCategoryHierarchy.map(c => c.l1))];
+  populateSalesSelect('salesCategoryL1', 'Κατηγορία 1', l1All, {});
+
+  if(!salesInitApplied && salesInitCategoryIds.size){
+    const initL1 = new Set();
+    const initL2 = new Set();
+    const initL3 = new Set();
+    salesCategoryHierarchy.forEach(c => {
+      if(salesInitCategoryIds.has(c.id)){
+        initL1.add(c.l1);
+        initL2.add(c.l2);
+        initL3.add(c.l3);
+      }
+    });
+    setSelectedByValues('salesCategoryL1', [...initL1]);
+    syncSalesCategoryHierarchy();
+    setSelectedByValues('salesCategoryL2', [...initL2]);
+    syncSalesCategoryHierarchy();
+    setSelectedByValues('salesCategoryL3', [...initL3]);
+    salesInitApplied = true;
+    salesInitCategoryIds = new Set();
+  }
+  syncSalesCategoryHierarchy();
+}
+
+async function loadSalesFilterOptions(){
+  const form=document.getElementById('salesFilters');
+  if(!form) return;
+  const fd=new FormData(form);
+  const p=new URLSearchParams();
+  p.set('from', toIsoDate(fd.get('from')));
+  p.set('to', toIsoDate(fd.get('to')));
+  salesFieldDefs.forEach((field)=>{
+    const sel=document.getElementById(field.selectId);
+    Array.from(sel?.selectedOptions || []).forEach(o=>p.append(field.key, o.value));
+  });
+  try{
+    const res=await fetch(`/v1/kpi/sales/filter-options?${p.toString()}`);
+    if(!res.ok) return;
+    const options=await res.json();
+    salesFilterLabels = {
+      branches: ((options && options.labels && options.labels.branches) || {}),
+      brands: ((options && options.labels && options.labels.brands) || {}),
+      categories: ((options && options.labels && options.labels.categories) || {}),
+      groups: ((options && options.labels && options.labels.groups) || {}),
+      warehouses: ((options && options.labels && options.labels.warehouses) || {}),
+    };
+    ['branches','warehouses','brands'].forEach((key)=>{
+      const field = salesFieldDefs.find(f => f.key === key);
+      if(!field) return;
+      const vals=(options && options[key]) || [];
+      const labels=((options && options.labels && options.labels[key]) || {});
+      populateSalesSelect(field.selectId, field.label, vals, labels);
+    });
+    buildSalesCategoryHierarchy(
+      (options && options.categories) || [],
+      (options && options.labels && options.labels.categories) || {}
+    );
+    document.getElementById('salesGroups').innerHTML = '';
+  }catch(_err){}
+}
+
+function setError(msg){
+  const el=document.getElementById('salesError');
+  if(!msg){el.classList.add('d-none');el.textContent='';return;}
+  el.classList.remove('d-none'); el.textContent=msg;
+}
+
+function renderCards(cards){
+  document.getElementById('cardTurnover').textContent=money(cards.turnover);
+  document.getElementById('cardGrossProfit').textContent=money(cards.gross_profit);
+  document.getElementById('cardMarginPct').textContent=pct(cards.margin_pct);
+  document.getElementById('cardQty').textContent=fmt0.format(Math.round(toNum(cards.qty_sold)));
+  document.getElementById('cardAvgSalePerDay').textContent=money(cards.avg_sale_per_day);
+  document.getElementById('cardGrowthPct').textContent=pct(cards.growth_pct);
+  document.getElementById('cardAvgMarginBranch').textContent=pct(cards.avg_margin_per_branch);
+  document.getElementById('deltaGrowth').textContent = cards.growth_pct===null ? '{{ tt(request, "baseline") }}: -' : `{{ tt(request, "vs_prev_period") }} ${pct(cards.growth_pct)}`;
+  document.getElementById('deltaMargin').textContent = `Margin ${pct(cards.margin_pct)}`;
+}
+
+async function renderYearProgressCards(){
+  const form = document.getElementById('salesFilters');
+  if(!form) return;
+  const fd = new FormData(form);
+  const toRaw = toIsoDate(fd.get('to'));
+  if(!toRaw || !/^\d{4}-\d{2}-\d{2}$/.test(toRaw)) return;
+
+  const anchor = new Date(`${toRaw}T00:00:00Z`);
+  const currentYear = anchor.getUTCFullYear();
+  const prevCutoffDate = sameDayPreviousYear(anchor);
+  const prevYear = prevCutoffDate.getUTCFullYear();
+
+  const currentFrom = `${currentYear}-01-01`;
+  const currentTo = dateToIso(anchor);
+  const prevFrom = `${prevYear}-01-01`;
+  const prevTo = dateToIso(prevCutoffDate);
+
+  const baseFilters = params();
+  baseFilters.delete('from');
+  baseFilters.delete('to');
+  baseFilters.delete('top_n');
+
+  const currParams = new URLSearchParams(baseFilters);
+  currParams.set('from', currentFrom);
+  currParams.set('to', currentTo);
+
+  const prevParams = new URLSearchParams(baseFilters);
+  prevParams.set('from', prevFrom);
+  prevParams.set('to', prevTo);
+
+  const [currSummary, prevSummary] = await Promise.all([
+    fetch(`/v1/kpi/sales/summary?${currParams.toString()}`).then(r=>r.ok?r.json():{net_value:0}),
+    fetch(`/v1/kpi/sales/summary?${prevParams.toString()}`).then(r=>r.ok?r.json():{net_value:0}),
+  ]);
+
+  const currVal = toNum(currSummary?.net_value);
+  const prevVal = toNum(prevSummary?.net_value);
+  const delta = currVal - prevVal;
+  const deltaPct = prevVal > 0 ? (delta / prevVal) * 100 : null;
+
+  const sign = delta >= 0 ? 'Δ ' : 'Υστέρηση ';
+  const deltaText = deltaPct === null
+    ? '—'
+    : `${sign}${money(Math.abs(delta))} (${pct(Math.abs(deltaPct))}) ${delta >= 0 ? 'vs' : 'κάτω από'} ${prevYear} έως ${dateToDmy(anchor)}`;
+
+  document.getElementById('salesYearLabel').textContent = String(currentYear);
+  document.getElementById('salesPrevYearLabel').textContent = String(prevYear);
+  document.getElementById('salesYearValue').textContent = money(currVal);
+  document.getElementById('salesPrevYearValue').textContent = money(prevVal);
+  document.getElementById('salesPrevYearCutoff').textContent = `${dateToDmy(new Date(`${prevFrom}T00:00:00Z`))} - ${dateToDmy(prevCutoffDate)}`;
+  document.getElementById('salesYearDelta').textContent = deltaText;
+}
+
+async function renderFullYearProgressCards(){
+  const now = new Date();
+  const anchor = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const currentYear = anchor.getUTCFullYear();
+  const prevYear = currentYear - 1;
+
+  const prevFrom = `${prevYear}-01-01`;
+  const prevTo = `${prevYear}-12-31`;
+  const currentFrom = `${currentYear}-01-01`;
+  const currentTo = dateToIso(anchor);
+
+  const baseFilters = params();
+  baseFilters.delete('from');
+  baseFilters.delete('to');
+  baseFilters.delete('top_n');
+
+  const prevParams = new URLSearchParams(baseFilters);
+  prevParams.set('from', prevFrom);
+  prevParams.set('to', prevTo);
+
+  const currentParams = new URLSearchParams(baseFilters);
+  currentParams.set('from', currentFrom);
+  currentParams.set('to', currentTo);
+
+  const [prevSummary, currentSummary] = await Promise.all([
+    fetch(`/v1/kpi/sales/summary?${prevParams.toString()}`).then(r=>r.ok?r.json():{net_value:0}),
+    fetch(`/v1/kpi/sales/summary?${currentParams.toString()}`).then(r=>r.ok?r.json():{net_value:0}),
+  ]);
+
+  const prevVal = toNum(prevSummary?.net_value);
+  const currentVal = toNum(currentSummary?.net_value);
+  const delta = currentVal - prevVal;
+  const deltaPct = prevVal > 0 ? (delta / prevVal) * 100 : null;
+  const deltaText = deltaPct === null
+    ? '—'
+    : `${delta >= 0 ? 'Πάνω' : 'Υστέρηση'} ${pct(Math.abs(deltaPct))} vs ${prevYear}`;
+
+  document.getElementById('salesFullPrevYearLabel').textContent = String(prevYear);
+  document.getElementById('salesFullCurrentYearLabel').textContent = String(currentYear);
+  document.getElementById('salesFullPrevYearValue').textContent = money(prevVal);
+  document.getElementById('salesFullCurrentYearValue').textContent = money(currentVal);
+  document.getElementById('salesFullPrevYearRange').textContent =
+    `${dateToDmy(new Date(`${prevFrom}T00:00:00Z`))} - ${dateToDmy(new Date(`${prevTo}T00:00:00Z`))}`;
+  document.getElementById('salesFullCurrentYearDelta').textContent =
+    `${deltaText} | έως ${dateToDmy(anchor)}`;
+}
+
+function buildContextInsights(payload){
+  const rows = [];
+  const seasonLabel = { winter:'Χειμώνας', spring:'Άνοιξη', summer:'Καλοκαίρι', autumn:'Φθινόπωρο' };
+  const entityLabel = {
+    product: 'Είδος',
+    brand: 'Μάρκα',
+    category: 'Κατηγορία',
+    group: 'Ομάδα',
+    branch: 'Κατάστημα',
+  };
+  const codeMapByEntity = {
+    branch: 'branches',
+    brand: 'brands',
+    category: 'categories',
+    group: 'groups',
+  };
+  function normalizeEntityName(entity, rawName, rawCode){
+    if(entity === 'product'){
+      return cleanItemLabel(rawName || rawCode || 'N/A');
+    }
+    const name = String(rawName || '').trim();
+    const code = String(rawCode || '').trim();
+    if(name && !/^(BRN|CAT|GRP|BR)\d+$/i.test(name)) return name;
+    const key = codeMapByEntity[entity];
+    if(key && salesFilterLabels[key] && code && salesFilterLabels[key][code]) return String(salesFilterLabels[key][code]);
+    if(key && salesFilterLabels[key] && name && salesFilterLabels[key][name]) return String(salesFilterLabels[key][name]);
+    return name || code || 'N/A';
+  }
+  const add = (obj) => rows.push({
+    severity: obj.severity || 'info',
+    type: obj.type || 'business_tip',
+    message: obj.message || '',
+    metric_value: obj.metric_value,
+    baseline_value: obj.baseline_value,
+    delta_pct: obj.delta_pct,
+    details_href: obj.details_href || insightsDetailsHref()
+  });
+  const turnover = toNum(payload?.cards?.turnover);
+  const best = payload?.best_entities || {};
+  Object.entries(best).forEach(([entity, data])=>{
+    if(!data) return;
+    const lbl = entityLabel[entity] || entity;
+    const detailsHref = insightsDetailsHref();
+
+    if(data.profitability){
+      const p = data.profitability;
+      const n = normalizeEntityName(entity, p.name, p.code);
+      const share = turnover > 0 ? (toNum(p.net_value) / turnover) * 100 : null;
+      add({
+        type: `best_${entity}_profitability`,
+        severity: 'info',
+        message: `Καλύτερο ${lbl.toLowerCase()} σε κερδοφορία: ${n}.`,
+        metric_value: toNum(p.profit_value),
+        baseline_value: toNum(p.margin_pct),
+        delta_pct: share,
+        details_href: detailsHref,
+      });
+    }
+    if(data.quantity){
+      const q = data.quantity;
+      const n = normalizeEntityName(entity, q.name, q.code);
+      const share = toNum(payload?.cards?.qty_sold) > 0 ? (toNum(q.qty) / toNum(payload?.cards?.qty_sold)) * 100 : null;
+      add({
+        type: `best_${entity}_quantity`,
+        severity: 'info',
+        message: `Καλύτερο ${lbl.toLowerCase()} σε ποσότητα πωλήσεων: ${n}.`,
+        metric_value: toNum(q.qty),
+        delta_pct: share,
+        details_href: detailsHref,
+      });
+    }
+    if(data.seasonality){
+      const s = data.seasonality;
+      const n = normalizeEntityName(entity, s.name, s.code);
+      const seasonText = seasonLabel[s.season] || s.season || '-';
+      add({
+        type: `best_${entity}_seasonality`,
+        severity: 'info',
+        message: `Καλύτερο ${lbl.toLowerCase()} σε εποχικότητα: ${n} (${seasonText}).`,
+        metric_value: toNum(s.season_net_value),
+        delta_pct: toNum(s.season_share_pct),
+        details_href: detailsHref,
+      });
+    }
+  });
+
+  if(!rows.length){
+    const topProduct = (payload?.top_products || [])[0];
+    if(topProduct){
+      const share = turnover > 0 ? (toNum(topProduct.net_value) / turnover) * 100 : null;
+      add({
+        type: 'best_product',
+        severity: 'info',
+        message: `Καλύτερο είδος: ${cleanItemLabel(topProduct.item_name || topProduct.item || topProduct.item_code)}.`,
+        metric_value: toNum(topProduct.net_value),
+        delta_pct: share,
+        details_href: insightsDetailsHref()
+      });
+    }
+  }
+
+  return rows;
+}
+
+function renderInsights(payload){
+  const insights = payload?.insights || [];
+  const records = payload?.insight_records || [];
+  const contextRows = buildContextInsights(payload);
+  const wrap=document.getElementById('insightsWrap'); wrap.innerHTML='';
+  const detailsHref = insightsDetailsHref();
+  const rows=[...(records||[]), ...contextRows];
+  if(rows.length){
+    const grid=document.createElement('div');
+    grid.className='insights-grid';
+    rows.forEach(r=>{
+      const sevRaw=(r.severity||'info').toLowerCase();
+      const sev = sevRaw === 'critical' ? 'critical' : (sevRaw === 'warning' ? 'warning' : 'info');
+      const iconHtml = sev === 'critical'
+        ? '<i class="fe fe-alert-triangle"></i>'
+        : (sev === 'warning' ? '<i class="fe fe-alert-circle"></i>' : '<i class="fe fe-award"></i>');
+      const rawType = String(r.type || 'insight').toUpperCase();
+      const typeLabels = {
+        BEST_PRODUCT: 'Καλύτερο Είδος',
+        BEST_BRAND: 'Καλύτερη Μάρκα',
+        BEST_CATEGORY: 'Καλύτερη Κατηγορία',
+        BEST_GROUP: 'Καλύτερη Ομάδα',
+        BEST_BRANCH: 'Κορυφαίο Κατάστημα',
+        BEST_PRODUCT_PROFITABILITY: 'Καλύτερο Είδος (Κερδοφορία)',
+        BEST_BRAND_PROFITABILITY: 'Καλύτερη Μάρκα (Κερδοφορία)',
+        BEST_CATEGORY_PROFITABILITY: 'Καλύτερη Κατηγορία (Κερδοφορία)',
+        BEST_GROUP_PROFITABILITY: 'Καλύτερη Ομάδα (Κερδοφορία)',
+        BEST_BRANCH_PROFITABILITY: 'Καλύτερο Κατάστημα (Κερδοφορία)',
+        BEST_PRODUCT_QUANTITY: 'Καλύτερο Είδος (Ποσότητα)',
+        BEST_BRAND_QUANTITY: 'Καλύτερη Μάρκα (Ποσότητα)',
+        BEST_CATEGORY_QUANTITY: 'Καλύτερη Κατηγορία (Ποσότητα)',
+        BEST_GROUP_QUANTITY: 'Καλύτερη Ομάδα (Ποσότητα)',
+        BEST_BRANCH_QUANTITY: 'Καλύτερο Κατάστημα (Ποσότητα)',
+        BEST_PRODUCT_SEASONALITY: 'Καλύτερο Είδος (Εποχικότητα)',
+        BEST_BRAND_SEASONALITY: 'Καλύτερη Μάρκα (Εποχικότητα)',
+        BEST_CATEGORY_SEASONALITY: 'Καλύτερη Κατηγορία (Εποχικότητα)',
+        BEST_GROUP_SEASONALITY: 'Καλύτερη Ομάδα (Εποχικότητα)',
+        BEST_BRANCH_SEASONALITY: 'Καλύτερο Κατάστημα (Εποχικότητα)',
+      };
+      const typeLabel = typeLabels[rawType] || (r.type||'insight').replaceAll('_',' ');
+      const kindMatch = typeLabel.match(/\(([^)]+)\)\s*$/);
+      const titleMain = kindMatch ? typeLabel.replace(/\s*\([^)]+\)\s*$/, '') : typeLabel;
+      const titleKind = kindMatch ? kindMatch[1] : '';
+
+      const card=document.createElement('article');
+      card.className=`insight-card-modern is-${sev}`;
+
+      const top=document.createElement('div');
+      top.className='top';
+
+      const titleWrap=document.createElement('div');
+      titleWrap.className='title-wrap';
+      const iconBox=document.createElement('span');
+      iconBox.className='icon';
+      iconBox.innerHTML=iconHtml;
+      const title=document.createElement('h6');
+      title.className='title';
+      title.textContent=titleMain;
+      titleWrap.appendChild(iconBox);
+      titleWrap.appendChild(title);
+      if (titleKind) {
+        const kind = document.createElement('span');
+        kind.className = 'kind-pill';
+        kind.textContent = titleKind;
+        titleWrap.appendChild(kind);
+      }
+
+      const badge=document.createElement('span');
+      badge.className=`insight-badge ${sev}`;
+      const sevLabels = { critical: 'κρίσιμο', warning: 'προειδοποίηση', info: 'πληροφορία' };
+      badge.textContent=sevLabels[sev] || sev;
+      top.appendChild(titleWrap);
+      top.appendChild(badge);
+
+      const msg=document.createElement('p');
+      msg.className='msg';
+      msg.textContent=r.message || '-';
+
+      const meta=document.createElement('div');
+      meta.className='meta';
+      if(!(r.metric_value===null||r.metric_value===undefined)){
+        const pill=document.createElement('span');
+        pill.className='meta-pill';
+        pill.textContent=`{{ tt(request, "metric") }}: ${fmt2.format(toNum(r.metric_value))}`;
+        meta.appendChild(pill);
+      }
+      if(!(r.baseline_value===null||r.baseline_value===undefined)){
+        const pill=document.createElement('span');
+        pill.className='meta-pill';
+        pill.textContent=`{{ tt(request, "baseline") }}: ${fmt2.format(toNum(r.baseline_value))}`;
+        meta.appendChild(pill);
+      }
+      if(!(r.delta_pct===null||r.delta_pct===undefined)){
+        const pill=document.createElement('span');
+        pill.className='meta-pill';
+        pill.textContent=`{{ tt(request, "delta_percent") }}: ${fmt2.format(toNum(r.delta_pct))}%`;
+        meta.appendChild(pill);
+      }
+
+      const foot=document.createElement('div');
+      foot.className='foot';
+      const details=document.createElement('a');
+      details.className='details-link';
+      details.href=r.details_href || detailsHref;
+      details.textContent='{{ tt(request, "view_details_short") }}';
+      foot.appendChild(details);
+
+      card.appendChild(top);
+      card.appendChild(msg);
+      card.appendChild(meta);
+      card.appendChild(foot);
+      grid.appendChild(card);
+    });
+    wrap.appendChild(grid);
+    return;
+  }
+  if((insights||[]).length){
+    const grid=document.createElement('div');
+    grid.className='insights-grid';
+    (insights||[]).forEach(t=>{
+      const card=document.createElement('article');
+      card.className='insight-card-modern is-info';
+      card.innerHTML = `
+        <div class="top">
+          <div class="title-wrap"><span class="icon"><i class="fe fe-award"></i></span><h6 class="title">{{ tt(request, "insight") }}</h6></div>
+          <span class="insight-badge info">info</span>
+        </div>
+        <p class="msg">${t}</p>
+        <div class="foot"><a class="details-link" href="${detailsHref}">{{ tt(request, "view_details_short") }}</a></div>
+      `;
+      grid.appendChild(card);
+    });
+    wrap.appendChild(grid);
+    return;
+  }
+  const empty=document.createElement('div');
+  empty.className='insights-empty';
+  empty.textContent='{{ tt(request, "insights_empty_period") }}';
+  wrap.appendChild(empty);
+}
+
+function renderTrend(rows){
+  const labels=rows.map(r=>r.month_start); const data=rows.map(r=>toNum(r.net_value));
+  if(trendChart) trendChart.destroy();
+  trendChart=new Chart(document.getElementById('trendChart'),{type:'line',data:{labels,datasets:[{label:'Turnover',data,borderColor:'#6f42c1',backgroundColor:'rgba(111,66,193,.12)',fill:true,tension:.25}]},options:{responsive:true,maintainAspectRatio:false}});
+}
+
+function renderDonut(rows){
+  const labels=rows.map(r=>r.branch); const data=rows.map(r=>toNum(r.net_value));
+  if(donutChart) donutChart.destroy();
+  donutChart=new Chart(document.getElementById('branchDonut'),{type:'doughnut',data:{labels,datasets:[{data,backgroundColor:['#6f42c1','#22c55e','#f59e0b','#ef4444','#6366f1','#14b8a6']}]},options:{responsive:true,maintainAspectRatio:false}});
+}
+
+function renderBranchBar(rows){
+  const labels=rows.map(r=>r.branch); const data=rows.map(r=>toNum(r.net_value));
+  if(barChart) barChart.destroy();
+  barChart=new Chart(document.getElementById('branchBar'),{type:'bar',data:{labels,datasets:[{label:'Net Sales',data,backgroundColor:'#3b82f6'}]},options:{responsive:true,maintainAspectRatio:false}});
+}
+
+function renderTopProducts(rows){
+  const tbody=document.querySelector('#topProductsTbl tbody');
+  const empty=document.getElementById('topProductsEmpty');
+  tbody.innerHTML='';
+  const total = (rows || []).reduce((acc, r) => acc + toNum(r.net_value), 0);
+  if(!(rows || []).length){
+    if(empty) empty.classList.remove('d-none');
+    return;
+  }
+  if(empty) empty.classList.add('d-none');
+  rows.forEach((r, idx)=>{
+    const share = total > 0 ? (toNum(r.net_value) / total) * 100 : 0;
+    const rankClass = idx === 0 ? 'r1' : (idx === 1 ? 'r2' : (idx === 2 ? 'r3' : ''));
+    const tr=document.createElement('tr');
+    tr.innerHTML=`
+      <td><span class="top-products-rank ${rankClass}">${idx + 1}</span></td>
+      <td class="top-products-item">
+        <div>${cleanItemLabel(r.item_name || r.item_code)}</div>
+      </td>
+      <td>${Math.round(toNum(r.qty))}</td>
+      <td class="top-products-net">${money(r.net_value)}</td>
+      <td>
+        <div class="top-products-share">
+          <div class="progress"><div class="progress-bar" role="progressbar" style="width:${Math.max(0, Math.min(100, share)).toFixed(2)}%"></div></div>
+          <span>${pct(share)}</span>
+        </div>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+function renderMovers(movers){
+  const fast = movers.fast || [];
+  const purchases = movers.purchases || [];
+  const slow = movers.slow || [];
+  const empty = document.getElementById('moversEmpty');
+  const fastList = document.getElementById('moversFastList');
+  const purchasesList = document.getElementById('moversPurchasesList');
+  const allCodes = Array.from(new Set([...fast.map(x=>x.item_code), ...purchases.map(x=>x.item_code), ...slow.map(x=>x.item_code)])).slice(0, 8);
+  const nameMap = new Map();
+  [...fast, ...purchases, ...slow].forEach((x) => {
+    if (x && x.item_code) {
+      nameMap.set(x.item_code, cleanItemLabel(x.item_name || x.item_code));
+    }
+  });
+  const shortLabel = (v) => {
+    const t = String(v || '').trim();
+    if(t.length <= 24) return t;
+    return `${t.slice(0, 24)}...`;
+  };
+  const labels = allCodes.map((code) => shortLabel(nameMap.get(code) || code));
+  const fullLabels = allCodes.map((code) => nameMap.get(code) || code);
+
+  if(moversChart) moversChart.destroy();
+
+  if(!allCodes.length){
+    if(empty) empty.classList.remove('d-none');
+    if (fastList) fastList.innerHTML = '';
+    if (purchasesList) purchasesList.innerHTML = '';
+    return;
+  }
+  if(empty) empty.classList.add('d-none');
+
+  const fastMap = new Map(fast.map(x => [x.item_code, toNum(x.qty)]));
+  const purchasesMap = new Map((purchases.length ? purchases : slow).map(x => [x.item_code, toNum(x.qty)]));
+  const fastData = allCodes.map(code => fastMap.get(code) || 0);
+  const purchasesData = allCodes.map(code => purchasesMap.get(code) || 0);
+
+  if (fastList) {
+    fastList.innerHTML = '';
+    [...fast].slice(0, 5).forEach((x) => {
+      const li = document.createElement('li');
+      li.innerHTML = `<span class="movers-item-name">${cleanItemLabel(x.item_name || x.item_code)}</span><span class="movers-item-val">${Math.round(toNum(x.qty))}</span>`;
+      fastList.appendChild(li);
+    });
+  }
+  if (purchasesList) {
+    purchasesList.innerHTML = '';
+    [...(purchases.length ? purchases : slow)].slice(0, 5).forEach((x) => {
+      const li = document.createElement('li');
+      li.innerHTML = `<span class="movers-item-name">${cleanItemLabel(x.item_name || x.item_code)}</span><span class="movers-item-val">${Math.round(toNum(x.qty))}</span>`;
+      purchasesList.appendChild(li);
+    });
+  }
+
+  moversChart = new Chart(document.getElementById('moversChart'), {
+    type:'bar',
+    data:{
+      labels,
+      datasets:[
+        {
+          label:'{{ tt(request, "fast_products") }}',
+          data: fastData,
+          backgroundColor:'#22c55e',
+          borderRadius:6
+        },
+        {
+          label:'{{ tt(request, "product_purchases") }}',
+          data: purchasesData,
+          backgroundColor:'#f59e0b',
+          borderRadius:6
+        }
+      ]
+    },
+    options:{
+      responsive:true,
+      maintainAspectRatio:false,
+      indexAxis:'y',
+      plugins:{
+        legend:{position:'bottom'},
+        tooltip:{
+          callbacks:{
+            title:(items)=>{
+              const idx = items?.[0]?.dataIndex ?? 0;
+              return fullLabels[idx] || labels[idx] || '';
+            }
+          }
+        }
+      },
+      scales:{
+        x:{beginAtZero:true, grid:{color:'rgba(148,163,184,0.2)'}},
+        y:{grid:{display:false}}
+      }
+    }
+  });
+}
+
+function renderBranchContribution(rows){
+  const tbody=document.querySelector('#branchContributionTbl tbody'); tbody.innerHTML='';
+  (rows||[]).forEach(r=>{
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td>${r.branch}</td><td>${money(r.net_value)}</td><td>${pct(r.contribution_pct)}</td><td>${pct(r.margin_pct)}</td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+function renderMarginAlerts(alerts){
+  const ul=document.getElementById('marginAlerts'); ul.innerHTML='';
+  (alerts||[]).forEach(a=>{const li=document.createElement('li'); li.textContent=a; ul.appendChild(li);});
+}
+
+function renderSeasonality(rows){
+  const seasonLabel = {
+    winter: '{{ tt(request, "winter") }}',
+    spring: '{{ tt(request, "spring") }}',
+    summer: '{{ tt(request, "summer") }}',
+    autumn: '{{ tt(request, "autumn") }}',
+  };
+  const normalized = (rows || []).map((r) => ({
+    season: seasonLabel[r.season] || r.season || '-',
+    net_value: toNum(r.net_value),
+    qty: toNum(r.qty),
+  }));
+  const labels = normalized.map(r => r.season);
+  const turnover = normalized.map(r => r.net_value);
+  const qty = normalized.map(r => r.qty);
+  const totalTurnover = turnover.reduce((a, b) => a + b, 0);
+  const seasonRowsWrap = document.getElementById('seasonalityRows');
+  const topSeasonEl = document.getElementById('seasonalityTopSeason');
+  const topShareEl = document.getElementById('seasonalityTopShare');
+  const totalBadgeEl = document.getElementById('seasonalityTotalBadge');
+
+  if(totalBadgeEl){
+    totalBadgeEl.textContent = `${money(totalTurnover)} €`;
+  }
+
+  const ranked = normalized
+    .map((r) => ({ ...r, share: totalTurnover > 0 ? (r.net_value / totalTurnover) * 100 : 0 }))
+    .sort((a, b) => b.net_value - a.net_value);
+
+  if (topSeasonEl) topSeasonEl.textContent = ranked[0]?.season || '-';
+  if (topShareEl) topShareEl.textContent = ranked.length ? pct(ranked[0].share) : '-';
+
+  if (seasonRowsWrap) {
+    seasonRowsWrap.innerHTML = '';
+    ranked.forEach((r) => {
+      const row = document.createElement('div');
+      row.className = 'seasonality-row';
+      row.innerHTML = `
+        <div class="seasonality-row-head">
+          <span>${r.season}</span>
+          <span>${money(r.net_value)} €</span>
+        </div>
+        <div class="seasonality-row-sub">
+          <span>${fmt0.format(Math.round(r.qty))} {{ tt(request, 'qty') }}</span>
+          <span>${pct(r.share)}</span>
+        </div>
+        <div class="progress"><div class="progress-bar" style="width:${Math.min(100, Math.max(0, r.share))}%"></div></div>
+      `;
+      seasonRowsWrap.appendChild(row);
+    });
+    if (!ranked.length) {
+      seasonRowsWrap.innerHTML = `<div class="text-muted small">{{ tt(request, 'no_data_available') }}</div>`;
+    }
+  }
+
+  if(seasonalityChart) seasonalityChart.destroy();
+  seasonalityChart = new Chart(document.getElementById('salesSeasonalityChart'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: '{{ tt(request, "net") }}',
+          data: turnover,
+          backgroundColor: '#6f42c1',
+          borderRadius: 6,
+          yAxisID: 'y'
+        },
+        {
+          label: '{{ tt(request, "qty") }}',
+          data: qty,
+          type: 'line',
+          borderColor: '#16a34a',
+          backgroundColor: 'rgba(34,197,94,.18)',
+          pointBackgroundColor: '#16a34a',
+          pointRadius: 4,
+          borderWidth: 2,
+          tension: .3,
+          yAxisID: 'y1',
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { position: 'bottom' } },
+      scales: {
+        x: { grid: { display: false } },
+        y: { beginAtZero: true, position: 'left' },
+        y1: { beginAtZero: true, position: 'right', grid: { drawOnChartArea: false } },
+      }
+    }
+  });
+}
+
+function renderNewCodes(rows){
+  const tbody = document.querySelector('#newCodesTbl tbody');
+  if(!tbody) return;
+  tbody.innerHTML = '';
+  if(!(rows || []).length){
+    tbody.innerHTML = `<tr><td colspan="4" class="text-center text-muted py-3">{{ tt(request, "no_data_available") }}</td></tr>`;
+    return;
+  }
+  (rows || []).forEach((r) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>
+        <div class="fw-semibold">${cleanItemLabel(r.item_name || r.item_code)}</div>
+        <div class="text-muted small">${r.item_code || '-'}</div>
+      </td>
+      <td>${r.first_seen ? (window.bvToDmyDate ? window.bvToDmyDate(r.first_seen) : r.first_seen) : '-'}</td>
+      <td class="text-end">${Math.round(toNum(r.sales_qty))}</td>
+      <td class="text-end">${money(r.sales_value)}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+
+async function reloadSales(e){
+  if(e) e.preventDefault();
+  setError(null);
+  try{
+    const p=params();
+    const res=await fetch(`/v1/kpi/sales/decision-pack?${p.toString()}`);
+    if(!res.ok) throw new Error('{{ tt(request, "failed_load_sales_pack") }}');
+    const data=await res.json();
+    renderCards(data.cards||{});
+    renderInsights(data || {});
+    renderTrend(data.trend_monthly||[]);
+    renderBranchBar(data.by_branch||[]);
+    renderDonut(data.by_branch||[]);
+    renderBranchContribution(data.by_branch||[]);
+    renderTopProducts(data.top_products||[]);
+    renderMovers(data.movers||{fast:[],slow:[]});
+    renderMarginAlerts(data.margin_alerts||[]);
+    renderSeasonality(data.seasonality||[]);
+    renderNewCodes(data.new_codes||[]);
+    await renderYearProgressCards();
+    await renderFullYearProgressCards();
+    document.getElementById('exportBranchCsv').href = `/v1/kpi/sales/by-branch/export.csv?${p.toString()}`;
+  }catch(err){setError(err.message||'{{ tt(request, "sales_dashboard_load_failed") }}');}
+}
+
+document.getElementById('salesFilters').addEventListener('submit', reloadSales);
+document.getElementById('topProductsLimit')?.addEventListener('change', reloadSales);
+window.addEventListener('load', async () => {
+  const insightsBtn = document.getElementById('toggleInsightsBtn');
+  const insightsCollapse = document.getElementById('insightsCollapse');
+  const INS_KEY = 'bv_sales_insights_collapsed';
+  const applyInsightsState = () => {
+    const collapsed = localStorage.getItem(INS_KEY) === '1';
+    if (insightsCollapse) insightsCollapse.hidden = collapsed;
+    if (insightsBtn) insightsBtn.textContent = collapsed ? 'ΕΜΦΑΝΙΣΗ INSIGHTS' : 'ΑΠΟΚΡΥΨΗ INSIGHTS';
+  };
+  if (insightsBtn && insightsCollapse) {
+    insightsBtn.addEventListener('click', () => {
+      const collapsedNow = !insightsCollapse.hidden;
+      localStorage.setItem(INS_KEY, collapsedNow ? '1' : '0');
+      applyInsightsState();
+    });
+    applyInsightsState();
+  }
+  salesUiFieldDefs.forEach((field)=>initSalesMulti(field.selectId, field.label));
+  ['salesCategoryL1','salesCategoryL2','salesCategoryL3'].forEach((id)=>{
+    const el = document.getElementById(id);
+    if(el) el.addEventListener('change', ()=>syncSalesCategoryHierarchy(id));
+  });
+  await loadSalesFilterOptions();
+  await reloadSales();
+});
+document.querySelectorAll('#salesFilters input[name="from"],#salesFilters input[name="to"]').forEach(el=>{
+  normalizeDmyInput(el);
+  el.addEventListener('input', ()=>normalizeDmyInput(el));
+  el.addEventListener('change', loadSalesFilterOptions);
+  el.addEventListener('blur', loadSalesFilterOptions);
+});
+salesFieldDefs.forEach((field)=>{
+  const select=document.getElementById(field.selectId);
+  if(select){
+    select.addEventListener('change', loadSalesFilterOptions);
+  }
+});
+</script>
+{% endblock %}

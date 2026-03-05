@@ -1,0 +1,486 @@
+{% extends "base_tenant.html" %}
+
+{% block filters %}
+<form id="supplierTargetsFilters" class="row g-3">
+  <div class="col-lg-3 col-md-6">
+    <label class="form-label">Έτος Στόχου</label>
+    <input id="stYear" type="number" class="form-control" min="2000" max="2100" value="{{ default_year }}">
+  </div>
+  <div class="col-lg-3 col-md-6">
+    <label class="form-label">Έως ημερομηνία</label>
+    <input id="stAsOf" type="text" class="form-control" data-date-format="dmy" placeholder="ηη/μμ/εεεε" inputmode="numeric">
+  </div>
+  <div class="col-lg-3 col-md-6 d-flex align-items-end">
+    <button type="submit" class="btn btn-primary w-100"><i class="fe fe-filter me-1"></i>{{ tt(request, 'apply') }}</button>
+  </div>
+</form>
+{% endblock %}
+
+{% block content %}
+<div id="supplierTargetsError" class="alert alert-danger d-none mb-3"></div>
+
+<div class="d-flex justify-content-end mb-3">
+  <button id="stOpenNewBtn" type="button" class="btn btn-primary"><i class="fe fe-plus-circle me-1"></i>Νέος στόχος</button>
+</div>
+
+<div id="stEditorCard" class="card border-0 shadow-sm mb-3 d-none">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <h5 class="mb-0">Δημιουργία / Επεξεργασία Στόχου Προμηθευτή</h5>
+    <div class="d-flex gap-2">
+      <button id="stResetEdit" type="button" class="btn btn-sm btn-outline-secondary">Νέος στόχος</button>
+      <button id="stCloseEditor" type="button" class="btn btn-sm btn-outline-secondary"><i class="fe fe-x me-1"></i>Κλείσιμο</button>
+    </div>
+  </div>
+  <div class="card-body">
+    <form id="supplierTargetForm" class="row g-3">
+      <input id="stTargetId" type="hidden">
+      <div class="col-xl-3 col-md-6">
+        <label class="form-label">Όνομα στόχου</label>
+        <input id="stName" class="form-control" list="stNameSuggestions" placeholder="π.χ. KORRES Annual Rebate 2026" required>
+        <datalist id="stNameSuggestions"></datalist>
+      </div>
+      <div class="col-xl-3 col-md-6">
+        <label class="form-label">Προμηθευτής</label>
+        <select id="stSupplier" class="form-select" required></select>
+      </div>
+      <div class="col-xl-2 col-md-4">
+        <label class="form-label">Έτος</label>
+        <input id="stYearForm" type="number" class="form-control" min="2000" max="2100" value="{{ default_year }}" required>
+      </div>
+      <div class="col-xl-2 col-md-4">
+        <label class="form-label">Στόχος Πωλήσεων (€)</label>
+        <input id="stTargetAmount" type="number" step="0.01" min="0" class="form-control" placeholder="0.00" required>
+      </div>
+      <div class="col-xl-2 col-md-4">
+        <label class="form-label">Επιστροφή %</label>
+        <input id="stRebatePercent" type="number" step="0.01" min="0" max="100" class="form-control" placeholder="0.00" required>
+      </div>
+      <div class="col-xl-2 col-md-4">
+        <label class="form-label">Επιστροφή ποσού (€)</label>
+        <input id="stRebateAmount" type="number" step="0.01" min="0" class="form-control" placeholder="0.00">
+      </div>
+      <div class="col-12">
+        <div class="d-flex justify-content-between align-items-end gap-2 mb-2">
+          <label class="form-label mb-0">Είδη που συμμετέχουν στον στόχο</label>
+          <input id="stItemsSearch" type="text" class="form-control form-control-sm st-items-search" placeholder="Αναζήτηση είδους ή κωδικού...">
+        </div>
+        <select id="stItems" class="form-select st-items-select" multiple size="20"></select>
+        <small class="text-muted">Κράτα πατημένο Ctrl/Cmd για πολλαπλή επιλογή.</small>
+      </div>
+      <div class="col-12">
+        <label class="form-label">Σημείωση (προαιρετικό)</label>
+        <textarea id="stNotes" class="form-control" rows="2" placeholder="Όροι rebate / παρατηρήσεις"></textarea>
+      </div>
+      <div class="col-12 d-flex gap-2">
+        <button class="btn btn-primary" type="submit"><i class="fe fe-save me-1"></i>Αποθήκευση</button>
+        <button class="btn btn-outline-secondary" type="button" id="stClearForm">Καθαρισμός</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="d-flex justify-content-between align-items-center mb-2">
+  <h5 class="mb-0">Πρόοδος στόχων προμηθευτών</h5>
+  <small id="stSummaryHint" class="text-muted">-</small>
+</div>
+
+<div id="stTargetsGrid" class="row g-3"></div>
+
+<template id="stCardTemplate">
+  <div class="col-12 col-xxl-6">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <div>
+          <h6 class="mb-1 st-name"></h6>
+          <small class="text-muted st-supplier"></small>
+        </div>
+        <button type="button" class="btn btn-sm btn-outline-primary st-edit"><i class="fe fe-edit-2 me-1"></i>Edit</button>
+      </div>
+      <div class="card-body">
+        <div class="row g-2 mb-2">
+          <div class="col-md-4"><div class="small text-muted">Ετήσιος Στόχος</div><div class="fw-bold st-target-amount"></div></div>
+          <div class="col-md-4"><div class="small text-muted">Πραγματικό YTD</div><div class="fw-bold st-actual"></div></div>
+          <div class="col-md-4"><div class="small text-muted">Πιθανό Credit</div><div class="fw-bold st-credit"></div></div>
+        </div>
+
+        <div class="border rounded-3 p-2 mb-2 st-track-wrap">
+          <div class="d-flex justify-content-between align-items-center mb-1">
+            <small class="text-muted">Πρόοδος έναντι χρονοδιαγράμματος</small>
+            <small class="fw-bold st-track-pct"></small>
+          </div>
+          <div class="progress" style="height:8px;">
+            <div class="progress-bar st-track-bar" role="progressbar" style="width:0%"></div>
+          </div>
+          <div class="d-flex justify-content-between mt-1">
+            <small class="text-muted">Αναμενόμενο YTD: <span class="st-expected-ytd"></span></small>
+            <small class="st-track-amount"></small>
+          </div>
+        </div>
+
+        <div class="small text-muted mb-1">Επίτευξη Στόχου</div>
+        <div class="progress" style="height:12px;">
+          <div class="progress-bar bg-success st-progress-bar" role="progressbar" style="width:0%"></div>
+        </div>
+        <div class="d-flex justify-content-between mt-1 mb-2">
+          <small class="text-muted st-progress-text"></small>
+          <small class="text-muted st-remaining"></small>
+        </div>
+
+        <div class="small text-muted mb-1">Μηνιαία πρόοδος</div>
+        <div class="st-months"></div>
+
+        <details class="mt-3">
+          <summary class="small fw-bold">Είδη συμμετοχής</summary>
+          <div class="mt-2 st-items d-flex flex-wrap gap-1"></div>
+        </details>
+      </div>
+    </div>
+  </div>
+</template>
+
+<style>
+  .st-month-row { display:grid; grid-template-columns: 38px 1fr 70px; gap:8px; align-items:center; margin-bottom:6px; }
+  .st-month-bar { width:100%; height:8px; border-radius:999px; background:#e5e7eb; overflow:hidden; }
+  .st-month-fill { height:100%; background:linear-gradient(90deg, #3b82f6, #22c55e); }
+  .st-item-chip { padding:2px 8px; border-radius:999px; background:#eef4ff; color:#334155; font-size:12px; }
+  .st-track-pct.pos, .st-track-amount.pos { color:#16a34a; }
+  .st-track-pct.neg, .st-track-amount.neg { color:#dc2626; }
+  .st-items-select { min-height: 460px; }
+  .st-items-search { max-width: 360px; }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function(){
+  const fmtMoney = (n)=> new Intl.NumberFormat('el-GR',{style:'currency',currency:'EUR',maximumFractionDigits:2}).format(Number(n||0));
+  const fmtPct = (n)=> `${new Intl.NumberFormat('el-GR',{minimumFractionDigits:2,maximumFractionDigits:2}).format(Number(n||0))}%`;
+  const fmtShort = (n)=> new Intl.NumberFormat('el-GR',{maximumFractionDigits:0}).format(Number(n||0));
+  const monthNames = ['Ιαν','Φεβ','Μαρ','Απρ','Μαι','Ιουν','Ιουλ','Αυγ','Σεπ','Οκτ','Νοε','Δεκ'];
+
+  const errEl = document.getElementById('supplierTargetsError');
+  const filtersForm = document.getElementById('supplierTargetsFilters');
+  const yearEl = document.getElementById('stYear');
+  const asOfEl = document.getElementById('stAsOf');
+  const summaryHintEl = document.getElementById('stSummaryHint');
+  const grid = document.getElementById('stTargetsGrid');
+  const tpl = document.getElementById('stCardTemplate');
+  const editorCardEl = document.getElementById('stEditorCard');
+  const openNewBtn = document.getElementById('stOpenNewBtn');
+  const closeEditorBtn = document.getElementById('stCloseEditor');
+
+  const form = document.getElementById('supplierTargetForm');
+  const idEl = document.getElementById('stTargetId');
+  const nameEl = document.getElementById('stName');
+  const nameSuggestionsEl = document.getElementById('stNameSuggestions');
+  const supplierEl = document.getElementById('stSupplier');
+  const yearFormEl = document.getElementById('stYearForm');
+  const targetAmountEl = document.getElementById('stTargetAmount');
+  const rebateEl = document.getElementById('stRebatePercent');
+  const rebateAmountEl = document.getElementById('stRebateAmount');
+  const itemsSearchEl = document.getElementById('stItemsSearch');
+  const itemsEl = document.getElementById('stItems');
+  const notesEl = document.getElementById('stNotes');
+  let allItems = [];
+  let activeItemOptions = [];
+  let targetByName = new Map();
+  const normalizeTargetName = (v)=> String(v || '').trim().toLowerCase();
+
+  document.getElementById('stClearForm').addEventListener('click', clearForm);
+  document.getElementById('stResetEdit').addEventListener('click', clearForm);
+  openNewBtn.addEventListener('click', () => { clearForm(); showEditor(); });
+  closeEditorBtn.addEventListener('click', hideEditor);
+
+  function setError(msg){
+    if (!msg){
+      errEl.classList.add('d-none');
+      errEl.textContent = '';
+      return;
+    }
+    errEl.textContent = msg;
+    errEl.classList.remove('d-none');
+  }
+
+  function dmyToIso(raw){
+    if (!raw) return '';
+    const s = String(raw).trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (!m) return '';
+    return `${m[3]}-${String(Number(m[2])).padStart(2,'0')}-${String(Number(m[1])).padStart(2,'0')}`;
+  }
+
+  function isoToDmy(raw){
+    if (!raw) return '';
+    const m = String(raw).match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (!m) return raw;
+    return `${m[3]}/${m[2]}/${m[1]}`;
+  }
+
+  function clearForm(){
+    idEl.value = '';
+    nameEl.value = '';
+    yearFormEl.value = yearEl.value || (new Date()).getFullYear();
+    targetAmountEl.value = '';
+    rebateEl.value = '';
+    rebateAmountEl.value = '';
+    notesEl.value = '';
+    itemsSearchEl.value = '';
+    populateItems(activeItemOptions.length ? activeItemOptions : allItems, []);
+    form.querySelector('button[type="submit"]').innerHTML = '<i class="fe fe-save me-1"></i>Αποθήκευση';
+  }
+
+  function showEditor(){
+    editorCardEl.classList.remove('d-none');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function hideEditor(){
+    editorCardEl.classList.add('d-none');
+  }
+
+  function selectedValues(selectEl){
+    return [...selectEl.selectedOptions].map(o=>o.value);
+  }
+
+  function populateItems(options, selected = []){
+    activeItemOptions = options || [];
+    const selectedSet = new Set(selected || []);
+    const q = String(itemsSearchEl.value || '').trim().toLowerCase();
+    const rows = q
+      ? activeItemOptions.filter((i) => String(i.label || i.value || '').toLowerCase().includes(q))
+      : activeItemOptions;
+    itemsEl.innerHTML = '';
+    rows.forEach(i => {
+      const o = document.createElement('option');
+      o.value = i.value;
+      o.textContent = i.label;
+      o.selected = selectedSet.has(i.value);
+      itemsEl.appendChild(o);
+    });
+  }
+
+  function refreshItemsForTargetName(){
+    const isEditing = Boolean(String(idEl.value || '').trim());
+    const key = normalizeTargetName(nameEl.value);
+    const target = key ? targetByName.get(key) : null;
+    const selected = selectedValues(itemsEl);
+    if (!isEditing && target && Array.isArray(target.items) && target.items.length){
+      const restricted = target.items.map(it => ({
+        value: it.item_external_id,
+        label: it.item_name || it.item_external_id,
+      }));
+      populateItems(restricted, selected);
+      if (target.supplier_ext_id) {
+        supplierEl.value = target.supplier_ext_id;
+      }
+      return;
+    }
+    populateItems(allItems, selected);
+  }
+
+  async function loadOptions(){
+    const prevSelected = selectedValues(itemsEl);
+    const prevSupplier = supplierEl.value;
+    const qs = new URLSearchParams();
+    if (supplierEl.value) qs.set('supplier_ext_id', supplierEl.value);
+    const res = await fetch(`/v1/kpi/supplier-targets/filter-options?${qs.toString()}`);
+    if (!res.ok) throw new Error('Αποτυχία φόρτωσης επιλογών');
+    const data = await res.json();
+
+    supplierEl.innerHTML = '<option value="">Επιλογή προμηθευτή</option>';
+    (data.suppliers || []).forEach(s => {
+      const o = document.createElement('option');
+      o.value = s.value;
+      o.textContent = s.label;
+      o.dataset.label = s.label;
+      supplierEl.appendChild(o);
+    });
+    if (prevSupplier) supplierEl.value = prevSupplier;
+
+    allItems = data.items || [];
+    populateItems(allItems, prevSelected);
+  }
+
+  function renderTargetCard(t){
+    const node = tpl.content.cloneNode(true);
+    node.querySelector('.st-name').textContent = t.name;
+    node.querySelector('.st-supplier').textContent = `${t.supplier_name || t.supplier_ext_id} | ${t.target_year}`;
+    node.querySelector('.st-target-amount').textContent = fmtMoney(t.target_amount);
+    node.querySelector('.st-actual').textContent = fmtMoney(t.year_actual);
+    node.querySelector('.st-credit').textContent = `${fmtMoney(t.potential_credit)} (${fmtPct(t.rebate_percent)} + ${fmtMoney(t.rebate_amount || 0)})`;
+
+    const pct = Math.max(0, Math.min(100, Number(t.progress_pct || 0)));
+    const pbar = node.querySelector('.st-progress-bar');
+    pbar.style.width = `${pct}%`;
+    pbar.classList.toggle('bg-success', pct >= 100);
+    pbar.classList.toggle('bg-primary', pct < 100);
+
+    node.querySelector('.st-progress-text').textContent = `Πρόοδος: ${fmtPct(t.progress_pct)} | Υπόλοιπο: ${fmtPct(t.remaining_pct)}`;
+    node.querySelector('.st-remaining').textContent = `Απόσταση: ${fmtMoney(t.remaining_amount)}`;
+
+    const trackPct = Number(t.trajectory_gap_pct || 0);
+    const trackAmt = Number(t.trajectory_gap_amount || 0);
+    const trackRatio = Math.max(0, Math.min(100, Number(t.expected_to_date || 0) > 0 ? (Number(t.year_actual || 0) / Number(t.expected_to_date || 0) * 100) : 0));
+    const trackBar = node.querySelector('.st-track-bar');
+    trackBar.style.width = `${trackRatio}%`;
+    trackBar.classList.add(trackPct >= 0 ? 'bg-success' : 'bg-danger');
+    node.querySelector('.st-expected-ytd').textContent = fmtMoney(t.expected_to_date || 0);
+    const trackPctEl = node.querySelector('.st-track-pct');
+    const trackAmtEl = node.querySelector('.st-track-amount');
+    const cls = trackPct >= 0 ? 'pos' : 'neg';
+    trackPctEl.classList.add(cls);
+    trackAmtEl.classList.add(cls);
+    trackPctEl.textContent = `${trackPct >= 0 ? '+' : ''}${fmtPct(trackPct)}`;
+    trackAmtEl.textContent = `${trackAmt >= 0 ? '+' : ''}${fmtMoney(trackAmt)}`;
+
+    const monthsWrap = node.querySelector('.st-months');
+    (t.monthly || []).forEach(m => {
+      const expected = Number(m.target_progress || 0);
+      const actual = Number(m.actual || 0);
+      const ratio = expected > 0 ? Math.max(0, Math.min(1, actual / expected)) : 0;
+      const row = document.createElement('div');
+      row.className = 'st-month-row';
+      row.innerHTML = `
+        <small>${monthNames[(Number(m.month)||1)-1] || '-'}</small>
+        <div class="st-month-bar"><div class="st-month-fill" style="width:${Math.round(ratio*100)}%"></div></div>
+        <small class="text-end">${fmtShort(actual)}</small>
+      `;
+      monthsWrap.appendChild(row);
+    });
+
+    const itemsWrap = node.querySelector('.st-items');
+    (t.items || []).forEach(it => {
+      const span = document.createElement('span');
+      span.className = 'st-item-chip';
+      span.textContent = it.item_name || it.item_external_id;
+      itemsWrap.appendChild(span);
+    });
+
+    node.querySelector('.st-edit').addEventListener('click', async ()=> {
+      idEl.value = t.id;
+      nameEl.value = t.name || '';
+      supplierEl.value = t.supplier_ext_id || '';
+      yearFormEl.value = t.target_year || yearEl.value;
+      targetAmountEl.value = t.target_amount || 0;
+      rebateEl.value = t.rebate_percent || 0;
+      notesEl.value = t.notes || '';
+      rebateAmountEl.value = t.rebate_amount || 0;
+      const targetItems = new Set((t.items || []).map(x => x.item_external_id));
+      showEditor();
+      await loadOptions();
+      refreshItemsForTargetName();
+      [...itemsEl.options].forEach(o => { o.selected = targetItems.has(o.value); });
+      form.querySelector('button[type="submit"]').innerHTML = '<i class="fe fe-save me-1"></i>Update';
+    });
+
+    return node;
+  }
+
+  async function loadTargets(){
+    const year = Number(yearEl.value || new Date().getFullYear());
+    const asOfIso = dmyToIso(asOfEl.value);
+    const qs = new URLSearchParams({ year: String(year) });
+    if (asOfIso) qs.set('as_of', asOfIso);
+
+    const res = await fetch(`/v1/kpi/supplier-targets?${qs.toString()}`);
+    if (!res.ok) {
+      throw new Error('Αποτυχία φόρτωσης στόχων προμηθευτών');
+    }
+    const payload = await res.json();
+    const targets = payload.targets || [];
+    targetByName = new Map(
+      targets
+        .filter(t => (t.name || '').trim())
+        .map(t => [normalizeTargetName(t.name), t])
+    );
+    nameSuggestionsEl.innerHTML = '';
+    targets.forEach(t => {
+      if (!t?.name) return;
+      const o = document.createElement('option');
+      o.value = t.name;
+      nameSuggestionsEl.appendChild(o);
+    });
+    refreshItemsForTargetName();
+
+    summaryHintEl.textContent = `Έτος ${payload.year} | ${targets.length} στόχοι`;
+    grid.innerHTML = '';
+    targets.forEach(t => grid.appendChild(renderTargetCard(t)));
+    if (!targets.length) {
+      grid.innerHTML = '<div class="col-12"><div class="alert alert-light border">Δεν υπάρχουν αποθηκευμένοι στόχοι για το επιλεγμένο έτος.</div></div>';
+    }
+  }
+
+  form.addEventListener('submit', async (e)=> {
+    e.preventDefault();
+    setError('');
+
+    const supplierOpt = supplierEl.options[supplierEl.selectedIndex];
+    const payload = {
+      name: nameEl.value.trim(),
+      supplier_ext_id: supplierEl.value,
+      supplier_name: supplierOpt ? (supplierOpt.dataset.label || supplierOpt.textContent || supplierEl.value) : supplierEl.value,
+      target_year: Number(yearFormEl.value || yearEl.value),
+      target_amount: Number(targetAmountEl.value || 0),
+      rebate_percent: Number(rebateEl.value || 0),
+      rebate_amount: Number(rebateAmountEl.value || 0),
+      item_external_ids: selectedValues(itemsEl),
+      notes: notesEl.value.trim() || null,
+    };
+
+    if (!payload.name || !payload.supplier_ext_id) {
+      setError('Συμπλήρωσε όνομα στόχου και προμηθευτή.');
+      return;
+    }
+
+    const editingId = idEl.value;
+    const method = editingId ? 'PATCH' : 'POST';
+    const url = editingId ? `/v1/kpi/supplier-targets/${editingId}` : '/v1/kpi/supplier-targets';
+
+    const res = await fetch(url, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      let msg = '';
+      try {
+        const err = await res.json();
+        msg = err?.detail || '';
+      } catch(_) {
+        msg = await res.text();
+      }
+      setError(`Αποτυχία αποθήκευσης στόχου. ${msg || ''}`);
+      return;
+    }
+
+    clearForm();
+    hideEditor();
+    await loadTargets();
+  });
+
+  filtersForm.addEventListener('submit', async (e)=> {
+    e.preventDefault();
+    setError('');
+    await loadTargets();
+  });
+
+  asOfEl.value = isoToDmy(new Date().toISOString().slice(0,10));
+  itemsSearchEl.addEventListener('input', ()=> populateItems(activeItemOptions, selectedValues(itemsEl)));
+  supplierEl.addEventListener('change', async ()=> {
+    const selected = selectedValues(itemsEl);
+    await loadOptions();
+    refreshItemsForTargetName();
+    if (selected.length){
+      [...itemsEl.options].forEach((o)=> { if (selected.includes(o.value)) o.selected = true; });
+    }
+  });
+  nameEl.addEventListener('input', refreshItemsForTargetName);
+  nameEl.addEventListener('change', refreshItemsForTargetName);
+  nameEl.addEventListener('blur', refreshItemsForTargetName);
+  loadOptions()
+    .then(()=> loadTargets())
+    .catch((err)=> setError(err?.message || 'Απρόβλεπτο σφάλμα'));
+})();
+</script>
+{% endblock %}

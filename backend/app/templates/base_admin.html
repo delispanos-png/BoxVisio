@@ -1,0 +1,517 @@
+<!doctype html>
+<html lang="{{ request.cookies.get('lang', 'el') }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ tt(request, title) if title else tt(request, 'app_admin_title') }}</title>
+  <link rel="icon" href="/static/azea/images/favicon.ico" type="image/x-icon">
+  <link href="/static/azea/plugins/bootstrap/css/bootstrap.min.css" rel="stylesheet">
+  <link href="/static/azea/plugins/iconfonts/icons.css" rel="stylesheet">
+  <link href="/static/azea/css/main.css" rel="stylesheet">
+  <link href="/static/azea/css/themes/all-themes.css" rel="stylesheet">
+  <link href="/static/css/boxvisio-ui.css?v=20260305a" rel="stylesheet">
+  <style>
+    :root {
+      --shell-bg: #f3f5fb;
+      --panel-bg: #ffffff;
+      --panel-border: #e9edf5;
+      --menu-text: #4b5563;
+      --menu-active-bg: #f1efff;
+      --menu-active-text: #6f42c1;
+      --topbar-bg: #ffffff;
+      --topbar-border: #eceff5;
+    }
+    body {
+      background: var(--shell-bg);
+      color: #111827;
+    }
+    .sidebar .admin-image .brand-logo {
+      width: 198px;
+      max-width: 198px;
+      border-radius: 0 !important;
+      float: none !important;
+      display: block;
+      margin: 4px auto;
+    }
+    .left-sidebar {
+      background: var(--panel-bg) !important;
+      border-right: 1px solid var(--panel-border);
+    }
+    .main-sidebar .list .nav-item .nav-link {
+      border-radius: 10px;
+      margin: 2px 10px;
+      color: var(--menu-text);
+      font-weight: 600;
+    }
+    .main-sidebar .list .nav-item.active .nav-link,
+    .main-sidebar .list .nav-item .nav-link:hover {
+      background: var(--menu-active-bg);
+      color: var(--menu-active-text);
+    }
+    .menu-head {
+      padding: 14px 18px 6px;
+      font-size: 11px;
+      letter-spacing: .8px;
+      color: #98a1b2;
+      font-weight: 700;
+    }
+    .content.home {
+      padding-top: 0;
+      background: var(--shell-bg);
+      min-height: 100vh;
+    }
+    .topbar {
+      background: var(--topbar-bg);
+      border: 1px solid var(--topbar-border);
+      border-radius: 0;
+      min-height: 70px;
+    }
+    .topbar .search-wrap {
+      max-width: 420px;
+      width: 100%;
+      position: relative;
+    }
+    .topbar .search-wrap i {
+      position: absolute;
+      left: 12px;
+      top: 10px;
+      color: #94a3b8;
+      font-size: 16px;
+    }
+    .topbar .search-wrap input {
+      width: 100%;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      height: 40px;
+      padding: 0 12px 0 36px;
+      background: #f8fafc;
+    }
+    .topbar .icon-btn {
+      width: 38px;
+      height: 38px;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: #475569;
+      background: #fff;
+    }
+    .dashboard-shell {
+      padding: 22px;
+    }
+    .powered-by-cloudon {
+      position: fixed;
+      left: 16px;
+      bottom: 12px;
+      z-index: 99999;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .6px;
+      color: #4b5563;
+      background: rgba(255, 255, 255, 0.92);
+      padding: 4px 8px;
+      border-radius: 999px;
+      border: 1px solid #e5e7eb;
+    }
+    body[data-theme='dark'] {
+      --shell-bg: #0b1220;
+      --panel-bg: #111827;
+      --panel-border: #334155;
+      --menu-text: #cbd5e1;
+      --menu-active-bg: #1f2937;
+      --menu-active-text: #c4b5fd;
+      --topbar-bg: #0f172a;
+      --topbar-border: #334155;
+      background: #0b1220 !important;
+      color: #e5e7eb !important;
+    }
+    body[data-theme='dark'] .left-sidebar,
+    body[data-theme='dark'] .sidebar,
+    body[data-theme='dark'] .main-sidebar {
+      background: #0f172a !important;
+      border-color: #334155 !important;
+    }
+    body[data-theme='dark'] .menu-head {
+      color: #94a3b8 !important;
+    }
+    body[data-theme='dark'] .main-sidebar .list .nav-item .nav-link,
+    body[data-theme='dark'] .main-sidebar .list .nav-item .nav-link .sidemenu-label,
+    body[data-theme='dark'] .main-sidebar .list .nav-item .nav-link .sidemenu-icon {
+      color: #e2e8f0 !important;
+    }
+    body[data-theme='dark'] .main-sidebar .list .nav-item.active .nav-link {
+      background: #1e293b !important;
+      color: #ffffff !important;
+    }
+    body[data-theme='dark'] .topbar .search-wrap input {
+      background: #0b1220;
+      border-color: #334155;
+      color: #e5e7eb;
+    }
+    body[data-theme='dark'] .topbar .icon-btn,
+    body[data-theme='dark'] .btn-outline-secondary,
+    body[data-theme='dark'] .btn-outline-danger {
+      border-color: #334155 !important;
+      color: #cbd5e1 !important;
+      background: #111827 !important;
+    }
+    body[data-theme='dark'] .card,
+    body[data-theme='dark'] .card-body,
+    body[data-theme='dark'] .card-header,
+    body[data-theme='dark'] .table,
+    body[data-theme='dark'] .table th,
+    body[data-theme='dark'] .table td,
+    body[data-theme='dark'] .text-muted {
+      color: #cbd5e1 !important;
+      background: #111827 !important;
+      border-color: #334155 !important;
+    }
+    body[data-theme='dark'] .form-control,
+    body[data-theme='dark'] .form-select,
+    body[data-theme='dark'] textarea {
+      background: #0f172a !important;
+      color: #e5e7eb !important;
+      border-color: #334155 !important;
+    }
+    body[data-theme='dark'] .powered-by-cloudon {
+      background: rgba(15, 23, 42, 0.92);
+      border-color: #334155;
+      color: #cbd5e1;
+    }
+    .azea-shell .left-sidebar,
+    .azea-shell #leftsidebar.sidebar,
+    .azea-shell .main-sidebar {
+      background: var(--panel-bg) !important;
+    }
+    .azea-shell .main-sidebar .list .nav-item .nav-link,
+    .azea-shell .main-sidebar .list .nav-item .nav-link .sidemenu-label,
+    .azea-shell .main-sidebar .list .nav-item .nav-link .sidemenu-icon {
+      color: var(--menu-text) !important;
+    }
+    body[data-theme='dark'].azea-shell .left-sidebar,
+    body[data-theme='dark'].azea-shell #leftsidebar.sidebar,
+    body[data-theme='dark'].azea-shell .main-sidebar {
+      background: #0f172a !important;
+      border-color: #334155 !important;
+    }
+    body[data-theme='dark'].azea-shell .main-sidebar .list .nav-item .nav-link,
+    body[data-theme='dark'].azea-shell .main-sidebar .list .nav-item .nav-link .sidemenu-label,
+    body[data-theme='dark'].azea-shell .main-sidebar .list .nav-item .nav-link .sidemenu-icon {
+      color: #e2e8f0 !important;
+    }
+    body[data-theme='dark'].azea-shell .main-sidebar .list .nav-item.active .nav-link,
+    body[data-theme='dark'].azea-shell .main-sidebar .list .nav-item .nav-link:hover {
+      background: #1e293b !important;
+      color: #ffffff !important;
+    }
+  </style>
+</head>
+<body class="azea-shell" data-theme="{{ request.cookies.get('theme', 'light') }}">
+  <div class="overlay"></div>
+  <div class="sidebar-overlay" data-toggle="sidebar"></div>
+  <section>
+    <aside id="leftsidebar" class="sidebar left-sidebar">
+      <div class="admin-image"><img class="brand-logo" src="/static/azea/images/boxvisio-logo.svg" alt="BoxVisio logo"></div>
+      <div class="menu main-sidebar">
+        <ul class="list">
+          <li class="menu-head">{{ tt(request, 'main') }}</li>
+          <li class="nav-item {% if active_page == 'dashboard' %}active{% endif %}"><a class="nav-link" href="/admin/dashboard"><i class="fe fe-home sidemenu-icon"></i><span class="sidemenu-label">{{ tt(request, 'dashboard') }}</span></a></li>
+          <li class="menu-head">{{ tt(request, 'administration') }}</li>
+          <li class="nav-item {% if active_page == 'tenants' %}active{% endif %}"><a class="nav-link" href="/admin/tenants"><i class="fe fe-users sidemenu-icon"></i><span class="sidemenu-label">{{ tt(request, 'tenants') }}</span></a></li>
+          <li class="nav-item {% if active_page == 'subscriptions' %}active{% endif %}"><a class="nav-link" href="/admin/subscriptions"><i class="fe fe-credit-card sidemenu-icon"></i><span class="sidemenu-label">{{ tt(request, 'subscriptions') }}</span></a></li>
+          <li class="nav-item {% if active_page == 'users' %}active{% endif %}"><a class="nav-link" href="/admin/users"><i class="fe fe-user-check sidemenu-icon"></i><span class="sidemenu-label">{{ tt(request, 'users') }}</span></a></li>
+          <li class="menu-head">{{ tt(request, 'components') }}</li>
+          <li class="nav-item {% if active_page == 'connections' %}active{% endif %}"><a class="nav-link" href="/admin/connections"><i class="fe fe-link sidemenu-icon"></i><span class="sidemenu-label">{{ tt(request, 'connections') }}</span></a></li>
+          <li class="nav-item {% if active_page == 'sync' %}active{% endif %}"><a class="nav-link" href="/admin/sync-status"><i class="fe fe-refresh-cw sidemenu-icon"></i><span class="sidemenu-label">{{ tt(request, 'sync_status') }}</span></a></li>
+          <li class="nav-item {% if active_page == 'insights' %}active{% endif %}"><a class="nav-link" href="/admin/insights"><i class="fe fe-alert-triangle sidemenu-icon"></i><span class="sidemenu-label">{{ tt(request, 'insights') }}</span></a></li>
+          <li class="nav-item {% if active_page == 'insight_rules' %}active{% endif %}"><a class="nav-link" href="/admin/insight-rules"><i class="fe fe-sliders sidemenu-icon"></i><span class="sidemenu-label">{{ tt(request, 'insight_rules') }}</span></a></li>
+          <li class="nav-item {% if active_page == 'plans' %}active{% endif %}"><a class="nav-link" href="/admin/plans"><i class="fe fe-grid sidemenu-icon"></i><span class="sidemenu-label">{{ tt(request, 'plan_features') }}</span></a></li>
+        </ul>
+      </div>
+    </aside>
+  </section>
+
+  <section class="content home">
+    <div class="container-fluid p-0">
+      <div class="topbar d-flex align-items-center justify-content-between px-3">
+        <div class="d-flex align-items-center gap-2 flex-grow-1">
+          <button class="icon-btn" id="adminSidebarToggleBtn" type="button" title="{{ tt(request, 'menu') if tt(request, 'menu') != 'menu' else 'Menu' }}">
+            <i class="fe fe-menu"></i>
+          </button>
+          <div class="search-wrap d-none d-md-block">
+            <i class="fe fe-search"></i>
+            <input id="adminNavSearch" type="search" placeholder="{{ tt(request, 'search_placeholder') if tt(request, 'search_placeholder') != 'search_placeholder' else 'Αναζήτηση στο μενού...' }}" autocomplete="off">
+          </div>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+          {% set _lang = request.cookies.get('lang', 'el') %}
+          {% set _theme = request.cookies.get('theme', 'light') %}
+          <button class="icon-btn" id="themeToggleBtnAdmin" data-theme-toggle title="{{ tt(request, 'theme_toggle') }}" data-theme="{{ _theme }}"><i class="fe fe-moon"></i></button>
+          <button class="icon-btn" id="fullscreenToggleBtn" type="button" title="{{ tt(request, 'full_screen') }}"><i class="fe fe-maximize"></i></button>
+          <a class="btn btn-outline-secondary btn-sm" href="/set-language/{{ 'en' if _lang != 'en' else 'el' }}?next={{ request.url.path }}">{{ tt(request, 'lang_en') if _lang == 'en' else tt(request, 'lang_el') }}</a>
+          <div class="bv-profile-menu">
+            <button class="bv-profile-toggle" type="button" data-profile-toggle>
+              <span class="bv-avatar-initial">AD</span>
+              <i class="fe fe-chevron-down"></i>
+            </button>
+            <div class="bv-profile-dropdown" data-profile-dropdown hidden>
+              <div class="bv-profile-head">
+                <div class="bv-profile-name">CloudOn Admin</div>
+                <div class="bv-profile-role">Admin Panel</div>
+              </div>
+              <a class="bv-profile-item" href="/admin/profile"><i class="fe fe-user"></i> Profile</a>
+              <a class="bv-profile-item" href="/admin/settings"><i class="fe fe-settings"></i> Settings</a>
+              <a class="bv-profile-item" href="/admin/messages"><i class="fe fe-message-circle"></i> Messages</a>
+              <form method="post" action="/logout" class="mb-0">
+                <button class="bv-profile-item bv-signout" type="submit"><i class="fe fe-log-out"></i> {{ tt(request, 'logout') }}</button>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="dashboard-shell">
+        <div class="bv-page-head d-flex justify-content-between align-items-center mb-3">
+          <div>
+            <h3 class="mb-1">{{ tt(request, title) if title else tt(request, 'admin_panel') }}</h3>
+            {% if active_page == 'dashboard' %}
+            <p class="mb-0 text-muted">Κεντρική παρακολούθηση tenants, subscriptions και server κατάστασης.</p>
+            {% elif active_page == 'tenants' %}
+            <p class="mb-0 text-muted">Διαχείριση πελατών, πλάνων και lifecycle πρόσβασης.</p>
+            {% elif active_page == 'subscriptions' %}
+            <p class="mb-0 text-muted">Ενημέρωση συνδρομών και χρέωσης ανά tenant.</p>
+            {% elif active_page == 'users' %}
+            <p class="mb-0 text-muted">Διαχείριση χρηστών, ρόλων και χρονικών ορίων πρόσβασης.</p>
+            {% elif active_page == 'connections' %}
+            <p class="mb-0 text-muted">Ρύθμιση data sources, SQL mapping και initial backfill.</p>
+            {% elif active_page == 'insights' or active_page == 'insight_rules' %}
+            <p class="mb-0 text-muted">Εκτέλεση και ρύθμιση κανόνων intelligence για κάθε tenant.</p>
+            {% endif %}
+          </div>
+          <div class="bv-page-meta d-none d-lg-flex align-items-center gap-2">
+            <span class="badge bg-light text-dark border">CloudOn BI Admin</span>
+            <span class="badge bg-light text-dark border" id="adminNowBadge">--:--</span>
+          </div>
+        </div>
+        {% block content %}{% endblock %}
+      </div>
+    </div>
+  </section>
+
+  <script src="/static/azea/bundles/libscripts.bundle.js"></script>
+  <script src="/static/azea/bundles/vendorscripts.bundle.js"></script>
+  <script src="/static/azea/bundles/mainscripts.bundle.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="/static/azea/js/custom.js"></script>
+  <script src="/static/azea/js/boxvisio-ui.js"></script>
+  <script>
+    function getCookie(name) {
+      const parts = document.cookie.split(';').map(v => v.trim());
+      for (const p of parts) {
+        if (p.startsWith(name + '=')) return decodeURIComponent(p.substring(name.length + 1));
+      }
+      return '';
+    }
+    const csrfToken = getCookie('csrf_token');
+    if (csrfToken) {
+      document.querySelectorAll('form').forEach((form) => {
+        if (!form.querySelector('input[name="csrf_token"]')) {
+          const input = document.createElement('input');
+          input.type = 'hidden';
+          input.name = 'csrf_token';
+          input.value = csrfToken;
+          form.appendChild(input);
+        }
+      });
+    }
+
+    function formatDateToDMY(raw) {
+      if (!raw) return raw;
+      const full = String(raw).trim().match(/^(\d{4})-(\d{2})-(\d{2})(?:[T\s](\d{2}):(\d{2})(?::(\d{2}))?(?:\.\d{1,6})?)?(?:Z|[+-]\d{2}:\d{2})?$/);
+      if (!full) return raw;
+      const [, y, m, d, hh, mm, ss] = full;
+      const datePart = `${d}/${m}/${y}`;
+      if (hh && mm) {
+        return `${datePart} ${hh}:${mm}${ss ? `:${ss}` : ''}`;
+      }
+      return datePart;
+    }
+
+    function replaceIsoDatesInText(text) {
+      if (!text || typeof text !== 'string') return text;
+      return text.replace(
+        /\b(\d{4})-(\d{2})-(\d{2})(?:[T\s](\d{2}):(\d{2})(?::(\d{2}))?(?:\.\d{1,6})?)?(?:Z|[+-]\d{2}:\d{2})?\b/g,
+        (m, y, mo, d, hh, mm, ss) => {
+          const datePart = `${d}/${mo}/${y}`;
+          if (hh && mm) {
+            return `${datePart} ${hh}:${mm}${ss ? `:${ss}` : ''}`;
+          }
+          return datePart;
+        }
+      );
+    }
+
+    function bvToIsoDate(raw) {
+      if (!raw) return '';
+      const value = String(raw).trim();
+      if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+      const m = value.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+      if (!m) return value;
+      const d = Number(m[1]);
+      const mo = Number(m[2]);
+      const y = Number(m[3]);
+      if (!y || mo < 1 || mo > 12 || d < 1 || d > 31) return value;
+      return `${String(y).padStart(4, '0')}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    }
+
+    function bvToDmyDate(raw) {
+      if (!raw) return '';
+      const value = String(raw).trim();
+      const iso = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (iso) return `${iso[3]}/${iso[2]}/${iso[1]}`;
+      const dmy = value.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+      if (dmy) return `${String(Number(dmy[1])).padStart(2, '0')}/${String(Number(dmy[2])).padStart(2, '0')}/${dmy[3]}`;
+      return value;
+    }
+
+    function bvNormalizeDmyInput(el) {
+      if (!el) return;
+      el.placeholder = 'ηη/μμ/εεεε';
+      el.setAttribute('inputmode', 'numeric');
+      el.value = bvToDmyDate(el.value);
+    }
+
+    function bvInitDmyDateInputs(rootNode = document) {
+      rootNode.querySelectorAll('input[data-date-format="dmy"]').forEach((el) => {
+        if (el.dataset.bvDateBound !== '1') {
+          el.dataset.bvDateBound = '1';
+          el.addEventListener('blur', () => bvNormalizeDmyInput(el));
+        }
+        bvNormalizeDmyInput(el);
+      });
+    }
+
+    function applyDateFormatGlobal(rootNode = document.body) {
+      bvInitDmyDateInputs(document);
+      const walker = document.createTreeWalker(rootNode, NodeFilter.SHOW_TEXT, null);
+      const nodes = [];
+      let n;
+      while ((n = walker.nextNode())) nodes.push(n);
+      nodes.forEach((textNode) => {
+        const parent = textNode.parentElement;
+        if (!parent) return;
+        if (parent.closest('script, style, code, pre, textarea')) return;
+        if (parent.dataset.noDateFormat === '1') return;
+        const src = textNode.nodeValue || '';
+        const fmt = replaceIsoDatesInText(src);
+        if (fmt !== src) textNode.nodeValue = fmt;
+      });
+    }
+
+    document.querySelectorAll('[data-profile-toggle]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const dd = btn.parentElement.querySelector('[data-profile-dropdown]');
+        if (!dd) return;
+        dd.hidden = !dd.hidden;
+      });
+    });
+    document.addEventListener('click', () => {
+      document.querySelectorAll('[data-profile-dropdown]').forEach((dd) => {
+        dd.hidden = true;
+      });
+    });
+    function setFullscreenIcon() {
+      const btn = document.getElementById('fullscreenToggleBtn');
+      if (!btn) return;
+      const icon = btn.querySelector('i');
+      const isFs = !!document.fullscreenElement;
+      if (icon) {
+        icon.classList.remove('fe-maximize', 'fe-minimize');
+        icon.classList.add(isFs ? 'fe-minimize' : 'fe-maximize');
+      }
+    }
+    async function toggleFullscreen() {
+      try {
+        if (document.fullscreenElement) {
+          await document.exitFullscreen();
+        } else {
+          await document.documentElement.requestFullscreen();
+        }
+      } catch (_err) {
+        // no-op
+      } finally {
+        setFullscreenIcon();
+      }
+    }
+    document.addEventListener('DOMContentLoaded', () => {
+      const sidebarToggle = document.getElementById('adminSidebarToggleBtn');
+      if (sidebarToggle && sidebarToggle.dataset.bound !== '1') {
+        sidebarToggle.dataset.bound = '1';
+        sidebarToggle.addEventListener('click', () => {
+          document.body.classList.toggle('admin-sidebar-collapsed');
+        });
+      }
+
+      const navSearch = document.getElementById('adminNavSearch');
+      if (navSearch && navSearch.dataset.bound !== '1') {
+        navSearch.dataset.bound = '1';
+        navSearch.addEventListener('input', () => {
+          const q = (navSearch.value || '').trim().toLowerCase();
+          document.querySelectorAll('.main-sidebar .nav-item').forEach((item) => {
+            const txt = (item.innerText || '').trim().toLowerCase();
+            item.style.display = !q || txt.includes(q) ? '' : 'none';
+          });
+        });
+      }
+
+      const nowBadge = document.getElementById('adminNowBadge');
+      if (nowBadge) {
+        const tick = () => {
+          const d = new Date();
+          nowBadge.textContent = d.toLocaleString('el-GR', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' });
+        };
+        tick();
+        setInterval(tick, 30000);
+      }
+
+      const fsBtn = document.getElementById('fullscreenToggleBtn');
+      if (fsBtn && fsBtn.dataset.bound !== '1') {
+        fsBtn.dataset.bound = '1';
+        fsBtn.addEventListener('click', toggleFullscreen);
+      }
+      document.addEventListener('fullscreenchange', setFullscreenIcon);
+      setFullscreenIcon();
+      window.bvToIsoDate = bvToIsoDate;
+      window.bvToDmyDate = bvToDmyDate;
+      window.bvInitDmyDateInputs = bvInitDmyDateInputs;
+
+      document.addEventListener('submit', (e) => {
+        const form = e.target;
+        if (!form || !form.querySelectorAll) return;
+        form.querySelectorAll('input[data-date-format="dmy"]').forEach((el) => {
+          const iso = bvToIsoDate(el.value);
+          if (iso && /^\d{4}-\d{2}-\d{2}$/.test(iso)) el.value = iso;
+        });
+      });
+
+      applyDateFormatGlobal();
+      const observer = new MutationObserver((mutations) => {
+        for (const m of mutations) {
+          if (m.type === 'childList' && m.addedNodes && m.addedNodes.length) {
+            m.addedNodes.forEach((node) => {
+              if (node.nodeType === Node.TEXT_NODE) return;
+              applyDateFormatGlobal(node);
+              if (node.querySelectorAll) bvInitDmyDateInputs(node);
+            });
+          }
+        }
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+    });
+  </script>
+  {% block scripts %}{% endblock %}
+  <div class="powered-by-cloudon">{{ tt(request, 'powered_by') }}</div>
+</body>
+</html>

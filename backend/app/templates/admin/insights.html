@@ -1,0 +1,35 @@
+{% extends "base_admin.html" %}
+{% block content %}
+<div class="row mt-3">
+  <div class="col-xl-3 col-md-6"><div class="card border-0 dash1-card"><div class="card-body"><span>{{ tt(request, 'critical') }}</span><h2>{{ totals.critical }}</h2></div></div></div>
+  <div class="col-xl-3 col-md-6"><div class="card border-0 dash1-card"><div class="card-body"><span>{{ tt(request, 'warning') }}</span><h2>{{ totals.warning }}</h2></div></div></div>
+  <div class="col-xl-3 col-md-6"><div class="card border-0 dash1-card"><div class="card-body"><span>{{ tt(request, 'info') }}</span><h2>{{ totals.info }}</h2></div></div></div>
+  <div class="col-xl-3 col-md-6"><div class="card border-0 dash1-card"><div class="card-body"><span>{{ tt(request, 'open') }}</span><h2>{{ totals.open }}</h2></div></div></div>
+</div>
+
+<div class="card">
+  <div class="card-header"><h5 class="mb-0">{{ tt(request, 'tenant_insights_overview') }}</h5></div>
+  <div class="card-body table-responsive">
+    <table class="table table-hover">
+      <thead><tr><th>{{ tt(request, 'tenant') }}</th><th>{{ tt(request, 'critical') }}</th><th>{{ tt(request, 'warning') }}</th><th>{{ tt(request, 'info') }}</th><th>{{ tt(request, 'open') }}</th><th>{{ tt(request, 'actions') }}</th></tr></thead>
+      <tbody>
+        {% for row in tenant_rows %}
+        <tr>
+          <td>{{ row.tenant.slug }}</td>
+          <td>{{ row.counts.critical }}</td>
+          <td>{{ row.counts.warning }}</td>
+          <td>{{ row.counts.info }}</td>
+          <td>{{ row.counts.open }}</td>
+          <td>
+            <form method="post" action="/admin/insights/{{ row.tenant.id }}/run" style="display:inline">
+              <button class="btn btn-sm bv-action-btn bv-action-save" type="submit"><i class="fe fe-play"></i>{{ tt(request, 'run_now') }}</button>
+            </form>
+            <a class="btn btn-sm bv-action-btn bv-action-edit" href="/admin/insight-rules?tenant_id={{ row.tenant.id }}"><i class="fe fe-sliders"></i>{{ tt(request, 'rules') }}</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

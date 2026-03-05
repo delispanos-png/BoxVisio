@@ -1,0 +1,42 @@
+{
+  "name": "pharmacyone_default",
+  "version": 1,
+  "required_parameters": ["@from_date", "@to_date", "@last_sync_ts", "@last_sync_id"],
+  "incremental_strategy": {
+    "mode": "updated_at_then_external_id",
+    "updated_at_column": "updated_at",
+    "id_column": "external_id",
+    "date_column": "doc_date"
+  },
+  "required_output_columns": {
+    "doc_date": "Document date (date)",
+    "branch_external_id": "Branch identifier from source",
+    "item_external_id": "Item identifier from source",
+    "warehouse_external_id": "Warehouse identifier from source (nullable)",
+    "supplier_external_id": "Supplier identifier for purchases",
+    "qty": "Quantity",
+    "net_amount": "Net amount",
+    "cost_amount": "Cost amount",
+    "external_id": "Stable source line identifier",
+    "updated_at": "Source update timestamp"
+  },
+  "column_mappings": {
+    "branch_column": "branch_external_id",
+    "item_column": "item_external_id",
+    "qty_column": "qty",
+    "amount_column": "net_amount",
+    "cost_column": "cost_amount",
+    "incremental_column": "updated_at",
+    "id_column": "external_id",
+    "date_column": "doc_date"
+  },
+  "dimension_mappings": {
+    "dim_branches.external_id": "branch_external_id",
+    "dim_items.external_id": "item_external_id",
+    "dim_suppliers.external_id": "supplier_external_id",
+    "dim_warehouses.external_id": "warehouse_external_id",
+    "dim_brands.external_id": "brand_external_id",
+    "dim_categories.external_id": "category_external_id",
+    "dim_groups.external_id": "group_external_id"
+  }
+}

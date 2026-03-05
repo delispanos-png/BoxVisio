@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="{{ request.cookies.get('lang', 'el') }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ tt(request, 'app_login_title') }}</title>
+  <link rel="icon" href="/static/azea/images/favicon.ico" type="image/x-icon">
+  <link href="/static/azea/plugins/bootstrap/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    :root {
+      --bg-1: #0ea5b7;
+      --bg-2: #1597c8;
+      --panel: #ffffff;
+      --line: #e8eef5;
+      --text: #0f172a;
+      --muted: #5b6777;
+      --primary: #0d6efd;
+      --primary-2: #0a58ca;
+    }
+    * {
+      box-sizing: border-box;
+    }
+    body.auth-login {
+      min-height: 100vh;
+      margin: 0;
+      background: radial-gradient(circle at 20% 15%, rgba(255, 255, 255, 0.26) 0, rgba(255, 255, 255, 0) 34%), linear-gradient(135deg, var(--bg-1), var(--bg-2));
+      font-family: "Segoe UI", "Noto Sans", sans-serif;
+      color: var(--text);
+    }
+    .login-wrapper {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .login-shell {
+      width: min(96vw, 980px);
+      min-height: 580px;
+      border-radius: 18px;
+      overflow: hidden;
+      box-shadow: 0 24px 48px rgba(15, 23, 42, 0.28);
+      background: var(--panel);
+      display: grid;
+      grid-template-columns: 1.15fr 1fr;
+    }
+    .hero {
+      background: linear-gradient(160deg, #1f2937, #0f172a 52%, #111827);
+      color: #e2e8f0;
+      padding: 48px 42px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+    .hero h1 {
+      font-size: 2rem;
+      margin: 0;
+      letter-spacing: 0.2px;
+    }
+    .hero p {
+      margin: 12px 0 0;
+      color: #cbd5e1;
+      max-width: 38ch;
+      line-height: 1.5;
+    }
+    .badge-role {
+      display: inline-block;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: rgba(14, 165, 233, 0.2);
+      border: 1px solid rgba(125, 211, 252, 0.35);
+      color: #e0f2fe;
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      font-weight: 700;
+    }
+    .hero-foot {
+      font-size: 0.88rem;
+      color: #94a3b8;
+      line-height: 1.45;
+    }
+    .form-pane {
+      padding: 42px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      border-left: 1px solid var(--line);
+    }
+    .form-pane h2 {
+      margin: 0;
+      font-size: 1.75rem;
+    }
+    .form-pane p {
+      margin: 10px 0 26px;
+      color: var(--muted);
+    }
+    .form-label {
+      color: #334155;
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
+    .form-control {
+      border-radius: 12px;
+      border: 1px solid #dbe3ee;
+      min-height: 46px;
+      font-size: 0.98rem;
+    }
+    .form-control:focus {
+      border-color: #93c5fd;
+      box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.16);
+    }
+    .btn-signin {
+      min-height: 46px;
+      border-radius: 12px;
+      background: var(--primary);
+      border-color: var(--primary);
+      font-weight: 700;
+      letter-spacing: 0.2px;
+    }
+    .btn-signin:hover {
+      background: var(--primary-2);
+      border-color: var(--primary-2);
+    }
+    .small-muted {
+      margin-top: 12px;
+      color: var(--muted);
+      font-size: 0.86rem;
+    }
+    @media (max-width: 980px) {
+      .login-shell {
+        grid-template-columns: 1fr;
+        min-height: 0;
+      }
+      .hero {
+        padding: 28px 24px;
+      }
+      .form-pane {
+        padding: 26px 22px 24px;
+        border-left: 0;
+        border-top: 1px solid var(--line);
+      }
+    }
+    .powered-by-cloudon {
+      position: fixed;
+      left: 14px;
+      bottom: 10px;
+      z-index: 1100;
+      font-size: 11px;
+      letter-spacing: .6px;
+      color: #e2e8f0;
+      background: rgba(15, 23, 42, 0.5);
+      border: 1px solid rgba(148, 163, 184, 0.45);
+      border-radius: 999px;
+      padding: 4px 10px;
+      backdrop-filter: blur(2px);
+    }
+    .lang-switch {
+      position: fixed;
+      top: 12px;
+      right: 12px;
+      z-index: 1200;
+    }
+    .theme-switch {
+      position: fixed;
+      top: 12px;
+      right: 170px;
+      z-index: 1200;
+    }
+    body.auth-login[data-theme='dark'] {
+      --bg-1: #0f172a;
+      --bg-2: #111827;
+      --panel: #111827;
+      --line: #334155;
+      --text: #e5e7eb;
+      --muted: #cbd5e1;
+    }
+    body.auth-login[data-theme='dark'] .form-label,
+    body.auth-login[data-theme='dark'] .form-pane p,
+    body.auth-login[data-theme='dark'] .small-muted {
+      color: #cbd5e1 !important;
+    }
+    body.auth-login[data-theme='dark'] .form-control {
+      background: #0f172a;
+      color: #e5e7eb;
+      border-color: #334155;
+    }
+  </style>
+</head>
+<body class="auth-login" data-theme="{{ request.cookies.get('theme', 'light') }}">
+  {% set _lang = request.cookies.get('lang', 'el') %}
+  {% set _theme = request.cookies.get('theme', 'light') %}
+  <div class="theme-switch">
+    <button class="btn btn-sm btn-light" id="loginThemeToggle" data-theme-toggle type="button">{{ tt(request, 'theme') }}: <span id="loginThemeLabel">{{ tt(request, 'dark_mode') if _theme == 'dark' else tt(request, 'light_mode') }}</span></button>
+  </div>
+  <div class="lang-switch">
+    <a class="btn btn-sm btn-light" href="/set-language/{{ 'en' if _lang != 'en' else 'el' }}?next={{ request.url.path }}">{{ tt(request, 'language') }}: {{ tt(request, 'lang_en') if _lang == 'en' else tt(request, 'lang_el') }}</a>
+  </div>
+  <div class="login-wrapper">
+    <section class="login-shell">
+      {% set host = ((request.headers.get('host') or '').split(':')[0] | lower) %}
+      {% set is_admin_host = host == 'adminpanel.boxvisio.com' %}
+      <div class="hero">
+        <div>
+          <span class="badge-role">{{ tt(request, 'admin_portal') if is_admin_host else tt(request, 'tenant_portal') }}</span>
+          <h1 class="mt-3">CloudOn BI</h1>
+          <p>
+            {{ tt(request, 'login_subtitle_admin') if is_admin_host else tt(request, 'login_subtitle_tenant') }}
+          </p>
+        </div>
+        <div class="hero-foot">
+          {{ tt(request, 'tenant_url') }}: <strong>bi.boxvisio.com</strong><br>
+          {{ tt(request, 'admin_url') }}: <strong>adminpanel.boxvisio.com</strong>
+        </div>
+      </div>
+      <div class="form-pane">
+        <h2>{{ tt(request, 'sign_in') }}</h2>
+        <p>
+          {{ tt(request, 'login_hint_admin') if is_admin_host else tt(request, 'login_hint_tenant') }}
+        </p>
+        {% if error %}
+        <div class="alert alert-danger">{{ error }}</div>
+        {% endif %}
+        <form method="post" action="/login">
+          <div class="mb-3">
+            <label class="form-label">{{ tt(request, 'email') }}</label>
+            <input class="form-control" type="email" name="email" autocomplete="username" required>
+          </div>
+          <div class="mb-4">
+            <label class="form-label">{{ tt(request, 'password') }}</label>
+            <input class="form-control" type="password" name="password" autocomplete="current-password" required>
+          </div>
+          <button class="btn btn-primary btn-signin w-100" type="submit">{{ tt(request, 'sign_in') }}</button>
+        </form>
+        <div class="small-muted">
+          {{ tt(request, 'login_redirect_hint') }}
+        </div>
+      </div>
+    </section>
+  </div>
+  <div class="powered-by-cloudon">{{ tt(request, 'powered_by') }}</div>
+  <script src="/static/azea/js/boxvisio-ui.js"></script>
+  <script>
+    (function () {
+      const btn = document.getElementById('loginThemeToggle');
+      const lbl = document.getElementById('loginThemeLabel');
+      if (!btn) return;
+      btn.addEventListener('click', function () {
+        const current = document.body.getAttribute('data-theme') || 'light';
+        const next = current === 'dark' ? 'light' : 'dark';
+        document.cookie = `theme=${next}; Path=/; Max-Age=${365 * 24 * 60 * 60}; SameSite=Lax`;
+        try { localStorage.setItem('theme', next); } catch (e) {}
+        document.body.setAttribute('data-theme', next);
+        if (lbl) lbl.textContent = next === 'dark' ? '{{ tt(request, "dark_mode") }}' : '{{ tt(request, "light_mode") }}';
+      });
+    })();
+  </script>
+</body>
+</html>

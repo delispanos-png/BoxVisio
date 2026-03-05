@@ -1,0 +1,36 @@
+{% extends "base_admin.html" %}
+{% block content %}
+<div class="card mt-3">
+  <div class="card-body">
+    <h5 class="mb-3">{{ tt(request, 'plan_feature_flags') }}</h5>
+    <div class="table-responsive">
+      <table class="table table-bordered align-middle">
+        <thead>
+          <tr>
+            <th>{{ tt(request, 'plan') }}</th>
+            <th>{{ tt(request, 'sales') }}</th>
+            <th>{{ tt(request, 'purchases') }}</th>
+            <th>{{ tt(request, 'inventory') }}</th>
+            <th>Cashflows</th>
+            <th>{{ tt(request, 'save') }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for plan, f in plans.items() %}
+          <tr>
+            <form method="post" action="/admin/plans/{{ plan }}/features">
+              <td><strong>{{ plan }}</strong></td>
+              <td><select class="form-select form-select-sm" name="sales"><option value="1" {% if f.get('sales') %}selected{% endif %}>{{ tt(request, 'on') }}</option><option value="0" {% if not f.get('sales') %}selected{% endif %}>{{ tt(request, 'off') }}</option></select></td>
+              <td><select class="form-select form-select-sm" name="purchases"><option value="1" {% if f.get('purchases') %}selected{% endif %}>{{ tt(request, 'on') }}</option><option value="0" {% if not f.get('purchases') %}selected{% endif %}>{{ tt(request, 'off') }}</option></select></td>
+              <td><select class="form-select form-select-sm" name="inventory"><option value="1" {% if f.get('inventory') %}selected{% endif %}>{{ tt(request, 'on') }}</option><option value="0" {% if not f.get('inventory') %}selected{% endif %}>{{ tt(request, 'off') }}</option></select></td>
+              <td><select class="form-select form-select-sm" name="cashflows"><option value="1" {% if f.get('cashflows') %}selected{% endif %}>{{ tt(request, 'on') }}</option><option value="0" {% if not f.get('cashflows') %}selected{% endif %}>{{ tt(request, 'off') }}</option></select></td>
+              <td><button class="btn btn-sm bv-action-btn bv-action-save" type="submit"><i class="fe fe-save"></i>{{ tt(request, 'update') }}</button></td>
+            </form>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

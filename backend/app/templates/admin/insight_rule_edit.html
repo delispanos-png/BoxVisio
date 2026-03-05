@@ -1,0 +1,72 @@
+{% extends "base_admin.html" %}
+{% block content %}
+<div class="card mt-3">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <h5 class="mb-0">Επεξεργασία KPI Κανόνα</h5>
+    <a class="btn btn-sm bv-action-btn bv-action-edit" href="/admin/insight-rules?tenant_id={{ tenant.id }}">
+      <i class="fe fe-arrow-left"></i>Επιστροφή
+    </a>
+  </div>
+  <div class="card-body">
+    {% if request.query_params.get('saved') == '1' %}
+    <div class="alert alert-success mb-3">Οι αλλαγές αποθηκεύτηκαν επιτυχώς.</div>
+    {% elif request.query_params.get('saved') == '0' %}
+    <div class="alert alert-danger mb-3">Αποτυχία αποθήκευσης. Έλεγξε τα πεδία και ξαναπροσπάθησε.</div>
+    {% endif %}
+    <div class="row g-3 mb-3">
+      <div class="col-md-4">
+        <label class="form-label">Πελάτης</label>
+        <input class="form-control" value="{{ tenant.name or tenant.slug }}{% if tenant.slug and tenant.name and tenant.slug != tenant.name %} ({{ tenant.slug }}){% endif %}" disabled>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">{{ tt(request, 'code') }}</label>
+        <input class="form-control" value="{{ rule.code }}" disabled>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">{{ tt(request, 'category') }}</label>
+        <input class="form-control" value="{{ rule.category_display }}" disabled>
+      </div>
+      <div class="col-12">
+        <label class="form-label">Όνομα KPI</label>
+        <input class="form-control" value="{{ rule.name_display }}" disabled>
+      </div>
+      <div class="col-12">
+        <label class="form-label">Περιγραφή</label>
+        <textarea class="form-control" rows="2" disabled>{{ rule.description_display }}</textarea>
+      </div>
+    </div>
+
+    <form method="post" action="/admin/insight-rules/{{ tenant.id }}/{{ rule.code }}/edit" class="row g-3">
+      <div class="col-md-4">
+        <label class="form-label">{{ tt(request, 'enabled') }}</label>
+        <select class="form-select" name="enabled">
+          <option value="1" {% if rule.enabled %}selected{% endif %}>{{ tt(request, 'on') }}</option>
+          <option value="0" {% if not rule.enabled %}selected{% endif %}>{{ tt(request, 'off') }}</option>
+        </select>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">{{ tt(request, 'severity') }}</label>
+        <select class="form-select" name="severity_default">
+          <option value="info" {% if rule.severity_default=='info' %}selected{% endif %}>{{ tt(request, 'info') }}</option>
+          <option value="warning" {% if rule.severity_default=='warning' %}selected{% endif %}>{{ tt(request, 'warning') }}</option>
+          <option value="critical" {% if rule.severity_default=='critical' %}selected{% endif %}>{{ tt(request, 'critical') }}</option>
+        </select>
+      </div>
+      <div class="col-12">
+        <label class="form-label">{{ tt(request, 'params_json') }}</label>
+        <div class="small text-muted mb-2">JSON ρυθμίσεων threshold του κανόνα (π.χ. ποσοστά, ημέρες, όρια).</div>
+        <textarea
+          class="form-control"
+          name="params_json"
+          rows="16"
+          style="min-height: 360px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace; resize: vertical;"
+        >{{ rule.params_json | tojson(indent=2) }}</textarea>
+      </div>
+      <div class="col-12 d-flex gap-2">
+        <button class="btn bv-action-btn bv-action-save" type="submit"><i class="fe fe-save"></i>{{ tt(request, 'save') }}</button>
+        <a class="btn bv-action-btn bv-action-edit" href="/admin/insight-rules?tenant_id={{ tenant.id }}"><i class="fe fe-arrow-left"></i>Επιστροφή στη λίστα</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
