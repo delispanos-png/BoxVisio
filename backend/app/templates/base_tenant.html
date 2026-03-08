@@ -828,6 +828,20 @@
 
       <div class="dashboard-shell">
         <div class="bv-page-head">
+          {% set _manual_help_anchor_map = {
+            'sales_documents': 'sales-documents',
+            'purchase_documents': 'purchase-documents',
+            'warehouse_documents': 'warehouse-documents',
+            'cashflow': 'cash-transactions',
+            'suppliers': 'supplier-balances',
+            'customers': 'customer-balances',
+            'supplier_targets': 'supplier-targets',
+            'sales': 'sales-analytics',
+            'purchases': 'purchases-analytics',
+            'inventory': 'inventory-analytics',
+            'items': 'warehouse-items'
+          } %}
+          {% set _manual_help_anchor = manual_help_anchor if manual_help_anchor is defined else _manual_help_anchor_map.get(active_page) %}
           <div class="bv-page-title-wrap">
             <div class="bv-page-breadcrumb">
               <span>Tenant</span>
@@ -849,6 +863,13 @@
             <p class="bv-page-subtitle">Συγκρίσεις περιόδων και διαστάσεων με κοινή παρουσίαση.</p>
             {% elif active_page in ['exports_reports', 'exports_csv_excel'] %}
             <p class="bv-page-subtitle">Εξαγωγές αναφορών και αρχείων σε ενιαίο format.</p>
+            {% endif %}
+            {% if _manual_help_anchor %}
+            <div class="mt-2">
+              <a class="btn btn-sm btn-outline-primary" href="/tenant/manual#{{ _manual_help_anchor }}">
+                <i class="fe fe-help-circle me-1"></i>Βοήθεια
+              </a>
+            </div>
             {% endif %}
           </div>
           <div class="bv-page-meta d-none d-lg-flex align-items-center gap-2">
@@ -1316,11 +1337,32 @@
 
         toggleBtn.addEventListener('click', (event) => {
           event.preventDefault();
+          const isCollapsed = document.body.classList.contains('admin-sidebar-collapsed');
+          if (isCollapsed) {
+            applySidebarState(false);
+            localStorage.setItem(SIDEBAR_KEY, '0');
+            submenu.hidden = false;
+            ownerItem?.classList.add('open');
+            toggleBtn.setAttribute('aria-expanded', 'true');
+            localStorage.setItem(menuStorageKey, '1');
+            return;
+          }
           const willOpen = submenu.hidden;
           submenu.hidden = !willOpen;
           ownerItem?.classList.toggle('open', willOpen);
           toggleBtn.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
           localStorage.setItem(menuStorageKey, willOpen ? '1' : '0');
+        });
+      });
+
+      document.querySelectorAll('.main-sidebar .list .nav-item > .nav-link').forEach((navLink) => {
+        if (navLink.dataset.bound === '1') return;
+        navLink.dataset.bound = '1';
+        navLink.addEventListener('click', () => {
+          if (document.body.classList.contains('admin-sidebar-collapsed')) {
+            applySidebarState(false);
+            localStorage.setItem(SIDEBAR_KEY, '0');
+          }
         });
       });
 

@@ -4071,6 +4071,25 @@ async def tenant_supplier_targets_dashboard(
     )
 
 
+@router.get('/tenant/manual', response_class=HTMLResponse)
+async def tenant_user_manual(
+    request: Request,
+    tenant: Tenant = Depends(get_request_tenant),
+    _user=Depends(get_current_user),
+):
+    return templates.TemplateResponse(
+        'tenant/user_manual.html',
+        {
+            'request': request,
+            'tenant': tenant,
+            **(await _tenant_navigation_context(tenant)),
+            'hide_page_filters': True,
+            'active_page': 'user_manual',
+            'title': 'Εγχειρίδιο Χρήστη',
+        },
+    )
+
+
 @router.get('/tenant/price-control', response_class=HTMLResponse)
 async def tenant_price_control_dashboard(
     request: Request,

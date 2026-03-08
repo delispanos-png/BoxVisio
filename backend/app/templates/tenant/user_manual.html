@@ -1,0 +1,243 @@
+{% extends "base_tenant.html" %}
+
+{% block content %}
+<style>
+  .um-cover {
+    border: 1px solid #dbe3f3;
+    border-radius: 14px;
+    background: linear-gradient(135deg, #eef2ff, #f8fafc);
+    padding: 18px;
+  }
+  .um-nav-grid a {
+    white-space: normal;
+    text-align: left;
+  }
+  .um-lesson .card-header {
+    background: #f8fafc;
+  }
+  .um-lesson .um-img {
+    border: 1px solid #dbe3f3;
+    border-radius: 12px;
+    overflow: hidden;
+    background: #fff;
+  }
+  .um-lesson .um-step-title {
+    font-weight: 700;
+    color: #334155;
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: .03em;
+    margin-bottom: 4px;
+  }
+  .um-lesson .um-check {
+    border: 1px solid #dbe3f3;
+    border-radius: 10px;
+    padding: 10px 12px;
+    background: #f8fafc;
+  }
+</style>
+
+<div class="um-cover mb-3">
+  <h5 class="mb-2">Εγχειρίδιο Χρήστη (Μορφή Εκπαίδευσης)</h5>
+  <p class="mb-2">
+    Αυτό το manual είναι εκπαιδευτικό. Στόχος είναι να μπορεί κάθε χρήστης να μάθει το σύστημα
+    με απλά βήματα, χωρίς τεχνικούς όρους.
+  </p>
+  <div class="row g-2">
+    <div class="col-md-4"><div class="um-check">1. Άνοιξε την ενότητα που δουλεύεις.</div></div>
+    <div class="col-md-4"><div class="um-check">2. Ακολούθησε τα βήματα του μαθήματος.</div></div>
+    <div class="col-md-4"><div class="um-check">3. Κάνε την άσκηση επιβεβαίωσης.</div></div>
+  </div>
+</div>
+
+<div class="card content-card mb-3">
+  <div class="card-header"><h6 class="mb-0">Γρήγορη Πλοήγηση Μαθημάτων</h6></div>
+  <div class="card-body">
+    <div class="row g-2 um-nav-grid">
+      <div class="col-md-6 col-xl-4"><a class="btn btn-outline-primary w-100" href="#sales-documents">Μάθημα 1: Παραστατικά Πωλήσεων</a></div>
+      <div class="col-md-6 col-xl-4"><a class="btn btn-outline-primary w-100" href="#purchase-documents">Μάθημα 2: Παραστατικά Αγορών</a></div>
+      <div class="col-md-6 col-xl-4"><a class="btn btn-outline-primary w-100" href="#warehouse-documents">Μάθημα 3: Παραστατικά Αποθήκης</a></div>
+      <div class="col-md-6 col-xl-4"><a class="btn btn-outline-primary w-100" href="#cash-transactions">Μάθημα 4: Ταμειακές Συναλλαγές</a></div>
+      <div class="col-md-6 col-xl-4"><a class="btn btn-outline-primary w-100" href="#supplier-balances">Μάθημα 5: Υπόλοιπα Προμηθευτών</a></div>
+      <div class="col-md-6 col-xl-4"><a class="btn btn-outline-primary w-100" href="#customer-balances">Μάθημα 6: Υπόλοιπα Πελατών</a></div>
+      <div class="col-md-6 col-xl-4"><a class="btn btn-outline-primary w-100" href="#supplier-targets">Μάθημα 7: Συμφωνίες Προμηθευτών</a></div>
+      <div class="col-md-6 col-xl-4"><a class="btn btn-outline-secondary w-100" href="#sales-analytics">Μάθημα 8: Αναλύσεις Πωλήσεων</a></div>
+      <div class="col-md-6 col-xl-4"><a class="btn btn-outline-secondary w-100" href="#purchases-analytics">Μάθημα 9: Αναλύσεις Αγορών</a></div>
+      <div class="col-md-6 col-xl-4"><a class="btn btn-outline-secondary w-100" href="#inventory-analytics">Μάθημα 10: Αναλύσεις Αποθέματος</a></div>
+      <div class="col-md-6 col-xl-4"><a class="btn btn-outline-secondary w-100" href="#warehouse-items">Μάθημα 11: Είδη Αποθήκης</a></div>
+    </div>
+  </div>
+</div>
+
+<div class="card content-card mb-3 um-lesson" id="sales-documents">
+  <div class="card-header"><h6 class="mb-0">Μάθημα 1: Παραστατικά Πωλήσεων</h6></div>
+  <div class="card-body">
+    <div class="row g-3">
+      <div class="col-lg-5"><div class="um-img"><img src="/static/docs/streams/sales-documents.svg" alt="Παραστατικά Πωλήσεων" class="img-fluid"></div></div>
+      <div class="col-lg-7">
+        <div class="um-step-title">Στόχος Μαθήματος</div>
+        <p>Να βρεις γρήγορα ποιοι πελάτες και ποια είδη φέρνουν τον τζίρο στο διάστημα που σε ενδιαφέρει.</p>
+        <ol>
+          <li>Άνοιξε τη σελίδα <code>/tenant/sales-documents</code>.</li>
+          <li>Βάλε ημερομηνία και υποκατάστημα.</li>
+          <li>Χρησιμοποίησε αναζήτηση σε πελάτη ή είδος.</li>
+          <li>Δες KPI και πίνακα μαζί.</li>
+          <li>Αποθήκευσε τα συμπεράσματα για την ομάδα.</li>
+        </ol>
+        <div class="alert alert-info mb-2"><strong>Άσκηση:</strong> Βρες τις 5 πιο δυνατές πωλήσεις της εβδομάδας.</div>
+        <div class="um-check"><strong>Έλεγχος:</strong> Μπορείς να εξηγήσεις γιατί ανέβηκε ή έπεσε ο τζίρος;</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card content-card mb-3 um-lesson" id="purchase-documents">
+  <div class="card-header"><h6 class="mb-0">Μάθημα 2: Παραστατικά Αγορών</h6></div>
+  <div class="card-body">
+    <div class="row g-3">
+      <div class="col-lg-5"><div class="um-img"><img src="/static/docs/streams/purchase-documents.svg" alt="Παραστατικά Αγορών" class="img-fluid"></div></div>
+      <div class="col-lg-7">
+        <div class="um-step-title">Στόχος Μαθήματος</div>
+        <p>Να ελέγχεις το κόστος αγορών και να εντοπίζεις που χρειάζεται διαπραγμάτευση.</p>
+        <ol>
+          <li>Άνοιξε <code>/tenant/purchase-documents</code>.</li>
+          <li>Φίλτραρε ανά προμηθευτή και ημερομηνία.</li>
+          <li>Έλεγξε μεταβολές κόστους στα βασικά είδη.</li>
+          <li>Σύγκρινε προμηθευτές για την ίδια κατηγορία.</li>
+          <li>Κατέγραψε ποιους όρους θα συζητήσεις.</li>
+        </ol>
+        <div class="alert alert-info mb-2"><strong>Άσκηση:</strong> Βρες 3 είδη με την πιο μεγάλη αύξηση κόστους.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card content-card mb-3 um-lesson" id="warehouse-documents">
+  <div class="card-header"><h6 class="mb-0">Μάθημα 3: Παραστατικά Αποθήκης</h6></div>
+  <div class="card-body">
+    <div class="row g-3">
+      <div class="col-lg-5"><div class="um-img"><img src="/static/docs/streams/warehouse-documents.svg" alt="Παραστατικά Αποθήκης" class="img-fluid"></div></div>
+      <div class="col-lg-7">
+        <div class="um-step-title">Στόχος Μαθήματος</div>
+        <p>Να καταλαβαίνεις πώς κινούνται τα αποθέματα και να προλαβαίνεις ελλείψεις.</p>
+        <ol>
+          <li>Άνοιξε <code>/tenant/warehouse-documents</code>.</li>
+          <li>Δες κινήσεις ανά αποθήκη.</li>
+          <li>Φίλτραρε σε συγκεκριμένο είδος.</li>
+          <li>Έλεγξε εισαγωγές και εξαγωγές.</li>
+          <li>Εντόπισε ανάγκη αναπλήρωσης.</li>
+        </ol>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card content-card mb-3 um-lesson" id="cash-transactions">
+  <div class="card-header"><h6 class="mb-0">Μάθημα 4: Ταμειακές Συναλλαγές</h6></div>
+  <div class="card-body">
+    <div class="row g-3">
+      <div class="col-lg-5"><div class="um-img"><img src="/static/docs/streams/cash-transactions.svg" alt="Ταμειακές Συναλλαγές" class="img-fluid"></div></div>
+      <div class="col-lg-7">
+        <div class="um-step-title">Στόχος Μαθήματος</div>
+        <p>Να παρακολουθείς cash in, cash out και καθαρή ροή με καθαρή εικόνα ρευστότητας.</p>
+        <ol>
+          <li>Άνοιξε <code>/tenant/cashflow</code>.</li>
+          <li>Επίλεξε υποκατηγορία συναλλαγής.</li>
+          <li>Φίλτραρε ανά λογαριασμό και ημερομηνία.</li>
+          <li>Δες την καθαρή ταμειακή θέση.</li>
+          <li>Προετοίμασε πλάνο πληρωμών.</li>
+        </ol>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card content-card mb-3 um-lesson" id="supplier-balances">
+  <div class="card-header"><h6 class="mb-0">Μάθημα 5: Υπόλοιπα Προμηθευτών</h6></div>
+  <div class="card-body">
+    <div class="row g-3">
+      <div class="col-lg-5"><div class="um-img"><img src="/static/docs/streams/supplier-balances.svg" alt="Υπόλοιπα Προμηθευτών" class="img-fluid"></div></div>
+      <div class="col-lg-7">
+        <div class="um-step-title">Στόχος Μαθήματος</div>
+        <p>Να διαχειρίζεσαι σωστά τις υποχρεώσεις και να μειώνεις το overdue.</p>
+        <ol>
+          <li>Άνοιξε <code>/tenant/suppliers</code>.</li>
+          <li>Αναζήτησε προμηθευτή με όνομα ή κωδικό.</li>
+          <li>Έλεγξε open και overdue υπόλοιπο.</li>
+          <li>Δες γήρανση (aging buckets).</li>
+          <li>Οργάνωσε σειρά πληρωμών.</li>
+        </ol>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card content-card mb-3 um-lesson" id="customer-balances">
+  <div class="card-header"><h6 class="mb-0">Μάθημα 6: Υπόλοιπα Πελατών</h6></div>
+  <div class="card-body">
+    <div class="row g-3">
+      <div class="col-lg-5"><div class="um-img"><img src="/static/docs/streams/customer-balances.svg" alt="Υπόλοιπα Πελατών" class="img-fluid"></div></div>
+      <div class="col-lg-7">
+        <div class="um-step-title">Στόχος Μαθήματος</div>
+        <p>Να βελτιώνεις την εισπραξιμότητα και να μειώνεις τα ληξιπρόθεσμα.</p>
+        <ol>
+          <li>Άνοιξε <code>/tenant/customers</code>.</li>
+          <li>Βρες πελάτες με υψηλό υπόλοιπο.</li>
+          <li>Δες overdue και γήρανση ανά πελάτη.</li>
+          <li>Έλεγξε πρόσφατες εισπράξεις.</li>
+          <li>Στήσε πρόγραμμα follow-up.</li>
+        </ol>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card content-card mb-3 um-lesson" id="supplier-targets">
+  <div class="card-header"><h6 class="mb-0">Μάθημα 7: Συμφωνίες Προμηθευτών</h6></div>
+  <div class="card-body">
+    <div class="row g-3">
+      <div class="col-lg-5"><div class="um-img"><img src="/static/docs/streams/supplier-targets.svg" alt="Συμφωνίες Προμηθευτών" class="img-fluid"></div></div>
+      <div class="col-lg-7">
+        <div class="um-step-title">Στόχος Μαθήματος</div>
+        <p>Να δημιουργείς σωστές συμφωνίες και να παρακολουθείς την υλοποίησή τους.</p>
+        <ol>
+          <li>Άνοιξε <code>/tenant/supplier-targets</code>.</li>
+          <li>Συμπλήρωσε ποσό στόχου και επιστροφή (% / ποσό).</li>
+          <li>Διάλεξε συμμετέχοντα είδη από τη λίστα.</li>
+          <li>Αποθήκευσε και δες λεπτομέρειες συμφωνίας.</li>
+          <li>Χρησιμοποίησε Εκτύπωση ή Αποστολή email.</li>
+        </ol>
+        <div class="alert alert-warning mb-2"><strong>Κανόνας:</strong> Ληγμένες συμφωνίες είναι ανενεργές και δεν επεξεργάζονται. Χρησιμοποίησε <strong>Αντιγραφή</strong> για νέα περίοδο.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card content-card mb-3" id="sales-analytics">
+  <div class="card-header"><h6 class="mb-0">Μάθημα 8: Αναλύσεις Πωλήσεων</h6></div>
+  <div class="card-body">
+    <p class="mb-0">Σελίδα: <code>/tenant/sales</code>. Εστίασε σε τάση πωλήσεων, top προϊόντα και κατανομή ανά κατηγορία/brand.</p>
+  </div>
+</div>
+
+<div class="card content-card mb-3" id="purchases-analytics">
+  <div class="card-header"><h6 class="mb-0">Μάθημα 9: Αναλύσεις Αγορών</h6></div>
+  <div class="card-body">
+    <p class="mb-0">Σελίδα: <code>/tenant/purchases</code>. Εστίασε σε KPI κόστους, προμηθευτές και αλλαγές τιμών.</p>
+  </div>
+</div>
+
+<div class="card content-card mb-3" id="inventory-analytics">
+  <div class="card-header"><h6 class="mb-0">Μάθημα 10: Αναλύσεις Αποθέματος</h6></div>
+  <div class="card-body">
+    <p class="mb-0">Σελίδα: <code>/tenant/inventory</code>. Έλεγξε αξία αποθέματος, ταχυκίνηση, παλαιότητα και ημέρες κάλυψης.</p>
+  </div>
+</div>
+
+<div class="card content-card" id="warehouse-items">
+  <div class="card-header"><h6 class="mb-0">Μάθημα 11: Είδη Αποθήκης</h6></div>
+  <div class="card-body">
+    <p class="mb-0">Σελίδα: <code>/tenant/items</code>. Χρησιμοποίησε αναζήτηση και φίλτρα για να εντοπίσεις γρήγορα κρίσιμα είδη.</p>
+  </div>
+</div>
+{% endblock %}

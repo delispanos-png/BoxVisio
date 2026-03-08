@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="360" viewBox="0 0 1200 360" role="img" aria-label="Παραστατικά Αγορών">
+  <defs>
+    <linearGradient id="bgPurch" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#fff7ed"/>
+      <stop offset="100%" stop-color="#ffedd5"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="1200" height="360" fill="url(#bgPurch)"/>
+  <text x="40" y="54" font-family="Arial, sans-serif" font-size="34" font-weight="700" fill="#9a3412">Παραστατικά Αγορών</text>
+  <text x="40" y="88" font-family="Arial, sans-serif" font-size="18" fill="#7c2d12">Εκπαιδευτική ροή: Φίλτρα -> Κόστος -> Προμηθευτές</text>
+
+  <rect x="40" y="130" rx="16" ry="16" width="320" height="170" fill="#ffffff" stroke="#fdba74" stroke-width="2"/>
+  <text x="70" y="168" font-family="Arial, sans-serif" font-size="20" font-weight="700" fill="#c2410c">1. Φίλτρα</text>
+  <text x="70" y="200" font-family="Arial, sans-serif" font-size="16" fill="#1e293b">Ημερομηνία</text>
+  <text x="70" y="225" font-family="Arial, sans-serif" font-size="16" fill="#1e293b">Προμηθευτής</text>
+  <text x="70" y="250" font-family="Arial, sans-serif" font-size="16" fill="#1e293b">Είδος / Κατηγορία</text>
+
+  <rect x="440" y="130" rx="16" ry="16" width="320" height="170" fill="#ffffff" stroke="#fb923c" stroke-width="2"/>
+  <text x="470" y="168" font-family="Arial, sans-serif" font-size="20" font-weight="700" fill="#c2410c">2. Έλεγχος Κόστους</text>
+  <text x="470" y="200" font-family="Arial, sans-serif" font-size="16" fill="#1e293b">KPI αγορών</text>
+  <text x="470" y="225" font-family="Arial, sans-serif" font-size="16" fill="#1e293b">Μεταβολές τιμών</text>
+  <text x="470" y="250" font-family="Arial, sans-serif" font-size="16" fill="#1e293b">Πίεση περιθωρίου</text>
+
+  <rect x="840" y="130" rx="16" ry="16" width="320" height="170" fill="#ffffff" stroke="#f97316" stroke-width="2"/>
+  <text x="870" y="168" font-family="Arial, sans-serif" font-size="20" font-weight="700" fill="#c2410c">3. Ενέργεια</text>
+  <text x="870" y="200" font-family="Arial, sans-serif" font-size="16" fill="#1e293b">Διαπραγμάτευση όρων</text>
+  <text x="870" y="225" font-family="Arial, sans-serif" font-size="16" fill="#1e293b">Σύγκριση προμηθευτών</text>
+  <text x="870" y="250" font-family="Arial, sans-serif" font-size="16" fill="#1e293b">Προγραμματισμός αγορών</text>
+
+  <path d="M370 214 L430 214" stroke="#c2410c" stroke-width="4"/>
+  <polygon points="430,214 418,206 418,222" fill="#c2410c"/>
+  <path d="M770 214 L830 214" stroke="#c2410c" stroke-width="4"/>
+  <polygon points="830,214 818,206 818,222" fill="#c2410c"/>
+</svg>

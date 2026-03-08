@@ -269,6 +269,49 @@ For each change:
 - `DATA_STRUCTURE_CASH_TRANSACTIONS.md`
 - `DATA_STRUCTURE_SUPPLIER_BALANCES.md`
 - `DATA_STRUCTURE_CUSTOMER_BALANCES.md`
+
+## 22. User Manual + Context Help (2026-03-08)
+- Added tenant user manual route and page:
+  - UI route: `/tenant/manual`
+  - template: `backend/app/templates/tenant/user_manual.html`
+  - markdown companion: `USER_MANUAL.md`
+- User manual is now training-oriented (not only informational):
+  - each section includes `learning goal`, `step-by-step flow`, `practice exercise`.
+  - language is simplified for non-technical users.
+- Added visual training assets (stream diagrams) under:
+  - `backend/app/static/docs/streams/sales-documents.svg`
+  - `backend/app/static/docs/streams/purchase-documents.svg`
+  - `backend/app/static/docs/streams/warehouse-documents.svg`
+  - `backend/app/static/docs/streams/cash-transactions.svg`
+  - `backend/app/static/docs/streams/supplier-balances.svg`
+  - `backend/app/static/docs/streams/customer-balances.svg`
+  - `backend/app/static/docs/streams/supplier-targets.svg`
+- Added context help button (`Βοήθεια`) in tenant page header for operational circuits.
+  - implemented in `backend/app/templates/base_tenant.html` via active-page -> anchor mapping.
+  - help link pattern: `/tenant/manual#<section-anchor>`
+- Current help mappings:
+  - `sales_documents` -> `#sales-documents`
+  - `purchase_documents` -> `#purchase-documents`
+  - `warehouse_documents` -> `#warehouse-documents`
+  - `cashflow` -> `#cash-transactions`
+  - `suppliers` -> `#supplier-balances`
+  - `customers` -> `#customer-balances`
+  - `supplier_targets` -> `#supplier-targets`
+  - `sales` -> `#sales-analytics`
+  - `purchases` -> `#purchases-analytics`
+  - `inventory` -> `#inventory-analytics`
+  - `items` -> `#warehouse-items`
+
+### Supplier Agreements Output Actions
+- Details modal supports:
+  - `Εκτύπωση` (print-friendly summary view)
+  - `Αποστολή email` (prefilled `mailto` body)
+- Agreement details screen remains progress-oriented.
+- Print/email summary focuses on basic agreement attributes:
+  - agreement amount
+  - rebate percentage and fixed rebate amount
+  - participating items
+  - agreement notes/comments
 4. confirm logs have no traceback
 5. document in changelog/runbook
 
