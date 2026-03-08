@@ -175,7 +175,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         'el': 'Μετά το login γίνεται redirect αυτόματα στο σωστό dashboard ανά ρόλο και host.',
         'en': 'After login, users are redirected automatically based on role and host.',
     },
-    'powered_by': {'el': 'Powered by CloydOn', 'en': 'Powered by CloydOn'},
+    'powered_by': {'el': 'Powered by CloudOn', 'en': 'Powered by CloudOn'},
     'from': {'el': 'Από', 'en': 'From'},
     'to': {'el': 'Έως', 'en': 'To'},
     'apply': {'el': 'Εφαρμογή', 'en': 'Apply'},
