@@ -195,30 +195,60 @@ Regenerate insights:
 - via UI run-now action, or
 - via worker/admin endpoints
 
-## 14. Observability
+## 17. Latest Stabilization Update (2026-03-08)
+- Supplier Targets module refinement completed:
+  - supplier item loading now derives from purchases + supplier target history fallback.
+  - item payload enriched with category/brand and 30-day sales/purchases metrics.
+  - editor moved to a searchable/paginated checkbox table with loading/empty states.
+- Supplier agreement notes promoted to first-class field:
+  - model field: `supplier_targets.agreement_notes`
+  - migration: `20260308_0009_tenant_supplier_target_agreement_notes.py`
+  - API + UI support in create/edit/details flow.
+- Business Rules Document Type configuration now has form-based UI:
+  - `/admin/business-rules/document-type-rules`
+  - `/admin/business-rules/document-type-rules/wizard`
+  - `/admin/business-rules/document-type-rules/help`
+- Related docs:
+  - `BUSINESS_RULES_DOCUMENT_EDITOR.md`
+  - `BUG_DIAGNOSIS_SUPPLIER_TARGET_ITEMS.md`
+- Migration alignment completed for runtime stability:
+  - control DB advanced to `20260308_0007_control` (professional profile enforcement path).
+  - tenant DBs advanced to `20260308_0009_tenant` (`agreement_notes` support).
+  - `scripts/run_tenant_migrations.py` pinned tenant head updated to `20260308_0009_tenant`.
+  - `make migrate-control` target updated to run current control revision path with venv Alembic.
+
+### 17.1 Performance Sanity Snapshot
+- `scripts/benchmark_dashboard_perf.py` latest run:
+  - executive summary: `~47ms` miss, `~12ms` cache hit
+  - finance summary: `~25ms`
+  - inventory stream summary: `~312ms`
+  - cash stream summary: `~16ms`
+- Smoke tests confirmed authenticated `200` responses for key tenant/admin pages and KPI APIs.
+
+## 18. Observability
 - Structured JSON logging
 - `/health`, `/ready`
 - `/metrics` (restricted)
 - Pool stats metrics for control/tenant engines
 - Queue/worker health via Docker + Celery
 
-## 15. Backup & Restore Strategy
+## 19. Backup & Restore Strategy
 - Nightly backups for `bi_control` + each tenant DB
 - Retention policy and restore drill required
 - Validate restore into clean environment before production changes
 
-## 16. Troubleshooting
-### 16.1 Inventory/Cashflow page error
+## 20. Troubleshooting
+### 20.1 Inventory/Cashflow page error
 - check plan/source gating (`enterprise` + `pharmacyone`)
 - check API logs (`docker logs cloudon_bi-api-1`)
 - verify tenant DB has facts/aggregates
 
-### 16.2 Empty charts
+### 20.2 Empty charts
 - verify filter date range
 - verify aggregate refresh after ingestion/seed
 - inspect endpoint JSON directly
 
-### 16.3 Wrong language text
+### 20.3 Wrong language text
 - add/update key in `i18n.py`
 - replace hardcoded template text with `tt(request, 'key')`
 - restart `api`

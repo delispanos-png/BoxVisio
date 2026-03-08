@@ -92,6 +92,13 @@ On Ubuntu, add DNS A records (or temporary `/etc/hosts`) to point both domains t
   - `POST /v1/ingest/sales`
   - `POST /v1/ingest/purchases`
 - KPI:
+  - `GET /v1/dashboard/executive-summary`
+  - `GET /v1/dashboard/finance-summary`
+  - `GET /v1/streams/sales/summary`
+  - `GET /v1/streams/purchases/summary`
+  - `GET /v1/streams/inventory/summary`
+  - `GET /v1/streams/cash/summary`
+  - `GET /v1/streams/balances/summary`
   - `GET /v1/kpi/sales/summary`
   - `GET /v1/kpi/sales/by-branch`
   - `GET /v1/kpi/sales/compare`
@@ -100,6 +107,10 @@ On Ubuntu, add DNS A records (or temporary `/etc/hosts`) to point both domains t
   - `GET /v1/kpi/purchases/compare` (Plan Pro+)
   - `GET /v1/kpi/sales/by-branch/export.csv`
   - `GET /v1/kpi/purchases/by-supplier/export.csv`
+  - `GET /v1/kpi/supplier-targets/filter-options`
+  - `GET /v1/kpi/supplier-targets`
+  - `POST /v1/kpi/supplier-targets`
+  - `PATCH /v1/kpi/supplier-targets/{target_id}`
 - Subscription/Admin lifecycle:
   - `POST /v1/admin/tenants/wizard`
   - `PATCH /v1/admin/tenants/{tenant_id}/subscription`
@@ -115,6 +126,18 @@ On Ubuntu, add DNS A records (or temporary `/etc/hosts`) to point both domains t
   - `POST /v1/admin/tenants/{tenant_id}/sqlserver/test`
   - `GET /v1/admin/tenants/{tenant_id}/sqlserver/mapping`
   - `PUT /v1/admin/tenants/{tenant_id}/sqlserver/mapping`
+
+## Business Rules UI (Admin)
+
+- `GET /admin/business-rules/document-type-rules`
+- `GET /admin/business-rules/document-type-rules/wizard`
+- `GET /admin/business-rules/document-type-rules/help`
+- `POST /admin/business-rules/document-type-rules/upsert-form`
+- `POST /admin/business-rules/document-type-rules/apply-softone-template`
+
+Reference docs:
+- `ADMIN_CONFIGURABLE_RULES_ARCHITECTURE.md`
+- `BUSINESS_RULES_DOCUMENT_EDITOR.md`
 
 ## Multi-tenancy
 

@@ -29,13 +29,13 @@ else
 endif
 
 migrate-control:
-	$(DC) exec api alembic -c alembic.ini upgrade 20260228_0010_control
+	$(DC) exec api sh -lc 'MIGRATION_TARGET=control /opt/cloudon-bi/.venv/bin/alembic -c alembic.ini upgrade 20260308_0007_control'
 
 migrate-tenant:
 ifndef TENANT
 	$(error TENANT is required. Usage: make migrate-tenant TENANT=pharma-a)
 endif
-	$(DC) exec api python /app/scripts/run_tenant_migrations.py --tenant $(TENANT)
+	$(DC) exec api /opt/cloudon-bi/.venv/bin/python /opt/cloudon-bi/scripts/run_tenant_migrations.py --tenant $(TENANT)
 
 create-tenant:
 ifndef NAME

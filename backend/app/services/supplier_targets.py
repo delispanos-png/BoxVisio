@@ -4,11 +4,20 @@ from datetime import date
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import func, select, or_
+from sqlalchemy import case, func, literal, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.tenant import DimItem, DimSupplier, FactPurchases, FactSales, SupplierTarget, SupplierTargetItem
+from app.models.tenant import (
+    DimBrand,
+    DimCategory,
+    DimItem,
+    DimSupplier,
+    FactPurchases,
+    FactSales,
+    SupplierTarget,
+    SupplierTargetItem,
+)
 
 
 def _to_float(v: object | None) -> float:
@@ -22,17 +31,13 @@ def _to_float(v: object | None) -> float:
         return 0.0
 
 
-def _month_start_end(year: int, month: int) -> tuple[date, date]:
-    from_dt = date(year, month, 1)
-    if month == 12:
-        return from_dt, date(year, 12, 31)
-    return from_dt, date(year, month + 1, 1).fromordinal(date(year, month + 1, 1).toordinal() - 1)
-
-
 async def supplier_target_filter_options(
     db: AsyncSession,
     supplier_ext_id: str | None = None,
-) -> dict[str, list[dict[str, str]]]:
+    item_query: str | None = None,
+    max_items: int = 2000,
+) -> dict[str, list[dict[str, object]]]:
+    max_items = max(50, min(int(max_items or 2000), 5000))
     suppliers = (
         await db.execute(
             select(DimSupplier.external_id, DimSupplier.name)
@@ -41,53 +46,147 @@ async def supplier_target_filter_options(
         )
     ).all()
     if supplier_ext_id:
-        items = (
+        supplier_key = str(supplier_ext_id).strip()
+        supplier_key_norm = supplier_key.lower()
+        query_norm = str(item_query or '').strip().lower()
+        window_from = date.today().fromordinal(date.today().toordinal() - 30)
+
+        product_key = func.coalesce(DimItem.external_id, FactPurchases.item_code)
+        product_name = func.coalesce(func.max(DimItem.name), func.max(FactPurchases.item_code), product_key)
+        purchases_last_30_expr = func.coalesce(
+            func.sum(
+                case(
+                    (FactPurchases.doc_date >= window_from, FactPurchases.net_value),
+                    else_=0,
+                )
+            ),
+            0,
+        )
+
+        purchase_rows = (
             await db.execute(
                 select(
-                    DimItem.external_id,
-                    func.coalesce(DimItem.name, DimItem.external_id),
+                    product_key.label('product_id'),
+                    product_name.label('product_name'),
+                    func.coalesce(func.max(DimCategory.name), literal('-')).label('category'),
+                    func.coalesce(func.max(DimBrand.name), literal('-')).label('brand'),
+                    purchases_last_30_expr.label('purchases_last_30_days'),
                 )
                 .select_from(FactPurchases)
-                .join(DimItem, DimItem.external_id == FactPurchases.item_code)
-                .join(DimSupplier, FactPurchases.supplier_id == DimSupplier.id, isouter=True)
-                .where(
-                    DimItem.external_id.is_not(None),
+                .outerjoin(
+                    DimItem,
                     or_(
-                        FactPurchases.supplier_ext_id == supplier_ext_id,
-                        DimSupplier.external_id == supplier_ext_id,
-                        DimSupplier.name == supplier_ext_id,
+                        DimItem.id == FactPurchases.item_id,
+                        DimItem.external_id == FactPurchases.item_code,
                     ),
                 )
-                .group_by(DimItem.external_id, DimItem.name)
-                .order_by(func.coalesce(DimItem.name, DimItem.external_id).asc())
+                .outerjoin(DimBrand, DimBrand.id == DimItem.brand_id)
+                .outerjoin(DimCategory, DimCategory.id == DimItem.category_id)
+                .outerjoin(DimSupplier, FactPurchases.supplier_id == DimSupplier.id)
+                .where(
+                    product_key.is_not(None),
+                    or_(
+                        func.lower(func.trim(func.coalesce(FactPurchases.supplier_ext_id, literal('')))) == supplier_key_norm,
+                        func.lower(func.trim(func.coalesce(DimSupplier.external_id, literal('')))) == supplier_key_norm,
+                        func.lower(func.trim(func.coalesce(DimSupplier.name, literal('')))) == supplier_key_norm,
+                    ),
+                )
+                .group_by(product_key)
+                .order_by(product_name.asc())
+                .limit(max_items)
             )
         ).all()
-    else:
-        items = (
+
+        by_product: dict[str, dict[str, object]] = {}
+        for row in purchase_rows:
+            product_id = str(row.product_id or '').strip()
+            if not product_id:
+                continue
+            by_product[product_id] = {
+                'product_id': product_id,
+                'product_name': str(row.product_name or product_id),
+                'category': str(row.category or '-'),
+                'brand': str(row.brand or '-'),
+                'purchases_last_30_days': round(_to_float(row.purchases_last_30_days), 2),
+                'sales_last_30_days': 0.0,
+                'source': 'purchases',
+            }
+
+        # Include products already used in supplier-specific target history
+        # so agreements can be edited even when recent purchases are zero.
+        history_rows = (
             await db.execute(
-                select(DimItem.external_id, func.coalesce(DimItem.name, DimItem.external_id))
-                .where(DimItem.external_id.is_not(None))
-                .order_by(func.coalesce(DimItem.name, DimItem.external_id).asc())
+                select(SupplierTargetItem.item_external_id, SupplierTargetItem.item_name)
+                .select_from(SupplierTargetItem)
+                .join(SupplierTarget, SupplierTarget.id == SupplierTargetItem.supplier_target_id)
+                .where(func.lower(func.trim(func.coalesce(SupplierTarget.supplier_ext_id, literal('')))) == supplier_key_norm)
+                .limit(max_items)
             )
         ).all()
-    if supplier_ext_id:
+        for row in history_rows:
+            product_id = str(row.item_external_id or '').strip()
+            if not product_id:
+                continue
+            if product_id not in by_product:
+                by_product[product_id] = {
+                    'product_id': product_id,
+                    'product_name': str(row.item_name or product_id),
+                    'category': '-',
+                    'brand': '-',
+                    'purchases_last_30_days': 0.0,
+                    'sales_last_30_days': 0.0,
+                    'source': 'history',
+                }
+
+        if by_product:
+            item_codes = list(by_product.keys())
+            sales_rows = (
+                await db.execute(
+                    select(
+                        FactSales.item_code.label('product_id'),
+                        func.coalesce(func.sum(FactSales.net_value), 0).label('sales_last_30_days'),
+                    )
+                    .where(
+                        FactSales.item_code.in_(item_codes),
+                        FactSales.doc_date >= window_from,
+                    )
+                    .group_by(FactSales.item_code)
+                )
+            ).all()
+            for row in sales_rows:
+                product_id = str(row.product_id or '').strip()
+                if product_id in by_product:
+                    by_product[product_id]['sales_last_30_days'] = round(_to_float(row.sales_last_30_days), 2)
+
+        items = list(by_product.values())
+        if query_norm:
+            items = [
+                item for item in items
+                if query_norm in str(item.get('product_name') or '').lower()
+                or query_norm in str(item.get('product_id') or '').lower()
+                or query_norm in str(item.get('category') or '').lower()
+                or query_norm in str(item.get('brand') or '').lower()
+            ]
+        items.sort(key=lambda row: str(row.get('product_name') or row.get('product_id') or '').lower())
         item_payload = [
             {
-                'value': str(r[0]),
-                'label': str(r[1] or r[0]),
-                'supplier_ext_id': str(supplier_ext_id),
+                'value': str(row.get('product_id') or ''),
+                'label': str(row.get('product_name') or row.get('product_id') or ''),
+                'supplier_ext_id': supplier_key,
+                'product_id': str(row.get('product_id') or ''),
+                'product_name': str(row.get('product_name') or row.get('product_id') or ''),
+                'category': str(row.get('category') or '-'),
+                'brand': str(row.get('brand') or '-'),
+                'sales_last_30_days': round(_to_float(row.get('sales_last_30_days')), 2),
+                'purchases_last_30_days': round(_to_float(row.get('purchases_last_30_days')), 2),
+                'source': str(row.get('source') or 'purchases'),
             }
-            for r in items
+            for row in items[:max_items]
         ]
     else:
-        item_payload = [
-            {
-                'value': str(r[0]),
-                'label': str(r[1] or r[0]),
-                'supplier_ext_id': None,
-            }
-            for r in items
-        ]
+        # Avoid loading the full item master into the browser when no supplier
+        # is selected; this can freeze the page for large tenants.
+        item_payload = []
     return {
         'suppliers': [{'value': str(r[0]), 'label': str(r[1] or r[0])} for r in suppliers],
         'items': item_payload,
@@ -207,6 +306,7 @@ async def list_supplier_targets(db: AsyncSession, year: int, as_of: date | None 
                 'target_amount': round(_to_float(t.target_amount), 2),
                 'rebate_percent': round(_to_float(t.rebate_percent), 4),
                 'rebate_amount': round(_to_float(t.rebate_amount), 2),
+                'agreement_notes': t.agreement_notes or t.notes or '',
                 'notes': t.notes or '',
                 'is_active': bool(t.is_active),
                 **progress,
@@ -226,6 +326,7 @@ async def create_supplier_target(
     rebate_percent: float,
     rebate_amount: float = 0.0,
     item_external_ids: list[str],
+    agreement_notes: str | None = None,
     notes: str | None = None,
 ) -> dict[str, object]:
     target = SupplierTarget(
@@ -236,7 +337,8 @@ async def create_supplier_target(
         target_amount=max(0.0, float(target_amount)),
         rebate_percent=max(0.0, float(rebate_percent)),
         rebate_amount=max(0.0, float(rebate_amount)),
-        notes=(notes or '').strip() or None,
+        agreement_notes=(agreement_notes or notes or '').strip() or None,
+        notes=(notes or agreement_notes or '').strip() or None,
         is_active=True,
     )
     db.add(target)
@@ -285,6 +387,7 @@ async def update_supplier_target(
     rebate_percent: float | None = None,
     rebate_amount: float | None = None,
     item_external_ids: list[str] | None = None,
+    agreement_notes: str | None = None,
     notes: str | None = None,
     is_active: bool | None = None,
 ) -> bool:
@@ -306,8 +409,13 @@ async def update_supplier_target(
         target.rebate_percent = max(0.0, float(rebate_percent))
     if rebate_amount is not None:
         target.rebate_amount = max(0.0, float(rebate_amount))
+    if agreement_notes is not None:
+        target.agreement_notes = agreement_notes.strip() or None
+        target.notes = agreement_notes.strip() or None
     if notes is not None:
         target.notes = notes.strip() or None
+        if agreement_notes is None:
+            target.agreement_notes = notes.strip() or None
     if is_active is not None:
         target.is_active = bool(is_active)
 

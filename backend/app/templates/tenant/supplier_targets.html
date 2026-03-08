@@ -34,6 +34,9 @@
   <div class="card-body">
     <form id="supplierTargetForm" class="row g-3">
       <input id="stTargetId" type="hidden">
+      <div class="col-12">
+        <h6 class="mb-0">Στοιχεία στόχου</h6>
+      </div>
       <div class="col-xl-3 col-md-6">
         <label class="form-label">Όνομα στόχου</label>
         <input id="stName" class="form-control" list="stNameSuggestions" placeholder="π.χ. KORRES Annual Rebate 2026" required>
@@ -51,6 +54,10 @@
         <label class="form-label">Στόχος Πωλήσεων (€)</label>
         <input id="stTargetAmount" type="number" step="0.01" min="0" class="form-control" placeholder="0.00" required>
       </div>
+
+      <div class="col-12">
+        <h6 class="mb-0">Λογική επιστροφής / συμφωνίας</h6>
+      </div>
       <div class="col-xl-2 col-md-4">
         <label class="form-label">Επιστροφή %</label>
         <input id="stRebatePercent" type="number" step="0.01" min="0" max="100" class="form-control" placeholder="0.00" required>
@@ -59,17 +66,77 @@
         <label class="form-label">Επιστροφή ποσού (€)</label>
         <input id="stRebateAmount" type="number" step="0.01" min="0" class="form-control" placeholder="0.00">
       </div>
+
       <div class="col-12">
-        <div class="d-flex justify-content-between align-items-end gap-2 mb-2">
-          <label class="form-label mb-0">Είδη που συμμετέχουν στον στόχο</label>
-          <input id="stItemsSearch" type="text" class="form-control form-control-sm st-items-search" placeholder="Αναζήτηση είδους ή κωδικού...">
+        <h6 class="mb-2">Είδη που συμμετέχουν στον στόχο</h6>
+        <div class="border rounded p-3">
+          <div class="row g-2 align-items-end mb-2">
+            <div class="col-lg-4">
+              <label class="form-label mb-1">Αναζήτηση</label>
+              <input id="stItemsSearch" type="text" class="form-control form-control-sm st-items-search" placeholder="Αναζήτηση είδους / κωδικού / brand / κατηγορίας...">
+            </div>
+            <div class="col-lg-4">
+              <label class="form-label mb-1">Γρήγορο φίλτρο</label>
+              <div class="btn-group btn-group-sm w-100" role="group" aria-label="Quick item filters">
+                <button id="stQuickFilterAll" type="button" class="btn btn-outline-primary active">Όλα</button>
+                <button id="stQuickFilterTop" type="button" class="btn btn-outline-primary">Top πωλήσεις</button>
+                <button id="stQuickFilterSlow" type="button" class="btn btn-outline-primary">Slow movers</button>
+              </div>
+            </div>
+            <div class="col-lg-2">
+              <label class="form-label mb-1">Ανά σελίδα</label>
+              <select id="stItemsPageSize" class="form-select form-select-sm">
+                <option value="25">25</option>
+                <option value="50" selected>50</option>
+                <option value="100">100</option>
+                <option value="200">200</option>
+              </select>
+            </div>
+            <div class="col-lg-2">
+              <label class="form-label mb-1">Ενέργειες</label>
+              <div class="d-flex gap-1">
+                <button id="stSelectPageBtn" type="button" class="btn btn-sm btn-outline-secondary w-100">Επιλογή σελίδας</button>
+                <button id="stClearPageBtn" type="button" class="btn btn-sm btn-outline-secondary w-100">Καθαρισμός</button>
+              </div>
+            </div>
+          </div>
+
+          <div id="stItemsLoading" class="alert alert-info py-2 px-3 d-none mb-2">
+            <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+            Φόρτωση ειδών προμηθευτή...
+          </div>
+          <div id="stItemsEmpty" class="alert alert-light border py-2 px-3 d-none mb-2"></div>
+
+          <div class="table-responsive">
+            <table class="table table-sm table-hover align-middle mb-1 bv-unified-table">
+              <thead>
+                <tr>
+                  <th style="width:36px;"><input id="stToggleAllVisible" type="checkbox" class="form-check-input"></th>
+                  <th>Είδος</th>
+                  <th>Κατηγορία</th>
+                  <th>Brand</th>
+                  <th class="text-end">Πωλήσεις 30ημ</th>
+                  <th class="text-end">Αγορές 30ημ</th>
+                </tr>
+              </thead>
+              <tbody id="stItemsBody"></tbody>
+            </table>
+          </div>
+
+          <div class="d-flex justify-content-between align-items-center gap-2 mt-2 flex-wrap">
+            <small id="stItemsMeta" class="text-muted">0 επιλεγμένα</small>
+            <div class="d-flex align-items-center gap-2">
+              <button id="stItemsPrevPage" type="button" class="btn btn-sm btn-outline-secondary">Προηγ.</button>
+              <small id="stItemsPageInfo" class="text-muted">1 / 1</small>
+              <button id="stItemsNextPage" type="button" class="btn btn-sm btn-outline-secondary">Επόμ.</button>
+            </div>
+          </div>
         </div>
-        <select id="stItems" class="form-select st-items-select" multiple size="20"></select>
-        <small class="text-muted">Κράτα πατημένο Ctrl/Cmd για πολλαπλή επιλογή.</small>
       </div>
       <div class="col-12">
-        <label class="form-label">Σημείωση (προαιρετικό)</label>
-        <textarea id="stNotes" class="form-control" rows="2" placeholder="Όροι rebate / παρατηρήσεις"></textarea>
+        <h6 class="mb-2">Σχόλια συμφωνίας</h6>
+        <label class="form-label">Σχόλια Συμφωνίας <span class="text-muted">(Agreement Notes)</span></label>
+        <textarea id="stAgreementNotes" class="form-control" rows="5" placeholder="Όροι εμπορικής συμφωνίας, rebate conditions, εξαιρέσεις, εσωτερικό summary."></textarea>
       </div>
       <div class="col-12 d-flex gap-2">
         <button class="btn btn-primary" type="submit"><i class="fe fe-save me-1"></i>Αποθήκευση</button>
@@ -133,6 +200,10 @@
           <summary class="small fw-bold">Είδη συμμετοχής</summary>
           <div class="mt-2 st-items d-flex flex-wrap gap-1"></div>
         </details>
+        <div class="mt-2">
+          <div class="small text-muted">Σχόλια Συμφωνίας</div>
+          <div class="small st-agreement-notes">-</div>
+        </div>
       </div>
     </div>
   </div>
@@ -145,8 +216,8 @@
   .st-item-chip { padding:2px 8px; border-radius:999px; background:#eef4ff; color:#334155; font-size:12px; }
   .st-track-pct.pos, .st-track-amount.pos { color:#16a34a; }
   .st-track-pct.neg, .st-track-amount.neg { color:#dc2626; }
-  .st-items-select { min-height: 460px; }
   .st-items-search { max-width: 360px; }
+  .st-item-name { max-width: 480px; white-space: normal; }
 </style>
 {% endblock %}
 
@@ -178,13 +249,35 @@
   const targetAmountEl = document.getElementById('stTargetAmount');
   const rebateEl = document.getElementById('stRebatePercent');
   const rebateAmountEl = document.getElementById('stRebateAmount');
+  const agreementNotesEl = document.getElementById('stAgreementNotes');
+
   const itemsSearchEl = document.getElementById('stItemsSearch');
-  const itemsEl = document.getElementById('stItems');
-  const notesEl = document.getElementById('stNotes');
+  const itemsBodyEl = document.getElementById('stItemsBody');
+  const itemsMetaEl = document.getElementById('stItemsMeta');
+  const itemsLoadingEl = document.getElementById('stItemsLoading');
+  const itemsEmptyEl = document.getElementById('stItemsEmpty');
+  const itemsPageInfoEl = document.getElementById('stItemsPageInfo');
+  const itemsPrevBtn = document.getElementById('stItemsPrevPage');
+  const itemsNextBtn = document.getElementById('stItemsNextPage');
+  const itemsPageSizeEl = document.getElementById('stItemsPageSize');
+  const toggleAllVisibleEl = document.getElementById('stToggleAllVisible');
+  const selectPageBtn = document.getElementById('stSelectPageBtn');
+  const clearPageBtn = document.getElementById('stClearPageBtn');
+  const quickFilterAllBtn = document.getElementById('stQuickFilterAll');
+  const quickFilterTopBtn = document.getElementById('stQuickFilterTop');
+  const quickFilterSlowBtn = document.getElementById('stQuickFilterSlow');
+
   let allItems = [];
-  let activeItemOptions = [];
+  let selectedItemIds = new Set();
   let targetByName = new Map();
+  const itemsState = {
+    quickFilter: 'all',
+    page: 1,
+    pageSize: Number(itemsPageSizeEl?.value || 50),
+    loading: false,
+  };
   const normalizeTargetName = (v)=> String(v || '').trim().toLowerCase();
+  const normalizeText = (v)=> String(v || '').trim().toLowerCase();
 
   document.getElementById('stClearForm').addEventListener('click', clearForm);
   document.getElementById('stResetEdit').addEventListener('click', clearForm);
@@ -224,9 +317,11 @@
     targetAmountEl.value = '';
     rebateEl.value = '';
     rebateAmountEl.value = '';
-    notesEl.value = '';
+    agreementNotesEl.value = '';
     itemsSearchEl.value = '';
-    populateItems(activeItemOptions.length ? activeItemOptions : allItems, []);
+    selectedItemIds = new Set();
+    itemsState.page = 1;
+    renderItemsTable();
     form.querySelector('button[type="submit"]').innerHTML = '<i class="fe fe-save me-1"></i>Αποθήκευση';
   }
 
@@ -239,53 +334,125 @@
     editorCardEl.classList.add('d-none');
   }
 
-  function selectedValues(selectEl){
-    return [...selectEl.selectedOptions].map(o=>o.value);
+  function setQuickFilter(mode){
+    itemsState.quickFilter = mode;
+    itemsState.page = 1;
+    [quickFilterAllBtn, quickFilterTopBtn, quickFilterSlowBtn].forEach((btn)=> btn?.classList.remove('active'));
+    if (mode === 'top') quickFilterTopBtn?.classList.add('active');
+    else if (mode === 'slow') quickFilterSlowBtn?.classList.add('active');
+    else quickFilterAllBtn?.classList.add('active');
+    renderItemsTable();
   }
 
-  function populateItems(options, selected = []){
-    activeItemOptions = options || [];
-    const selectedSet = new Set(selected || []);
+  function filteredItems(){
     const q = String(itemsSearchEl.value || '').trim().toLowerCase();
-    const rows = q
-      ? activeItemOptions.filter((i) => String(i.label || i.value || '').toLowerCase().includes(q))
-      : activeItemOptions;
-    itemsEl.innerHTML = '';
-    rows.forEach(i => {
-      const o = document.createElement('option');
-      o.value = i.value;
-      o.textContent = i.label;
-      o.selected = selectedSet.has(i.value);
-      itemsEl.appendChild(o);
-    });
+    let rows = [...allItems];
+    if (itemsState.quickFilter === 'top') {
+      rows = rows
+        .filter((row) => Number(row.sales_last_30_days || 0) > 0)
+        .sort((a, b) => Number(b.sales_last_30_days || 0) - Number(a.sales_last_30_days || 0));
+    } else if (itemsState.quickFilter === 'slow') {
+      rows = rows
+        .filter((row) => Number(row.sales_last_30_days || 0) <= 0)
+        .sort((a, b) => Number(b.purchases_last_30_days || 0) - Number(a.purchases_last_30_days || 0));
+    } else {
+      rows.sort((a, b) => normalizeText(a.product_name || a.product_id).localeCompare(normalizeText(b.product_name || b.product_id), 'el'));
+    }
+    if (q) {
+      rows = rows.filter((row) => (
+        normalizeText(row.product_name).includes(q)
+        || normalizeText(row.product_id).includes(q)
+        || normalizeText(row.category).includes(q)
+        || normalizeText(row.brand).includes(q)
+      ));
+    }
+    return rows;
   }
 
-  function refreshItemsForTargetName(){
-    const isEditing = Boolean(String(idEl.value || '').trim());
-    const key = normalizeTargetName(nameEl.value);
-    const target = key ? targetByName.get(key) : null;
-    const selected = selectedValues(itemsEl);
-    if (!isEditing && target && Array.isArray(target.items) && target.items.length){
-      const restricted = target.items.map(it => ({
-        value: it.item_external_id,
-        label: it.item_name || it.item_external_id,
-      }));
-      populateItems(restricted, selected);
-      if (target.supplier_ext_id) {
-        supplierEl.value = target.supplier_ext_id;
-      }
+  function renderItemsTable(){
+    if (!itemsBodyEl) return;
+    itemsBodyEl.innerHTML = '';
+    const supplierSelected = Boolean(String(supplierEl.value || '').trim());
+
+    if (itemsState.loading) {
+      itemsLoadingEl?.classList.remove('d-none');
+      itemsEmptyEl?.classList.add('d-none');
+      itemsMetaEl.textContent = 'Φόρτωση...';
+      itemsPageInfoEl.textContent = '-';
+      itemsPrevBtn.disabled = true;
+      itemsNextBtn.disabled = true;
+      toggleAllVisibleEl.checked = false;
       return;
     }
-    populateItems(allItems, selected);
+
+    itemsLoadingEl?.classList.add('d-none');
+    const rows = filteredItems();
+    const pageSize = Math.max(10, Number(itemsState.pageSize || 50));
+    const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
+    if (itemsState.page > totalPages) itemsState.page = totalPages;
+    const fromIdx = (itemsState.page - 1) * pageSize;
+    const pageRows = rows.slice(fromIdx, fromIdx + pageSize);
+
+    if (!supplierSelected) {
+      itemsEmptyEl.textContent = 'Επίλεξε προμηθευτή για να φορτωθούν είδη.';
+      itemsEmptyEl.classList.remove('d-none');
+    } else if (!rows.length) {
+      itemsEmptyEl.textContent = 'Δεν βρέθηκαν είδη για τον επιλεγμένο προμηθευτή.';
+      itemsEmptyEl.classList.remove('d-none');
+    } else {
+      itemsEmptyEl.classList.add('d-none');
+    }
+
+    pageRows.forEach((row) => {
+      const productId = String(row.product_id || row.value || '').trim();
+      if (!productId) return;
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><input type="checkbox" class="form-check-input st-item-check" data-item-id="${productId}" ${selectedItemIds.has(productId) ? 'checked' : ''}></td>
+        <td>
+          <div class="st-item-name">
+            <div class="fw-semibold">${row.product_name || row.label || productId}</div>
+            <small class="text-muted">${productId}</small>
+          </div>
+        </td>
+        <td>${row.category || '-'}</td>
+        <td>${row.brand || '-'}</td>
+        <td class="text-end">${fmtMoney(row.sales_last_30_days || 0)}</td>
+        <td class="text-end">${fmtMoney(row.purchases_last_30_days || 0)}</td>
+      `;
+      itemsBodyEl.appendChild(tr);
+    });
+
+    const visibleIds = pageRows.map((row) => String(row.product_id || row.value || '').trim()).filter(Boolean);
+    const visibleSelected = visibleIds.filter((id) => selectedItemIds.has(id));
+    toggleAllVisibleEl.checked = Boolean(visibleIds.length) && visibleSelected.length === visibleIds.length;
+    itemsPrevBtn.disabled = itemsState.page <= 1;
+    itemsNextBtn.disabled = itemsState.page >= totalPages;
+    itemsPageInfoEl.textContent = `${itemsState.page} / ${totalPages}`;
+    itemsMetaEl.textContent = `${selectedItemIds.size} επιλεγμένα | ${rows.length} αποτελέσματα`;
+  }
+
+  function currentPageRows(){
+    const rows = filteredItems();
+    const pageSize = Math.max(10, Number(itemsState.pageSize || 50));
+    const fromIdx = (itemsState.page - 1) * pageSize;
+    return rows.slice(fromIdx, fromIdx + pageSize);
   }
 
   async function loadOptions(){
-    const prevSelected = selectedValues(itemsEl);
+    const prevSelected = new Set(selectedItemIds);
     const prevSupplier = supplierEl.value;
     const qs = new URLSearchParams();
     if (supplierEl.value) qs.set('supplier_ext_id', supplierEl.value);
+    qs.set('max_items', '1500');
+    itemsState.loading = true;
+    renderItemsTable();
     const res = await fetch(`/v1/kpi/supplier-targets/filter-options?${qs.toString()}`);
-    if (!res.ok) throw new Error('Αποτυχία φόρτωσης επιλογών');
+    if (!res.ok) {
+      itemsState.loading = false;
+      renderItemsTable();
+      throw new Error('Αποτυχία φόρτωσης επιλογών');
+    }
     const data = await res.json();
 
     supplierEl.innerHTML = '<option value="">Επιλογή προμηθευτή</option>';
@@ -298,8 +465,12 @@
     });
     if (prevSupplier) supplierEl.value = prevSupplier;
 
-    allItems = data.items || [];
-    populateItems(allItems, prevSelected);
+    allItems = Array.isArray(data.items) ? data.items : [];
+    const availableIds = new Set(allItems.map((row) => String(row.product_id || row.value || '').trim()).filter(Boolean));
+    selectedItemIds = new Set([...prevSelected].filter((id) => availableIds.has(id)));
+    itemsState.loading = false;
+    itemsState.page = 1;
+    renderItemsTable();
   }
 
   function renderTargetCard(t){
@@ -356,6 +527,7 @@
       span.textContent = it.item_name || it.item_external_id;
       itemsWrap.appendChild(span);
     });
+    node.querySelector('.st-agreement-notes').textContent = t.agreement_notes || t.notes || '-';
 
     node.querySelector('.st-edit').addEventListener('click', async ()=> {
       idEl.value = t.id;
@@ -364,13 +536,12 @@
       yearFormEl.value = t.target_year || yearEl.value;
       targetAmountEl.value = t.target_amount || 0;
       rebateEl.value = t.rebate_percent || 0;
-      notesEl.value = t.notes || '';
+      agreementNotesEl.value = t.agreement_notes || t.notes || '';
       rebateAmountEl.value = t.rebate_amount || 0;
-      const targetItems = new Set((t.items || []).map(x => x.item_external_id));
+      selectedItemIds = new Set((t.items || []).map(x => x.item_external_id));
       showEditor();
       await loadOptions();
-      refreshItemsForTargetName();
-      [...itemsEl.options].forEach(o => { o.selected = targetItems.has(o.value); });
+      renderItemsTable();
       form.querySelector('button[type="submit"]').innerHTML = '<i class="fe fe-save me-1"></i>Update';
     });
 
@@ -401,7 +572,6 @@
       o.value = t.name;
       nameSuggestionsEl.appendChild(o);
     });
-    refreshItemsForTargetName();
 
     summaryHintEl.textContent = `Έτος ${payload.year} | ${targets.length} στόχοι`;
     grid.innerHTML = '';
@@ -424,8 +594,9 @@
       target_amount: Number(targetAmountEl.value || 0),
       rebate_percent: Number(rebateEl.value || 0),
       rebate_amount: Number(rebateAmountEl.value || 0),
-      item_external_ids: selectedValues(itemsEl),
-      notes: notesEl.value.trim() || null,
+      item_external_ids: [...selectedItemIds],
+      agreement_notes: agreementNotesEl.value.trim() || null,
+      notes: null,
     };
 
     if (!payload.name || !payload.supplier_ext_id) {
@@ -466,18 +637,78 @@
   });
 
   asOfEl.value = isoToDmy(new Date().toISOString().slice(0,10));
-  itemsSearchEl.addEventListener('input', ()=> populateItems(activeItemOptions, selectedValues(itemsEl)));
-  supplierEl.addEventListener('change', async ()=> {
-    const selected = selectedValues(itemsEl);
-    await loadOptions();
-    refreshItemsForTargetName();
-    if (selected.length){
-      [...itemsEl.options].forEach((o)=> { if (selected.includes(o.value)) o.selected = true; });
+  itemsSearchEl.addEventListener('input', ()=> { itemsState.page = 1; renderItemsTable(); });
+  itemsPageSizeEl?.addEventListener('change', ()=> {
+    itemsState.pageSize = Math.max(10, Number(itemsPageSizeEl.value || 50));
+    itemsState.page = 1;
+    renderItemsTable();
+  });
+  itemsPrevBtn?.addEventListener('click', ()=> {
+    if (itemsState.page > 1) {
+      itemsState.page -= 1;
+      renderItemsTable();
     }
   });
-  nameEl.addEventListener('input', refreshItemsForTargetName);
-  nameEl.addEventListener('change', refreshItemsForTargetName);
-  nameEl.addEventListener('blur', refreshItemsForTargetName);
+  itemsNextBtn?.addEventListener('click', ()=> {
+    const rows = filteredItems();
+    const totalPages = Math.max(1, Math.ceil(rows.length / Math.max(10, Number(itemsState.pageSize || 50))));
+    if (itemsState.page < totalPages) {
+      itemsState.page += 1;
+      renderItemsTable();
+    }
+  });
+  quickFilterAllBtn?.addEventListener('click', ()=> setQuickFilter('all'));
+  quickFilterTopBtn?.addEventListener('click', ()=> setQuickFilter('top'));
+  quickFilterSlowBtn?.addEventListener('click', ()=> setQuickFilter('slow'));
+  selectPageBtn?.addEventListener('click', ()=> {
+    currentPageRows().forEach((row)=> {
+      const id = String(row.product_id || row.value || '').trim();
+      if (id) selectedItemIds.add(id);
+    });
+    renderItemsTable();
+  });
+  clearPageBtn?.addEventListener('click', ()=> {
+    currentPageRows().forEach((row)=> {
+      const id = String(row.product_id || row.value || '').trim();
+      if (id) selectedItemIds.delete(id);
+    });
+    renderItemsTable();
+  });
+  toggleAllVisibleEl?.addEventListener('change', ()=> {
+    const shouldSelect = Boolean(toggleAllVisibleEl.checked);
+    currentPageRows().forEach((row)=> {
+      const id = String(row.product_id || row.value || '').trim();
+      if (!id) return;
+      if (shouldSelect) selectedItemIds.add(id);
+      else selectedItemIds.delete(id);
+    });
+    renderItemsTable();
+  });
+  itemsBodyEl?.addEventListener('change', (event)=> {
+    const input = event.target;
+    if (!input || !input.classList || !input.classList.contains('st-item-check')) return;
+    const itemId = String(input.getAttribute('data-item-id') || '').trim();
+    if (!itemId) return;
+    if (input.checked) selectedItemIds.add(itemId);
+    else selectedItemIds.delete(itemId);
+    renderItemsTable();
+  });
+
+  supplierEl.addEventListener('change', async ()=> {
+    selectedItemIds = new Set();
+    await loadOptions();
+    renderItemsTable();
+  });
+
+  nameEl.addEventListener('change', ()=> {
+    const key = normalizeTargetName(nameEl.value);
+    const matchedTarget = key ? targetByName.get(key) : null;
+    if (matchedTarget && matchedTarget.supplier_ext_id) {
+      supplierEl.value = matchedTarget.supplier_ext_id;
+      supplierEl.dispatchEvent(new Event('change'));
+    }
+  });
+
   loadOptions()
     .then(()=> loadTargets())
     .catch((err)=> setError(err?.message || 'Απρόβλεπτο σφάλμα'));
