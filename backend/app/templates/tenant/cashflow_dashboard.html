@@ -28,10 +28,14 @@
   <div class="col-lg-3 col-md-6 d-flex align-items-end">
     <button type="submit" class="btn btn-primary w-100"><i class="fe fe-filter me-1"></i>{{ tt(request, 'apply') }}</button>
   </div>
+  <div class="col-lg-3 col-md-6 d-flex align-items-end">
+    <button type="button" class="btn btn-outline-secondary w-100" id="cashflowFiltersReset"><i class="fe fe-rotate-ccw me-1"></i>{{ tt(request, 'clear') }}</button>
+  </div>
 </form>
 {% endblock %}
 
 {% block content %}
+<div id="cashflowError" class="alert alert-danger d-none mb-3"></div>
 <div class="inventory-page">
   {% if feature_locked %}
   <div class="card border-0 shadow-sm">
@@ -75,7 +79,7 @@
     <div class="card-header"><h5 class="mb-0">{{ tt(request, 'entry_type_details') }}</h5></div>
     <div class="card-body p-0">
       <div class="table-responsive">
-        <table class="table table-sm table-hover mb-0" id="tblCashType">
+        <table class="table table-sm table-hover mb-0 bv-unified-table" id="tblCashType">
           <thead><tr><th>{{ tt(request, 'type') }}</th><th class="text-end">{{ tt(request, 'entries') }}</th><th class="text-end">{{ tt(request, 'value') }}</th></tr></thead>
           <tbody></tbody>
         </table>
@@ -91,12 +95,23 @@
 <script>
 (function(){
   const form = document.getElementById('cashflowFiltersForm');
+  const errorEl = document.getElementById('cashflowError');
   const fromEl = document.getElementById('cfFrom');
   const toEl = document.getElementById('cfTo');
   const fmtMoney = (n)=> new Intl.NumberFormat('el-GR',{style:'currency',currency:'EUR'}).format(Number(n||0));
   const fmtInt = (n)=> new Intl.NumberFormat('el-GR',{maximumFractionDigits:0}).format(Math.round(Number(n||0)));
   const cfFieldDefs = [{key:'branches', selectId:'cfBranches', label:'{{ tt(request, "branches") }}'}];
   let trendChart, typeChart;
+  function setError(msg){
+    if(!errorEl) return;
+    if(!msg){
+      errorEl.classList.add('d-none');
+      errorEl.textContent = '';
+      return;
+    }
+    errorEl.classList.remove('d-none');
+    errorEl.textContent = msg;
+  }
   function entryTypeLabel(raw){
     const v = String(raw || '').trim().toLowerCase();
     if(v === 'inflow' || v === 'in') return '{{ tt(request, "inflow") }}';
@@ -235,7 +250,8 @@
     }
     rows.forEach(r=>{
       const tr = document.createElement('tr');
-      tr.innerHTML = `<td>${entryTypeLabel(r.entry_type)}</td><td class="text-end">${fmtInt(r.entries)}</td><td class="text-end">${fmtMoney(r.amount)}</td>`;
+      const amount = Number(r.amount ?? r.net ?? 0);
+      tr.innerHTML = `<td>${entryTypeLabel(r.entry_type)}</td><td class="text-end">${fmtInt(r.entries)}</td><td class="text-end">${fmtMoney(amount)}</td>`;
       tbody.appendChild(tr);
     });
   }
@@ -258,25 +274,42 @@
     if(typeChart) typeChart.destroy();
     typeChart = new Chart(document.getElementById('cashflowTypeChart'), {
       type:'doughnut',
-      data:{labels:rows.map(x=>entryTypeLabel(x.entry_type)), datasets:[{data:rows.map(x=>x.amount), backgroundColor:['#22c55e','#f97316','#ef4444','#6f42c1','#0ea5e9']}]},
+      data:{labels:rows.map(x=>entryTypeLabel(x.entry_type)), datasets:[{data:rows.map(x=>Number(x.amount ?? x.net ?? 0)), backgroundColor:['#22c55e','#f97316','#ef4444','#6f42c1','#0ea5e9']}]},
       options:{responsive:true, maintainAspectRatio:false}
     });
   }
 
   async function load(){
-    const p = params();
-    const [summary, trend, byType] = await Promise.all([
-      fetch(`/v1/kpi/cashflow/summary?${p}`).then(r=>r.json()),
-      fetch(`/v1/kpi/cashflow/trend-monthly?${p}`).then(r=>r.json()),
-      fetch(`/v1/kpi/cashflow/by-type?${p}`).then(r=>r.json()),
-    ]);
-    document.getElementById('kpiCashIn').textContent = fmtMoney(summary.inflows);
-    document.getElementById('kpiCashOut').textContent = fmtMoney(summary.outflows);
-    document.getElementById('kpiCashNet').textContent = fmtMoney(summary.net);
-    document.getElementById('kpiCashEntries').textContent = fmtInt(summary.entries || 0);
-    renderTrend(trend || []);
-    renderTypeChart(byType || []);
-    renderTypeTable(byType || []);
+    setError(null);
+    try{
+      const p = params();
+      const res = await fetch(`/v1/streams/cash/summary?${p.toString()}`);
+      if(!res.ok) throw new Error('Αποτυχία φόρτωσης ταμειακών δεδομένων.');
+      const payload = await res.json();
+      const summary = payload?.summary || {};
+      const trend = Array.isArray(payload?.trend) ? payload.trend : [];
+      const byTypeRaw = Array.isArray(payload?.by_type) ? payload.by_type : [];
+      const byType = byTypeRaw.map((row)=>({
+        ...row,
+        amount: Number(row.amount ?? row.net ?? 0),
+      }));
+      document.getElementById('kpiCashIn').textContent = fmtMoney(summary.inflows);
+      document.getElementById('kpiCashOut').textContent = fmtMoney(summary.outflows);
+      document.getElementById('kpiCashNet').textContent = fmtMoney(summary.net);
+      document.getElementById('kpiCashEntries').textContent = fmtInt(summary.entries || 0);
+      renderTrend(trend || []);
+      renderTypeChart(byType || []);
+      renderTypeTable(byType || []);
+    }catch(err){
+      setError(err?.message || 'Αποτυχία φόρτωσης ταμειακών δεδομένων.');
+      document.getElementById('kpiCashIn').textContent = fmtMoney(0);
+      document.getElementById('kpiCashOut').textContent = fmtMoney(0);
+      document.getElementById('kpiCashNet').textContent = fmtMoney(0);
+      document.getElementById('kpiCashEntries').textContent = fmtInt(0);
+      renderTrend([]);
+      renderTypeChart([]);
+      renderTypeTable([]);
+    }
   }
 
   defaultRange();
@@ -285,6 +318,16 @@
   toEl.addEventListener('change', loadCfFilterOptions);
   form.addEventListener('submit', async (e)=>{
     e.preventDefault();
+    await loadCfFilterOptions();
+    await load();
+  });
+  document.getElementById('cashflowFiltersReset')?.addEventListener('click', async () => {
+    defaultRange();
+    cfFieldDefs.forEach((field)=>{
+      const sel = document.getElementById(field.selectId);
+      Array.from(sel?.options || []).forEach((o)=>{ o.selected = false; });
+      syncCfMultiUI(field.selectId, field.label);
+    });
     await loadCfFilterOptions();
     await load();
   });

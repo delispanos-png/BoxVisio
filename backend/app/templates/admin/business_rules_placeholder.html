@@ -1,0 +1,26 @@
+{% extends "base_admin.html" %}
+{% block content %}
+<div class="card mt-3">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <h5 class="mb-0">{{ tt(request, page_label_key) }}</h5>
+    <span class="badge bg-warning text-dark">Placeholder</span>
+  </div>
+  <div class="card-body">
+    <p class="text-muted mb-3">{{ page_description }}</p>
+    <div class="alert alert-info mb-3">
+      Η πλήρης διαχείριση UI για αυτή την ενότητα είναι σε εξέλιξη. Το backend για global defaults / tenant overrides είναι ήδη διαθέσιμο.
+    </div>
+    <div class="d-flex flex-wrap gap-2">
+      <a class="btn bv-action-btn bv-action-edit" href="{{ api_list_url }}" target="_blank" rel="noopener">
+        <i class="fe fe-list"></i> API List
+      </a>
+      <a class="btn bv-action-btn bv-action-save" href="{{ api_upsert_url }}" target="_blank" rel="noopener">
+        <i class="fe fe-edit-3"></i> API Upsert
+      </a>
+      <a class="btn btn-outline-secondary" href="/admin/business-rules">
+        <i class="fe fe-arrow-left"></i> Επιστροφή
+      </a>
+    </div>
+  </div>
+</div>
+{% endblock %}

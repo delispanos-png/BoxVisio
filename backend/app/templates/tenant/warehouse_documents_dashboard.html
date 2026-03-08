@@ -1,0 +1,796 @@
+{% extends "base_tenant.html" %}
+{% block filters %}
+<form id="warehouseDocumentsFilters" class="row g-2">
+  <div class="col-12 col-md-4 col-xl-3">
+    <label class="form-label mb-1">{{ tt(request, 'from') }}</label>
+    <input
+      class="form-control"
+      type="text"
+      name="from"
+      value="{{ default_from.strftime('%d/%m/%Y') if default_from else '' }}"
+      data-date-format="dmy"
+      placeholder="ηη/μμ/εεεε"
+      inputmode="numeric"
+    >
+  </div>
+  <div class="col-12 col-md-4 col-xl-3">
+    <label class="form-label mb-1">{{ tt(request, 'to') }}</label>
+    <input
+      class="form-control"
+      type="text"
+      name="to"
+      value="{{ default_to.strftime('%d/%m/%Y') if default_to else '' }}"
+      data-date-format="dmy"
+      placeholder="ηη/μμ/εεεε"
+      inputmode="numeric"
+    >
+  </div>
+  <div class="col-12 col-md-4 col-xl-3 d-grid gap-2 align-content-end">
+    <button class="btn btn-primary" type="submit"><i class="fe fe-filter"></i> {{ tt(request, 'apply') }}</button>
+    <button class="btn btn-outline-secondary" type="button" id="warehouseDocsReset"><i class="fe fe-rotate-ccw"></i> Καθαρισμός</button>
+  </div>
+</form>
+{% endblock %}
+
+{% block content %}
+<style>
+  .warehouse-docs-table-wrap {
+    max-height: min(72vh, 780px);
+    overflow: auto;
+  }
+  #warehouseDocsTable tbody tr {
+    cursor: pointer;
+  }
+  #warehouseDocsTable tbody tr.is-active {
+    background: rgba(59, 130, 246, 0.08);
+  }
+  .warehouse-doc-modal {
+    --bv-modal-max-width: 1360px;
+    --bv-modal-max-height: 92vh;
+  }
+  .warehouse-doc-modal .modal-body {
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+  .warehouse-doc-lines-wrap {
+    max-height: min(34vh, 360px);
+    overflow: auto;
+  }
+  .warehouse-doc-modal textarea.form-control {
+    min-height: 120px;
+    resize: vertical;
+  }
+  .warehouse-doc-modal .form-label {
+    font-size: 0.76rem;
+    font-weight: 700;
+    color: #334155;
+  }
+</style>
+
+<div id="warehouseDocsError" class="alert alert-danger d-none"></div>
+
+<div class="card border-0 shadow-sm mb-3 content-card">
+  <div class="card-header d-flex justify-content-between align-items-center gap-2 flex-wrap">
+    <h5 class="mb-0">Κύκλωμα Αποθήκης - Παραστατικά ERP</h5>
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+      <input type="text" id="warehouseDocsSearch" class="form-control form-control-sm" placeholder="Αναζήτηση παραστατικού / είδους" style="min-width: 280px;">
+      <button type="button" id="warehouseDocsRefresh" class="btn btn-sm btn-outline-secondary"><i class="fe fe-refresh-cw"></i> Ανανέωση</button>
+    </div>
+  </div>
+  <div class="card-body table-responsive warehouse-docs-table-wrap">
+    <table class="table table-sm table-hover mb-0 bv-unified-table" id="warehouseDocsTable">
+      <thead class="table-light sticky-top">
+        <tr>
+          <th>Ημερομηνία</th>
+          <th>Υποκατάστημα</th>
+          <th>Αποθ. χώρος</th>
+          <th>Υποκ/μα 2</th>
+          <th>Αποθ.Χώρος 2</th>
+          <th>Σειρά</th>
+          <th>Κωδ. παραστ.</th>
+          <th>Status</th>
+          <th class="text-end">Συν.Αξία</th>
+        </tr>
+      </thead>
+      <tbody id="warehouseDocsBody">
+        <tr><td colspan="9" class="text-center text-muted py-3">Φόρτωση παραστατικών...</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="card-footer bv-table-footer d-flex justify-content-between align-items-center gap-2 flex-wrap">
+    <div class="bv-summary-stack">
+      <small id="warehouseDocsSummary" class="text-muted">Παραστατικά: 0</small>
+      <small id="warehouseDocsRangeSummary" class="text-muted">Εμφάνιση 0 από 0</small>
+    </div>
+    <div class="bv-pager">
+      <div class="bv-pager-field bv-pager-field--size">
+        <label for="warehouseDocsPageSize" class="bv-pager-label">Ανά σελίδα</label>
+        <select id="warehouseDocsPageSize" class="form-select form-select-sm">
+          <option value="50">50</option>
+          <option value="100" selected>100</option>
+          <option value="250">250</option>
+          <option value="500">500</option>
+        </select>
+      </div>
+      <div class="bv-pager-field bv-pager-field--jump">
+        <span class="bv-pager-label">Σελίδα</span>
+        <input id="warehouseDocsPageJump" type="number" min="1" step="1" value="1" class="form-control form-control-sm bv-pager-page-input" inputmode="numeric" aria-label="Μετάβαση σε σελίδα">
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="warehouseDocsPageGo">Μετάβαση</button>
+      </div>
+      <div class="bv-pager-nav" role="group" aria-label="Πλοήγηση σελίδων">
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="warehouseDocsFirstPage" title="Πρώτη σελίδα" aria-label="Πρώτη σελίδα">&laquo;</button>
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="warehouseDocsPrevPage" title="Προηγούμενη σελίδα" aria-label="Προηγούμενη σελίδα">&lsaquo;</button>
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="warehouseDocsNextPage" title="Επόμενη σελίδα" aria-label="Επόμενη σελίδα">&rsaquo;</button>
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="warehouseDocsLastPage" title="Τελευταία σελίδα" aria-label="Τελευταία σελίδα">&raquo;</button>
+      </div>
+      <small id="warehouseDocsPageInfo" class="bv-pager-info">1 / 1</small>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade bv-modal bv-modal--responsive bv-modal--lg warehouse-doc-modal" id="warehouseDocumentModal" tabindex="-1" aria-hidden="true" aria-labelledby="warehouseDocumentModalTitle" data-bv-modal="true" data-bv-close-on-backdrop="false">
+  <div class="modal-dialog modal-xl">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title mb-0" id="warehouseDocumentModalTitle">Παραστατικό Αποθήκης</h5>
+          <small id="warehouseDocumentModalSub" class="text-muted">-</small>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div id="warehouseDocModalError" class="alert alert-danger d-none mb-3"></div>
+
+        <div class="bv-form-wizard mb-3" data-bv-form-wizard data-bv-wizard-content=".tab-content" data-bv-wizard-initial="#warehouseDocTabGeneral">
+          <div class="bv-form-wizard-head">Form Wizard</div>
+          <div class="bv-form-wizard-steps" role="tablist" aria-label="Πλοήγηση καρτέλας παραστατικού">
+            <button type="button" class="bv-wizard-step is-active" data-bv-wizard-step data-target="#warehouseDocTabGeneral">
+              <span class="bv-wizard-step-index">1</span>
+              <span class="bv-wizard-step-label">Γενικά</span>
+            </button>
+            <button type="button" class="bv-wizard-step" data-bv-wizard-step data-target="#warehouseDocTabMovement">
+              <span class="bv-wizard-step-index">2</span>
+              <span class="bv-wizard-step-label">Στοιχεία διακίνησης</span>
+            </button>
+            <button type="button" class="bv-wizard-step" data-bv-wizard-step data-target="#warehouseDocTabNotes">
+              <span class="bv-wizard-step-index">3</span>
+              <span class="bv-wizard-step-label">Παρατηρήσεις</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="tab-content">
+          <div class="tab-pane fade show active" id="warehouseDocTabGeneral" role="tabpanel">
+            <div class="fw-semibold text-warning border-bottom pb-1 mb-2">Βασικά στοιχεία</div>
+            <div class="row g-2 mb-3">
+              <div class="col-md-6">
+                <label class="form-label mb-1">Υποκατάστημα</label>
+                <input type="text" class="form-control form-control-sm" id="warehouseDocFBranch" readonly>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label mb-1">Αποθ. χώρος</label>
+                <input type="text" class="form-control form-control-sm" id="warehouseDocFWarehouse" readonly>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label mb-1">Υποκ/μα 2</label>
+                <input type="text" class="form-control form-control-sm" id="warehouseDocFBranch2" readonly>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label mb-1">Αποθ.Χώρος 2</label>
+                <input type="text" class="form-control form-control-sm" id="warehouseDocFWarehouse2" readonly>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label mb-1">Σειρά</label>
+                <input type="text" class="form-control form-control-sm" id="warehouseDocFSeries" readonly>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label mb-1">Τύπος</label>
+                <input type="text" class="form-control form-control-sm" id="warehouseDocFType" readonly>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label mb-1">Κωδ. παραστ.</label>
+                <input type="text" class="form-control form-control-sm" id="warehouseDocFDocumentNo" readonly>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label mb-1">Ημερομηνία</label>
+                <input type="text" class="form-control form-control-sm" id="warehouseDocFDate" readonly>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label mb-1">Status</label>
+                <input type="text" class="form-control form-control-sm" id="warehouseDocFStatus" readonly>
+              </div>
+            </div>
+
+            <div class="fw-semibold text-warning border-bottom pb-1 mb-2">Είδη</div>
+            <div class="table-responsive border rounded warehouse-doc-lines-wrap mb-3">
+              <table class="table table-sm align-middle mb-0">
+                <thead class="table-light sticky-top">
+                  <tr>
+                    <th style="width:52px">Α/Α</th>
+                    <th style="width:120px">Κωδικός</th>
+                    <th>Περιγραφή</th>
+                    <th class="text-end">Ποσ. 1</th>
+                    <th class="text-end">Εκτελ.</th>
+                    <th class="text-end">Τιμή</th>
+                    <th class="text-end">Εκπτ. %</th>
+                    <th class="text-end">Αξία εκπτ.</th>
+                    <th class="text-end">Αξία ΦΠΑ</th>
+                    <th class="text-end">Αξία</th>
+                  </tr>
+                </thead>
+                <tbody id="warehouseDocLinesBody">
+                  <tr><td colspan="10" class="text-center text-muted py-3">Δεν υπάρχουν γραμμές.</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="fw-semibold text-warning border-bottom pb-1 mb-2">Σύνολα</div>
+            <div class="row g-2">
+              <div class="col-md-4">
+                <label class="form-label mb-1">Συν.Αξία</label>
+                <input type="text" class="form-control form-control-sm" id="warehouseDocTGross" readonly>
+              </div>
+              <div class="col-md-4">
+                <label class="form-label mb-1">Καθ.Αξία</label>
+                <input type="text" class="form-control form-control-sm" id="warehouseDocTNet" readonly>
+              </div>
+              <div class="col-md-4">
+                <label class="form-label mb-1">Αξία ΦΠΑ</label>
+                <input type="text" class="form-control form-control-sm" id="warehouseDocTVat" readonly>
+              </div>
+              <div class="col-md-4">
+                <label class="form-label mb-1">Αξία Εξόδων</label>
+                <input type="text" class="form-control form-control-sm" id="warehouseDocTExpenses" readonly>
+              </div>
+              <div class="col-md-4">
+                <label class="form-label mb-1">Συν.ποσ.1</label>
+                <input type="text" class="form-control form-control-sm" id="warehouseDocTQty" readonly>
+              </div>
+            </div>
+          </div>
+
+          <div class="tab-pane fade" id="warehouseDocTabMovement" role="tabpanel">
+            <div class="fw-semibold text-warning border-bottom pb-1 mb-2">Διακίνηση / Μεταφορά</div>
+            <div class="row g-2">
+              <div class="col-md-6">
+                <label class="form-label mb-1">Αποστολή</label>
+                <input type="text" class="form-control form-control-sm" id="warehouseDocMShipment" readonly>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label mb-1">Διεύθ.παράδοσης</label>
+                <input type="text" class="form-control form-control-sm" id="warehouseDocMAddress" readonly>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label mb-1">Μεταφορέας</label>
+                <input type="text" class="form-control form-control-sm" id="warehouseDocMCarrier" readonly>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label mb-1">Τ.Κ.παράδοσης</label>
+                <input type="text" class="form-control form-control-sm" id="warehouseDocMZip" readonly>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label mb-1">Μεταφ.μέσο</label>
+                <input type="text" class="form-control form-control-sm" id="warehouseDocMMedium" readonly>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label mb-1">Περιοχή παράδοσης</label>
+                <input type="text" class="form-control form-control-sm" id="warehouseDocMArea" readonly>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label mb-1">Αριθ.Μεταφ.μέσου</label>
+                <input type="text" class="form-control form-control-sm" id="warehouseDocMMediumNo" readonly>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label mb-1">Πόλη παράδοσης</label>
+                <input type="text" class="form-control form-control-sm" id="warehouseDocMCity" readonly>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label mb-1">Δρομολόγιο</label>
+                <input type="text" class="form-control form-control-sm" id="warehouseDocMRoute" readonly>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label mb-1">Ημερ.φόρτωσης</label>
+                <input type="text" class="form-control form-control-sm" id="warehouseDocMLoadingDate" readonly>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label mb-1">Ημερ.παράδοσης</label>
+                <input type="text" class="form-control form-control-sm" id="warehouseDocMDeliveryDate" readonly>
+              </div>
+            </div>
+          </div>
+
+          <div class="tab-pane fade" id="warehouseDocTabNotes" role="tabpanel">
+            <div class="fw-semibold text-warning border-bottom pb-1 mb-2">Αιτιολογία</div>
+            <textarea class="form-control form-control-sm mb-3" id="warehouseDocNReason1" readonly></textarea>
+
+            <div class="fw-semibold text-warning border-bottom pb-1 mb-2">Αιτιολογία 2</div>
+            <textarea class="form-control form-control-sm mb-3" id="warehouseDocNReason2" readonly></textarea>
+
+            <div class="fw-semibold text-warning border-bottom pb-1 mb-2">Παρατηρήσεις</div>
+            <textarea class="form-control form-control-sm mb-3" id="warehouseDocNNotes" readonly></textarea>
+
+            <div class="row g-2">
+              <div class="col-md-6">
+                <label class="form-label mb-1">Ημ/νία εισαγωγής</label>
+                <input type="text" class="form-control form-control-sm" id="warehouseDocACreatedAt" readonly>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label mb-1">Ημ/νία τελ.ενημ.</label>
+                <input type="text" class="form-control form-control-sm" id="warehouseDocAUpdatedAt" readonly>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label mb-1">Χρήστης εισαγωγής</label>
+                <input type="text" class="form-control form-control-sm" id="warehouseDocACreatedBy" readonly>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label mb-1">Χρήστης τελ.ενημ.</label>
+                <input type="text" class="form-control form-control-sm" id="warehouseDocAUpdatedBy" readonly>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="bv-form-wizard-actions">
+          <button type="button" class="btn btn-outline-secondary btn-sm" data-bv-wizard-prev>Πίσω</button>
+          <button type="button" class="btn btn-primary btn-sm" data-bv-wizard-next>Επόμενο</button>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ tt(request, 'close') if tt(request, 'close') != 'close' else 'Κλείσιμο' }}</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let warehouseDocModalEl, warehouseDocModalCtrl, warehouseDocWizardCtrl, warehouseDocSearchDebounce;
+let warehouseDocActiveId = '';
+let warehouseDocOpenToken = 0;
+let warehouseDocsPage = 1;
+let warehouseDocsTotal = 0;
+
+const fmt2 = new Intl.NumberFormat('el-GR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmt0 = new Intl.NumberFormat('el-GR', { maximumFractionDigits: 0 });
+
+function toNum(v){const n = Number(v || 0); return Number.isFinite(n) ? n : 0;}
+function money(v){return fmt2.format(toNum(v));}
+
+function toIsoDate(raw){
+  const val = String(raw || '').trim();
+  if(!val) return '';
+  if(window.bvToIsoDate) return window.bvToIsoDate(val);
+  if(/^\d{4}-\d{2}-\d{2}$/.test(val)) return val;
+  const m = val.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if(!m) return val;
+  const dd = String(m[1]).padStart(2, '0');
+  const mm = String(m[2]).padStart(2, '0');
+  const yyyy = m[3];
+  return `${yyyy}-${mm}-${dd}`;
+}
+function formatDateOnly(v){
+  if(!v) return '-';
+  if(window.bvToDmyDate) return window.bvToDmyDate(v);
+  const raw = String(v).trim();
+  const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if(m) return `${m[3]}/${m[2]}/${m[1]}`;
+  return raw || '-';
+}
+function formatDateTime(v){
+  if(!v) return '-';
+  if(window.bvToDmyDate) return window.bvToDmyDate(v);
+  return String(v);
+}
+function escapeHtml(v){
+  return String(v ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+function textOrDash(v, fallback='-'){
+  const txt = String(v ?? '').trim();
+  return txt || fallback;
+}
+function combineCodeName(code, name){
+  const c = String(code ?? '').trim();
+  const n = String(name ?? '').trim();
+  if(c && n && c.toLowerCase() !== n.toLowerCase()) return `${c}  ${n}`;
+  return n || c || '-';
+}
+function setInputValue(id, v){
+  const el = document.getElementById(id);
+  if(el) el.value = textOrDash(v);
+}
+function setTextValue(id, v){
+  const el = document.getElementById(id);
+  if(el) el.value = String(v ?? '');
+}
+function setError(msg){
+  const el = document.getElementById('warehouseDocsError');
+  if(!el) return;
+  if(!msg){
+    el.classList.add('d-none');
+    el.textContent = '';
+    return;
+  }
+  el.classList.remove('d-none');
+  el.textContent = msg;
+}
+function setModalError(msg){
+  const el = document.getElementById('warehouseDocModalError');
+  if(!el) return;
+  if(!msg){
+    el.classList.add('d-none');
+    el.textContent = '';
+    return;
+  }
+  el.classList.remove('d-none');
+  el.textContent = msg;
+}
+
+function activateWarehouseDocTab(targetSelector){
+  if(!warehouseDocModalEl) return;
+  const target = String(targetSelector || '').trim();
+  if(!target) return;
+  if(warehouseDocWizardCtrl?.show){
+    warehouseDocWizardCtrl.show(target);
+    return;
+  }
+  warehouseDocModalEl.querySelectorAll('[data-bv-wizard-step][data-target]').forEach((btn) => {
+    const btnTarget = btn.getAttribute('data-target');
+    const isActive = btnTarget === target;
+    btn.classList.toggle('is-active', isActive);
+    btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
+  });
+  warehouseDocModalEl.querySelectorAll('.tab-pane').forEach((pane) => {
+    const paneSelector = `#${pane.id}`;
+    const isActive = paneSelector === target;
+    pane.classList.toggle('active', isActive);
+    pane.classList.toggle('show', isActive);
+    pane.hidden = !isActive;
+    pane.setAttribute('aria-hidden', isActive ? 'false' : 'true');
+  });
+}
+function bindWarehouseDocTabs(){
+  if(!warehouseDocModalEl || warehouseDocModalEl.dataset.tabsBound === '1') return;
+  warehouseDocModalEl.dataset.tabsBound = '1';
+  const wizardRoot = warehouseDocModalEl.querySelector('[data-bv-form-wizard]');
+  if(window.BVFormWizard && wizardRoot){
+    warehouseDocWizardCtrl = window.BVFormWizard.create(wizardRoot, { initialTarget: '#warehouseDocTabGeneral' });
+    return;
+  }
+  warehouseDocModalEl.querySelectorAll('[data-bv-wizard-step][data-target]').forEach((btn) => {
+    btn.addEventListener('click', (event) => {
+      event.preventDefault();
+      activateWarehouseDocTab(btn.getAttribute('data-target'));
+    });
+  });
+  warehouseDocModalEl.querySelector('[data-bv-wizard-prev]')?.addEventListener('click', (event) => {
+    event.preventDefault();
+    const panes = Array.from(warehouseDocModalEl.querySelectorAll('.tab-pane'));
+    const currentIndex = panes.findIndex((pane) => pane.classList.contains('active'));
+    const prevPane = panes[Math.max(currentIndex - 1, 0)];
+    if(prevPane) activateWarehouseDocTab(`#${prevPane.id}`);
+  });
+  warehouseDocModalEl.querySelector('[data-bv-wizard-next]')?.addEventListener('click', (event) => {
+    event.preventDefault();
+    const panes = Array.from(warehouseDocModalEl.querySelectorAll('.tab-pane'));
+    const currentIndex = panes.findIndex((pane) => pane.classList.contains('active'));
+    const nextPane = panes[Math.min(currentIndex + 1, panes.length - 1)];
+    if(nextPane) activateWarehouseDocTab(`#${nextPane.id}`);
+  });
+}
+function getWarehouseDocModalController(){
+  if(!warehouseDocModalEl) return null;
+  if(window.BVModalSystem){
+    warehouseDocModalCtrl = warehouseDocModalCtrl || window.BVModalSystem.create(warehouseDocModalEl, {
+      closeOnBackdrop: false,
+      keyboard: true,
+      focusTrap: true,
+      restoreFocus: true,
+    });
+    return warehouseDocModalCtrl;
+  }
+  if(window.bootstrap?.Modal){
+    warehouseDocModalCtrl = warehouseDocModalCtrl || window.bootstrap.Modal.getOrCreateInstance(warehouseDocModalEl, {
+      backdrop: 'static',
+      keyboard: true,
+      focus: true,
+    });
+    return warehouseDocModalCtrl;
+  }
+  return null;
+}
+function showWarehouseDocModal(triggerEl){
+  const controller = getWarehouseDocModalController();
+  if(!controller) return;
+  if(controller.show.length >= 1) controller.show(triggerEl);
+  else controller.show();
+}
+
+function params(){
+  const fd = new FormData(document.getElementById('warehouseDocumentsFilters'));
+  const p = new URLSearchParams();
+  p.set('from', toIsoDate(fd.get('from')));
+  p.set('to', toIsoDate(fd.get('to')));
+  return p;
+}
+function warehouseDocumentsParams(){
+  const p = params();
+  const limit = Math.max(1, Number(document.getElementById('warehouseDocsPageSize')?.value || 100));
+  const offset = Math.max(0, (warehouseDocsPage - 1) * limit);
+  p.set('limit', String(limit));
+  p.set('offset', String(offset));
+  const q = String(document.getElementById('warehouseDocsSearch')?.value || '').trim();
+  if(q) p.set('q', q);
+  return p;
+}
+
+function resetWarehouseDocModal(){
+  document.getElementById('warehouseDocumentModalTitle').textContent = 'Παραστατικό Αποθήκης';
+  document.getElementById('warehouseDocumentModalSub').textContent = '-';
+  [
+    'warehouseDocFBranch','warehouseDocFWarehouse','warehouseDocFBranch2','warehouseDocFWarehouse2',
+    'warehouseDocFSeries','warehouseDocFType','warehouseDocFDocumentNo','warehouseDocFDate','warehouseDocFStatus',
+    'warehouseDocTGross','warehouseDocTNet','warehouseDocTVat','warehouseDocTExpenses','warehouseDocTQty',
+    'warehouseDocMShipment','warehouseDocMAddress','warehouseDocMCarrier','warehouseDocMZip','warehouseDocMMedium',
+    'warehouseDocMArea','warehouseDocMMediumNo','warehouseDocMCity','warehouseDocMRoute','warehouseDocMLoadingDate',
+    'warehouseDocMDeliveryDate','warehouseDocACreatedAt','warehouseDocAUpdatedAt','warehouseDocACreatedBy','warehouseDocAUpdatedBy',
+  ].forEach((id) => setInputValue(id, '-'));
+  setTextValue('warehouseDocNReason1', '');
+  setTextValue('warehouseDocNReason2', '');
+  setTextValue('warehouseDocNNotes', '');
+  const linesBody = document.getElementById('warehouseDocLinesBody');
+  if(linesBody){
+    linesBody.innerHTML = '<tr><td colspan="10" class="text-center text-muted py-3">Δεν υπάρχουν γραμμές.</td></tr>';
+  }
+  setModalError(null);
+  activateWarehouseDocTab('#warehouseDocTabGeneral');
+}
+
+function renderWarehouseDocumentsTable(rows){
+  const body = document.getElementById('warehouseDocsBody');
+  if(!body) return;
+  body.innerHTML = '';
+  if(!(rows || []).length){
+    body.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-3">Δεν βρέθηκαν παραστατικά.</td></tr>';
+    return;
+  }
+  (rows || []).forEach((r) => {
+    const docId = String(r.document_id || '').trim();
+    const tr = document.createElement('tr');
+    tr.dataset.docId = docId;
+    tr.tabIndex = 0;
+    tr.setAttribute('role', 'button');
+    if(docId && docId === warehouseDocActiveId) tr.classList.add('is-active');
+    tr.innerHTML = `
+      <td>${escapeHtml(formatDateOnly(r.document_date))}</td>
+      <td>${escapeHtml(textOrDash(r.branch))}</td>
+      <td>${escapeHtml(textOrDash(r.warehouse))}</td>
+      <td>${escapeHtml(textOrDash(r.branch_2))}</td>
+      <td>${escapeHtml(textOrDash(r.warehouse_2))}</td>
+      <td>${escapeHtml(textOrDash(r.series))}</td>
+      <td>${escapeHtml(textOrDash(r.document_no))}</td>
+      <td>${escapeHtml(textOrDash(r.status, ''))}</td>
+      <td class="text-end">${money(r.total_value)}</td>
+    `;
+    tr.addEventListener('click', () => {
+      warehouseDocActiveId = docId;
+      body.querySelectorAll('tr.is-active').forEach((row) => row.classList.remove('is-active'));
+      tr.classList.add('is-active');
+    });
+    tr.addEventListener('dblclick', () => {
+      if(docId) openWarehouseDocument(docId, tr);
+    });
+    tr.addEventListener('keydown', (event) => {
+      if((event.key === 'Enter' || event.key === ' ') && docId){
+        event.preventDefault();
+        openWarehouseDocument(docId, tr);
+      }
+    });
+    body.appendChild(tr);
+  });
+}
+function updateWarehouseDocsPager(limit){
+  const pages = Math.max(1, Math.ceil((warehouseDocsTotal || 0) / limit));
+  if(warehouseDocsPage > pages) warehouseDocsPage = pages;
+  document.getElementById('warehouseDocsPageInfo').textContent = `${warehouseDocsPage} / ${pages}`;
+  document.getElementById('warehouseDocsPageJump').value = String(warehouseDocsPage);
+}
+function renderWarehouseDocumentsSummary(summary, meta={}){
+  const el = document.getElementById('warehouseDocsSummary');
+  if(!el) return;
+  const docs = toNum(summary?.documents);
+  warehouseDocsTotal = Math.max(0, Math.round(docs));
+  el.textContent = `Παραστατικά: ${fmt0.format(Math.round(docs))} | Συν.Αξία: ${money(summary?.value_total)} | Κόστος: ${money(summary?.cost_total)} | Συν.ποσ.: ${fmt2.format(toNum(summary?.qty_total))}`;
+
+  const limit = Math.max(1, Number(meta.limit || document.getElementById('warehouseDocsPageSize')?.value || 100));
+  const offset = Math.max(0, Number(meta.offset || 0));
+  const rowsCount = Math.max(0, Number(meta.rowsCount || 0));
+  const from = warehouseDocsTotal > 0 ? offset + 1 : 0;
+  const to = Math.min(offset + rowsCount, warehouseDocsTotal);
+  const rangeEl = document.getElementById('warehouseDocsRangeSummary');
+  if(rangeEl) rangeEl.textContent = `Εμφάνιση ${from} έως ${to} από ${warehouseDocsTotal}`;
+  updateWarehouseDocsPager(limit);
+}
+function renderWarehouseDocumentLines(lines){
+  const linesBody = document.getElementById('warehouseDocLinesBody');
+  if(!linesBody) return;
+  linesBody.innerHTML = '';
+  if(!(lines || []).length){
+    linesBody.innerHTML = '<tr><td colspan="10" class="text-center text-muted py-3">Δεν υπάρχουν γραμμές.</td></tr>';
+    return;
+  }
+  (lines || []).forEach((line, idx) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${fmt0.format(Number(line.row_no || idx + 1))}</td>
+      <td>${escapeHtml(textOrDash(line.item_code, '-'))}</td>
+      <td>${escapeHtml(textOrDash(line.item_name, '-'))}</td>
+      <td class="text-end">${fmt2.format(toNum(line.qty))}</td>
+      <td class="text-end">${fmt2.format(toNum(line.qty_executed))}</td>
+      <td class="text-end">${money(line.unit_price)}</td>
+      <td class="text-end">${fmt2.format(toNum(line.discount_pct))}</td>
+      <td class="text-end">${money(line.discount_amount)}</td>
+      <td class="text-end">${money(line.vat_amount)}</td>
+      <td class="text-end">${money(line.line_total)}</td>
+    `;
+    linesBody.appendChild(tr);
+  });
+}
+
+function fillWarehouseDocumentModal(data){
+  const header = data?.header || {};
+  const movement = data?.movement || {};
+  const notes = data?.notes || {};
+  const audit = data?.audit || {};
+  const totals = data?.totals || {};
+
+  const docNo = textOrDash(data?.document_no || data?.document_id, 'Παραστατικό Αποθήκης');
+  document.getElementById('warehouseDocumentModalTitle').textContent = docNo;
+  document.getElementById('warehouseDocumentModalSub').textContent =
+    `Snapshot: ${formatDateOnly(data?.document_date)} | Γραμμές: ${fmt0.format(Math.round(toNum(totals.line_count)))}`;
+
+  setInputValue('warehouseDocFBranch', combineCodeName(header.branch_code, header.branch_name));
+  setInputValue('warehouseDocFWarehouse', combineCodeName(header.warehouse_code, header.warehouse_name));
+  setInputValue('warehouseDocFBranch2', combineCodeName(header.branch_code_2, header.branch_name_2));
+  setInputValue('warehouseDocFWarehouse2', combineCodeName(header.warehouse_code_2, header.warehouse_name_2));
+  setInputValue('warehouseDocFSeries', header.series);
+  setInputValue('warehouseDocFType', header.document_type);
+  setInputValue('warehouseDocFDocumentNo', data?.document_no || data?.document_id);
+  setInputValue('warehouseDocFDate', formatDateOnly(data?.document_date));
+  setInputValue('warehouseDocFStatus', header.status);
+
+  renderWarehouseDocumentLines(data?.lines || []);
+  setInputValue('warehouseDocTGross', money(totals.gross_value));
+  setInputValue('warehouseDocTNet', money(totals.net_value));
+  setInputValue('warehouseDocTVat', money(totals.vat_value));
+  setInputValue('warehouseDocTExpenses', money(totals.expenses_value));
+  setInputValue('warehouseDocTQty', fmt2.format(toNum(totals.qty_total)));
+
+  setInputValue('warehouseDocMShipment', movement.shipment_type);
+  setInputValue('warehouseDocMAddress', movement.delivery_address);
+  setInputValue('warehouseDocMCarrier', movement.carrier_name);
+  setInputValue('warehouseDocMZip', movement.delivery_zip);
+  setInputValue('warehouseDocMMedium', movement.transport_medium);
+  setInputValue('warehouseDocMArea', movement.delivery_area);
+  setInputValue('warehouseDocMMediumNo', movement.transport_no);
+  setInputValue('warehouseDocMCity', movement.delivery_city);
+  setInputValue('warehouseDocMRoute', movement.route_name);
+  setInputValue('warehouseDocMLoadingDate', formatDateOnly(movement.loading_date));
+  setInputValue('warehouseDocMDeliveryDate', formatDateOnly(movement.delivery_date));
+
+  setTextValue('warehouseDocNReason1', notes.reason_1 || '');
+  setTextValue('warehouseDocNReason2', notes.notes_2 || '');
+  setTextValue('warehouseDocNNotes', notes.notes_1 || '');
+  setInputValue('warehouseDocACreatedAt', formatDateTime(audit.created_at));
+  setInputValue('warehouseDocAUpdatedAt', formatDateTime(audit.updated_at));
+  setInputValue('warehouseDocACreatedBy', audit.created_by);
+  setInputValue('warehouseDocAUpdatedBy', audit.updated_by);
+}
+
+async function reloadWarehouseDocuments(e){
+  if(e) e.preventDefault();
+  setError(null);
+  const body = document.getElementById('warehouseDocsBody');
+  if(body){
+    body.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-3">Φόρτωση παραστατικών...</td></tr>';
+  }
+  try {
+    const p = warehouseDocumentsParams();
+    const res = await fetch(`/v1/kpi/inventory/documents?${p.toString()}`);
+    if(!res.ok) throw new Error('Αποτυχία φόρτωσης παραστατικών.');
+    const payload = await res.json();
+    renderWarehouseDocumentsTable(payload?.rows || []);
+    renderWarehouseDocumentsSummary(payload?.summary || {}, {
+      limit: payload?.limit,
+      offset: payload?.offset,
+      rowsCount: (payload?.rows || []).length,
+    });
+  } catch (_err) {
+    setError('Αποτυχία φόρτωσης παραστατικών.');
+    if(body){
+      body.innerHTML = '<tr><td colspan="9" class="text-center text-danger py-3">Αποτυχία φόρτωσης παραστατικών.</td></tr>';
+    }
+    renderWarehouseDocumentsSummary(
+      { documents: 0, value_total: 0, cost_total: 0, qty_total: 0 },
+      { limit: document.getElementById('warehouseDocsPageSize')?.value || 100, offset: 0, rowsCount: 0 }
+    );
+  }
+}
+
+async function openWarehouseDocument(documentId, triggerEl){
+  const docId = String(documentId || '').trim();
+  if(!docId) return;
+  warehouseDocActiveId = docId;
+  document.querySelectorAll('#warehouseDocsBody tr.is-active').forEach((row) => row.classList.remove('is-active'));
+  Array.from(document.querySelectorAll('#warehouseDocsBody tr')).find((row) => row.dataset.docId === docId)?.classList.add('is-active');
+
+  resetWarehouseDocModal();
+  showWarehouseDocModal(triggerEl);
+  const token = ++warehouseDocOpenToken;
+  try {
+    const p = params();
+    const res = await fetch(`/v1/kpi/inventory/documents/${encodeURIComponent(docId)}/detail?${p.toString()}`);
+    if(token !== warehouseDocOpenToken) return;
+    if(!res.ok){
+      const err = await res.json().catch(() => ({ detail: 'Αποτυχία φόρτωσης παραστατικού.' }));
+      throw new Error(err?.detail || 'Αποτυχία φόρτωσης παραστατικού.');
+    }
+    const data = await res.json();
+    if(token !== warehouseDocOpenToken) return;
+    fillWarehouseDocumentModal(data);
+  } catch (err) {
+    if(token !== warehouseDocOpenToken) return;
+    setModalError(err?.message || 'Αποτυχία φόρτωσης παραστατικού.');
+  }
+}
+
+document.getElementById('warehouseDocumentsFilters').addEventListener('submit', (e) => {
+  warehouseDocsPage = 1;
+  reloadWarehouseDocuments(e);
+});
+
+window.addEventListener('load', async () => {
+  warehouseDocModalEl = document.getElementById('warehouseDocumentModal');
+  bindWarehouseDocTabs();
+  getWarehouseDocModalController();
+
+  const searchEl = document.getElementById('warehouseDocsSearch');
+  if(searchEl){
+    searchEl.addEventListener('input', () => {
+      clearTimeout(warehouseDocSearchDebounce);
+      warehouseDocSearchDebounce = setTimeout(() => {
+        warehouseDocsPage = 1;
+        reloadWarehouseDocuments();
+      }, 260);
+    });
+  }
+  document.getElementById('warehouseDocsRefresh')?.addEventListener('click', () => reloadWarehouseDocuments());
+  document.getElementById('warehouseDocsReset')?.addEventListener('click', () => {
+    document.getElementById('warehouseDocumentsFilters')?.reset();
+    if(window.bvInitDmyDateInputs) window.bvInitDmyDateInputs(document.getElementById('warehouseDocumentsFilters'));
+    warehouseDocsPage = 1;
+    reloadWarehouseDocuments();
+  });
+  document.getElementById('warehouseDocsPageSize')?.addEventListener('change', () => { warehouseDocsPage = 1; reloadWarehouseDocuments(); });
+  document.getElementById('warehouseDocsFirstPage')?.addEventListener('click', () => { warehouseDocsPage = 1; reloadWarehouseDocuments(); });
+  document.getElementById('warehouseDocsPrevPage')?.addEventListener('click', () => { warehouseDocsPage = Math.max(1, warehouseDocsPage - 1); reloadWarehouseDocuments(); });
+  document.getElementById('warehouseDocsNextPage')?.addEventListener('click', () => { warehouseDocsPage += 1; reloadWarehouseDocuments(); });
+  document.getElementById('warehouseDocsLastPage')?.addEventListener('click', () => {
+    const limit = Math.max(1, Number(document.getElementById('warehouseDocsPageSize')?.value || 100));
+    const pages = Math.max(1, Math.ceil((warehouseDocsTotal || 0) / limit));
+    warehouseDocsPage = pages;
+    reloadWarehouseDocuments();
+  });
+  document.getElementById('warehouseDocsPageGo')?.addEventListener('click', () => {
+    const val = Math.max(1, Number(document.getElementById('warehouseDocsPageJump')?.value || 1));
+    warehouseDocsPage = val;
+    reloadWarehouseDocuments();
+  });
+  await reloadWarehouseDocuments();
+});
+</script>
+{% endblock %}

@@ -16,6 +16,7 @@ __pycache__/
 *.log
 backups/
 infra/production/logs/
+migrecion files/
 
 # IDE
 .vscode/

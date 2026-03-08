@@ -18,6 +18,7 @@ from app.models.control import (
     AuditLog,
     Plan,
     PlanName,
+    ProfessionalProfile,
     RoleName,
     Subscription,
     SubscriptionLimit,
@@ -29,12 +30,21 @@ from app.models.control import (
 )
 from app.services.subscriptions import infer_default_features_for_plan
 
-TENANT_MIGRATION_HEAD = '20260228_0011_tenant'
+TENANT_MIGRATION_HEAD = '20260307_0002_tenant'
 
 
 def _rand_secret(size: int = 40) -> str:
     alphabet = string.ascii_letters + string.digits
     return ''.join(secrets.choice(alphabet) for _ in range(size))
+
+
+async def _required_profile_id_by_code(db: AsyncSession, code: str) -> int:
+    profile = (
+        await db.execute(select(ProfessionalProfile).where(ProfessionalProfile.profile_code == str(code).upper()))
+    ).scalar_one_or_none()
+    if not profile:
+        raise RuntimeError(f'missing professional profile seed: {code}')
+    return int(profile.id)
 
 
 def _admin_dsn() -> str:
@@ -116,6 +126,10 @@ async def run_tenant_provisioning_wizard(
     subscription_status: SubscriptionStatus,
     trial_days: int | None,
 ) -> dict:
+    source = str(source or '').strip().lower()
+    if source in {'pharmacyone', 'pharmacyone_sql'}:
+        source = 'sql'
+
     steps: list[dict] = []
     db_name = tenant_db_name(slug)
     db_user = f"u_{slug[:30]}"
@@ -142,8 +156,8 @@ async def run_tenant_provisioning_wizard(
             raise ValueError(f'plan not found: {plan.value}')
         mark(2, 'Plan selection', 'ok', plan.value)
 
-        # STEP 3: Data source selection
-        if source not in {'pharmacyone', 'external', 'files'}:
+        # STEP 3: Data source selection (ERP/data-source agnostic)
+        if source not in {'sql', 'external', 'files'}:
             raise ValueError(f'invalid source: {source}')
         mark(3, 'Data source selection', 'ok', source)
 
@@ -177,9 +191,11 @@ async def run_tenant_provisioning_wizard(
         )
         db.add(tenant)
         await db.flush()
+        manager_profile_id = await _required_profile_id_by_code(db, 'MANAGER')
 
         user = User(
             tenant_id=tenant.id,
+            professional_profile_id=manager_profile_id,
             email=admin_email,
             password_hash=get_password_hash(_rand_secret(32)),
             role=RoleName.tenant_admin,

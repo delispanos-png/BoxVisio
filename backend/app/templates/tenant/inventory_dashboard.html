@@ -162,7 +162,7 @@
         <div class="card-header"><h5 class="mb-0">{{ tt(request, 'commercial_category') }}</h5></div>
         <div class="card-body p-0">
           <div class="table-responsive">
-            <table class="table table-sm table-hover mb-0" id="tblInvCommercial">
+            <table class="table table-sm table-hover mb-0 bv-unified-table" id="tblInvCommercial">
               <thead><tr><th>{{ tt(request, 'category') }}</th><th class="text-end">{{ tt(request, 'qty') }}</th><th class="text-end">{{ tt(request, 'value') }}</th></tr></thead>
               <tbody></tbody>
             </table>
@@ -175,7 +175,7 @@
         <div class="card-header"><h5 class="mb-0">{{ tt(request, 'brands') }}</h5></div>
         <div class="card-body p-0">
           <div class="table-responsive">
-            <table class="table table-sm table-hover mb-0" id="tblInvBrand">
+            <table class="table table-sm table-hover mb-0 bv-unified-table" id="tblInvBrand">
               <thead><tr><th>{{ tt(request, 'brands') }}</th><th class="text-end">{{ tt(request, 'qty') }}</th><th class="text-end">{{ tt(request, 'value') }}</th></tr></thead>
               <tbody></tbody>
             </table>
@@ -188,7 +188,7 @@
         <div class="card-header"><h5 class="mb-0">{{ tt(request, 'manufacturer') }}</h5></div>
         <div class="card-body p-0">
           <div class="table-responsive">
-            <table class="table table-sm table-hover mb-0" id="tblInvManufacturer">
+            <table class="table table-sm table-hover mb-0 bv-unified-table" id="tblInvManufacturer">
               <thead><tr><th>{{ tt(request, 'manufacturer') }}</th><th class="text-end">{{ tt(request, 'qty') }}</th><th class="text-end">{{ tt(request, 'value') }}</th></tr></thead>
               <tbody></tbody>
             </table>
@@ -379,13 +379,12 @@
     setError('');
     try{
       const p = params();
-      const [snap, aging, byBrand, byCommercial, byManufacturer] = await Promise.all([
-        fetchJsonStrict(`/v1/kpi/inventory/snapshot?${p}`),
-        fetchJsonStrict(`/v1/kpi/inventory/stock-aging?${p}`),
-        fetchJsonStrict(`/v1/kpi/inventory/by-brand?${p}`),
-        fetchJsonStrict(`/v1/kpi/inventory/by-commercial-category?${p}`),
-        fetchJsonStrict(`/v1/kpi/inventory/by-manufacturer?${p}`),
-      ]);
+      const payload = await fetchJsonStrict(`/v1/streams/inventory/summary?${p}`);
+      const snap = payload?.snapshot || {};
+      const aging = payload?.aging || {};
+      const byBrand = Array.isArray(payload?.by_brand) ? payload.by_brand : [];
+      const byCommercial = Array.isArray(payload?.by_commercial_category) ? payload.by_commercial_category : [];
+      const byManufacturer = Array.isArray(payload?.by_manufacturer) ? payload.by_manufacturer : [];
       document.getElementById('kpiStockValue').textContent = fmtMoney(snap.value_amount);
       document.getElementById('kpiQtyOnHand').textContent = fmtNum(snap.qty_on_hand);
       document.getElementById('kpiCostAmount').textContent = fmtMoney(snap.cost_amount);

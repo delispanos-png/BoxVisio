@@ -1,7 +1,7 @@
 # KPI Catalog
 
 ## Scope
-This catalog groups KPIs into decision-oriented categories for Pharmacy BI tenants.
+This catalog groups KPIs into decision-oriented categories for Operational Intelligence Platform for Business tenants.
 
 ## Category: Sales
 

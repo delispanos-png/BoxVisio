@@ -57,7 +57,7 @@
       </div>
       <div class="col-md-2">
         <select class="form-select" name="source">
-          <option value="pharmacyone">SQL</option>
+          <option value="sql">SQL</option>
           <option value="external">API</option>
           <option value="files">Αρχεία</option>
         </select>
@@ -83,7 +83,7 @@
   <div class="card-body">
     <h5 class="mb-3">{{ tt(request, 'last_provisioning_run') }}</h5>
     <div class="table-responsive">
-      <table class="table table-sm">
+      <table class="table table-sm bv-unified-table" data-bv-admin-table="1">
         <thead><tr><th>{{ tt(request, 'step') }}</th><th>{{ tt(request, 'title') }}</th><th>{{ tt(request, 'status') }}</th><th>{{ tt(request, 'message') }}</th></tr></thead>
         <tbody>
           {% for s in provisioning_result.steps %}
@@ -105,7 +105,7 @@
   <div class="card-body">
     <h5 class="mb-3">{{ tt(request, 'tenants_list') }}</h5>
     <div class="table-responsive">
-      <table class="table table-hover align-middle">
+      <table class="table table-hover align-middle bv-unified-table" data-bv-admin-table="1">
         <thead>
           <tr>
             <th>ID</th>
@@ -137,7 +137,7 @@
               </span>
             </td>
             <td>
-              {% if t.source == 'pharmacyone' %}SQL{% elif t.source == 'external' %}API{% elif t.source == 'files' %}Αρχεία{% else %}{{ t.source }}{% endif %}
+              {% if t.source in ['sql', 'pharmacyone', 'pharmacyone_sql'] %}SQL{% elif t.source == 'external' %}API{% elif t.source == 'files' %}Αρχεία{% else %}{{ t.source }}{% endif %}
             </td>
             <td>{{ t.created_at }}</td>
             <td class="text-end">

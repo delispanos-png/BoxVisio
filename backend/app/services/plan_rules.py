@@ -33,8 +33,8 @@ def resolve_plan_policy(tenant: Tenant) -> PlanPolicy:
             max_branches=20,
         )
 
-    source = (tenant.source or '').strip().lower()
-    inventory_cashflows_allowed = source in {'pharmacyone', 'sql', 'pharmacyone_sql'}
+    # Enterprise capabilities are source-agnostic at policy level.
+    inventory_cashflows_allowed = True
     return PlanPolicy(
         feature_sales=True,
         feature_purchases=True,

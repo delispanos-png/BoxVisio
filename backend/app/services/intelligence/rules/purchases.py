@@ -6,7 +6,7 @@ from statistics import mean, pstdev
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.tenant import AggPurchasesDaily, AggSalesDaily, DimSupplier
+from app.models.tenant import AggPurchasesDaily, AggSalesDaily, DimSupplier, FactSupplierBalance
 from app.services.intelligence.types import InsightCreate, RuleContext
 
 
@@ -321,3 +321,81 @@ async def run_purchases_margin_pressure(db: AsyncSession, params: dict, ctx: Rul
             ),
         )
     ]
+
+
+async def run_supplier_overdue_exposure(db: AsyncSession, params: dict, ctx: RuleContext) -> list[InsightCreate]:
+    min_open_balance = float(params.get('min_open_balance', 1000))
+    overdue_ratio_threshold = float(params.get('overdue_ratio_threshold', 0.35))
+    min_overdue_delta = float(params.get('min_overdue_delta', 200))
+
+    rows = (
+        await db.execute(
+            select(
+                FactSupplierBalance.supplier_ext_id,
+                FactSupplierBalance.balance_date,
+                func.coalesce(func.sum(FactSupplierBalance.open_balance), 0).label('open_balance'),
+                func.coalesce(func.sum(FactSupplierBalance.overdue_balance), 0).label('overdue_balance'),
+            )
+            .where(FactSupplierBalance.balance_date <= ctx.period_to)
+            .group_by(FactSupplierBalance.supplier_ext_id, FactSupplierBalance.balance_date)
+            .order_by(FactSupplierBalance.supplier_ext_id.asc(), FactSupplierBalance.balance_date.desc())
+        )
+    ).all()
+    if not rows:
+        return []
+
+    series: dict[str, list[tuple]] = {}
+    for row in rows:
+        supplier = str(row[0] or '').strip()
+        if not supplier:
+            continue
+        series.setdefault(supplier, []).append((row[1], float(row[2] or 0), float(row[3] or 0)))
+
+    if not series:
+        return []
+
+    supplier_rows = (await db.execute(select(DimSupplier.external_id, DimSupplier.name))).all()
+    supplier_name = {str(r[0] or ''): str(r[1] or '') for r in supplier_rows}
+
+    out: list[InsightCreate] = []
+    for supplier, snapshots in series.items():
+        latest_date, open_balance, overdue_balance = snapshots[0]
+        if open_balance < min_open_balance:
+            continue
+
+        overdue_ratio = (overdue_balance / open_balance) if open_balance > 0 else 0.0
+        prev_overdue = snapshots[1][2] if len(snapshots) > 1 else 0.0
+        overdue_delta = overdue_balance - prev_overdue
+
+        if overdue_ratio < overdue_ratio_threshold and overdue_delta < min_overdue_delta:
+            continue
+
+        severity = 'critical' if overdue_ratio >= max(0.6, overdue_ratio_threshold + 0.2) else 'warning'
+        out.append(
+            InsightCreate(
+                rule_code='SUP_OVERDUE_EXPOSURE',
+                category='purchases',
+                severity=severity,
+                title='Έκθεση Ληξιπρόθεσμου Υπολοίπου',
+                message=(
+                    f'Ο προμηθευτής {supplier_name.get(supplier, supplier)} έχει ληξιπρόθεσμο υπόλοιπο '
+                    f'{overdue_balance:.2f} ({overdue_ratio * 100:.1f}% του ανοικτού).'
+                ),
+                entity_type='supplier',
+                entity_external_id=supplier,
+                entity_name=supplier_name.get(supplier, supplier) or supplier,
+                period_from=latest_date,
+                period_to=latest_date,
+                value=overdue_balance,
+                baseline_value=open_balance,
+                delta_value=overdue_delta,
+                delta_pct=overdue_ratio * 100.0,
+                metadata_json=_meta(
+                    why='Αύξηση ληξιπρόθεσμου υπολοίπου αυξάνει λειτουργικό και πιστωτικό κίνδυνο.',
+                    formula='overdue/open >= overdue_ratio_threshold OR overdue_delta >= min_overdue_delta',
+                    drilldown='/tenant/suppliers',
+                    actions=['Επανέλεγχος όρων πληρωμής και προγραμματισμός διακανονισμού.'],
+                ),
+            )
+        )
+    return out

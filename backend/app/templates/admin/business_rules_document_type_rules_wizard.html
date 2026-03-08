@@ -1,0 +1,237 @@
+{% extends "base_admin.html" %}
+{% block content %}
+<div class="card mt-3 shadow-sm">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <div>
+      <h5 class="mb-1">Wizard Αρχικής Ρύθμισης Κανόνων</h5>
+      <small class="text-muted">Γρήγορη παραμετροποίηση χωρίς JSON για finance και operations ομάδες.</small>
+    </div>
+    <a class="btn btn-outline-secondary btn-sm" href="/admin/business-rules/document-type-rules">
+      <i class="fe fe-arrow-left me-1"></i>Επιστροφή στους κανόνες
+    </a>
+  </div>
+  <div class="card-body">
+    {% if saved %}
+      <div class="alert alert-success">Ο custom κανόνας αποθηκεύτηκε.</div>
+    {% endif %}
+    {% if template_saved %}
+      <div class="alert alert-success">Το SoftOne template εφαρμόστηκε επιτυχώς.</div>
+    {% endif %}
+    {% if wizard_applied %}
+      <div class="alert alert-info">Ο οδηγός αρχικοποίησης εκτελέστηκε επιτυχώς.</div>
+    {% endif %}
+    {% if error_message %}
+      <div class="alert alert-danger">{{ error_message }}</div>
+    {% endif %}
+
+    <div class="row g-3">
+      <div class="col-lg-6">
+        <div class="border rounded p-3 h-100">
+          <h6 class="mb-3">Βήμα 1: Εφαρμογή SoftOne Defaults</h6>
+          <p class="small text-muted">
+            Ξεκίνα με έτοιμο template και μετά κάνε μικρές προσαρμογές με tenant overrides.
+          </p>
+          <form method="post" action="/admin/business-rules/document-type-rules/apply-softone-template" class="row g-2">
+            <input type="hidden" name="redirect_to" value="/admin/business-rules/document-type-rules/wizard">
+            <div class="col-md-6">
+              <label class="form-label">Scope</label>
+              <select class="form-select" name="scope" id="wizardTemplateScope">
+                <option value="global">Global Default</option>
+                <option value="tenant">Tenant Override</option>
+              </select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Tenant</label>
+              <select class="form-select" name="tenant_id" id="wizardTemplateTenant">
+                <option value="">Επιλογή</option>
+                {% for t in tenants %}
+                  <option value="{{ t.id }}">{{ t.name }} ({{ t.slug }})</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-8">
+              <label class="form-label">Ruleset</label>
+              <input class="form-control" name="ruleset_code" value="softone_default_v1">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Replace</label>
+              <select class="form-select" name="replace_existing">
+                <option value="1">Ναι</option>
+                <option value="0">Όχι</option>
+              </select>
+            </div>
+            <div class="col-12">
+              <button class="btn bv-action-btn bv-action-edit w-100" type="submit">
+                <i class="fe fe-download-cloud me-1"></i>Εφαρμογή Template
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <div class="col-lg-6">
+        <div class="border rounded p-3 h-100">
+          <h6 class="mb-3">Βήμα 2: Δημιουργία 1ου Custom Κανόνα</h6>
+          <p class="small text-muted">
+            Πρόσθεσε εξαίρεση για συγκεκριμένο tenant ή νέο τύπο παραστατικού.
+          </p>
+          <form method="post" action="/admin/business-rules/document-type-rules/upsert-form" class="row g-2">
+            <input type="hidden" name="redirect_to" value="/admin/business-rules/document-type-rules/wizard">
+            <div class="col-md-6">
+              <label class="form-label">Scope</label>
+              <select class="form-select" name="scope" id="wizardRuleScope">
+                <option value="global">Global</option>
+                <option value="tenant">Tenant</option>
+              </select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Tenant</label>
+              <select class="form-select" name="tenant_id" id="wizardRuleTenant">
+                <option value="">Επιλογή</option>
+                {% for t in tenants %}
+                  <option value="{{ t.id }}">{{ t.name }} ({{ t.slug }})</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Ruleset</label>
+              <input class="form-control" name="ruleset_code" value="softone_default_v1">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Document Type</label>
+              <input class="form-control" name="document_type" placeholder="π.χ. Ειδικό Πιστωτικό" required>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Stream</label>
+              <select class="form-select" name="stream_value">
+                {% for stream in stream_options %}
+                  <option value="{{ stream.value }}">{{ stream.label }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Override Mode</label>
+              <select class="form-select" name="override_mode">
+                <option value="replace">replace</option>
+                <option value="merge">merge</option>
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Revenue</label>
+              <select class="form-select" name="include_revenue">
+                <option value="1">Ναι</option>
+                <option value="0">Όχι</option>
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Quantity</label>
+              <select class="form-select" name="include_quantity">
+                <option value="1">Ναι</option>
+                <option value="0">Όχι</option>
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Cost</label>
+              <select class="form-select" name="include_cost">
+                <option value="1">Ναι</option>
+                <option value="0">Όχι</option>
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Cust Balance</label>
+              <select class="form-select" name="affects_customer_balance">
+                <option value="1">Ναι</option>
+                <option value="0" selected>Όχι</option>
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Supp Balance</label>
+              <select class="form-select" name="affects_supplier_balance">
+                <option value="1">Ναι</option>
+                <option value="0" selected>Όχι</option>
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Active</label>
+              <select class="form-select" name="is_active">
+                <option value="1">Ναι</option>
+                <option value="0">Όχι</option>
+              </select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Amount Sign</label>
+              <select class="form-select" name="amount_sign">
+                {% for sign in sign_options %}
+                  <option value="{{ sign.value }}">{{ sign.label }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Quantity Sign</label>
+              <select class="form-select" name="quantity_sign">
+                {% for sign in sign_options %}
+                  <option value="{{ sign.value }}">{{ sign.label }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-12">
+              <button class="btn bv-action-btn bv-action-save w-100" type="submit">
+                <i class="fe fe-save me-1"></i>Αποθήκευση Custom Κανόνα
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <div class="card mt-3 border-0 bg-light-subtle">
+      <div class="card-body">
+        <h6 class="mb-2">SoftOne Templates που θα εφαρμοστούν</h6>
+        <div class="table-responsive">
+          <table class="table table-sm mb-0">
+            <thead>
+              <tr>
+                <th>Document Type</th>
+                <th>Stream</th>
+                <th>Amount Sign</th>
+                <th>Qty Sign</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in softone_templates %}
+              <tr>
+                <td>{{ row.document_type }}</td>
+                <td>{{ row.stream_label }}</td>
+                <td>{{ row.amount_sign_label }}</td>
+                <td>{{ row.quantity_sign_label }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(() => {
+  const wizardTemplateScope = document.getElementById('wizardTemplateScope');
+  const wizardTemplateTenant = document.getElementById('wizardTemplateTenant');
+  const wizardRuleScope = document.getElementById('wizardRuleScope');
+  const wizardRuleTenant = document.getElementById('wizardRuleTenant');
+
+  const bindScope = (scopeNode, tenantNode) => {
+    if (!scopeNode || !tenantNode) return;
+    const apply = () => { tenantNode.required = scopeNode.value === 'tenant'; };
+    scopeNode.addEventListener('change', apply);
+    apply();
+  };
+
+  bindScope(wizardTemplateScope, wizardTemplateTenant);
+  bindScope(wizardRuleScope, wizardRuleTenant);
+})();
+</script>
+{% endblock %}

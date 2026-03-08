@@ -1,0 +1,581 @@
+{% extends "base_admin.html" %}
+{% macro yn_badge(flag) -%}
+  {% if flag %}
+    <span class="badge bg-success-subtle text-success border border-success-subtle">Ναι</span>
+  {% else %}
+    <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle">Όχι</span>
+  {% endif %}
+{%- endmacro %}
+{% block content %}
+<div class="card mt-3 shadow-sm">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <div>
+      <h5 class="mb-1">{{ tt(request, page_label_key) }}</h5>
+      <small class="text-muted">{{ page_description }}</small>
+    </div>
+    <div class="d-flex flex-wrap gap-2">
+      <a class="btn btn-outline-primary btn-sm" href="/admin/business-rules/document-type-rules/help">
+        <i class="fe fe-book-open me-1"></i>Οδηγός
+      </a>
+      <a class="btn btn-outline-primary btn-sm" href="/admin/business-rules/document-type-rules/wizard">
+        <i class="fe fe-navigation me-1"></i>Wizard 1ης ρύθμισης
+      </a>
+    </div>
+  </div>
+  <div class="card-body">
+    {% if saved %}
+      <div class="alert alert-success">Ο κανόνας αποθηκεύτηκε επιτυχώς.</div>
+    {% endif %}
+    {% if template_saved %}
+      <div class="alert alert-success">Το default template SoftOne εφαρμόστηκε επιτυχώς.</div>
+    {% endif %}
+    {% if wizard_applied %}
+      <div class="alert alert-info">Ο οδηγός αρχικής ρύθμισης ολοκληρώθηκε.</div>
+    {% endif %}
+    {% if error_message %}
+      <div class="alert alert-danger">{{ error_message }}</div>
+    {% endif %}
+
+    <div class="row g-3">
+      <div class="col-xl-8">
+        <div class="border rounded p-3 h-100">
+          <h6 class="mb-3">Form-based Επεξεργασία Κανόνα</h6>
+          <form id="docRuleForm" method="post" action="/admin/business-rules/document-type-rules/upsert-form" class="row g-3">
+            <input type="hidden" name="redirect_to" value="{{ request.url.path }}">
+            <input type="hidden" name="rule_key" id="ruleKeyInput" value="">
+
+            <div class="col-md-4">
+              <label class="form-label">
+                Scope
+                <i class="fe fe-help-circle text-muted ms-1" data-bs-toggle="tooltip" title="Global default ή tenant-specific override."></i>
+              </label>
+              <select class="form-select" name="scope" id="scopeSelect">
+                <option value="global" {% if default_form_values.scope == 'global' %}selected{% endif %}>Global Default</option>
+                <option value="tenant" {% if default_form_values.scope == 'tenant' %}selected{% endif %}>Tenant Override</option>
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">
+                Tenant
+                <i class="fe fe-help-circle text-muted ms-1" data-bs-toggle="tooltip" title="Απαραίτητο μόνο όταν επιλέγεις Tenant Override."></i>
+              </label>
+              <select class="form-select" name="tenant_id" id="tenantSelect">
+                <option value="">Επιλογή</option>
+                {% for t in tenants %}
+                  <option value="{{ t.id }}" {% if selected_tenant_id and selected_tenant_id == t.id %}selected{% endif %}>{{ t.name }} ({{ t.slug }})</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">
+                Ruleset
+                <i class="fe fe-help-circle text-muted ms-1" data-bs-toggle="tooltip" title="Χρησιμοποιείται για τα global defaults."></i>
+              </label>
+              <input class="form-control" name="ruleset_code" id="rulesetCodeInput" value="{{ initial_ruleset_code }}" required>
+            </div>
+
+            <div class="col-md-6">
+              <label class="form-label">
+                Document Type
+                <i class="fe fe-help-circle text-muted ms-1" data-bs-toggle="tooltip" title="Ονομασία τύπου παραστατικού όπως έρχεται από το ERP."></i>
+              </label>
+              <input class="form-control" name="document_type" id="documentTypeInput" placeholder="π.χ. Τιμολόγιο Πώλησης" required>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">
+                Stream
+                <i class="fe fe-help-circle text-muted ms-1" data-bs-toggle="tooltip" title="Σε ποιο επιχειρησιακό κύκλωμα θα ανήκει ο τύπος παραστατικού."></i>
+              </label>
+              <select class="form-select" name="stream_value" id="streamInput" required>
+                {% for stream in stream_options %}
+                  <option value="{{ stream.value }}" {% if default_form_values.stream == stream.value %}selected{% endif %}>{{ stream.label }}</option>
+                {% endfor %}
+              </select>
+            </div>
+
+            <div class="col-md-4">
+              <label class="form-label">
+                Include in Revenue
+                <i class="fe fe-help-circle text-muted ms-1" data-bs-toggle="tooltip" title="Αν ο τύπος συμμετέχει στον τζίρο."></i>
+              </label>
+              <select class="form-select" name="include_revenue" id="includeRevenueInput">
+                <option value="1">Ναι</option>
+                <option value="0">Όχι</option>
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">
+                Include in Quantity
+                <i class="fe fe-help-circle text-muted ms-1" data-bs-toggle="tooltip" title="Αν οι ποσότητες του τύπου μετράνε στα KPI ποσοτήτων."></i>
+              </label>
+              <select class="form-select" name="include_quantity" id="includeQuantityInput">
+                <option value="1">Ναι</option>
+                <option value="0">Όχι</option>
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">
+                Include in Cost
+                <i class="fe fe-help-circle text-muted ms-1" data-bs-toggle="tooltip" title="Αν ο τύπος συμμετέχει σε cost / margin KPI."></i>
+              </label>
+              <select class="form-select" name="include_cost" id="includeCostInput">
+                <option value="1">Ναι</option>
+                <option value="0">Όχι</option>
+              </select>
+            </div>
+
+            <div class="col-md-4">
+              <label class="form-label">
+                Affects Customer Balance
+                <i class="fe fe-help-circle text-muted ms-1" data-bs-toggle="tooltip" title="Αν ο τύπος επηρεάζει ανοιχτά υπόλοιπα πελατών."></i>
+              </label>
+              <select class="form-select" name="affects_customer_balance" id="affectsCustomerBalanceInput">
+                <option value="1">Ναι</option>
+                <option value="0">Όχι</option>
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">
+                Affects Supplier Balance
+                <i class="fe fe-help-circle text-muted ms-1" data-bs-toggle="tooltip" title="Αν ο τύπος επηρεάζει υποχρεώσεις προς προμηθευτές."></i>
+              </label>
+              <select class="form-select" name="affects_supplier_balance" id="affectsSupplierBalanceInput">
+                <option value="1">Ναι</option>
+                <option value="0">Όχι</option>
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">
+                Override Mode
+                <i class="fe fe-help-circle text-muted ms-1" data-bs-toggle="tooltip" title="Για tenant override: replace αντικαθιστά, merge συμπληρώνει πάνω στο global default."></i>
+              </label>
+              <select class="form-select" name="override_mode" id="overrideModeInput">
+                <option value="replace">replace</option>
+                <option value="merge">merge</option>
+              </select>
+            </div>
+
+            <div class="col-md-4">
+              <label class="form-label">
+                Amount Sign
+                <i class="fe fe-help-circle text-muted ms-1" data-bs-toggle="tooltip" title="Πρόσημο αξίας για KPI υπολογισμούς."></i>
+              </label>
+              <select class="form-select" name="amount_sign" id="amountSignInput">
+                {% for sign in sign_options %}
+                  <option value="{{ sign.value }}">{{ sign.label }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">
+                Quantity Sign
+                <i class="fe fe-help-circle text-muted ms-1" data-bs-toggle="tooltip" title="Πρόσημο ποσότητας για KPI υπολογισμούς."></i>
+              </label>
+              <select class="form-select" name="quantity_sign" id="quantitySignInput">
+                {% for sign in sign_options %}
+                  <option value="{{ sign.value }}">{{ sign.label }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Ενεργό</label>
+              <select class="form-select" name="is_active" id="isActiveInput">
+                <option value="1">Ναι</option>
+                <option value="0">Όχι</option>
+              </select>
+            </div>
+
+            <div class="col-12 d-flex flex-wrap gap-2">
+              <button class="btn bv-action-btn bv-action-save" type="submit">
+                <i class="fe fe-save me-1"></i>Αποθήκευση Κανόνα
+              </button>
+              <button class="btn btn-outline-secondary" type="button" id="resetRuleFormBtn">
+                <i class="fe fe-rotate-ccw me-1"></i>Καθαρισμός Φόρμας
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <div class="col-xl-4">
+        <div class="border rounded p-3 mb-3">
+          <h6 class="mb-2">SoftOne Default Templates</h6>
+          <p class="text-muted small mb-3">
+            Εφαρμόζει προκαθορισμένους κανόνες χωρίς χειροκίνητη εισαγωγή JSON.
+          </p>
+          <form method="post" action="/admin/business-rules/document-type-rules/apply-softone-template" class="row g-2">
+            <input type="hidden" name="redirect_to" value="{{ request.url.path }}">
+            <div class="col-12">
+              <label class="form-label">Scope</label>
+              <select class="form-select" name="scope" id="templateScopeSelect">
+                <option value="global">Global Default</option>
+                <option value="tenant">Tenant Override</option>
+              </select>
+            </div>
+            <div class="col-12">
+              <label class="form-label">Tenant</label>
+              <select class="form-select" name="tenant_id" id="templateTenantSelect">
+                <option value="">Επιλογή</option>
+                {% for t in tenants %}
+                  <option value="{{ t.id }}" {% if selected_tenant_id and selected_tenant_id == t.id %}selected{% endif %}>{{ t.name }} ({{ t.slug }})</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-12">
+              <label class="form-label">Ruleset</label>
+              <input class="form-control" name="ruleset_code" value="{{ initial_ruleset_code }}">
+            </div>
+            <div class="col-12">
+              <label class="form-label">Αντικατάσταση υπαρχόντων</label>
+              <select class="form-select" name="replace_existing">
+                <option value="1">Ναι</option>
+                <option value="0">Όχι (μόνο νέα)</option>
+              </select>
+            </div>
+            <div class="col-12">
+              <button class="btn bv-action-btn bv-action-edit w-100" type="submit">
+                <i class="fe fe-download-cloud me-1"></i>Εφαρμογή SoftOne Template
+              </button>
+            </div>
+          </form>
+        </div>
+
+        <div class="border rounded p-3">
+          <h6 class="mb-2">Προεπισκόπηση Templates</h6>
+          <div class="table-responsive" style="max-height: 340px;">
+            <table class="table table-sm align-middle">
+              <thead>
+                <tr>
+                  <th>Τύπος</th>
+                  <th>Κύκλωμα</th>
+                  <th>Αξία</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in softone_templates %}
+                <tr>
+                  <td>{{ row.document_type }}</td>
+                  <td>{{ row.stream_label }}</td>
+                  <td>{{ row.amount_sign_label }}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card mt-3 shadow-sm">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <h5 class="mb-0">Tenant Preview (Overrides)</h5>
+    <form method="get" action="/admin/business-rules/document-type-rules" class="d-flex flex-wrap gap-2">
+      <select class="form-select form-select-sm" name="tenant_id" style="min-width: 260px;">
+        <option value="">Επιλογή tenant για effective preview</option>
+        {% for t in tenants %}
+          <option value="{{ t.id }}" {% if selected_tenant_id and selected_tenant_id == t.id %}selected{% endif %}>{{ t.name }} ({{ t.slug }})</option>
+        {% endfor %}
+      </select>
+      <button class="btn btn-sm btn-outline-primary" type="submit">Φόρτωση</button>
+      <a class="btn btn-sm btn-outline-secondary" href="/admin/business-rules/document-type-rules">Καθαρισμός</a>
+    </form>
+  </div>
+  <div class="card-body">
+    {% if selected_tenant_id %}
+      <div class="alert alert-info py-2 mb-0">
+        Tenant preview για: <strong>{{ selected_tenant_name }}</strong> (ID {{ selected_tenant_id }}).
+      </div>
+    {% else %}
+      <div class="alert alert-light border mb-0">
+        Επίλεξε tenant για να δεις effective κανόνες (global default + tenant overrides).
+      </div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card mt-3 shadow-sm">
+  <div class="card-header"><h5 class="mb-0">Global Default Rules</h5></div>
+  <div class="card-body">
+    {% if global_rows %}
+      <div class="table-responsive">
+        <table class="table table-hover align-middle bv-unified-table" data-bv-admin-table="1">
+          <thead>
+            <tr>
+              <th>Document Type</th>
+              <th>Stream</th>
+              <th>Revenue</th>
+              <th>Qty</th>
+              <th>Cost</th>
+              <th>Cust Bal</th>
+              <th>Supp Bal</th>
+              <th>Amount Sign</th>
+              <th>Qty Sign</th>
+              <th>Ενεργό</th>
+              <th>Updated</th>
+              <th class="text-end">Ενέργεια</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in global_rows %}
+              <tr>
+                <td>{{ row.document_type }}</td>
+                <td>{{ row.stream_label }}</td>
+                <td>{{ yn_badge(row.include_revenue) }}</td>
+                <td>{{ yn_badge(row.include_quantity) }}</td>
+                <td>{{ yn_badge(row.include_cost) }}</td>
+                <td>{{ yn_badge(row.affects_customer_balance) }}</td>
+                <td>{{ yn_badge(row.affects_supplier_balance) }}</td>
+                <td>{{ row.amount_sign_label }}</td>
+                <td>{{ row.quantity_sign_label }}</td>
+                <td>{{ yn_badge(row.is_active) }}</td>
+                <td>{{ row.updated_at or '-' }}</td>
+                <td class="text-end">
+                  <button
+                    class="btn btn-sm btn-outline-primary js-edit-rule"
+                    type="button"
+                    data-scope="global"
+                    data-rule-key="{{ row.rule_key }}"
+                    data-ruleset-code="{{ row.ruleset_code }}"
+                    data-stream="{{ row.stream }}"
+                    data-document-type="{{ row.document_type }}"
+                    data-include-revenue="{{ '1' if row.include_revenue else '0' }}"
+                    data-include-quantity="{{ '1' if row.include_quantity else '0' }}"
+                    data-include-cost="{{ '1' if row.include_cost else '0' }}"
+                    data-affects-customer-balance="{{ '1' if row.affects_customer_balance else '0' }}"
+                    data-affects-supplier-balance="{{ '1' if row.affects_supplier_balance else '0' }}"
+                    data-amount-sign="{{ row.amount_sign }}"
+                    data-quantity-sign="{{ row.quantity_sign }}"
+                    data-is-active="{{ '1' if row.is_active else '0' }}"
+                    data-override-mode="replace"
+                  >
+                    Επεξεργασία
+                  </button>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="alert alert-info mb-0">Δεν υπάρχουν global document rules.</div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card mt-3 shadow-sm">
+  <div class="card-header"><h5 class="mb-0">Tenant Overrides</h5></div>
+  <div class="card-body">
+    {% if tenant_override_rows %}
+      <div class="table-responsive">
+        <table class="table table-hover align-middle bv-unified-table" data-bv-admin-table="1">
+          <thead>
+            <tr>
+              <th>Tenant</th>
+              <th>Document Type</th>
+              <th>Stream</th>
+              <th>Mode</th>
+              <th>Revenue</th>
+              <th>Qty</th>
+              <th>Cost</th>
+              <th>Cust Bal</th>
+              <th>Supp Bal</th>
+              <th>Amount Sign</th>
+              <th>Qty Sign</th>
+              <th>Ενεργό</th>
+              <th>Updated</th>
+              <th class="text-end">Ενέργεια</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in tenant_override_rows %}
+              <tr>
+                <td>{{ row.tenant_name }} ({{ row.tenant_id }})</td>
+                <td>{{ row.document_type }}</td>
+                <td>{{ row.stream_label }}</td>
+                <td><span class="badge bg-light text-dark border">{{ row.override_mode or 'replace' }}</span></td>
+                <td>{{ yn_badge(row.include_revenue) }}</td>
+                <td>{{ yn_badge(row.include_quantity) }}</td>
+                <td>{{ yn_badge(row.include_cost) }}</td>
+                <td>{{ yn_badge(row.affects_customer_balance) }}</td>
+                <td>{{ yn_badge(row.affects_supplier_balance) }}</td>
+                <td>{{ row.amount_sign_label }}</td>
+                <td>{{ row.quantity_sign_label }}</td>
+                <td>{{ yn_badge(row.is_active) }}</td>
+                <td>{{ row.updated_at or '-' }}</td>
+                <td class="text-end">
+                  <button
+                    class="btn btn-sm btn-outline-primary js-edit-rule"
+                    type="button"
+                    data-scope="tenant"
+                    data-tenant-id="{{ row.tenant_id }}"
+                    data-rule-key="{{ row.rule_key }}"
+                    data-ruleset-code="{{ row.ruleset_code }}"
+                    data-stream="{{ row.stream }}"
+                    data-document-type="{{ row.document_type }}"
+                    data-include-revenue="{{ '1' if row.include_revenue else '0' }}"
+                    data-include-quantity="{{ '1' if row.include_quantity else '0' }}"
+                    data-include-cost="{{ '1' if row.include_cost else '0' }}"
+                    data-affects-customer-balance="{{ '1' if row.affects_customer_balance else '0' }}"
+                    data-affects-supplier-balance="{{ '1' if row.affects_supplier_balance else '0' }}"
+                    data-amount-sign="{{ row.amount_sign }}"
+                    data-quantity-sign="{{ row.quantity_sign }}"
+                    data-is-active="{{ '1' if row.is_active else '0' }}"
+                    data-override-mode="{{ row.override_mode or 'replace' }}"
+                  >
+                    Επεξεργασία
+                  </button>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="alert alert-info mb-0">Δεν βρέθηκαν tenant overrides για τους επιλεγμένους όρους.</div>
+    {% endif %}
+  </div>
+</div>
+
+{% if selected_tenant_id %}
+<div class="card mt-3 shadow-sm">
+  <div class="card-header"><h5 class="mb-0">Effective Rules για {{ selected_tenant_name }}</h5></div>
+  <div class="card-body">
+    {% if effective_rows %}
+      <div class="table-responsive">
+        <table class="table table-striped align-middle bv-unified-table" data-bv-admin-table="1">
+          <thead>
+            <tr>
+              <th>Document Type</th>
+              <th>Stream</th>
+              <th>Source</th>
+              <th>Revenue</th>
+              <th>Qty</th>
+              <th>Cost</th>
+              <th>Cust Bal</th>
+              <th>Supp Bal</th>
+              <th>Amount Sign</th>
+              <th>Qty Sign</th>
+              <th>Ενεργό</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in effective_rows %}
+              <tr>
+                <td>{{ row.document_type }}</td>
+                <td>{{ row.stream_label }}</td>
+                <td>
+                  {% if row.override_mode and row.override_mode != 'global' %}
+                    <span class="badge bg-primary-subtle text-primary border border-primary-subtle">Tenant ({{ row.override_mode }})</span>
+                  {% else %}
+                    <span class="badge bg-light text-dark border">Global</span>
+                  {% endif %}
+                </td>
+                <td>{{ yn_badge(row.include_revenue) }}</td>
+                <td>{{ yn_badge(row.include_quantity) }}</td>
+                <td>{{ yn_badge(row.include_cost) }}</td>
+                <td>{{ yn_badge(row.affects_customer_balance) }}</td>
+                <td>{{ yn_badge(row.affects_supplier_balance) }}</td>
+                <td>{{ row.amount_sign_label }}</td>
+                <td>{{ row.quantity_sign_label }}</td>
+                <td>{{ yn_badge(row.is_active) }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="alert alert-info mb-0">Δεν υπάρχουν effective κανόνες για τον tenant.</div>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+(() => {
+  const scopeSelect = document.getElementById('scopeSelect');
+  const tenantSelect = document.getElementById('tenantSelect');
+  const rulesetCodeInput = document.getElementById('rulesetCodeInput');
+  const overrideModeInput = document.getElementById('overrideModeInput');
+  const resetBtn = document.getElementById('resetRuleFormBtn');
+  const templateScopeSelect = document.getElementById('templateScopeSelect');
+  const templateTenantSelect = document.getElementById('templateTenantSelect');
+
+  const toggleScopeState = () => {
+    if (!scopeSelect) return;
+    const isTenant = scopeSelect.value === 'tenant';
+    if (tenantSelect) tenantSelect.required = isTenant;
+    if (rulesetCodeInput) rulesetCodeInput.readOnly = isTenant;
+    if (overrideModeInput) overrideModeInput.disabled = !isTenant;
+  };
+
+  const toggleTemplateScopeState = () => {
+    if (!templateScopeSelect || !templateTenantSelect) return;
+    templateTenantSelect.required = templateScopeSelect.value === 'tenant';
+  };
+
+  const setValue = (id, value, fallback = '') => {
+    const node = document.getElementById(id);
+    if (!node) return;
+    node.value = (value ?? fallback);
+  };
+
+  document.querySelectorAll('.js-edit-rule').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      setValue('scopeSelect', btn.dataset.scope || 'global');
+      setValue('tenantSelect', btn.dataset.tenantId || '');
+      setValue('ruleKeyInput', btn.dataset.ruleKey || '');
+      setValue('rulesetCodeInput', btn.dataset.rulesetCode || 'softone_default_v1');
+      setValue('streamInput', btn.dataset.stream || 'sales_documents');
+      setValue('documentTypeInput', btn.dataset.documentType || '');
+      setValue('includeRevenueInput', btn.dataset.includeRevenue || '0');
+      setValue('includeQuantityInput', btn.dataset.includeQuantity || '0');
+      setValue('includeCostInput', btn.dataset.includeCost || '0');
+      setValue('affectsCustomerBalanceInput', btn.dataset.affectsCustomerBalance || '0');
+      setValue('affectsSupplierBalanceInput', btn.dataset.affectsSupplierBalance || '0');
+      setValue('amountSignInput', btn.dataset.amountSign || 'none');
+      setValue('quantitySignInput', btn.dataset.quantitySign || 'none');
+      setValue('isActiveInput', btn.dataset.isActive || '1');
+      setValue('overrideModeInput', btn.dataset.overrideMode || 'replace');
+      toggleScopeState();
+      document.getElementById('docRuleForm')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  });
+
+  resetBtn?.addEventListener('click', () => {
+    setValue('scopeSelect', 'global');
+    setValue('tenantSelect', '');
+    setValue('ruleKeyInput', '');
+    setValue('rulesetCodeInput', 'softone_default_v1');
+    setValue('streamInput', 'sales_documents');
+    setValue('documentTypeInput', '');
+    setValue('includeRevenueInput', '1');
+    setValue('includeQuantityInput', '1');
+    setValue('includeCostInput', '1');
+    setValue('affectsCustomerBalanceInput', '0');
+    setValue('affectsSupplierBalanceInput', '0');
+    setValue('amountSignInput', 'positive');
+    setValue('quantitySignInput', 'positive');
+    setValue('isActiveInput', '1');
+    setValue('overrideModeInput', 'replace');
+    toggleScopeState();
+  });
+
+  scopeSelect?.addEventListener('change', toggleScopeState);
+  templateScopeSelect?.addEventListener('change', toggleTemplateScopeState);
+  toggleScopeState();
+  toggleTemplateScopeState();
+
+  if (window.bootstrap && window.bootstrap.Tooltip) {
+    document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach((el) => {
+      if (el.dataset.tooltipBound === '1') return;
+      el.dataset.tooltipBound = '1';
+      new window.bootstrap.Tooltip(el);
+    });
+  }
+})();
+</script>
+{% endblock %}

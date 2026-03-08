@@ -16,6 +16,7 @@
       </div>
     {% endif %}
     <form method="post" action="/admin/connections/test" class="row g-2">
+      <input type="hidden" name="source_page" value="{{ active_page or 'connections' }}">
       <div class="col-12">
         <div class="border rounded p-3 h-100">
           <h6 class="mb-1">Βήμα 1: Στοιχεία Σύνδεσης</h6>
@@ -27,6 +28,23 @@
                 {% for t in tenants %}
                   <option value="{{ t.id }}" {% if form_values.tenant_id == t.id %}selected{% endif %}>{{ t.name }} ({{ t.slug }})</option>
                 {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Connector</label>
+              <select class="form-select" name="connector_type">
+                <option value="sql_connector" {% if (form_values.connector_type or 'sql_connector') == 'sql_connector' %}selected{% endif %}>SQL Connector</option>
+                <option value="pharmacyone_sql" {% if form_values.connector_type == 'pharmacyone_sql' %}selected{% endif %}>SQL Connector (legacy)</option>
+                <option value="external_api" {% if form_values.connector_type == 'external_api' %}selected{% endif %}>External API Connector</option>
+                <option value="file_import" {% if form_values.connector_type == 'file_import' %}selected{% endif %}>File Import Connector</option>
+              </select>
+            </div>
+            <div class="col-md-2">
+              <label class="form-label">Source Type</label>
+              <select class="form-select" name="source_type">
+                <option value="sql" {% if (form_values.source_type or 'sql') == 'sql' %}selected{% endif %}>sql</option>
+                <option value="api" {% if form_values.source_type == 'api' %}selected{% endif %}>api</option>
+                <option value="file" {% if form_values.source_type == 'file' %}selected{% endif %}>file</option>
               </select>
             </div>
             <div class="col-md-3"><label class="form-label">{{ tt(request, 'host') }}</label><input class="form-control" name="host" value="{{ form_values.host or '' }}" placeholder="sql.customer.local ή 1.2.3.4" required></div>
@@ -64,10 +82,32 @@
       <div class="col-12">
         <div class="border rounded p-3 h-100">
           <h6 class="mb-1">Βήμα 3: Query Templates</h6>
-          <div class="small text-muted mb-3">Τα queries πρέπει να επιστρέφουν row-level γραμμές για ingestion.</div>
+          <div class="small text-muted mb-3">Κάθε connector δηλώνει ρητά σε ποια επιχειρησιακά κυκλώματα κάνει ingest και με ποιο query ανά stream.</div>
+          <div class="row g-2 mb-3">
+            <div class="col-12">
+              <label class="form-label">Ενεργά επιχειρησιακά κυκλώματα</label>
+              <div class="d-flex flex-wrap gap-3">
+                {% for opt in stream_options %}
+                  <div class="form-check">
+                    <input class="form-check-input" type="checkbox" name="enabled_streams" id="stream_{{ opt.value }}" value="{{ opt.value }}" {% if opt.value in (form_values.enabled_streams or []) %}checked{% endif %}>
+                    <label class="form-check-label" for="stream_{{ opt.value }}">{{ opt.label }}</label>
+                  </div>
+                {% endfor %}
+              </div>
+            </div>
+          </div>
           <div class="row g-2">
             <div class="col-md-12"><label class="form-label">{{ tt(request, 'sales_query_template') }}</label><textarea class="form-control qp-editable" name="sales_query_template" rows="3" readonly>{{ form_values.sales_query_template or 'SELECT TOP 5000 * FROM dbo.SalesLines' }}</textarea></div>
             <div class="col-md-12"><label class="form-label">{{ tt(request, 'purchases_query_template') }}</label><textarea class="form-control qp-editable" name="purchases_query_template" rows="3" readonly>{{ form_values.purchases_query_template or 'SELECT TOP 5000 * FROM dbo.PurchaseLines' }}</textarea></div>
+            <div class="col-md-12"><label class="form-label">Template Query Παραστατικών Αποθήκης</label><textarea class="form-control qp-editable" name="inventory_query_template" rows="3" readonly>{{ form_values.inventory_query_template or 'SELECT TOP 5000 * FROM dbo.InventorySnapshots' }}</textarea></div>
+            <div class="col-md-12"><label class="form-label">Template Query Ταμειακών Συναλλαγών</label><textarea class="form-control qp-editable" name="cashflow_query_template" rows="3" readonly>{{ form_values.cashflow_query_template or 'SELECT TOP 5000 * FROM dbo.CashflowEntries' }}</textarea></div>
+            <div class="col-md-12"><label class="form-label">Template Query Ανοιχτών Υπολοίπων Προμηθευτών</label><textarea class="form-control qp-editable" name="supplier_balances_query_template" rows="3" readonly>{{ form_values.supplier_balances_query_template or 'SELECT TOP 5000 * FROM dbo.SupplierBalances' }}</textarea></div>
+            <div class="col-md-12"><label class="form-label">Template Query Ανοιχτών Υπολοίπων Πελατών</label><textarea class="form-control qp-editable" name="customer_balances_query_template" rows="3" readonly>{{ form_values.customer_balances_query_template or 'SELECT TOP 5000 * FROM dbo.CustomerBalances' }}</textarea></div>
+            <div class="col-md-12">
+              <label class="form-label">Field Mapping JSON (source -> canonical)</label>
+              <textarea class="form-control qp-editable font-monospace" name="stream_field_mapping_json" rows="6" readonly>{{ form_values.stream_field_mapping_json or '{}' }}</textarea>
+              <div class="form-text">Παράδειγμα: {"sales_documents":{"doc_date":"HMER","item_code":"KOD","net_value":"AXIA"}}</div>
+            </div>
           </div>
         </div>
       </div>
@@ -104,6 +144,7 @@
     <div class="row g-3">
       <div class="col-lg-6">
         <form method="post" action="/admin/connections/apply-pack" class="row g-2">
+          <input type="hidden" name="source_page" value="{{ active_page or 'connections' }}">
           <div class="col-md-8">
             <label class="form-label">{{ tt(request, 'tenant') }}</label>
             <select class="form-select" name="tenant_id" required>
@@ -119,6 +160,7 @@
       </div>
       <div class="col-lg-6">
         <form method="post" action="/admin/connections/backfill" class="row g-2">
+          <input type="hidden" name="source_page" value="{{ active_page or 'connections' }}">
           <div class="col-md-4">
             <label class="form-label">{{ tt(request, 'tenant') }}</label>
             <select class="form-select" name="tenant_id" required>
@@ -156,7 +198,7 @@
     <h5 class="mb-3">{{ tt(request, 'discovery_results') }}</h5>
     {% if discovery.objects %}
     <div class="table-responsive mb-3">
-      <table class="table table-sm table-hover">
+      <table class="table table-sm table-hover bv-unified-table" data-bv-admin-table="1">
         <thead><tr><th>{{ tt(request, 'schema') }}</th><th>{{ tt(request, 'object') }}</th><th>{{ tt(request, 'type') }}</th></tr></thead>
         <tbody>
           {% for o in discovery.objects %}
@@ -174,7 +216,7 @@
     {% if discovery.columns %}
     <h6>{{ tt(request, 'columns') }} {{ discovery.selected_schema }}.{{ discovery.selected_object }}</h6>
     <div class="table-responsive mb-3">
-      <table class="table table-sm table-striped">
+      <table class="table table-sm table-striped bv-unified-table" data-bv-admin-table="1">
         <thead><tr><th>{{ tt(request, 'name') }}</th><th>{{ tt(request, 'type') }}</th><th>{{ tt(request, 'tags') }}</th></tr></thead>
         <tbody>
           {% for c in discovery.columns %}
@@ -201,14 +243,16 @@
   <div class="card-body">
     <h5 class="mb-3">{{ tt(request, 'connections') }}</h5>
     <div class="table-responsive">
-      <table class="table table-hover">
-        <thead><tr><th>ID</th><th>{{ tt(request, 'tenant_id') }}</th><th>Connector</th><th>{{ tt(request, 'encrypted') }}</th><th>{{ tt(request, 'incremental') }}</th><th>{{ tt(request, 'last_test_ok') }}</th><th>{{ tt(request, 'last_test_error') }}</th><th>{{ tt(request, 'sync_status') }}</th><th>{{ tt(request, 'last_sync') }}</th></tr></thead>
+      <table class="table table-hover bv-unified-table" data-bv-admin-table="1">
+        <thead><tr><th>ID</th><th>{{ tt(request, 'tenant_id') }}</th><th>Connector</th><th>Source Type</th><th>Enabled Streams</th><th>{{ tt(request, 'encrypted') }}</th><th>{{ tt(request, 'incremental') }}</th><th>{{ tt(request, 'last_test_ok') }}</th><th>{{ tt(request, 'last_test_error') }}</th><th>{{ tt(request, 'sync_status') }}</th><th>{{ tt(request, 'last_sync') }}</th></tr></thead>
         <tbody>
           {% for c in connections %}
           <tr>
             <td>{{ c.id }}</td>
             <td>{{ c.tenant_id }}</td>
             <td>{{ c.connector_type }}</td>
+            <td>{{ c.source_type or '-' }}</td>
+            <td>{{ (c.enabled_streams or []) | join(', ') if c.enabled_streams else '-' }}</td>
             <td>{% if c.enc_payload %}{{ tt(request, 'yes') }}{% else %}{{ tt(request, 'no') }}{% endif %}</td>
             <td>{{ c.incremental_column }}</td>
             <td>{{ c.last_test_ok_at or '-' }}</td>

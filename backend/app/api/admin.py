@@ -1,5 +1,6 @@
 import secrets
 from datetime import datetime, timedelta
+from typing import Any
 
 from celery import Celery
 from fastapi import APIRouter, Depends, HTTPException
@@ -13,34 +14,49 @@ from app.db.control_session import get_control_db
 from app.db.tenant_manager import get_tenant_db_session
 from app.models.control import (
     AuditLog,
+    GlobalRuleEntry,
+    GlobalRuleSet,
+    OperationalStream,
+    OverrideMode,
     PlanFeature,
     PlanName,
     RoleName,
+    RuleDomain,
     Subscription,
     SubscriptionEvent,
     SubscriptionStatus,
     Tenant,
     TenantApiKey,
     TenantConnection,
+    TenantRuleOverride,
     User,
 )
 from app.services.sqlserver_connector import (
+    DEFAULT_GENERIC_CASHFLOW_QUERY,
+    DEFAULT_GENERIC_CUSTOMER_BALANCES_QUERY,
+    DEFAULT_GENERIC_INVENTORY_QUERY,
     DEFAULT_GENERIC_PURCHASES_QUERY,
     DEFAULT_GENERIC_SALES_QUERY,
+    DEFAULT_GENERIC_SUPPLIER_BALANCES_QUERY,
     discover_sqlserver,
     test_connection,
     test_connection_with_version,
 )
 from app.services.connection_secrets import build_odbc_connection_string, encrypt_sqlserver_secret, SqlServerSecret
 from app.services.ingestion import enqueue_tenant_job
+from app.services.ingestion.base import ALL_OPERATIONAL_STREAMS, STREAM_TO_ENTITY, normalize_stream_values
+from app.services.ingestion.engine import CONNECTORS
 from app.services.subscriptions import get_or_create_subscription, infer_default_features_for_plan, sync_tenant_from_subscription
 from app.services.provisioning_wizard import run_tenant_provisioning_wizard
 from app.services.querypacks import apply_querypack_to_connection, load_querypack
+from app.services.rule_config import resolve_rule_payload
 from app.services.intelligence_service import list_insights, list_rules as list_tenant_rules, update_rule as update_tenant_rule
 
 router = APIRouter(prefix='/v1/admin', tags=['admin'])
 
 celery_client = Celery('admin_sender', broker=settings.celery_broker_url)
+DEFAULT_SQL_CONNECTOR = 'sql_connector'
+SQL_CONNECTOR_TYPES = (DEFAULT_SQL_CONNECTOR, 'pharmacyone_sql')
 
 
 class TenantWizardRequest(BaseModel):
@@ -48,14 +64,15 @@ class TenantWizardRequest(BaseModel):
     slug: str
     admin_email: EmailStr
     plan: PlanName = PlanName.standard
-    source: str = 'external'
+    source: str = 'sql'
     subscription_status: SubscriptionStatus = SubscriptionStatus.trial
     trial_days: int = 14
 
 
 class ConnectionCreateRequest(BaseModel):
     tenant_id: int
-    connector_type: str = 'pharmacyone_sql'
+    connector_type: str = DEFAULT_SQL_CONNECTOR
+    source_type: str | None = None
     host: str
     port: int = 1433
     database: str
@@ -64,6 +81,10 @@ class ConnectionCreateRequest(BaseModel):
     options: dict[str, str] = Field(default_factory=dict)
     sales_query_template: str = DEFAULT_GENERIC_SALES_QUERY
     purchases_query_template: str = DEFAULT_GENERIC_PURCHASES_QUERY
+    inventory_query_template: str = DEFAULT_GENERIC_INVENTORY_QUERY
+    cashflow_query_template: str = DEFAULT_GENERIC_CASHFLOW_QUERY
+    supplier_balances_query_template: str = DEFAULT_GENERIC_SUPPLIER_BALANCES_QUERY
+    customer_balances_query_template: str = DEFAULT_GENERIC_CUSTOMER_BALANCES_QUERY
     updated_at_column: str = 'UpdatedAt'
     incremental_column: str = ''
     id_column: str = 'LineId'
@@ -74,6 +95,13 @@ class ConnectionCreateRequest(BaseModel):
     amount_column: str = ''
     cost_column: str = 'CostValue'
     qty_column: str = 'Qty'
+    supported_streams: list[str] | None = None
+    enabled_streams: list[str] | None = None
+    stream_query_mapping: dict[str, str] = Field(default_factory=dict)
+    stream_field_mapping: dict[str, dict[str, str]] = Field(default_factory=dict)
+    stream_file_mapping: dict[str, dict] = Field(default_factory=dict)
+    stream_api_endpoint: dict[str, str] = Field(default_factory=dict)
+    connection_parameters: dict[str, Any] = Field(default_factory=dict)
 
 
 class SqlServerMappingRequest(BaseModel):
@@ -85,6 +113,10 @@ class SqlServerMappingRequest(BaseModel):
     options: dict[str, str] = Field(default_factory=dict)
     sales_query_template: str = DEFAULT_GENERIC_SALES_QUERY
     purchases_query_template: str = DEFAULT_GENERIC_PURCHASES_QUERY
+    inventory_query_template: str = DEFAULT_GENERIC_INVENTORY_QUERY
+    cashflow_query_template: str = DEFAULT_GENERIC_CASHFLOW_QUERY
+    supplier_balances_query_template: str = DEFAULT_GENERIC_SUPPLIER_BALANCES_QUERY
+    customer_balances_query_template: str = DEFAULT_GENERIC_CUSTOMER_BALANCES_QUERY
     updated_at_column: str = 'UpdatedAt'
     incremental_column: str = ''
     id_column: str = 'LineId'
@@ -95,6 +127,14 @@ class SqlServerMappingRequest(BaseModel):
     amount_column: str = ''
     cost_column: str = 'CostValue'
     qty_column: str = 'Qty'
+    source_type: str | None = None
+    supported_streams: list[str] | None = None
+    enabled_streams: list[str] | None = None
+    stream_query_mapping: dict[str, str] = Field(default_factory=dict)
+    stream_field_mapping: dict[str, dict[str, str]] = Field(default_factory=dict)
+    stream_file_mapping: dict[str, dict] = Field(default_factory=dict)
+    stream_api_endpoint: dict[str, str] = Field(default_factory=dict)
+    connection_parameters: dict[str, Any] = Field(default_factory=dict)
 
 
 class SqlServerDiscoveryRequest(BaseModel):
@@ -138,12 +178,127 @@ class BackfillRequest(BaseModel):
     to_date: datetime
     chunk_days: int = 7
     include_purchases: bool = True
+    include_inventory: bool = True
+    include_cashflows: bool = True
+    include_supplier_balances: bool = True
+    include_customer_balances: bool = True
 
 
 class InsightRuleUpdateRequest(BaseModel):
     enabled: bool | None = None
     severity_default: str | None = None
     params_json: dict | None = None
+
+
+class GlobalRuleSetCreateRequest(BaseModel):
+    code: str
+    name: str
+    description: str | None = None
+    is_active: bool = True
+    priority: int = 100
+
+
+class GlobalRuleEntryUpsertRequest(BaseModel):
+    ruleset_code: str = 'softone_default_v1'
+    domain: RuleDomain
+    stream: OperationalStream
+    rule_key: str
+    payload_json: dict = Field(default_factory=dict)
+    is_active: bool = True
+
+
+async def _get_sql_connector_connection(db: AsyncSession, tenant_id: int) -> TenantConnection | None:
+    rows = (
+        await db.execute(
+            select(TenantConnection).where(
+                TenantConnection.tenant_id == tenant_id,
+                TenantConnection.connector_type.in_(SQL_CONNECTOR_TYPES),
+            )
+        )
+    ).scalars().all()
+    by_type = {str(row.connector_type or '').strip().lower(): row for row in rows}
+    return by_type.get(DEFAULT_SQL_CONNECTOR) or by_type.get('pharmacyone_sql')
+
+
+class TenantRuleOverrideUpsertRequest(BaseModel):
+    domain: RuleDomain
+    stream: OperationalStream
+    rule_key: str
+    override_mode: OverrideMode = OverrideMode.merge
+    payload_json: dict = Field(default_factory=dict)
+    is_active: bool = True
+
+
+def _default_source_type_for_connector(connector_type: str) -> str:
+    lowered = str(connector_type or '').strip().lower()
+    if 'api' in lowered:
+        return 'api'
+    if 'file' in lowered or 'csv' in lowered or 'excel' in lowered or 'sftp' in lowered:
+        return 'file'
+    return 'sql'
+
+
+def _default_supported_streams_for_connector(connector_type: str) -> list[str]:
+    if str(connector_type or '').strip().lower() == 'external_api':
+        return ['sales_documents', 'purchase_documents']
+    return list(ALL_OPERATIONAL_STREAMS)
+
+
+def _normalize_stream_list(values: list[str] | None, *, fallback: list[str]) -> list[str]:
+    normalized = normalize_stream_values(values or [])
+    return [stream for stream in normalized] if normalized else [stream for stream in fallback]
+
+
+def _coerce_stream_query_mapping(
+    value: dict[str, Any] | None,
+    *,
+    sales_query_template: str,
+    purchases_query_template: str,
+    inventory_query_template: str,
+    cashflow_query_template: str,
+    supplier_balances_query_template: str,
+    customer_balances_query_template: str,
+) -> dict[str, str]:
+    out: dict[str, str] = {}
+    if isinstance(value, dict):
+        for key, query in value.items():
+            stream = normalize_stream_values([str(key)])
+            if not stream:
+                continue
+            if isinstance(query, str) and query.strip():
+                out[stream[0]] = query
+
+    fallback_mapping = {
+        'sales_documents': sales_query_template,
+        'purchase_documents': purchases_query_template,
+        'inventory_documents': inventory_query_template,
+        'cash_transactions': cashflow_query_template,
+        'supplier_balances': supplier_balances_query_template,
+        'customer_balances': customer_balances_query_template,
+    }
+    for stream, query in fallback_mapping.items():
+        if isinstance(query, str) and query.strip() and stream not in out:
+            out[stream] = query
+    return out
+
+
+def _coerce_stream_field_mapping(value: dict[str, Any] | None) -> dict[str, dict[str, str]]:
+    out: dict[str, dict[str, str]] = {}
+    if not isinstance(value, dict):
+        return out
+    for stream_key, mapping in value.items():
+        stream = normalize_stream_values([str(stream_key)])
+        if not stream or not isinstance(mapping, dict):
+            continue
+        normalized_map: dict[str, str] = {}
+        for canonical_field, source_field in mapping.items():
+            c = str(canonical_field or '').strip()
+            s = str(source_field or '').strip()
+            if c and s:
+                normalized_map[c] = s
+        if normalized_map:
+            out[stream[0]] = normalized_map
+    return out
 
 
 @router.get('/tenants')
@@ -171,6 +326,16 @@ async def list_tenants(
         )
     await db.commit()
     return payload
+
+
+@router.get('/connectors/catalog')
+async def list_connector_catalog(
+    _: object = Depends(require_roles(RoleName.cloudon_admin)),
+):
+    catalog = []
+    for connector in CONNECTORS.values():
+        catalog.append(connector.declaration())
+    return {'connectors': catalog}
 
 
 @router.post('/tenants/wizard')
@@ -361,6 +526,10 @@ async def create_connection(
     )
     conn.sales_query_template = payload.sales_query_template
     conn.purchases_query_template = payload.purchases_query_template
+    conn.inventory_query_template = payload.inventory_query_template
+    conn.cashflow_query_template = payload.cashflow_query_template
+    conn.supplier_balances_query_template = payload.supplier_balances_query_template
+    conn.customer_balances_query_template = payload.customer_balances_query_template
     conn.incremental_column = (payload.incremental_column or payload.updated_at_column).strip() or 'UpdatedAt'
     conn.id_column = payload.id_column
     conn.date_column = payload.date_column
@@ -369,6 +538,31 @@ async def create_connection(
     conn.amount_column = (payload.amount_column or payload.net_amount_column).strip() or 'NetValue'
     conn.cost_column = payload.cost_column
     conn.qty_column = payload.qty_column
+    conn.source_type = (payload.source_type or _default_source_type_for_connector(payload.connector_type)).strip().lower() or 'sql'
+    default_supported = _default_supported_streams_for_connector(payload.connector_type)
+    conn.supported_streams = _normalize_stream_list(payload.supported_streams, fallback=default_supported)
+    conn.enabled_streams = _normalize_stream_list(payload.enabled_streams, fallback=conn.supported_streams)
+    conn.stream_query_mapping = _coerce_stream_query_mapping(
+        payload.stream_query_mapping,
+        sales_query_template=conn.sales_query_template,
+        purchases_query_template=conn.purchases_query_template,
+        inventory_query_template=conn.inventory_query_template,
+        cashflow_query_template=conn.cashflow_query_template,
+        supplier_balances_query_template=conn.supplier_balances_query_template,
+        customer_balances_query_template=conn.customer_balances_query_template,
+    )
+    conn.stream_field_mapping = _coerce_stream_field_mapping(payload.stream_field_mapping)
+    conn.stream_file_mapping = payload.stream_file_mapping or {}
+    conn.stream_api_endpoint = payload.stream_api_endpoint or {}
+    conn.connection_parameters = payload.connection_parameters or {
+        'connector_type': payload.connector_type,
+        'source_type': conn.source_type,
+        'host': payload.host,
+        'port': payload.port,
+        'database': payload.database,
+        'username': payload.username,
+        'options': payload.options,
+    }
     conn.last_test_error = None
 
     await db.commit()
@@ -381,14 +575,7 @@ async def get_sqlserver_mapping(
     _: object = Depends(require_roles(RoleName.cloudon_admin)),
     db: AsyncSession = Depends(get_control_db),
 ):
-    conn = (
-        await db.execute(
-            select(TenantConnection).where(
-                TenantConnection.tenant_id == tenant_id,
-                TenantConnection.connector_type == 'pharmacyone_sql',
-            )
-        )
-    ).scalar_one_or_none()
+    conn = await _get_sql_connector_connection(db, tenant_id)
     if not conn:
         raise HTTPException(status_code=404, detail='SQL Server mapping not found')
 
@@ -397,6 +584,10 @@ async def get_sqlserver_mapping(
         'has_credentials': bool(conn.enc_payload),
         'sales_query_template': conn.sales_query_template or DEFAULT_GENERIC_SALES_QUERY,
         'purchases_query_template': conn.purchases_query_template or DEFAULT_GENERIC_PURCHASES_QUERY,
+        'inventory_query_template': conn.inventory_query_template or DEFAULT_GENERIC_INVENTORY_QUERY,
+        'cashflow_query_template': conn.cashflow_query_template or DEFAULT_GENERIC_CASHFLOW_QUERY,
+        'supplier_balances_query_template': conn.supplier_balances_query_template or DEFAULT_GENERIC_SUPPLIER_BALANCES_QUERY,
+        'customer_balances_query_template': conn.customer_balances_query_template or DEFAULT_GENERIC_CUSTOMER_BALANCES_QUERY,
         'incremental_column': conn.incremental_column,
         'id_column': conn.id_column,
         'date_column': conn.date_column,
@@ -405,6 +596,14 @@ async def get_sqlserver_mapping(
         'amount_column': conn.amount_column,
         'cost_column': conn.cost_column,
         'qty_column': conn.qty_column,
+        'source_type': conn.source_type or _default_source_type_for_connector(DEFAULT_SQL_CONNECTOR),
+        'supported_streams': conn.supported_streams or _default_supported_streams_for_connector(DEFAULT_SQL_CONNECTOR),
+        'enabled_streams': conn.enabled_streams or conn.supported_streams or _default_supported_streams_for_connector(DEFAULT_SQL_CONNECTOR),
+        'stream_query_mapping': conn.stream_query_mapping or {},
+        'stream_field_mapping': conn.stream_field_mapping or {},
+        'stream_file_mapping': conn.stream_file_mapping or {},
+        'stream_api_endpoint': conn.stream_api_endpoint or {},
+        'connection_parameters': conn.connection_parameters or {},
     }
 
 
@@ -415,18 +614,11 @@ async def upsert_sqlserver_mapping(
     _: object = Depends(require_roles(RoleName.cloudon_admin)),
     db: AsyncSession = Depends(get_control_db),
 ):
-    conn = (
-        await db.execute(
-            select(TenantConnection).where(
-                TenantConnection.tenant_id == tenant_id,
-                TenantConnection.connector_type == 'pharmacyone_sql',
-            )
-        )
-    ).scalar_one_or_none()
+    conn = await _get_sql_connector_connection(db, tenant_id)
     if not conn:
         conn = TenantConnection(
             tenant_id=tenant_id,
-            connector_type='pharmacyone_sql',
+            connector_type=DEFAULT_SQL_CONNECTOR,
             sync_status='never',
         )
         db.add(conn)
@@ -441,6 +633,10 @@ async def upsert_sqlserver_mapping(
     )
     conn.sales_query_template = payload.sales_query_template
     conn.purchases_query_template = payload.purchases_query_template
+    conn.inventory_query_template = payload.inventory_query_template
+    conn.cashflow_query_template = payload.cashflow_query_template
+    conn.supplier_balances_query_template = payload.supplier_balances_query_template
+    conn.customer_balances_query_template = payload.customer_balances_query_template
     conn.incremental_column = (payload.incremental_column or payload.updated_at_column).strip() or 'UpdatedAt'
     conn.id_column = payload.id_column
     conn.date_column = payload.date_column
@@ -449,6 +645,31 @@ async def upsert_sqlserver_mapping(
     conn.amount_column = (payload.amount_column or payload.net_amount_column).strip() or 'NetValue'
     conn.cost_column = payload.cost_column
     conn.qty_column = payload.qty_column
+    conn.source_type = (payload.source_type or _default_source_type_for_connector(DEFAULT_SQL_CONNECTOR)).strip().lower() or 'sql'
+    default_supported = _default_supported_streams_for_connector(DEFAULT_SQL_CONNECTOR)
+    conn.supported_streams = _normalize_stream_list(payload.supported_streams, fallback=default_supported)
+    conn.enabled_streams = _normalize_stream_list(payload.enabled_streams, fallback=conn.supported_streams)
+    conn.stream_query_mapping = _coerce_stream_query_mapping(
+        payload.stream_query_mapping,
+        sales_query_template=conn.sales_query_template,
+        purchases_query_template=conn.purchases_query_template,
+        inventory_query_template=conn.inventory_query_template,
+        cashflow_query_template=conn.cashflow_query_template,
+        supplier_balances_query_template=conn.supplier_balances_query_template,
+        customer_balances_query_template=conn.customer_balances_query_template,
+    )
+    conn.stream_field_mapping = _coerce_stream_field_mapping(payload.stream_field_mapping)
+    conn.stream_file_mapping = payload.stream_file_mapping or {}
+    conn.stream_api_endpoint = payload.stream_api_endpoint or {}
+    conn.connection_parameters = payload.connection_parameters or {
+        'connector_type': DEFAULT_SQL_CONNECTOR,
+        'source_type': conn.source_type,
+        'host': payload.host,
+        'port': payload.port,
+        'database': payload.database,
+        'username': payload.username,
+        'options': payload.options,
+    }
     conn.last_test_error = None
     await db.commit()
     return {'status': 'updated', 'connection_id': conn.id}
@@ -461,14 +682,7 @@ async def sqlserver_discovery(
     _: object = Depends(require_roles(RoleName.cloudon_admin)),
     db: AsyncSession = Depends(get_control_db),
 ):
-    conn = (
-        await db.execute(
-            select(TenantConnection).where(
-                TenantConnection.tenant_id == tenant_id,
-                TenantConnection.connector_type == 'pharmacyone_sql',
-            )
-        )
-    ).scalar_one_or_none()
+    conn = await _get_sql_connector_connection(db, tenant_id)
     _ = conn  # explicit no-op; discovery uses provided credentials only.
     secret = SqlServerSecret(
         host=payload.host,
@@ -510,26 +724,12 @@ async def sqlserver_test_connection(
     try:
         test_connection(connection_string)
     except Exception as exc:
-        conn = (
-            await db.execute(
-                select(TenantConnection).where(
-                    TenantConnection.tenant_id == tenant_id,
-                    TenantConnection.connector_type == 'pharmacyone_sql',
-                )
-            )
-        ).scalar_one_or_none()
+        conn = await _get_sql_connector_connection(db, tenant_id)
         if conn is not None:
             conn.last_test_error = 'test_failed'
             await db.commit()
         return {'status': 'error', 'detail': 'test_failed'}
-    conn = (
-        await db.execute(
-            select(TenantConnection).where(
-                TenantConnection.tenant_id == tenant_id,
-                TenantConnection.connector_type == 'pharmacyone_sql',
-            )
-        )
-    ).scalar_one_or_none()
+    conn = await _get_sql_connector_connection(db, tenant_id)
     if conn is not None:
         conn.last_test_ok_at = datetime.utcnow()
         conn.last_test_error = None
@@ -548,18 +748,11 @@ async def connection_test(
     if not tenant:
         raise HTTPException(status_code=404, detail='Tenant not found')
 
-    conn = (
-        await db.execute(
-            select(TenantConnection).where(
-                TenantConnection.tenant_id == tenant_id,
-                TenantConnection.connector_type == 'pharmacyone_sql',
-            )
-        )
-    ).scalar_one_or_none()
+    conn = await _get_sql_connector_connection(db, tenant_id)
     if conn is None:
         conn = TenantConnection(
             tenant_id=tenant_id,
-            connector_type='pharmacyone_sql',
+            connector_type=DEFAULT_SQL_CONNECTOR,
             sync_status='never',
         )
         db.add(conn)
@@ -601,34 +794,26 @@ async def trigger_sync(
     if not tenant:
         raise HTTPException(status_code=404, detail='Tenant not found')
 
-    enqueue_tenant_job(
-        tenant.slug,
-        {
-            'connector': 'pharmacyone_sql',
-            'entity': 'sales',
-            'tenant_slug': tenant.slug,
-            'payload': {},
-            'attempt': 0,
-            'max_retries': settings.ingest_job_max_retries,
-        },
-    )
-    enqueue_tenant_job(
-        tenant.slug,
-        {
-            'connector': 'pharmacyone_sql',
-            'entity': 'purchases',
-            'tenant_slug': tenant.slug,
-            'payload': {},
-            'attempt': 0,
-            'max_retries': settings.ingest_job_max_retries,
-        },
-    )
+    jobs = list(ALL_OPERATIONAL_STREAMS)
+    for stream in jobs:
+        enqueue_tenant_job(
+            tenant.slug,
+            {
+                'connector': DEFAULT_SQL_CONNECTOR,
+                'stream': stream,
+                'entity': STREAM_TO_ENTITY[stream],
+                'tenant_slug': tenant.slug,
+                'payload': {},
+                'attempt': 0,
+                'max_retries': settings.ingest_job_max_retries,
+            },
+        )
     celery_client.send_task(
         'worker.tasks.drain_tenant_ingest_queue',
         kwargs={'tenant_slug': tenant.slug},
         queue='ingest',
     )
-    return {'status': 'queued', 'tenant': tenant.slug, 'jobs': ['sales', 'purchases'], 'queue': f'ingest:{tenant.slug}'}
+    return {'status': 'queued', 'tenant': tenant.slug, 'jobs': jobs, 'queue': f'ingest:{tenant.slug}'}
 
 
 @router.post('/tenants/{tenant_id}/querypack/apply')
@@ -640,19 +825,12 @@ async def apply_default_querypack(
     tenant = (await db.execute(select(Tenant).where(Tenant.id == tenant_id))).scalar_one_or_none()
     if not tenant:
         raise HTTPException(status_code=404, detail='Tenant not found')
-    conn = (
-        await db.execute(
-            select(TenantConnection).where(
-                TenantConnection.tenant_id == tenant_id,
-                TenantConnection.connector_type == 'pharmacyone_sql',
-            )
-        )
-    ).scalar_one_or_none()
+    conn = await _get_sql_connector_connection(db, tenant_id)
     if conn is None:
-        conn = TenantConnection(tenant_id=tenant_id, connector_type='pharmacyone_sql', sync_status='never')
+        conn = TenantConnection(tenant_id=tenant_id, connector_type=DEFAULT_SQL_CONNECTOR, sync_status='never')
         db.add(conn)
 
-    pack = load_querypack('pharmacyone', 'default')
+    pack = load_querypack('erp_sql', 'default')
     apply_querypack_to_connection(conn, pack)
     db.add(
         AuditLog(
@@ -678,13 +856,17 @@ async def run_initial_backfill(
     if not tenant:
         raise HTTPException(status_code=404, detail='Tenant not found')
     result = celery_client.send_task(
-        'worker.tasks.enqueue_pharmacyone_backfill',
+        'worker.tasks.enqueue_sql_backfill',
         kwargs={
             'tenant_slug': tenant.slug,
             'from_date_str': payload.from_date.date().isoformat(),
             'to_date_str': payload.to_date.date().isoformat(),
             'chunk_days': max(1, int(payload.chunk_days)),
             'include_purchases': bool(payload.include_purchases),
+            'include_inventory': bool(payload.include_inventory),
+            'include_cashflows': bool(payload.include_cashflows),
+            'include_supplier_balances': bool(payload.include_supplier_balances),
+            'include_customer_balances': bool(payload.include_customer_balances),
         },
         queue='ingest',
     )
@@ -857,3 +1039,246 @@ async def admin_update_tenant_insight_rule(
             raise HTTPException(status_code=404, detail='Rule not found')
         return {'status': 'updated', 'tenant': tenant.slug, 'code': code}
     raise HTTPException(status_code=500, detail='Tenant DB session failed')
+
+
+@router.get('/rulesets/global')
+async def list_global_rule_sets(
+    _: object = Depends(require_roles(RoleName.cloudon_admin)),
+    db: AsyncSession = Depends(get_control_db),
+):
+    rows = (
+        await db.execute(select(GlobalRuleSet).order_by(GlobalRuleSet.priority.desc(), GlobalRuleSet.code.asc()))
+    ).scalars().all()
+    return [
+        {
+            'id': r.id,
+            'code': r.code,
+            'name': r.name,
+            'description': r.description,
+            'is_active': bool(r.is_active),
+            'priority': int(r.priority),
+        }
+        for r in rows
+    ]
+
+
+@router.post('/rulesets/global')
+async def create_or_update_global_rule_set(
+    payload: GlobalRuleSetCreateRequest,
+    _: object = Depends(require_roles(RoleName.cloudon_admin)),
+    db: AsyncSession = Depends(get_control_db),
+):
+    row = (await db.execute(select(GlobalRuleSet).where(GlobalRuleSet.code == payload.code))).scalar_one_or_none()
+    if row is None:
+        row = GlobalRuleSet(
+            code=payload.code,
+            name=payload.name,
+            description=payload.description,
+            is_active=bool(payload.is_active),
+            priority=int(payload.priority),
+        )
+        db.add(row)
+        action = 'created'
+    else:
+        row.name = payload.name
+        row.description = payload.description
+        row.is_active = bool(payload.is_active)
+        row.priority = int(payload.priority)
+        action = 'updated'
+    await db.commit()
+    return {'status': action, 'ruleset_code': payload.code}
+
+
+@router.get('/rules/global')
+async def list_global_rule_entries(
+    ruleset_code: str | None = None,
+    domain: RuleDomain | None = None,
+    stream: OperationalStream | None = None,
+    _: object = Depends(require_roles(RoleName.cloudon_admin)),
+    db: AsyncSession = Depends(get_control_db),
+):
+    stmt = (
+        select(GlobalRuleEntry, GlobalRuleSet)
+        .join(GlobalRuleSet, GlobalRuleSet.id == GlobalRuleEntry.ruleset_id)
+        .order_by(
+            GlobalRuleSet.priority.desc(),
+            GlobalRuleSet.code.asc(),
+            GlobalRuleEntry.domain.asc(),
+            GlobalRuleEntry.stream.asc(),
+            GlobalRuleEntry.rule_key.asc(),
+        )
+    )
+    if ruleset_code:
+        stmt = stmt.where(GlobalRuleSet.code == ruleset_code)
+    if domain:
+        stmt = stmt.where(GlobalRuleEntry.domain == domain)
+    if stream:
+        stmt = stmt.where(GlobalRuleEntry.stream == stream)
+    rows = (await db.execute(stmt)).all()
+    return [
+        {
+            'id': entry.id,
+            'ruleset_code': ruleset.code,
+            'ruleset_name': ruleset.name,
+            'domain': entry.domain.value,
+            'stream': entry.stream.value,
+            'rule_key': entry.rule_key,
+            'payload_json': entry.payload_json or {},
+            'is_active': bool(entry.is_active),
+        }
+        for entry, ruleset in rows
+    ]
+
+
+@router.put('/rules/global')
+async def upsert_global_rule_entry(
+    payload: GlobalRuleEntryUpsertRequest,
+    _: object = Depends(require_roles(RoleName.cloudon_admin)),
+    db: AsyncSession = Depends(get_control_db),
+):
+    ruleset = (await db.execute(select(GlobalRuleSet).where(GlobalRuleSet.code == payload.ruleset_code))).scalar_one_or_none()
+    if ruleset is None:
+        ruleset = GlobalRuleSet(
+            code=payload.ruleset_code,
+            name=payload.ruleset_code,
+            description='Auto-created from API upsert.',
+            is_active=True,
+            priority=100,
+        )
+        db.add(ruleset)
+        await db.flush()
+
+    row = (
+        await db.execute(
+            select(GlobalRuleEntry).where(
+                GlobalRuleEntry.ruleset_id == ruleset.id,
+                GlobalRuleEntry.domain == payload.domain,
+                GlobalRuleEntry.stream == payload.stream,
+                GlobalRuleEntry.rule_key == payload.rule_key,
+            )
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        row = GlobalRuleEntry(
+            ruleset_id=ruleset.id,
+            domain=payload.domain,
+            stream=payload.stream,
+            rule_key=payload.rule_key,
+            payload_json=payload.payload_json,
+            is_active=bool(payload.is_active),
+        )
+        db.add(row)
+        action = 'created'
+    else:
+        row.payload_json = payload.payload_json
+        row.is_active = bool(payload.is_active)
+        action = 'updated'
+    await db.commit()
+    return {'status': action, 'ruleset_code': ruleset.code, 'domain': payload.domain.value, 'stream': payload.stream.value, 'rule_key': payload.rule_key}
+
+
+@router.get('/tenants/{tenant_id}/rules/overrides')
+async def list_tenant_rule_overrides(
+    tenant_id: int,
+    domain: RuleDomain | None = None,
+    stream: OperationalStream | None = None,
+    _: object = Depends(require_roles(RoleName.cloudon_admin)),
+    db: AsyncSession = Depends(get_control_db),
+):
+    tenant = (await db.execute(select(Tenant).where(Tenant.id == tenant_id))).scalar_one_or_none()
+    if tenant is None:
+        raise HTTPException(status_code=404, detail='Tenant not found')
+    stmt = (
+        select(TenantRuleOverride)
+        .where(TenantRuleOverride.tenant_id == tenant_id)
+        .order_by(TenantRuleOverride.domain.asc(), TenantRuleOverride.stream.asc(), TenantRuleOverride.rule_key.asc())
+    )
+    if domain:
+        stmt = stmt.where(TenantRuleOverride.domain == domain)
+    if stream:
+        stmt = stmt.where(TenantRuleOverride.stream == stream)
+    rows = (await db.execute(stmt)).scalars().all()
+    return [
+        {
+            'id': r.id,
+            'tenant_id': r.tenant_id,
+            'domain': r.domain.value,
+            'stream': r.stream.value,
+            'rule_key': r.rule_key,
+            'override_mode': r.override_mode.value,
+            'payload_json': r.payload_json or {},
+            'is_active': bool(r.is_active),
+        }
+        for r in rows
+    ]
+
+
+@router.put('/tenants/{tenant_id}/rules/overrides')
+async def upsert_tenant_rule_override(
+    tenant_id: int,
+    payload: TenantRuleOverrideUpsertRequest,
+    _: object = Depends(require_roles(RoleName.cloudon_admin)),
+    db: AsyncSession = Depends(get_control_db),
+):
+    tenant = (await db.execute(select(Tenant).where(Tenant.id == tenant_id))).scalar_one_or_none()
+    if tenant is None:
+        raise HTTPException(status_code=404, detail='Tenant not found')
+    row = (
+        await db.execute(
+            select(TenantRuleOverride).where(
+                TenantRuleOverride.tenant_id == tenant_id,
+                TenantRuleOverride.domain == payload.domain,
+                TenantRuleOverride.stream == payload.stream,
+                TenantRuleOverride.rule_key == payload.rule_key,
+            )
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        row = TenantRuleOverride(
+            tenant_id=tenant_id,
+            domain=payload.domain,
+            stream=payload.stream,
+            rule_key=payload.rule_key,
+            override_mode=payload.override_mode,
+            payload_json=payload.payload_json,
+            is_active=bool(payload.is_active),
+        )
+        db.add(row)
+        action = 'created'
+    else:
+        row.override_mode = payload.override_mode
+        row.payload_json = payload.payload_json
+        row.is_active = bool(payload.is_active)
+        action = 'updated'
+    await db.commit()
+    return {'status': action, 'tenant_id': tenant_id, 'domain': payload.domain.value, 'stream': payload.stream.value, 'rule_key': payload.rule_key}
+
+
+@router.get('/tenants/{tenant_id}/rules/resolve')
+async def resolve_tenant_rule(
+    tenant_id: int,
+    domain: RuleDomain,
+    stream: OperationalStream,
+    rule_key: str,
+    _: object = Depends(require_roles(RoleName.cloudon_admin)),
+    db: AsyncSession = Depends(get_control_db),
+):
+    tenant = (await db.execute(select(Tenant).where(Tenant.id == tenant_id))).scalar_one_or_none()
+    if tenant is None:
+        raise HTTPException(status_code=404, detail='Tenant not found')
+
+    payload = await resolve_rule_payload(
+        db,
+        tenant_id=tenant_id,
+        domain=domain,
+        stream=stream,
+        rule_key=rule_key,
+        fallback_payload={},
+    )
+    return {
+        'tenant_id': tenant_id,
+        'domain': domain.value,
+        'stream': stream.value,
+        'rule_key': rule_key,
+        'resolved_payload': payload,
+    }

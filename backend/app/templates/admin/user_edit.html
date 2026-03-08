@@ -4,7 +4,7 @@
 <div class="card mt-3 shadow-sm">
   <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
     <h5 class="mb-0">Επεξεργασία Χρήστη: {{ user.email }}</h5>
-    <small class="text-muted">Ανανέωσε ρόλο, tenant και χρονικό παράθυρο πρόσβασης.</small>
+    <small class="text-muted">Ανανέωσε ρόλο, προφίλ, tenant και χρονικό παράθυρο πρόσβασης.</small>
   </div>
   <div class="card-body">
     <form method="post" action="/admin/users/{{ user.id }}/edit" class="row g-3 admin-user-create-form">
@@ -23,10 +23,19 @@
       </div>
       <div class="col-xl-2 col-md-6">
         <label class="form-label">{{ tt(request, 'role') }}</label>
-        <select class="form-select" name="role">
-          <option value="tenant_user" {% if user.role.value == 'tenant_user' %}selected{% endif %}>Χρήστης Πελάτη</option>
-          <option value="tenant_admin" {% if user.role.value == 'tenant_admin' %}selected{% endif %}>Διαχειριστής Πελάτη</option>
-          <option value="cloudon_admin" {% if user.role.value == 'cloudon_admin' %}selected{% endif %}>CloudOn Admin</option>
+        <select class="form-select" name="role" id="editUserRoleSelect">
+          <option value="tenant_user" data-default-profile="FINANCE" {% if user.role.value == 'tenant_user' %}selected{% endif %}>Χρήστης Πελάτη</option>
+          <option value="tenant_admin" data-default-profile="MANAGER" {% if user.role.value == 'tenant_admin' %}selected{% endif %}>Διαχειριστής Πελάτη</option>
+          <option value="cloudon_admin" data-default-profile="OWNER" {% if user.role.value == 'cloudon_admin' %}selected{% endif %}>CloudOn Admin</option>
+        </select>
+      </div>
+      <div class="col-xl-4 col-md-6">
+        <label class="form-label">Επαγγελματικό Προφίλ</label>
+        <select class="form-select" name="professional_profile_code" id="editUserProfileSelect" required>
+          {% for p in professional_profiles %}
+          {% set _is_selected = user.professional_profile_id == p.id or (not user.professional_profile_id and p.profile_code == user_default_profile_code) %}
+          <option value="{{ p.profile_code }}" {% if _is_selected %}selected{% endif %}>{{ p.profile_name }} ({{ p.profile_code }})</option>
+          {% endfor %}
         </select>
       </div>
       <div class="col-xl-4 col-md-6">
@@ -54,4 +63,19 @@
   </div>
 </div>
 </div>
+<script>
+(() => {
+  const roleSelect = document.getElementById('editUserRoleSelect');
+  const profileSelect = document.getElementById('editUserProfileSelect');
+  if (!roleSelect || !profileSelect) return;
+
+  roleSelect.addEventListener('change', () => {
+    const selectedOption = roleSelect.options[roleSelect.selectedIndex];
+    const defaultProfileCode = selectedOption?.dataset?.defaultProfile || '';
+    if (!defaultProfileCode) return;
+    const targetOption = Array.from(profileSelect.options).find((opt) => opt.value === defaultProfileCode);
+    if (targetOption) profileSelect.value = defaultProfileCode;
+  });
+})();
+</script>
 {% endblock %}

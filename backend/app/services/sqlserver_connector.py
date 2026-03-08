@@ -9,6 +9,12 @@ DEFAULT_GENERIC_SALES_QUERY = "SELECT TOP 5000 * FROM dbo.SalesLines"
 
 DEFAULT_GENERIC_PURCHASES_QUERY = "SELECT TOP 5000 * FROM dbo.PurchaseLines"
 
+DEFAULT_GENERIC_INVENTORY_QUERY = "SELECT TOP 5000 * FROM dbo.InventorySnapshots"
+
+DEFAULT_GENERIC_CASHFLOW_QUERY = "SELECT TOP 5000 * FROM dbo.CashflowEntries"
+DEFAULT_GENERIC_SUPPLIER_BALANCES_QUERY = "SELECT TOP 5000 * FROM dbo.SupplierBalances"
+DEFAULT_GENERIC_CUSTOMER_BALANCES_QUERY = "SELECT TOP 5000 * FROM dbo.CustomerBalances"
+
 TABLE_KEYWORDS = ['sale', 'sales', 'invoice', 'inv', 'receipt', 'purchase', 'buy', 'mov', 'movement', 'doc', 'document']
 COLUMN_HINTS = {
     'date': ['date', 'docdate', 'created', 'updated', 'datetime', 'timestamp'],

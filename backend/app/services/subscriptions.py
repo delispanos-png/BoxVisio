@@ -86,11 +86,6 @@ async def is_feature_enabled(
     sub: Subscription,
     feature: str,
 ) -> bool:
-    source = (tenant.source or '').strip().lower()
-    # Hard gate: enterprise-only features require pharmacyone source.
-    if feature in {'inventory', 'cashflows'} and source not in {'pharmacyone', 'sql', 'pharmacyone_sql'}:
-        return False
-
     # Plan-level DB feature flags.
     row = (
         await db.execute(

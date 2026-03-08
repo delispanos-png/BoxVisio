@@ -19,6 +19,7 @@ from app.middleware.host_access_guard import host_access_guard_middleware
 from app.middleware.plan_guard import plan_guard_middleware
 from app.middleware.rate_limit import rate_limit_middleware
 from app.middleware.rbac_guard import rbac_guard_middleware
+from app.middleware.kpi_performance import kpi_performance_middleware
 from app.middleware.request_logging import request_logging_middleware
 from app.middleware.secure_headers import secure_headers_middleware
 from app.middleware.subscription_guard import subscription_guard_middleware
@@ -60,6 +61,7 @@ app.middleware('http')(plan_guard_middleware)
 app.middleware('http')(subscription_guard_middleware)
 app.middleware('http')(admin_audit_middleware)
 app.middleware('http')(request_logging_middleware)
+app.middleware('http')(kpi_performance_middleware)
 app.middleware('http')(error_handler_middleware)
 
 STATIC_DIR = Path(__file__).resolve().parent / 'static'

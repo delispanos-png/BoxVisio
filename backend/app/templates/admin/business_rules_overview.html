@@ -1,0 +1,55 @@
+{% extends "base_admin.html" %}
+{% block content %}
+<div class="card mt-3">
+  <div class="card-header">
+    <h5 class="mb-0">{{ tt(request, 'business_rules') }}</h5>
+  </div>
+  <div class="card-body">
+    <p class="text-muted mb-3">
+      Κεντρική ενότητα για τη ρύθμιση επιχειρησιακής λογικής ανά tenant χωρίς αλλαγές κώδικα.
+    </p>
+    <div class="row g-3">
+      <div class="col-md-6">
+        <a class="btn bv-action-btn bv-action-edit w-100" href="/admin/business-rules/document-type-rules">
+          <i class="fe fe-file-text"></i> {{ tt(request, 'business_rules_document_type_rules') }}
+        </a>
+      </div>
+      <div class="col-md-6">
+        <a class="btn btn-outline-primary w-100" href="/admin/business-rules/document-type-rules/wizard">
+          <i class="fe fe-navigation"></i> Wizard Κανόνων Τύπων
+        </a>
+      </div>
+      <div class="col-md-6">
+        <a class="btn bv-action-btn bv-action-edit w-100" href="/admin/business-rules/stream-mapping-rules">
+          <i class="fe fe-git-merge"></i> {{ tt(request, 'business_rules_stream_mapping_rules') }}
+        </a>
+      </div>
+      <div class="col-md-6">
+        <a class="btn bv-action-btn bv-action-edit w-100" href="/admin/business-rules/kpi-participation-rules">
+          <i class="fe fe-bar-chart-2"></i> {{ tt(request, 'business_rules_kpi_participation_rules') }}
+        </a>
+      </div>
+      <div class="col-md-6">
+        <a class="btn bv-action-btn bv-action-edit w-100" href="/admin/business-rules/intelligence-rules">
+          <i class="fe fe-zap"></i> {{ tt(request, 'business_rules_intelligence_rules') }}
+        </a>
+      </div>
+      <div class="col-md-6">
+        <a class="btn bv-action-btn bv-action-edit w-100" href="/admin/business-rules/query-mapping">
+          <i class="fe fe-code"></i> {{ tt(request, 'business_rules_query_mapping') }}
+        </a>
+      </div>
+      <div class="col-md-6">
+        <a class="btn bv-action-btn bv-action-edit w-100" href="/admin/business-rules/tenant-overrides">
+          <i class="fe fe-users"></i> {{ tt(request, 'tenant_overrides') }}
+        </a>
+      </div>
+      <div class="col-md-6">
+        <a class="btn btn-outline-secondary w-100" href="/admin/business-rules/document-type-rules/help">
+          <i class="fe fe-book-open"></i> Οδηγός Κανόνων Τύπων
+        </a>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

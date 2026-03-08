@@ -1,0 +1,144 @@
+{% extends "base_admin.html" %}
+{% block content %}
+<div class="card mt-3 shadow-sm">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <div>
+      <h5 class="mb-1">Οδηγός Κανόνων Τύπων Παραστατικών</h5>
+      <small class="text-muted">Πρακτική τεκμηρίωση για finance / operations χρήστες χωρίς χρήση JSON.</small>
+    </div>
+    <a class="btn btn-outline-secondary btn-sm" href="/admin/business-rules/document-type-rules">
+      <i class="fe fe-arrow-left me-1"></i>Επιστροφή
+    </a>
+  </div>
+  <div class="card-body">
+    <div class="row g-3">
+      <div class="col-lg-6">
+        <div class="border rounded p-3 h-100">
+          <h6 class="mb-2">Τι ρυθμίζουμε εδώ</h6>
+          <p class="mb-2">
+            Οι κανόνες τύπων παραστατικών καθορίζουν πώς κάθε τύπος εγγράφου συμμετέχει στα streams, στα KPI και στα υπόλοιπα.
+          </p>
+          <ul class="mb-0">
+            <li>Σε ποιο stream ανήκει το παραστατικό.</li>
+            <li>Αν επηρεάζει Revenue / Quantity / Cost.</li>
+            <li>Αν επηρεάζει υπόλοιπα πελατών ή προμηθευτών.</li>
+            <li>Το πρόσημο αξίας και ποσότητας.</li>
+          </ul>
+        </div>
+      </div>
+      <div class="col-lg-6">
+        <div class="border rounded p-3 h-100">
+          <h6 class="mb-2">Σειρά επίλυσης κανόνων</h6>
+          <p class="mb-2">Κατά το runtime ισχύει η παρακάτω προτεραιότητα:</p>
+          <ol class="mb-0">
+            <li>Tenant Override (αν υπάρχει)</li>
+            <li>Global Default Rule</li>
+          </ol>
+          <p class="small text-muted mt-2 mb-0">
+            Αυτό σημαίνει ότι μπορείς να έχεις ενιαίο baseline και εξαιρέσεις μόνο όπου χρειάζεται.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <div class="card mt-3 border-0 bg-light-subtle">
+      <div class="card-body">
+        <h6 class="mb-3">Ορισμοί πεδίων φόρμας</h6>
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-0">
+            <thead>
+              <tr>
+                <th style="width: 260px;">Πεδίο</th>
+                <th>Τι σημαίνει</th>
+                <th style="width: 260px;">Παράδειγμα</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>Document Type</strong></td>
+                <td>Η ονομασία του τύπου παραστατικού όπως έρχεται από ERP/connector.</td>
+                <td>Τιμολόγιο Πώλησης</td>
+              </tr>
+              <tr>
+                <td><strong>Stream</strong></td>
+                <td>Σε ποιο operational stream ανήκει ο τύπος.</td>
+                <td>Πωλήσεις, Αγορές, Αποθήκη, Ταμείο</td>
+              </tr>
+              <tr>
+                <td><strong>Include in Revenue</strong></td>
+                <td>Αν ο τύπος συμμετέχει στον τζίρο.</td>
+                <td>Ναι για τιμολόγια πώλησης</td>
+              </tr>
+              <tr>
+                <td><strong>Include in Quantity</strong></td>
+                <td>Αν μετράει τις ποσότητες στα KPI.</td>
+                <td>Ναι για πωλήσεις/αγορές ειδών</td>
+              </tr>
+              <tr>
+                <td><strong>Include in Cost</strong></td>
+                <td>Αν συμμετέχει στους υπολογισμούς κόστους και margin.</td>
+                <td>Ναι για τιμολόγια αγοράς</td>
+              </tr>
+              <tr>
+                <td><strong>Affects Customer Balance</strong></td>
+                <td>Αν επηρεάζει τις απαιτήσεις πελατών.</td>
+                <td>Ναι σε πωλήσεις επί πιστώσει</td>
+              </tr>
+              <tr>
+                <td><strong>Affects Supplier Balance</strong></td>
+                <td>Αν επηρεάζει τις υποχρεώσεις προς προμηθευτές.</td>
+                <td>Ναι σε τιμολόγια αγορών</td>
+              </tr>
+              <tr>
+                <td><strong>Amount Sign</strong></td>
+                <td>Πρόσημο αξίας: positive/negative/none.</td>
+                <td>negative σε πιστωτικό</td>
+              </tr>
+              <tr>
+                <td><strong>Quantity Sign</strong></td>
+                <td>Πρόσημο ποσότητας: positive/negative/none.</td>
+                <td>negative σε επιστροφή</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="row g-3 mt-1">
+      <div class="col-lg-6">
+        <div class="border rounded p-3 h-100">
+          <h6 class="mb-2">Σενάριο 1: Πιστωτικό Πώλησης</h6>
+          <p class="mb-1">Τυπική ρύθμιση:</p>
+          <ul class="mb-0">
+            <li>Stream: Πωλήσεις</li>
+            <li>Include Revenue: Ναι</li>
+            <li>Amount Sign: Αρνητικό</li>
+            <li>Quantity Sign: Αρνητικό</li>
+            <li>Affects Customer Balance: Ναι</li>
+          </ul>
+        </div>
+      </div>
+      <div class="col-lg-6">
+        <div class="border rounded p-3 h-100">
+          <h6 class="mb-2">Σενάριο 2: Πληρωμή Προμηθευτή</h6>
+          <p class="mb-1">Τυπική ρύθμιση:</p>
+          <ul class="mb-0">
+            <li>Stream: Ταμείο</li>
+            <li>Include Revenue / Quantity / Cost: Όχι</li>
+            <li>Affects Supplier Balance: Ναι</li>
+            <li>Amount Sign: Αρνητικό</li>
+            <li>Quantity Sign: Κανένα</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="alert alert-info mt-3 mb-0">
+      Για γρήγορη αρχικοποίηση χρησιμοποίησε τον
+      <a href="/admin/business-rules/document-type-rules/wizard">Wizard 1ης ρύθμισης</a>
+      και στη συνέχεια προσαρμόζεις tenant overrides από την κύρια φόρμα.
+    </div>
+  </div>
+</div>
+{% endblock %}

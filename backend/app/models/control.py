@@ -1,7 +1,19 @@
 from datetime import datetime
 from enum import Enum
 
-from sqlalchemy import JSON, Boolean, DateTime, Enum as SqlEnum, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    Enum as SqlEnum,
+    ForeignKey,
+    Index,
+    Integer,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import ControlBase
@@ -31,6 +43,28 @@ class SubscriptionStatus(str, Enum):
     past_due = 'past_due'
     suspended = 'suspended'
     canceled = 'canceled'
+
+
+class RuleDomain(str, Enum):
+    document_type_rules = 'document_type_rules'
+    source_mapping = 'source_mapping'
+    kpi_participation_rules = 'kpi_participation_rules'
+    intelligence_threshold_rules = 'intelligence_threshold_rules'
+
+
+class OperationalStream(str, Enum):
+    sales_documents = 'sales_documents'
+    purchase_documents = 'purchase_documents'
+    inventory_documents = 'inventory_documents'
+    cash_transactions = 'cash_transactions'
+    supplier_balances = 'supplier_balances'
+    customer_balances = 'customer_balances'
+
+
+class OverrideMode(str, Enum):
+    merge = 'merge'
+    replace = 'replace'
+    disable = 'disable'
 
 
 class Tenant(ControlBase):
@@ -65,12 +99,34 @@ class Tenant(ControlBase):
     subscriptions: Mapped[list['Subscription']] = relationship(back_populates='tenant')
 
 
+class ProfessionalProfile(ControlBase):
+    __tablename__ = 'dim_professional_profiles'
+    __table_args__ = (
+        UniqueConstraint('profile_code', name='uq_dim_professional_profiles_profile_code'),
+        Index('ix_dim_professional_profiles_profile_code', 'profile_code'),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    profile_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    profile_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    users: Mapped[list['User']] = relationship(back_populates='professional_profile')
+
+
 class User(ControlBase):
     __tablename__ = 'users'
     __table_args__ = (UniqueConstraint('email', 'tenant_id', name='uq_user_email_tenant'),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     tenant_id: Mapped[int | None] = mapped_column(ForeignKey('tenants.id'), nullable=True, index=True)
+    professional_profile_id: Mapped[int] = mapped_column(
+        ForeignKey('dim_professional_profiles.id'),
+        nullable=False,
+        index=True,
+    )
     full_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     phone: Mapped[str | None] = mapped_column(String(64), nullable=True)
     email: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -84,6 +140,7 @@ class User(ControlBase):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
     tenant: Mapped[Tenant | None] = relationship(back_populates='users')
+    professional_profile: Mapped[ProfessionalProfile] = relationship(back_populates='users')
 
 
 class TenantApiKey(ControlBase):
@@ -104,10 +161,15 @@ class TenantConnection(ControlBase):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     tenant_id: Mapped[int] = mapped_column(ForeignKey('tenants.id'), nullable=False, index=True)
-    connector_type: Mapped[str] = mapped_column(String(64), nullable=False, default='pharmacyone_sql')
+    connector_type: Mapped[str] = mapped_column(String(64), nullable=False, default='sql_connector')
     enc_payload: Mapped[str] = mapped_column(Text, nullable=False, default='')
+    connection_parameters: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     sales_query_template: Mapped[str] = mapped_column(Text, nullable=False, default='')
     purchases_query_template: Mapped[str] = mapped_column(Text, nullable=False, default='')
+    inventory_query_template: Mapped[str] = mapped_column(Text, nullable=False, default='')
+    cashflow_query_template: Mapped[str] = mapped_column(Text, nullable=False, default='')
+    supplier_balances_query_template: Mapped[str] = mapped_column(Text, nullable=False, default='')
+    customer_balances_query_template: Mapped[str] = mapped_column(Text, nullable=False, default='')
     incremental_column: Mapped[str] = mapped_column(String(128), nullable=False, default='UpdatedAt')
     id_column: Mapped[str] = mapped_column(String(128), nullable=False, default='LineId')
     date_column: Mapped[str] = mapped_column(String(128), nullable=False, default='DocDate')
@@ -116,6 +178,13 @@ class TenantConnection(ControlBase):
     amount_column: Mapped[str] = mapped_column(String(128), nullable=False, default='NetValue')
     cost_column: Mapped[str] = mapped_column(String(128), nullable=False, default='CostValue')
     qty_column: Mapped[str] = mapped_column(String(128), nullable=False, default='Qty')
+    source_type: Mapped[str] = mapped_column(String(32), nullable=False, default='sql')
+    supported_streams: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    enabled_streams: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    stream_query_mapping: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    stream_field_mapping: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    stream_file_mapping: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    stream_api_endpoint: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
     last_test_ok_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -274,3 +343,61 @@ class RefreshToken(ControlBase):
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
     replaced_by_jti: Mapped[str | None] = mapped_column(String(128), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+
+class GlobalRuleSet(ControlBase):
+    __tablename__ = 'global_rule_sets'
+    __table_args__ = (
+        UniqueConstraint('code', name='uq_global_rule_sets_code'),
+        Index('ix_global_rule_sets_active_priority', 'is_active', 'priority'),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    code: Mapped[str] = mapped_column(String(128), nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    priority: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    entries: Mapped[list['GlobalRuleEntry']] = relationship(back_populates='ruleset')
+
+
+class GlobalRuleEntry(ControlBase):
+    __tablename__ = 'global_rule_entries'
+    __table_args__ = (
+        UniqueConstraint('ruleset_id', 'domain', 'stream', 'rule_key', name='uq_global_rule_entries_scope'),
+        Index('ix_global_rule_entries_domain_stream', 'domain', 'stream'),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    ruleset_id: Mapped[int] = mapped_column(ForeignKey('global_rule_sets.id'), nullable=False, index=True)
+    domain: Mapped[RuleDomain] = mapped_column(SqlEnum(RuleDomain), nullable=False)
+    stream: Mapped[OperationalStream] = mapped_column(SqlEnum(OperationalStream), nullable=False)
+    rule_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    payload_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    ruleset: Mapped[GlobalRuleSet] = relationship(back_populates='entries')
+
+
+class TenantRuleOverride(ControlBase):
+    __tablename__ = 'tenant_rule_overrides'
+    __table_args__ = (
+        UniqueConstraint('tenant_id', 'domain', 'stream', 'rule_key', name='uq_tenant_rule_override_scope'),
+        Index('ix_tenant_rule_overrides_tenant_domain_stream', 'tenant_id', 'domain', 'stream'),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tenant_id: Mapped[int] = mapped_column(ForeignKey('tenants.id'), nullable=False, index=True)
+    domain: Mapped[RuleDomain] = mapped_column(SqlEnum(RuleDomain), nullable=False)
+    stream: Mapped[OperationalStream] = mapped_column(SqlEnum(OperationalStream), nullable=False)
+    rule_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    override_mode: Mapped[OverrideMode] = mapped_column(SqlEnum(OverrideMode), nullable=False, default=OverrideMode.merge)
+    payload_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)

@@ -2,6 +2,84 @@
 
 {% block filters %}
 <form id="salesFilters" class="row g-2">
+  {% if documents_mode %}
+  <div class="col-12 col-md-6 col-xl-2">
+    <label class="form-label mb-1">{{ tt(request, 'from') }}</label>
+    <input class="form-control" type="text" name="from" value="{{ default_from.strftime('%d/%m/%Y') if default_from else '' }}" data-date-format="dmy" placeholder="ηη/μμ/εεεε" inputmode="numeric">
+  </div>
+  <div class="col-12 col-md-6 col-xl-2">
+    <label class="form-label mb-1">{{ tt(request, 'to') }}</label>
+    <input class="form-control" type="text" name="to" value="{{ default_to.strftime('%d/%m/%Y') if default_to else '' }}" data-date-format="dmy" placeholder="ηη/μμ/εεεε" inputmode="numeric">
+  </div>
+  <div class="col-12 col-md-6 col-xl-2">
+    <label class="form-label mb-1">Υποκατάστημα</label>
+    <div class="bv-multi" id="salesBranchesMulti">
+      <button type="button" class="form-select bv-multi-toggle text-start" id="salesBranchesToggle">Επιλογή</button>
+      <div class="bv-multi-menu" id="salesBranchesMenu" hidden>
+        <div class="d-flex gap-2 mb-2">
+          <input type="text" class="form-control form-control-sm" id="salesBranchesSearch" placeholder="Αναζήτηση...">
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="salesBranchesAll">Όλα</button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="salesBranchesClear">Καθαρισμός</button>
+        </div>
+        <div id="salesBranchesOptions" class="bv-multi-options"></div>
+      </div>
+      <div id="salesBranchesChips" class="bv-chip-wrap mt-2"></div>
+      <select name="branches" id="salesBranches" multiple hidden></select>
+    </div>
+  </div>
+  <div class="col-12 col-md-6 col-xl-2">
+    <label class="form-label mb-1">Αποθ. χώρος</label>
+    <div class="bv-multi" id="salesWarehousesMulti">
+      <button type="button" class="form-select bv-multi-toggle text-start" id="salesWarehousesToggle">Επιλογή</button>
+      <div class="bv-multi-menu" id="salesWarehousesMenu" hidden>
+        <div class="d-flex gap-2 mb-2">
+          <input type="text" class="form-control form-control-sm" id="salesWarehousesSearch" placeholder="Αναζήτηση...">
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="salesWarehousesAll">Όλα</button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="salesWarehousesClear">Καθαρισμός</button>
+        </div>
+        <div id="salesWarehousesOptions" class="bv-multi-options"></div>
+      </div>
+      <div id="salesWarehousesChips" class="bv-chip-wrap mt-2"></div>
+      <select name="warehouses" id="salesWarehouses" multiple hidden></select>
+    </div>
+  </div>
+  <div class="col-12 col-md-6 col-xl-2">
+    <label class="form-label mb-1">Σειρά</label>
+    <input class="form-control" type="text" name="series" placeholder="Σειρά">
+  </div>
+  <div class="col-12 col-md-6 col-xl-2">
+    <label class="form-label mb-1">Status</label>
+    <input class="form-control" type="text" name="status" placeholder="Status">
+  </div>
+  <div class="col-12 col-md-6 col-xl-2">
+    <label class="form-label mb-1">Κωδ. παραστ.</label>
+    <input class="form-control" type="text" name="document_no" placeholder="Κωδ. παραστ.">
+  </div>
+  <div class="col-12 col-md-6 col-xl-2">
+    <label class="form-label mb-1">Κωδ. eshop</label>
+    <input class="form-control" type="text" name="eshop_code" placeholder="Κωδ. eshop">
+  </div>
+  <div class="col-12 col-md-6 col-xl-2">
+    <label class="form-label mb-1">Πελάτης</label>
+    <input class="form-control" type="text" name="customer" placeholder="Πελάτης">
+  </div>
+  <div class="col-12 col-md-6 col-xl-2">
+    <label class="form-label mb-1">Συν.Αξία από</label>
+    <input class="form-control" type="number" step="0.01" name="gross_min" placeholder="0.00" inputmode="decimal">
+  </div>
+  <div class="col-12 col-md-6 col-xl-2">
+    <label class="form-label mb-1">Συν.Αξία έως</label>
+    <input class="form-control" type="number" step="0.01" name="gross_max" placeholder="0.00" inputmode="decimal">
+  </div>
+  <div class="col-12 col-md-6 col-xl-2">
+    <label class="form-label mb-1">Από</label>
+    <input class="form-control" type="text" name="from_ref" placeholder="Από">
+  </div>
+  <div class="col-12 col-md-6 col-xl-2">
+    <label class="form-label mb-1">Σε</label>
+    <input class="form-control" type="text" name="to_ref" placeholder="Σε">
+  </div>
+  {% else %}
   <div class="col-12 col-md-6 col-xl-3">
     <label class="form-label mb-1">{{ tt(request, 'from') }}</label>
     <input class="form-control" type="text" name="from" value="{{ default_from.strftime('%d/%m/%Y') if default_from else '' }}" data-date-format="dmy" placeholder="ηη/μμ/εεεε" inputmode="numeric">
@@ -106,10 +184,12 @@
       <select id="salesCategoryL3" multiple hidden></select>
     </div>
   </div>
+  {% endif %}
   <select name="categories" id="salesCategories" multiple hidden></select>
   <select name="groups" id="salesGroups" multiple hidden></select>
   <div class="col-12 col-xl-2 d-grid gap-2 align-content-end">
     <button class="btn btn-primary" type="submit"><i class="fe fe-filter"></i> {{ tt(request, 'apply') }}</button>
+    <button class="btn btn-outline-secondary" type="button" id="salesFiltersReset"><i class="fe fe-rotate-ccw"></i> Καθαρισμός</button>
     <a id="exportBranchCsv" class="btn btn-outline-secondary" href="#" target="_blank"><i class="fe fe-download"></i> {{ tt(request, 'export_branch_csv') }}</a>
   </div>
 </form>
@@ -554,8 +634,129 @@
   body[data-theme='dark'] .seasonality-row .progress {
     background: #1f2937;
   }
+  .sales-docs-table-wrap {
+    max-height: 520px;
+    overflow: auto;
+  }
+  #salesDocsTable tbody tr {
+    cursor: pointer;
+  }
+  #salesDocsTable tbody tr:hover {
+    background: #eef6ff;
+  }
+  #salesDocsTable tbody tr.is-active {
+    background: #e0ecff;
+  }
+  .sales-doc-status {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    padding: 0.2rem 0.6rem;
+    border: 1px solid #bfdbfe;
+    background: #eff6ff;
+    color: #1e40af;
+    font-size: 0.73rem;
+    font-weight: 700;
+    max-width: 220px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .sales-doc-modal .form-label {
+    font-size: 0.76rem;
+    font-weight: 700;
+    color: #334155;
+  }
+  .sales-doc-modal {
+    --bv-modal-max-width: 1380px;
+    --bv-modal-max-height: 92vh;
+  }
+  .sales-doc-modal .modal-body {
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+  .sales-doc-lines-wrap {
+    max-height: min(34vh, 360px);
+    overflow: auto;
+  }
+  .sales-doc-modal textarea.form-control {
+    min-height: 120px;
+    resize: vertical;
+  }
+  @media (max-width: 991.98px) {
+    .sales-docs-table-wrap {
+      max-height: 420px;
+    }
+    .sales-doc-lines-wrap {
+      max-height: min(30vh, 260px);
+    }
+  }
 </style>
 
+{% if documents_mode %}
+<div class="card border-0 shadow-sm mb-3 content-card">
+  <div class="card-header d-flex justify-content-between align-items-center gap-2 flex-wrap">
+    <h5 class="mb-0">Κύκλωμα Πωλήσεων - Παραστατικά ERP</h5>
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+      <input type="text" id="salesDocsSearch" class="form-control form-control-sm" placeholder="Αναζήτηση παραστατικού / πελάτη" style="min-width: 280px;">
+      <button type="button" id="salesDocsRefresh" class="btn btn-sm btn-outline-secondary"><i class="fe fe-refresh-cw"></i> Ανανέωση</button>
+    </div>
+  </div>
+  <div class="card-body table-responsive sales-docs-table-wrap">
+    <table class="table table-sm table-hover mb-0 bv-unified-table" id="salesDocsTable">
+      <thead class="table-light sticky-top">
+        <tr>
+          <th>Ημερομηνία</th>
+          <th>Υποκατάστημα</th>
+          <th>Αποθ. χώρος</th>
+          <th>Σειρά</th>
+          <th>Status</th>
+          <th>Κωδ. παραστ.</th>
+          <th>Κωδ. eshop</th>
+          <th>Πελάτης</th>
+          <th class="text-end">Συν.Αξία</th>
+          <th>Από</th>
+          <th>Σε</th>
+        </tr>
+      </thead>
+      <tbody id="salesDocsBody">
+        <tr><td colspan="11" class="text-center text-muted py-3">Φόρτωση παραστατικών...</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="card-footer bv-table-footer d-flex justify-content-between align-items-center gap-2 flex-wrap">
+    <div class="bv-summary-stack">
+      <small id="salesDocsSummary" class="text-muted">Παραστατικά: 0</small>
+      <small id="salesDocsRangeSummary" class="text-muted">Εμφάνιση 0 από 0</small>
+    </div>
+    <div class="bv-pager">
+      <div class="bv-pager-field bv-pager-field--size">
+        <label for="salesDocsPageSize" class="bv-pager-label">Ανά σελίδα</label>
+        <select id="salesDocsPageSize" class="form-select form-select-sm">
+          <option value="50">50</option>
+          <option value="100">100</option>
+          <option value="200" selected>200</option>
+          <option value="500">500</option>
+        </select>
+      </div>
+      <div class="bv-pager-field bv-pager-field--jump">
+        <span class="bv-pager-label">Σελίδα</span>
+        <input id="salesDocsPageJump" type="number" min="1" step="1" value="1" class="form-control form-control-sm bv-pager-page-input" inputmode="numeric" aria-label="Μετάβαση σε σελίδα">
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="salesDocsPageGo">Μετάβαση</button>
+      </div>
+      <div class="bv-pager-nav" role="group" aria-label="Πλοήγηση σελίδων">
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="salesDocsFirstPage" title="Πρώτη σελίδα" aria-label="Πρώτη σελίδα">&laquo;</button>
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="salesDocsPrevPage" title="Προηγούμενη σελίδα" aria-label="Προηγούμενη σελίδα">&lsaquo;</button>
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="salesDocsNextPage" title="Επόμενη σελίδα" aria-label="Επόμενη σελίδα">&rsaquo;</button>
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="salesDocsLastPage" title="Τελευταία σελίδα" aria-label="Τελευταία σελίδα">&raquo;</button>
+      </div>
+      <small id="salesDocsPageInfo" class="bv-pager-info">1 / 1</small>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% if not documents_mode %}
 <div class="row g-3 mb-3">
   <div class="col-xl-3 col-md-6">
     <div class="bv-kpi-box bv-kpi-purple">
@@ -807,11 +1008,250 @@
     </div>
   </div>
 </div>
+{% endif %}
+
+{% if documents_mode %}
+<div class="modal fade bv-modal bv-modal--responsive bv-modal--lg sales-doc-modal" id="salesDocumentModal" tabindex="-1" aria-hidden="true" aria-labelledby="salesDocumentModalTitle" data-bv-modal="true" data-bv-close-on-backdrop="false">
+  <div class="modal-dialog modal-xl">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title mb-0" id="salesDocumentModalTitle">Παραστατικό Πώλησης</h5>
+          <small id="salesDocumentModalSub" class="text-muted">-</small>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div id="salesDocModalError" class="alert alert-danger d-none mb-3"></div>
+
+        <div class="bv-form-wizard mb-3" data-bv-form-wizard data-bv-wizard-content=".tab-content" data-bv-wizard-initial="#salesDocTabGeneral">
+          <div class="bv-form-wizard-head">Form Wizard</div>
+          <div class="bv-form-wizard-steps" role="tablist" aria-label="Πλοήγηση καρτέλας παραστατικού">
+            <button type="button" class="bv-wizard-step is-active" data-bv-wizard-step data-target="#salesDocTabGeneral">
+              <span class="bv-wizard-step-index">1</span>
+              <span class="bv-wizard-step-label">Γενικά</span>
+            </button>
+            <button type="button" class="bv-wizard-step" data-bv-wizard-step data-target="#salesDocTabDelivery">
+              <span class="bv-wizard-step-index">2</span>
+              <span class="bv-wizard-step-label">Στοιχεία παράδοσης</span>
+            </button>
+            <button type="button" class="bv-wizard-step" data-bv-wizard-step data-target="#salesDocTabNotes">
+              <span class="bv-wizard-step-index">3</span>
+              <span class="bv-wizard-step-label">Παρατηρήσεις</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="tab-content">
+          <div class="tab-pane fade show active" id="salesDocTabGeneral" role="tabpanel">
+            <div class="fw-semibold text-warning border-bottom pb-1 mb-2">Βασικά στοιχεία</div>
+            <div class="row g-2 mb-3">
+              <div class="col-md-6">
+                <label class="form-label mb-1">Υποκατάστημα</label>
+                <input type="text" class="form-control form-control-sm" id="salesDocFBranch" readonly>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label mb-1">Αποθ. χώρος</label>
+                <input type="text" class="form-control form-control-sm" id="salesDocFWarehouse" readonly>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label mb-1">Σειρά</label>
+                <input type="text" class="form-control form-control-sm" id="salesDocFSeries" readonly>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label mb-1">Τύπος</label>
+                <input type="text" class="form-control form-control-sm" id="salesDocFType" readonly>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label mb-1">Κωδ. παραστ.</label>
+                <input type="text" class="form-control form-control-sm" id="salesDocFDocumentNo" readonly>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label mb-1">Κωδ. eshop</label>
+                <input type="text" class="form-control form-control-sm" id="salesDocFEshopCode" readonly>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label mb-1">Πελάτης</label>
+                <input type="text" class="form-control form-control-sm" id="salesDocFCustomer" readonly>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label mb-1">Status</label>
+                <input type="text" class="form-control form-control-sm" id="salesDocFStatus" readonly>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label mb-1">Ημερομηνία</label>
+                <input type="text" class="form-control form-control-sm" id="salesDocFDate" readonly>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label mb-1">Τρ.πληρωμής</label>
+                <input type="text" class="form-control form-control-sm" id="salesDocFPayment" readonly>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label mb-1">Αποστολή</label>
+                <input type="text" class="form-control form-control-sm" id="salesDocFShipping" readonly>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label mb-1">Αιτιολογία</label>
+                <input type="text" class="form-control form-control-sm" id="salesDocFReason" readonly>
+              </div>
+            </div>
+
+            <div class="fw-semibold text-warning border-bottom pb-1 mb-2">Είδη</div>
+            <div class="table-responsive border rounded sales-doc-lines-wrap mb-3">
+              <table class="table table-sm align-middle mb-0">
+                <thead class="table-light sticky-top">
+                  <tr>
+                    <th style="width:52px">Α/Α</th>
+                    <th style="width:120px">Κωδικός</th>
+                    <th>Περιγραφή</th>
+                    <th class="text-end">Ποσ. 1</th>
+                    <th class="text-end">Εκτελ.</th>
+                    <th class="text-end">Τιμή</th>
+                    <th class="text-end">Εκπτ. %</th>
+                    <th class="text-end">Αξία εκπτ.</th>
+                    <th class="text-end">Αξία ΦΠΑ</th>
+                    <th class="text-end">Αξία</th>
+                  </tr>
+                </thead>
+                <tbody id="salesDocLinesBody">
+                  <tr><td colspan="10" class="text-center text-muted py-3">Δεν υπάρχουν γραμμές.</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="fw-semibold text-warning border-bottom pb-1 mb-2">Σύνολα</div>
+            <div class="row g-2">
+              <div class="col-md-6">
+                <label class="form-label mb-1">Συν.Αξία</label>
+                <input type="text" class="form-control form-control-sm" id="salesDocTGross" readonly>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label mb-1">Αξία ΦΠΑ</label>
+                <input type="text" class="form-control form-control-sm" id="salesDocTVat" readonly>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label mb-1">Αξία Εξόδων</label>
+                <input type="text" class="form-control form-control-sm" id="salesDocTExpenses" readonly>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label mb-1">Καθ.Αξία</label>
+                <input type="text" class="form-control form-control-sm" id="salesDocTNet" readonly>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label mb-1">Συν.ποσ.1</label>
+                <input type="text" class="form-control form-control-sm" id="salesDocTQty" readonly>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label mb-1">Συν.εκτελ.</label>
+                <input type="text" class="form-control form-control-sm" id="salesDocTQtyExec" readonly>
+              </div>
+            </div>
+          </div>
+
+          <div class="tab-pane fade" id="salesDocTabDelivery" role="tabpanel">
+            <div class="fw-semibold text-warning border-bottom pb-1 mb-2">Παράδοση / Μεταφορά</div>
+            <div class="row g-2">
+              <div class="col-md-6">
+                <label class="form-label mb-1">Υποκ/μα Πελάτη</label>
+                <input type="text" class="form-control form-control-sm" id="salesDocDCustomerBranch" readonly>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label mb-1">Διακίνηση</label>
+                <input type="text" class="form-control form-control-sm" id="salesDocDMovement" readonly>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label mb-1">Διεύθ.παράδοσης</label>
+                <input type="text" class="form-control form-control-sm" id="salesDocDAddress" readonly>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label mb-1">Μεταφορέας</label>
+                <input type="text" class="form-control form-control-sm" id="salesDocDCarrier" readonly>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label mb-1">Τ.Κ.παράδοσης</label>
+                <input type="text" class="form-control form-control-sm" id="salesDocDZip" readonly>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label mb-1">Μεταφ.μέσο</label>
+                <input type="text" class="form-control form-control-sm" id="salesDocDMedium" readonly>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label mb-1">Περιοχή παράδοσης</label>
+                <input type="text" class="form-control form-control-sm" id="salesDocDArea" readonly>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label mb-1">Αριθ.Μεταφ.μέσου</label>
+                <input type="text" class="form-control form-control-sm" id="salesDocDMediumNo" readonly>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label mb-1">Πόλη παράδοσης</label>
+                <input type="text" class="form-control form-control-sm" id="salesDocDCity" readonly>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label mb-1">Δρομολόγιο</label>
+                <input type="text" class="form-control form-control-sm" id="salesDocDRoute" readonly>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label mb-1">Ημερ.φόρτωσης</label>
+                <input type="text" class="form-control form-control-sm" id="salesDocDLoadingDate" readonly>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label mb-1">Ημερ.παράδοσης</label>
+                <input type="text" class="form-control form-control-sm" id="salesDocDDeliveryDate" readonly>
+              </div>
+            </div>
+          </div>
+
+          <div class="tab-pane fade" id="salesDocTabNotes" role="tabpanel">
+            <div class="fw-semibold text-warning border-bottom pb-1 mb-2">Αιτιολογία 2</div>
+            <textarea class="form-control form-control-sm mb-3" id="salesDocNReason2" readonly></textarea>
+
+            <div class="fw-semibold text-warning border-bottom pb-1 mb-2">Παρατηρήσεις</div>
+            <textarea class="form-control form-control-sm mb-3" id="salesDocNNotes" readonly></textarea>
+
+            <div class="row g-2">
+              <div class="col-md-6">
+                <label class="form-label mb-1">Ημ/νία εισαγωγής</label>
+                <input type="text" class="form-control form-control-sm" id="salesDocACreatedAt" readonly>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label mb-1">Ημ/νία τελ.ενημ.</label>
+                <input type="text" class="form-control form-control-sm" id="salesDocAUpdatedAt" readonly>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label mb-1">Χρήστης εισαγωγής</label>
+                <input type="text" class="form-control form-control-sm" id="salesDocACreatedBy" readonly>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label mb-1">Χρήστης τελ.ενημ.</label>
+                <input type="text" class="form-control form-control-sm" id="salesDocAUpdatedBy" readonly>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="bv-form-wizard-actions">
+          <button type="button" class="btn btn-outline-secondary btn-sm" data-bv-wizard-prev>Πίσω</button>
+          <button type="button" class="btn btn-primary btn-sm" data-bv-wizard-next>Επόμενο</button>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ tt(request, 'close') if tt(request, 'close') != 'close' else 'Κλείσιμο' }}</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}
 <script>
 let trendChart, donutChart, barChart, moversChart, seasonalityChart;
+let salesDocModalEl, salesDocModalCtrl, salesDocWizardCtrl, salesDocSearchDebounce;
+let salesDocActiveId = '';
+let salesDocOpenToken = 0;
+let salesDocsPage = 1;
+let salesDocsTotal = 0;
+const documentsMode = {{ 'true' if documents_mode else 'false' }};
 let salesFilterLabels = { branches:{}, brands:{}, categories:{}, groups:{}, warehouses:{} };
 const salesFieldDefs = [
   {key:'branches', selectId:'salesBranches', label:'{{ tt(request, "branches") }}'},
@@ -842,6 +1282,113 @@ function cleanItemLabel(v){
     .replace(/\s+ITM\d+\s*$/i, '')
     .trim();
 }
+function escapeHtml(v){
+  return String(v ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+function textOrDash(v, fallback='-'){
+  const txt = String(v ?? '').trim();
+  return txt || fallback;
+}
+function compactSeriesTypeLabel(v){
+  const txt = String(v ?? '').trim();
+  if (!txt) return '';
+  const low = txt.toLowerCase();
+  if ((low.includes('picking') || low.includes('delivery') || low.includes('efood')) && txt.includes(' ')) {
+    const tokens = txt.split(/\s+/).map((x)=>x.trim()).filter(Boolean);
+    for (let i = tokens.length - 1; i >= 0; i -= 1) {
+      const cleaned = tokens[i].replace(/^[([{]+|[)\]},.;:]+$/g, '');
+      if (!cleaned) continue;
+      const t = cleaned.toLowerCase();
+      if (t === 'picking' || t === 'delivery' || t === 'efood' || t === 'e-food') continue;
+      return cleaned;
+    }
+  }
+  return txt;
+}
+function combineCodeName(code, name){
+  const c = String(code ?? '').trim();
+  const n = String(name ?? '').trim();
+  if (c && n && c.toLowerCase() !== n.toLowerCase()) return `${c}  ${n}`;
+  return n || c || '-';
+}
+function formatDateOnly(v){
+  if(!v) return '-';
+  if (window.bvToDmyDate) return window.bvToDmyDate(v);
+  const raw = String(v).trim();
+  const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return `${m[3]}/${m[2]}/${m[1]}`;
+  return raw || '-';
+}
+function formatDateTime(v){
+  if(!v) return '-';
+  if (window.bvToDmyDate) return window.bvToDmyDate(v);
+  return String(v);
+}
+function setInputValue(id, v){
+  const el = document.getElementById(id);
+  if(el) el.value = textOrDash(v);
+}
+function setTextValue(id, v){
+  const el = document.getElementById(id);
+  if(el) el.value = String(v ?? '');
+}
+function activateSalesDocTab(targetSelector){
+  if(!salesDocModalEl) return;
+  const target = String(targetSelector || '').trim();
+  if(!target) return;
+  if(salesDocWizardCtrl?.show){
+    salesDocWizardCtrl.show(target);
+    return;
+  }
+  salesDocModalEl.querySelectorAll('[data-bv-wizard-step][data-target]').forEach((btn)=>{
+    const btnTarget = btn.getAttribute('data-target');
+    const isActive = btnTarget === target;
+    btn.classList.toggle('is-active', isActive);
+    btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
+  });
+  salesDocModalEl.querySelectorAll('.tab-pane').forEach((pane)=>{
+    const paneSelector = `#${pane.id}`;
+    const isActive = paneSelector === target;
+    pane.classList.toggle('active', isActive);
+    pane.classList.toggle('show', isActive);
+    pane.hidden = !isActive;
+    pane.setAttribute('aria-hidden', isActive ? 'false' : 'true');
+  });
+}
+function bindSalesDocTabs(){
+  if(!salesDocModalEl || salesDocModalEl.dataset.tabsBound === '1') return;
+  salesDocModalEl.dataset.tabsBound = '1';
+  const wizardRoot = salesDocModalEl.querySelector('[data-bv-form-wizard]');
+  if(window.BVFormWizard && wizardRoot){
+    salesDocWizardCtrl = window.BVFormWizard.create(wizardRoot, { initialTarget: '#salesDocTabGeneral' });
+    return;
+  }
+  salesDocModalEl.querySelectorAll('[data-bv-wizard-step][data-target]').forEach((btn)=>{
+    btn.addEventListener('click', (event)=>{
+      event.preventDefault();
+      activateSalesDocTab(btn.getAttribute('data-target'));
+    });
+  });
+  salesDocModalEl.querySelector('[data-bv-wizard-prev]')?.addEventListener('click', (event) => {
+    event.preventDefault();
+    const panes = Array.from(salesDocModalEl.querySelectorAll('.tab-pane'));
+    const currentIndex = panes.findIndex((pane) => pane.classList.contains('active'));
+    const prevPane = panes[Math.max(currentIndex - 1, 0)];
+    if(prevPane) activateSalesDocTab(`#${prevPane.id}`);
+  });
+  salesDocModalEl.querySelector('[data-bv-wizard-next]')?.addEventListener('click', (event) => {
+    event.preventDefault();
+    const panes = Array.from(salesDocModalEl.querySelectorAll('.tab-pane'));
+    const currentIndex = panes.findIndex((pane) => pane.classList.contains('active'));
+    const nextPane = panes[Math.min(currentIndex + 1, panes.length - 1)];
+    if(nextPane) activateSalesDocTab(`#${nextPane.id}`);
+  });
+}
 function toIsoDate(raw){
   const v=String(raw||'').trim();
   if(!v) return '';
@@ -866,6 +1413,274 @@ function normalizeDmyInput(el){
   if(!m) return;
   el.value=`${String(m[1]).padStart(2,'0')}/${String(m[2]).padStart(2,'0')}/${m[3]}`;
 }
+function salesDocumentsParams(){
+  const p = params();
+  p.delete('top_n');
+  const limit = Math.max(1, Number(document.getElementById('salesDocsPageSize')?.value || 200));
+  const offset = Math.max(0, (salesDocsPage - 1) * limit);
+  p.set('limit', String(limit));
+  p.set('offset', String(offset));
+  const q = String(document.getElementById('salesDocsSearch')?.value || '').trim();
+  if (q) p.set('q', q);
+  return p;
+}
+function getSalesDocModalController(){
+  if(!salesDocModalEl) return null;
+  if (window.BVModalSystem) {
+    salesDocModalCtrl = salesDocModalCtrl || window.BVModalSystem.create(salesDocModalEl, {
+      closeOnBackdrop: false,
+      keyboard: true,
+      focusTrap: true,
+      restoreFocus: true,
+    });
+    return salesDocModalCtrl;
+  }
+  if (window.bootstrap?.Modal) {
+    salesDocModalCtrl = salesDocModalCtrl || window.bootstrap.Modal.getOrCreateInstance(salesDocModalEl, {
+      backdrop: 'static',
+      keyboard: true,
+      focus: true,
+    });
+    return salesDocModalCtrl;
+  }
+  return null;
+}
+function showSalesDocModal(triggerEl){
+  const controller = getSalesDocModalController();
+  if (!controller) return;
+  if (controller.show.length >= 1) controller.show(triggerEl);
+  else controller.show();
+}
+function setSalesDocError(msg){
+  const el = document.getElementById('salesDocModalError');
+  if(!el) return;
+  if(!msg){
+    el.classList.add('d-none');
+    el.textContent = '';
+    return;
+  }
+  el.classList.remove('d-none');
+  el.textContent = msg;
+}
+function resetSalesDocModal(){
+  document.getElementById('salesDocumentModalTitle').textContent = 'Παραστατικό Πώλησης';
+  document.getElementById('salesDocumentModalSub').textContent = '-';
+  [
+    'salesDocFBranch','salesDocFWarehouse','salesDocFSeries','salesDocFType','salesDocFDocumentNo',
+    'salesDocFEshopCode','salesDocFCustomer','salesDocFStatus','salesDocFDate','salesDocFPayment',
+    'salesDocFShipping','salesDocFReason','salesDocTGross','salesDocTVat','salesDocTExpenses','salesDocTNet',
+    'salesDocTQty','salesDocTQtyExec','salesDocDCustomerBranch','salesDocDAddress','salesDocDMovement','salesDocDZip',
+    'salesDocDCarrier','salesDocDArea','salesDocDMedium','salesDocDCity','salesDocDMediumNo',
+    'salesDocDLoadingDate','salesDocDDeliveryDate','salesDocDRoute',
+    'salesDocACreatedAt','salesDocAUpdatedAt','salesDocACreatedBy','salesDocAUpdatedBy',
+  ].forEach((id)=>setInputValue(id, '-'));
+  setTextValue('salesDocNReason2', '');
+  setTextValue('salesDocNNotes', '');
+  const linesBody = document.getElementById('salesDocLinesBody');
+  if (linesBody) {
+    linesBody.innerHTML = '<tr><td colspan="10" class="text-center text-muted py-3">Δεν υπάρχουν γραμμές.</td></tr>';
+  }
+  setSalesDocError(null);
+  activateSalesDocTab('#salesDocTabGeneral');
+}
+function renderSalesDocumentsTable(rows){
+  const body = document.getElementById('salesDocsBody');
+  if(!body) return;
+  body.innerHTML = '';
+  if(!(rows || []).length){
+    body.innerHTML = '<tr><td colspan="11" class="text-center text-muted py-3">Δεν βρέθηκαν παραστατικά.</td></tr>';
+    return;
+  }
+  (rows || []).forEach((r)=>{
+    const docId = String(r.document_id || '').trim();
+    const tr = document.createElement('tr');
+    tr.dataset.docId = docId;
+    tr.tabIndex = 0;
+    tr.setAttribute('role', 'button');
+    if (docId && docId === salesDocActiveId) tr.classList.add('is-active');
+    tr.innerHTML = `
+      <td>${escapeHtml(formatDateOnly(r.document_date))}</td>
+      <td>${escapeHtml(textOrDash(r.branch))}</td>
+      <td>${escapeHtml(textOrDash(r.warehouse))}</td>
+      <td>${escapeHtml(textOrDash(r.series))}</td>
+      <td><span class="sales-doc-status" title="${escapeHtml(textOrDash(r.status))}">${escapeHtml(textOrDash(r.status))}</span></td>
+      <td>${escapeHtml(textOrDash(r.document_no))}</td>
+      <td>${escapeHtml(textOrDash(r.eshop_code, ''))}</td>
+      <td>${escapeHtml(textOrDash(r.customer, 'ΠΕΛΑΤΗΣ ΛΙΑΝΙΚΗΣ'))}</td>
+      <td class="text-end">${money(r.total_gross_value)}</td>
+      <td>${escapeHtml(textOrDash(r.from_ref, ''))}</td>
+      <td>${escapeHtml(textOrDash(r.to_ref, ''))}</td>
+    `;
+    tr.addEventListener('click', () => {
+      salesDocActiveId = docId;
+      body.querySelectorAll('tr.is-active').forEach((row)=>row.classList.remove('is-active'));
+      tr.classList.add('is-active');
+    });
+    tr.addEventListener('dblclick', () => {
+      if(docId) openSalesDocument(docId, tr);
+    });
+    tr.addEventListener('keydown', (event) => {
+      if ((event.key === 'Enter' || event.key === ' ') && docId) {
+        event.preventDefault();
+        openSalesDocument(docId, tr);
+      }
+    });
+    body.appendChild(tr);
+  });
+}
+function updateSalesDocsPager(limit){
+  const pages = Math.max(1, Math.ceil((salesDocsTotal || 0) / limit));
+  if(salesDocsPage > pages) salesDocsPage = pages;
+  document.getElementById('salesDocsPageInfo').textContent = `${salesDocsPage} / ${pages}`;
+  document.getElementById('salesDocsPageJump').value = String(salesDocsPage);
+}
+function renderSalesDocumentsSummary(summary, meta={}){
+  const el = document.getElementById('salesDocsSummary');
+  if(!el) return;
+  const docs = toNum(summary?.documents);
+  salesDocsTotal = Math.max(0, Math.round(docs));
+  el.textContent = `Παραστατικά: ${fmt0.format(Math.round(docs))} | Συν.Αξία: ${money(summary?.gross_value)} | Καθ.Αξία: ${money(summary?.net_value)} | ΦΠΑ: ${money(summary?.vat_value)}`;
+
+  const limit = Math.max(1, Number(meta.limit || document.getElementById('salesDocsPageSize')?.value || 200));
+  const offset = Math.max(0, Number(meta.offset || 0));
+  const rowsCount = Math.max(0, Number(meta.rowsCount || 0));
+  const from = salesDocsTotal > 0 ? offset + 1 : 0;
+  const to = Math.min(offset + rowsCount, salesDocsTotal);
+  const rangeEl = document.getElementById('salesDocsRangeSummary');
+  if(rangeEl) rangeEl.textContent = `Εμφάνιση ${from} έως ${to} από ${salesDocsTotal}`;
+  updateSalesDocsPager(limit);
+}
+function renderSalesDocumentLines(lines, note=''){
+  const linesBody = document.getElementById('salesDocLinesBody');
+  if(!linesBody) return;
+  linesBody.innerHTML = '';
+  if(!(lines || []).length){
+    const msg = textOrDash(note, 'Δεν υπάρχουν γραμμές.');
+    linesBody.innerHTML = `<tr><td colspan="10" class="text-center text-muted py-3">${escapeHtml(msg)}</td></tr>`;
+    return;
+  }
+  (lines || []).forEach((line, idx)=>{
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${fmt0.format(Number(line.row_no || idx + 1))}</td>
+      <td>${escapeHtml(textOrDash(line.item_code, '-'))}</td>
+      <td>${escapeHtml(textOrDash(line.item_name, '-'))}</td>
+      <td class="text-end">${fmt2.format(toNum(line.qty))}</td>
+      <td class="text-end">${fmt2.format(toNum(line.qty_executed))}</td>
+      <td class="text-end">${money(line.unit_price)}</td>
+      <td class="text-end">${fmt2.format(toNum(line.discount_pct))}</td>
+      <td class="text-end">${money(line.discount_amount)}</td>
+      <td class="text-end">${money(line.vat_amount)}</td>
+      <td class="text-end">${money(line.line_total)}</td>
+    `;
+    linesBody.appendChild(tr);
+  });
+}
+function fillSalesDocumentModal(data){
+  const header = data?.header || {};
+  const delivery = data?.delivery || {};
+  const notes = data?.notes || {};
+  const audit = data?.audit || {};
+  const totals = data?.totals || {};
+
+  const docNo = textOrDash(data?.document_no || data?.document_id, 'Παραστατικό Πώλησης');
+  document.getElementById('salesDocumentModalTitle').textContent = docNo;
+  document.getElementById('salesDocumentModalSub').textContent =
+    `Snapshot: ${formatDateOnly(data?.document_date)} | Γραμμές: ${fmt0.format(Math.round(toNum(totals.line_count)))}`;
+
+  setInputValue('salesDocFBranch', header.branch_name || header.branch_code);
+  setInputValue('salesDocFWarehouse', header.warehouse_name || header.warehouse_code);
+  setInputValue('salesDocFSeries', compactSeriesTypeLabel(header.series));
+  setInputValue('salesDocFType', compactSeriesTypeLabel(header.document_type));
+  setInputValue('salesDocFDocumentNo', data?.document_no || data?.document_id);
+  setInputValue('salesDocFEshopCode', header.eshop_code);
+  setInputValue('salesDocFCustomer', combineCodeName(header.customer_code, header.customer_name));
+  setInputValue('salesDocFStatus', header.status);
+  setInputValue('salesDocFDate', formatDateOnly(data?.document_date));
+  setInputValue('salesDocFPayment', header.payment_method);
+  setInputValue('salesDocFShipping', header.shipping_method);
+  setInputValue('salesDocFReason', header.reason);
+
+  renderSalesDocumentLines(data?.lines || [], data?.lines_note || '');
+  setInputValue('salesDocTGross', money(totals.gross_value));
+  setInputValue('salesDocTVat', money(totals.vat_value));
+  setInputValue('salesDocTExpenses', money(totals.expenses_value));
+  setInputValue('salesDocTNet', money(totals.net_value));
+  setInputValue('salesDocTQty', fmt2.format(toNum(totals.qty_total)));
+  setInputValue('salesDocTQtyExec', fmt2.format(toNum(totals.qty_exec_total)));
+
+  setInputValue('salesDocDCustomerBranch', delivery.customer_branch);
+  setInputValue('salesDocDAddress', delivery.address);
+  setInputValue('salesDocDMovement', delivery.movement_type);
+  setInputValue('salesDocDZip', delivery.zip);
+  setInputValue('salesDocDCarrier', delivery.carrier_name);
+  setInputValue('salesDocDArea', delivery.area);
+  setInputValue('salesDocDMedium', delivery.transport_medium);
+  setInputValue('salesDocDCity', delivery.city);
+  setInputValue('salesDocDMediumNo', delivery.transport_no);
+  setInputValue('salesDocDLoadingDate', formatDateOnly(delivery.loading_date));
+  setInputValue('salesDocDDeliveryDate', formatDateOnly(delivery.delivery_date));
+  setInputValue('salesDocDRoute', delivery.route_name);
+
+  setTextValue('salesDocNReason2', notes.notes_2 || '');
+  setTextValue('salesDocNNotes', notes.notes_1 || '');
+  setInputValue('salesDocACreatedAt', formatDateTime(audit.created_at));
+  setInputValue('salesDocAUpdatedAt', formatDateTime(audit.updated_at));
+  setInputValue('salesDocACreatedBy', audit.created_by);
+  setInputValue('salesDocAUpdatedBy', audit.updated_by);
+}
+async function reloadSalesDocuments(){
+  const body = document.getElementById('salesDocsBody');
+  if(body){
+    body.innerHTML = '<tr><td colspan="11" class="text-center text-muted py-3">Φόρτωση παραστατικών...</td></tr>';
+  }
+  try {
+    const p = salesDocumentsParams();
+    const res = await fetch(`/v1/kpi/sales/documents?${p.toString()}`);
+    if(!res.ok) throw new Error('Αποτυχία φόρτωσης παραστατικών.');
+    const payload = await res.json();
+    renderSalesDocumentsTable(payload?.rows || []);
+    renderSalesDocumentsSummary(payload?.summary || {}, {
+      limit: payload?.limit,
+      offset: payload?.offset,
+      rowsCount: (payload?.rows || []).length,
+    });
+  } catch (_err){
+    if(body){
+      body.innerHTML = '<tr><td colspan="11" class="text-center text-danger py-3">Αποτυχία φόρτωσης παραστατικών.</td></tr>';
+    }
+    renderSalesDocumentsSummary(
+      { documents: 0, gross_value: 0, net_value: 0, vat_value: 0 },
+      { limit: document.getElementById('salesDocsPageSize')?.value || 200, offset: 0, rowsCount: 0 }
+    );
+  }
+}
+async function openSalesDocument(documentId, triggerEl){
+  const docId = String(documentId || '').trim();
+  if(!docId) return;
+  salesDocActiveId = docId;
+  document.querySelectorAll('#salesDocsBody tr.is-active').forEach((row)=>row.classList.remove('is-active'));
+  Array.from(document.querySelectorAll('#salesDocsBody tr')).find((row)=>row.dataset.docId === docId)?.classList.add('is-active');
+  resetSalesDocModal();
+  showSalesDocModal(triggerEl);
+  const token = ++salesDocOpenToken;
+  try {
+    const p = params();
+    p.delete('top_n');
+    const res = await fetch(`/v1/kpi/sales/documents/${encodeURIComponent(docId)}/detail?${p.toString()}`);
+    if(token !== salesDocOpenToken) return;
+    if(!res.ok){
+      const err = await res.json().catch(()=>({ detail: 'Αποτυχία φόρτωσης παραστατικού.' }));
+      throw new Error(err?.detail || 'Αποτυχία φόρτωσης παραστατικού.');
+    }
+    const data = await res.json();
+    if(token !== salesDocOpenToken) return;
+    fillSalesDocumentModal(data);
+  } catch (err){
+    if(token !== salesDocOpenToken) return;
+    setSalesDocError(err?.message || 'Αποτυχία φόρτωσης παραστατικού.');
+  }
+}
 
 function params(){
   const fd=new FormData(document.getElementById('salesFilters')); const p=new URLSearchParams();
@@ -875,6 +1690,12 @@ function params(){
     const sel = document.getElementById(field.selectId);
     Array.from(sel?.selectedOptions || []).forEach(o => p.append(field.key, o.value));
   });
+  if (documentsMode) {
+    ['series', 'status', 'document_no', 'eshop_code', 'customer', 'from_ref', 'to_ref', 'gross_min', 'gross_max'].forEach((key) => {
+      const value = String(fd.get(key) || '').trim();
+      if (value) p.set(key, value);
+    });
+  }
   return p;
 }
 
@@ -1782,8 +2603,13 @@ function renderNewCodes(rows){
 async function reloadSales(e){
   if(e) e.preventDefault();
   setError(null);
+  const p=params();
+  if (documentsMode) {
+    document.getElementById('exportBranchCsv').href = `/v1/kpi/sales/by-branch/export.csv?${p.toString()}`;
+    await reloadSalesDocuments();
+    return;
+  }
   try{
-    const p=params();
     const res=await fetch(`/v1/kpi/sales/decision-pack?${p.toString()}`);
     if(!res.ok) throw new Error('{{ tt(request, "failed_load_sales_pack") }}');
     const data=await res.json();
@@ -1804,9 +2630,18 @@ async function reloadSales(e){
   }catch(err){setError(err.message||'{{ tt(request, "sales_dashboard_load_failed") }}');}
 }
 
-document.getElementById('salesFilters').addEventListener('submit', reloadSales);
+document.getElementById('salesFilters').addEventListener('submit', (e) => {
+  if(documentsMode) salesDocsPage = 1;
+  reloadSales(e);
+});
 document.getElementById('topProductsLimit')?.addEventListener('change', reloadSales);
 window.addEventListener('load', async () => {
+  salesDocModalEl = document.getElementById('salesDocumentModal');
+  if (salesDocModalEl) {
+    getSalesDocModalController();
+    bindSalesDocTabs();
+  }
+
   const insightsBtn = document.getElementById('toggleInsightsBtn');
   const insightsCollapse = document.getElementById('insightsCollapse');
   const INS_KEY = 'bv_sales_insights_collapsed';
@@ -1830,6 +2665,40 @@ window.addEventListener('load', async () => {
   });
   await loadSalesFilterOptions();
   await reloadSales();
+
+  const salesDocsSearch = document.getElementById('salesDocsSearch');
+  salesDocsSearch?.addEventListener('input', () => {
+    if (salesDocSearchDebounce) window.clearTimeout(salesDocSearchDebounce);
+    salesDocSearchDebounce = window.setTimeout(() => {
+      salesDocsPage = 1;
+      reloadSalesDocuments();
+    }, 280);
+  });
+  salesDocsSearch?.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    if (salesDocSearchDebounce) window.clearTimeout(salesDocSearchDebounce);
+    salesDocsPage = 1;
+    reloadSalesDocuments();
+  });
+  document.getElementById('salesDocsRefresh')?.addEventListener('click', () => {
+    reloadSalesDocuments();
+  });
+  document.getElementById('salesDocsPageSize')?.addEventListener('change', () => { salesDocsPage = 1; reloadSalesDocuments(); });
+  document.getElementById('salesDocsFirstPage')?.addEventListener('click', () => { salesDocsPage = 1; reloadSalesDocuments(); });
+  document.getElementById('salesDocsPrevPage')?.addEventListener('click', () => { salesDocsPage = Math.max(1, salesDocsPage - 1); reloadSalesDocuments(); });
+  document.getElementById('salesDocsNextPage')?.addEventListener('click', () => { salesDocsPage += 1; reloadSalesDocuments(); });
+  document.getElementById('salesDocsLastPage')?.addEventListener('click', () => {
+    const limit = Math.max(1, Number(document.getElementById('salesDocsPageSize')?.value || 200));
+    const pages = Math.max(1, Math.ceil((salesDocsTotal || 0) / limit));
+    salesDocsPage = pages;
+    reloadSalesDocuments();
+  });
+  document.getElementById('salesDocsPageGo')?.addEventListener('click', () => {
+    const val = Math.max(1, Number(document.getElementById('salesDocsPageJump')?.value || 1));
+    salesDocsPage = val;
+    reloadSalesDocuments();
+  });
 });
 document.querySelectorAll('#salesFilters input[name="from"],#salesFilters input[name="to"]').forEach(el=>{
   normalizeDmyInput(el);
@@ -1842,6 +2711,29 @@ salesFieldDefs.forEach((field)=>{
   if(select){
     select.addEventListener('change', loadSalesFilterOptions);
   }
+});
+document.getElementById('salesFiltersReset')?.addEventListener('click', async () => {
+  const form = document.getElementById('salesFilters');
+  form?.reset();
+  if(window.bvInitDmyDateInputs) window.bvInitDmyDateInputs(form);
+
+  ['series', 'status', 'document_no', 'eshop_code', 'customer', 'from_ref', 'to_ref', 'gross_min', 'gross_max'].forEach((name) => {
+    const input = form?.querySelector(`[name="${name}"]`);
+    if(input) input.value = '';
+  });
+  salesFieldDefs.forEach((field) => {
+    const select = document.getElementById(field.selectId);
+    Array.from(select?.options || []).forEach((opt) => { opt.selected = false; });
+  });
+  ['salesCategoryL1','salesCategoryL2','salesCategoryL3'].forEach((id) => {
+    const select = document.getElementById(id);
+    Array.from(select?.options || []).forEach((opt) => { opt.selected = false; });
+  });
+  syncSalesCategoryHierarchy();
+  salesUiFieldDefs.forEach((field) => syncSalesMultiUI(field.selectId, field.label));
+  salesDocsPage = 1;
+  await loadSalesFilterOptions();
+  await reloadSales();
 });
 </script>
 {% endblock %}

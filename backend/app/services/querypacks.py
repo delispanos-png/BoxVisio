@@ -7,6 +7,13 @@ from typing import Any
 
 from app.models.control import TenantConnection
 
+_PROVIDER_ALIASES: dict[str, str] = {
+    'sql': 'pharmacyone',
+    'sql_connector': 'pharmacyone',
+    'erp_sql': 'pharmacyone',
+    'erp_generic': 'pharmacyone',
+}
+
 
 @dataclass
 class QueryPack:
@@ -17,11 +24,14 @@ class QueryPack:
     purchases_sql: str
     inventory_sql: str | None = None
     cashflow_sql: str | None = None
+    supplier_balances_sql: str | None = None
+    customer_balances_sql: str | None = None
 
 
 def _querypack_dir(provider: str) -> Path:
     base = Path(__file__).resolve().parents[2] / 'querypacks'
-    return base / provider
+    resolved = _PROVIDER_ALIASES.get(str(provider or '').strip().lower(), provider)
+    return base / str(resolved)
 
 
 def _read_sql(root: Path, relative_candidates: list[str], *, required: bool) -> str | None:
@@ -35,7 +45,7 @@ def _read_sql(root: Path, relative_candidates: list[str], *, required: bool) -> 
     return None
 
 
-def load_querypack(provider: str = 'pharmacyone', pack_name: str = 'default') -> QueryPack:
+def load_querypack(provider: str = 'erp_sql', pack_name: str = 'default') -> QueryPack:
     _ = pack_name
     root = _querypack_dir(provider)
     mapping = json.loads((root / 'mapping.json').read_text(encoding='utf-8'))
@@ -45,6 +55,16 @@ def load_querypack(provider: str = 'pharmacyone', pack_name: str = 'default') ->
     purchases_sql = _read_sql(root, ['facts/purchases_facts.sql', 'purchases_facts.sql'], required=True)
     inventory_sql = _read_sql(root, ['facts/inventory_facts.sql', 'inventory_facts.sql'], required=False)
     cashflow_sql = _read_sql(root, ['facts/cashflow_facts.sql', 'cashflow_facts.sql'], required=False)
+    supplier_balances_sql = _read_sql(
+        root,
+        ['facts/supplier_balances_facts.sql', 'supplier_balances_facts.sql'],
+        required=False,
+    )
+    customer_balances_sql = _read_sql(
+        root,
+        ['facts/customer_balances_facts.sql', 'customer_balances_facts.sql'],
+        required=False,
+    )
 
     return QueryPack(
         name=str(mapping.get('name') or 'unknown'),
@@ -54,6 +74,8 @@ def load_querypack(provider: str = 'pharmacyone', pack_name: str = 'default') ->
         purchases_sql=purchases_sql,
         inventory_sql=inventory_sql,
         cashflow_sql=cashflow_sql,
+        supplier_balances_sql=supplier_balances_sql,
+        customer_balances_sql=customer_balances_sql,
     )
 
 
@@ -61,6 +83,14 @@ def apply_querypack_to_connection(conn: TenantConnection, pack: QueryPack) -> No
     colmap = (pack.mapping.get('column_mappings') or {}) if isinstance(pack.mapping, dict) else {}
     conn.sales_query_template = pack.sales_sql
     conn.purchases_query_template = pack.purchases_sql
+    if pack.inventory_sql:
+        conn.inventory_query_template = pack.inventory_sql
+    if pack.cashflow_sql:
+        conn.cashflow_query_template = pack.cashflow_sql
+    if pack.supplier_balances_sql:
+        conn.supplier_balances_query_template = pack.supplier_balances_sql
+    if pack.customer_balances_sql:
+        conn.customer_balances_query_template = pack.customer_balances_sql
     conn.incremental_column = str(colmap.get('incremental_column') or 'updated_at')
     conn.id_column = str(colmap.get('id_column') or 'external_id')
     conn.date_column = str(colmap.get('date_column') or 'doc_date')
@@ -69,3 +99,25 @@ def apply_querypack_to_connection(conn: TenantConnection, pack: QueryPack) -> No
     conn.amount_column = str(colmap.get('amount_column') or 'net_amount')
     conn.cost_column = str(colmap.get('cost_column') or 'cost_amount')
     conn.qty_column = str(colmap.get('qty_column') or 'qty')
+    conn.source_type = 'sql'
+    conn.supported_streams = [
+        'sales_documents',
+        'purchase_documents',
+        'inventory_documents',
+        'cash_transactions',
+        'supplier_balances',
+        'customer_balances',
+    ]
+    conn.enabled_streams = list(conn.supported_streams)
+    conn.stream_query_mapping = {
+        'sales_documents': conn.sales_query_template,
+        'purchase_documents': conn.purchases_query_template,
+        'inventory_documents': conn.inventory_query_template or '',
+        'cash_transactions': conn.cashflow_query_template or '',
+        'supplier_balances': conn.supplier_balances_query_template or '',
+        'customer_balances': conn.customer_balances_query_template or '',
+    }
+    conn.stream_field_mapping = conn.stream_field_mapping or {}
+    conn.stream_file_mapping = conn.stream_file_mapping or {}
+    conn.stream_api_endpoint = conn.stream_api_endpoint or {}
+    conn.connection_parameters = conn.connection_parameters or {'connector_type': conn.connector_type, 'source_type': 'sql'}

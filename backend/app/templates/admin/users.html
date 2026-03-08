@@ -40,7 +40,7 @@
 <div class="card mt-3 shadow-sm">
   <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
     <h5 class="mb-0">{{ tt(request, 'create_user') }}</h5>
-    <small class="text-muted">Πλήρωσε μόνο τα απαιτούμενα πεδία: Email, Ρόλος.</small>
+    <small class="text-muted">Υποχρεωτικά πεδία: Email, Ρόλος, Επαγγελματικό Προφίλ.</small>
   </div>
   <div class="card-body pb-4">
     <form method="post" action="/admin/users/create" class="row g-3 align-items-end admin-user-create-form">
@@ -58,10 +58,20 @@
       </div>
       <div class="col-xl-2 col-lg-3 col-md-6">
         <label class="form-label">{{ tt(request, 'role') }}</label>
-        <select class="form-select" name="role">
-          <option value="tenant_user">Χρήστης Πελάτη</option>
-          <option value="tenant_admin">Διαχειριστής Πελάτη</option>
-          <option value="cloudon_admin">CloudOn Admin</option>
+        <select class="form-select" name="role" id="createUserRoleSelect">
+          <option value="tenant_user" data-default-profile="{{ role_default_profile_code.get('tenant_user', 'FINANCE') }}">Χρήστης Πελάτη</option>
+          <option value="tenant_admin" data-default-profile="{{ role_default_profile_code.get('tenant_admin', 'MANAGER') }}">Διαχειριστής Πελάτη</option>
+          <option value="cloudon_admin" data-default-profile="{{ role_default_profile_code.get('cloudon_admin', 'OWNER') }}">CloudOn Admin</option>
+        </select>
+      </div>
+      <div class="col-xl-3 col-lg-4 col-md-6">
+        <label class="form-label">Επαγγελματικό Προφίλ</label>
+        <select class="form-select" name="professional_profile_code" id="createUserProfileSelect" required>
+          {% for p in professional_profiles %}
+          <option value="{{ p.profile_code }}" {% if p.profile_code == role_default_profile_code.get('tenant_admin', 'MANAGER') %}selected{% endif %}>
+            {{ p.profile_name }} ({{ p.profile_code }})
+          </option>
+          {% endfor %}
         </select>
       </div>
 
@@ -98,12 +108,13 @@
   </div>
   <div class="card-body">
     <div class="table-responsive">
-      <table class="table table-hover align-middle users-table">
+      <table class="table table-hover align-middle users-table bv-unified-table" data-bv-admin-table="1">
         <thead>
           <tr>
             <th>{{ tt(request, 'name') }}</th>
             <th>{{ tt(request, 'email') }}</th>
             <th>{{ tt(request, 'role') }}</th>
+            <th>Προφίλ</th>
             <th>{{ tt(request, 'tenant') }}</th>
             <th>{{ tt(request, 'phone') if tt(request, 'phone') != 'phone' else 'Phone' }}</th>
             <th>{{ tt(request, 'access_from') if tt(request, 'access_from') != 'access_from' else 'Access From' }}</th>
@@ -120,6 +131,15 @@
             <td class="text-break">{{ u.email }}</td>
             <td>
               <span class="badge bg-light text-dark border">{{ u.role.value }}</span>
+            </td>
+            <td>
+              {% set _pname = profile_name_map.get(u.professional_profile_id) %}
+              {% set _pcode = profile_code_map.get(u.professional_profile_id) %}
+              {% if _pname %}
+              <span class="badge bg-light text-dark border">{{ _pname }} ({{ _pcode }})</span>
+              {% else %}
+              <span class="text-muted">-</span>
+              {% endif %}
             </td>
             <td>{{ u.tenant_id or '-' }}</td>
             <td>{{ u.phone or '-' }}</td>
@@ -156,4 +176,22 @@
   </div>
 </div>
 </div>
+<script>
+(() => {
+  const roleSelect = document.getElementById('createUserRoleSelect');
+  const profileSelect = document.getElementById('createUserProfileSelect');
+  if (!roleSelect || !profileSelect) return;
+
+  const syncDefaultProfile = () => {
+    const selectedOption = roleSelect.options[roleSelect.selectedIndex];
+    const defaultProfileCode = selectedOption?.dataset?.defaultProfile || '';
+    if (!defaultProfileCode) return;
+    const targetOption = Array.from(profileSelect.options).find((opt) => opt.value === defaultProfileCode);
+    if (targetOption) profileSelect.value = defaultProfileCode;
+  };
+
+  roleSelect.addEventListener('change', syncDefaultProfile);
+  syncDefaultProfile();
+})();
+</script>
 {% endblock %}

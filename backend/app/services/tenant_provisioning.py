@@ -15,6 +15,7 @@ from app.models.control import (
     AuditLog,
     Plan,
     PlanName,
+    ProfessionalProfile,
     RoleName,
     Subscription,
     SubscriptionLimit,
@@ -38,6 +39,15 @@ PRODUCT_PLAN_MAP = {
 def _rand_secret(size: int = 40) -> str:
     alphabet = string.ascii_letters + string.digits
     return ''.join(secrets.choice(alphabet) for _ in range(size))
+
+
+async def _required_profile_id_by_code(db: AsyncSession, code: str) -> int:
+    profile = (
+        await db.execute(select(ProfessionalProfile).where(ProfessionalProfile.profile_code == str(code).upper()))
+    ).scalar_one_or_none()
+    if not profile:
+        raise RuntimeError(f'missing professional profile seed: {code}')
+    return int(profile.id)
 
 
 def map_product_to_plan(product_id: str | None) -> PlanName:
@@ -113,9 +123,11 @@ async def create_tenant_bundle(
     )
     db.add(tenant)
     await db.flush()
+    manager_profile_id = await _required_profile_id_by_code(db, 'MANAGER')
 
     user = User(
         tenant_id=tenant.id,
+        professional_profile_id=manager_profile_id,
         email=admin_email,
         password_hash=get_password_hash(_rand_secret(32)),
         role=RoleName.tenant_admin,

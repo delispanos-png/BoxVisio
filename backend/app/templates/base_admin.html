@@ -10,6 +10,7 @@
   <link href="/static/azea/css/main.css" rel="stylesheet">
   <link href="/static/azea/css/themes/all-themes.css" rel="stylesheet">
   <link href="/static/css/boxvisio-ui.css?v=20260305a" rel="stylesheet">
+  <link href="/static/css/bv-unified-ui.css?v=20260308a" rel="stylesheet">
   <style>
     :root {
       --shell-bg: #f3f5fb;
@@ -36,6 +37,24 @@
     .left-sidebar {
       background: var(--panel-bg) !important;
       border-right: 1px solid var(--panel-border);
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+    .left-sidebar .admin-image {
+      flex: 0 0 auto;
+    }
+    .left-sidebar .menu.main-sidebar {
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow-y: auto;
+      overflow-x: hidden;
+      padding-bottom: 72px;
+      -webkit-overflow-scrolling: touch;
+    }
+    .left-sidebar .menu.main-sidebar .list {
+      padding-bottom: 72px;
     }
     .main-sidebar .list .nav-item .nav-link {
       border-radius: 10px;
@@ -47,6 +66,63 @@
     .main-sidebar .list .nav-item .nav-link:hover {
       background: var(--menu-active-bg);
       color: var(--menu-active-text);
+    }
+    .main-sidebar .list .bv-menu-group .bv-group-toggle {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      width: calc(100% - 20px);
+      text-align: left;
+      border: 0;
+      background: transparent;
+      cursor: pointer;
+    }
+    .main-sidebar .list .bv-menu-group .bv-group-arrow {
+      margin-left: auto;
+      font-size: 13px;
+      transition: transform .2s ease;
+    }
+    .main-sidebar .list .bv-menu-group.open .bv-group-arrow {
+      transform: rotate(180deg);
+    }
+    .main-sidebar .list .bv-submenu {
+      list-style: none;
+      margin: 4px 8px 8px 26px;
+      padding: 4px 0 4px 10px;
+      border-left: 1px solid #d5ddec;
+    }
+    .main-sidebar .list .bv-submenu li {
+      margin: 2px 0;
+    }
+    .main-sidebar .list .bv-submenu-link {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 34px;
+      border-radius: 8px;
+      padding: 6px 10px;
+      text-decoration: none;
+      color: var(--menu-text) !important;
+      font-weight: 600;
+      font-size: 14px;
+      margin-right: 2px;
+    }
+    .main-sidebar .list .bv-submenu-link i {
+      font-size: 12px;
+      color: #64748b;
+      line-height: 1;
+    }
+    .main-sidebar .list .bv-submenu-link:hover,
+    .main-sidebar .list .bv-submenu li.is-active .bv-submenu-link {
+      background: var(--menu-active-bg) !important;
+      color: var(--menu-active-text) !important;
+    }
+    .main-sidebar .list .bv-submenu li.is-active .bv-submenu-link i {
+      color: var(--menu-active-text);
+    }
+    .admin-sidebar-collapsed .main-sidebar .list .bv-menu-group .bv-group-arrow,
+    .admin-sidebar-collapsed .main-sidebar .list .bv-menu-group .bv-submenu {
+      display: none !important;
     }
     .menu-head {
       padding: 14px 18px 6px;
@@ -102,7 +178,7 @@
     }
     .powered-by-cloudon {
       position: fixed;
-      left: 16px;
+      right: 16px;
       bottom: 12px;
       z-index: 99999;
       font-size: 11px;
@@ -113,6 +189,7 @@
       padding: 4px 8px;
       border-radius: 999px;
       border: 1px solid #e5e7eb;
+      pointer-events: none;
     }
     body[data-theme='dark'] {
       --shell-bg: #0b1220;
@@ -205,6 +282,27 @@
       background: #1e293b !important;
       color: #ffffff !important;
     }
+    .main-sidebar .list .nav-item.bv-subnav .nav-link {
+      padding-left: 2.35rem;
+      font-size: 0.92rem;
+    }
+    .main-sidebar .list .nav-item.bv-subnav .sidemenu-icon {
+      font-size: 0.85rem;
+      opacity: 0.9;
+    }
+    @media (max-width: 991.98px) {
+      .left-sidebar .menu.main-sidebar {
+        padding-bottom: 88px;
+      }
+      .left-sidebar .menu.main-sidebar .list {
+        padding-bottom: 88px;
+      }
+      .powered-by-cloudon {
+        right: 10px;
+        bottom: 8px;
+        font-size: 10px;
+      }
+    }
   </style>
 </head>
 <body class="azea-shell" data-theme="{{ request.cookies.get('theme', 'light') }}">
@@ -214,19 +312,107 @@
     <aside id="leftsidebar" class="sidebar left-sidebar">
       <div class="admin-image"><img class="brand-logo" src="/static/azea/images/boxvisio-logo.svg" alt="BoxVisio logo"></div>
       <div class="menu main-sidebar">
+        {% set _is_cloudon_admin = (request.state.user_role == 'cloudon_admin') if request.state.user_role is defined else true %}
+        {% set _business_rules_pages = ['business_rules', 'business_rules_document_types', 'business_rules_stream_mapping', 'business_rules_kpi_participation', 'business_rules_intelligence', 'business_rules_query_mapping', 'business_rules_tenant_overrides'] %}
+        {% set _overview_pages = ['dashboard', 'tenant_health', 'sync'] %}
+        {% set _data_source_pages = ['data_sources', 'connections', 'data_sources_stream_mapping', 'data_sources_query_mapping', 'data_sources_file_imports'] %}
+        {% set _operational_stream_admin_pages = ['admin_stream_sales_documents', 'admin_stream_purchase_documents', 'admin_stream_warehouse_documents', 'admin_stream_cash_transactions', 'admin_stream_supplier_balances', 'admin_stream_customer_balances'] %}
+        {% set _monitoring_pages = ['monitoring_jobs', 'monitoring_dead_letter_queue', 'monitoring_metrics', 'monitoring_logs'] %}
+        {% set _settings_pages = ['plans', 'settings_feature_flags', 'settings_system_defaults'] %}
+        {% set _overview_open = active_page in _overview_pages %}
+        {% set _tenants_open = active_page in ['tenants', 'subscriptions', 'users'] %}
+        {% set _sources_open = active_page in _data_source_pages %}
+        {% set _rules_open = active_page in _business_rules_pages %}
+        {% set _streams_open = active_page in _operational_stream_admin_pages %}
+        {% set _monitoring_open = active_page in _monitoring_pages %}
+        {% set _settings_open = active_page in _settings_pages %}
         <ul class="list">
-          <li class="menu-head">{{ tt(request, 'main') }}</li>
-          <li class="nav-item {% if active_page == 'dashboard' %}active{% endif %}"><a class="nav-link" href="/admin/dashboard"><i class="fe fe-home sidemenu-icon"></i><span class="sidemenu-label">{{ tt(request, 'dashboard') }}</span></a></li>
-          <li class="menu-head">{{ tt(request, 'administration') }}</li>
-          <li class="nav-item {% if active_page == 'tenants' %}active{% endif %}"><a class="nav-link" href="/admin/tenants"><i class="fe fe-users sidemenu-icon"></i><span class="sidemenu-label">{{ tt(request, 'tenants') }}</span></a></li>
-          <li class="nav-item {% if active_page == 'subscriptions' %}active{% endif %}"><a class="nav-link" href="/admin/subscriptions"><i class="fe fe-credit-card sidemenu-icon"></i><span class="sidemenu-label">{{ tt(request, 'subscriptions') }}</span></a></li>
-          <li class="nav-item {% if active_page == 'users' %}active{% endif %}"><a class="nav-link" href="/admin/users"><i class="fe fe-user-check sidemenu-icon"></i><span class="sidemenu-label">{{ tt(request, 'users') }}</span></a></li>
-          <li class="menu-head">{{ tt(request, 'components') }}</li>
-          <li class="nav-item {% if active_page == 'connections' %}active{% endif %}"><a class="nav-link" href="/admin/connections"><i class="fe fe-link sidemenu-icon"></i><span class="sidemenu-label">{{ tt(request, 'connections') }}</span></a></li>
-          <li class="nav-item {% if active_page == 'sync' %}active{% endif %}"><a class="nav-link" href="/admin/sync-status"><i class="fe fe-refresh-cw sidemenu-icon"></i><span class="sidemenu-label">{{ tt(request, 'sync_status') }}</span></a></li>
-          <li class="nav-item {% if active_page == 'insights' %}active{% endif %}"><a class="nav-link" href="/admin/insights"><i class="fe fe-alert-triangle sidemenu-icon"></i><span class="sidemenu-label">{{ tt(request, 'insights') }}</span></a></li>
-          <li class="nav-item {% if active_page == 'insight_rules' %}active{% endif %}"><a class="nav-link" href="/admin/insight-rules"><i class="fe fe-sliders sidemenu-icon"></i><span class="sidemenu-label">{{ tt(request, 'insight_rules') }}</span></a></li>
-          <li class="nav-item {% if active_page == 'plans' %}active{% endif %}"><a class="nav-link" href="/admin/plans"><i class="fe fe-grid sidemenu-icon"></i><span class="sidemenu-label">{{ tt(request, 'plan_features') }}</span></a></li>
+          {% if _is_cloudon_admin %}
+          <li class="nav-item bv-menu-group {% if _overview_open %}active open{% endif %}">
+            <button type="button" class="nav-link bv-group-toggle" data-menu-group-toggle="admin-overview" data-menu-group-open="{{ '1' if _overview_open else '0' }}" aria-expanded="{{ 'true' if _overview_open else 'false' }}">
+              <i class="fe fe-home sidemenu-icon"></i><span class="sidemenu-label">{{ tt(request, 'sidebar_group_overview') }}</span><i class="fe fe-chevron-down bv-group-arrow"></i>
+            </button>
+            <ul class="bv-submenu" data-menu-group="admin-overview">
+              <li class="{% if active_page == 'dashboard' %}is-active{% endif %}"><a class="bv-submenu-link" href="/admin/dashboard"><i class="fe fe-home"></i><span>{{ tt(request, 'sidebar_system_short') }}</span></a></li>
+              <li class="{% if active_page == 'tenant_health' %}is-active{% endif %}"><a class="bv-submenu-link" href="/admin/overview/tenant-health"><i class="fe fe-heart"></i><span>{{ tt(request, 'sidebar_health_short') }}</span></a></li>
+              <li class="{% if active_page == 'sync' %}is-active{% endif %}"><a class="bv-submenu-link" href="/admin/sync-status"><i class="fe fe-refresh-cw"></i><span>{{ tt(request, 'sidebar_sync_short') }}</span></a></li>
+            </ul>
+          </li>
+
+          <li class="nav-item bv-menu-group {% if _tenants_open %}active open{% endif %}">
+            <button type="button" class="nav-link bv-group-toggle" data-menu-group-toggle="admin-tenants" data-menu-group-open="{{ '1' if _tenants_open else '0' }}" aria-expanded="{{ 'true' if _tenants_open else 'false' }}">
+              <i class="fe fe-users sidemenu-icon"></i><span class="sidemenu-label">{{ tt(request, 'sidebar_group_tenants') }}</span><i class="fe fe-chevron-down bv-group-arrow"></i>
+            </button>
+            <ul class="bv-submenu" data-menu-group="admin-tenants">
+              <li class="{% if active_page == 'tenants' %}is-active{% endif %}"><a class="bv-submenu-link" href="/admin/tenants"><i class="fe fe-users"></i><span>{{ tt(request, 'sidebar_tenants_short') }}</span></a></li>
+              <li class="{% if active_page == 'subscriptions' %}is-active{% endif %}"><a class="bv-submenu-link" href="/admin/subscriptions"><i class="fe fe-credit-card"></i><span>{{ tt(request, 'sidebar_subscriptions_short') }}</span></a></li>
+              <li class="{% if active_page == 'users' %}is-active{% endif %}"><a class="bv-submenu-link" href="/admin/users"><i class="fe fe-user-check"></i><span>{{ tt(request, 'sidebar_users_short') }}</span></a></li>
+            </ul>
+          </li>
+
+          <li class="nav-item bv-menu-group {% if _sources_open %}active open{% endif %}">
+            <button type="button" class="nav-link bv-group-toggle" data-menu-group-toggle="admin-sources" data-menu-group-open="{{ '1' if _sources_open else '0' }}" aria-expanded="{{ 'true' if _sources_open else 'false' }}">
+              <i class="fe fe-link sidemenu-icon"></i><span class="sidemenu-label">{{ tt(request, 'sidebar_group_sources') }}</span><i class="fe fe-chevron-down bv-group-arrow"></i>
+            </button>
+            <ul class="bv-submenu" data-menu-group="admin-sources">
+              <li class="{% if active_page in ['connections', 'data_sources'] %}is-active{% endif %}"><a class="bv-submenu-link" href="/admin/connections"><i class="fe fe-link"></i><span>{{ tt(request, 'sidebar_connectors_short') }}</span></a></li>
+              <li class="{% if active_page == 'data_sources_stream_mapping' %}is-active{% endif %}"><a class="bv-submenu-link" href="/admin/data-sources/stream-mapping"><i class="fe fe-git-merge"></i><span>{{ tt(request, 'sidebar_stream_mapping_short') }}</span></a></li>
+              <li class="{% if active_page == 'data_sources_query_mapping' %}is-active{% endif %}"><a class="bv-submenu-link" href="/admin/data-sources/query-mapping"><i class="fe fe-code"></i><span>{{ tt(request, 'sidebar_query_mapping_short') }}</span></a></li>
+              <li class="{% if active_page == 'data_sources_file_imports' %}is-active{% endif %}"><a class="bv-submenu-link" href="/admin/data-sources/file-imports"><i class="fe fe-upload"></i><span>{{ tt(request, 'sidebar_files_short') }}</span></a></li>
+            </ul>
+          </li>
+
+          <li class="nav-item bv-menu-group {% if _rules_open %}active open{% endif %}">
+            <button type="button" class="nav-link bv-group-toggle" data-menu-group-toggle="admin-rules" data-menu-group-open="{{ '1' if _rules_open else '0' }}" aria-expanded="{{ 'true' if _rules_open else 'false' }}">
+              <i class="fe fe-shield sidemenu-icon"></i><span class="sidemenu-label">{{ tt(request, 'sidebar_group_rules') }}</span><i class="fe fe-chevron-down bv-group-arrow"></i>
+            </button>
+            <ul class="bv-submenu" data-menu-group="admin-rules">
+              <li class="{% if active_page == 'business_rules_document_types' %}is-active{% endif %}"><a class="bv-submenu-link" href="/admin/business-rules/document-type-rules"><i class="fe fe-file-text"></i><span>{{ tt(request, 'sidebar_rules_types_short') }}</span></a></li>
+              <li class="{% if active_page == 'business_rules_stream_mapping' %}is-active{% endif %}"><a class="bv-submenu-link" href="/admin/business-rules/stream-mapping-rules"><i class="fe fe-git-merge"></i><span>{{ tt(request, 'sidebar_rules_streams_short') }}</span></a></li>
+              <li class="{% if active_page == 'business_rules_kpi_participation' %}is-active{% endif %}"><a class="bv-submenu-link" href="/admin/business-rules/kpi-participation-rules"><i class="fe fe-bar-chart-2"></i><span>{{ tt(request, 'sidebar_rules_kpi_short') }}</span></a></li>
+              <li class="{% if active_page == 'business_rules_intelligence' %}is-active{% endif %}"><a class="bv-submenu-link" href="/admin/business-rules/intelligence-rules"><i class="fe fe-zap"></i><span>{{ tt(request, 'sidebar_rules_insights_short') }}</span></a></li>
+              <li class="{% if active_page == 'business_rules_query_mapping' %}is-active{% endif %}"><a class="bv-submenu-link" href="/admin/business-rules/query-mapping"><i class="fe fe-code"></i><span>{{ tt(request, 'sidebar_rules_query_short') }}</span></a></li>
+              <li class="{% if active_page == 'business_rules_tenant_overrides' %}is-active{% endif %}"><a class="bv-submenu-link" href="/admin/business-rules/tenant-overrides"><i class="fe fe-users"></i><span>{{ tt(request, 'sidebar_rules_overrides_short') }}</span></a></li>
+            </ul>
+          </li>
+
+          <li class="nav-item bv-menu-group {% if _streams_open %}active open{% endif %}">
+            <button type="button" class="nav-link bv-group-toggle" data-menu-group-toggle="admin-streams" data-menu-group-open="{{ '1' if _streams_open else '0' }}" aria-expanded="{{ 'true' if _streams_open else 'false' }}">
+              <i class="fe fe-activity sidemenu-icon"></i><span class="sidemenu-label">{{ tt(request, 'sidebar_group_streams') }}</span><i class="fe fe-chevron-down bv-group-arrow"></i>
+            </button>
+            <ul class="bv-submenu" data-menu-group="admin-streams">
+              <li class="{% if active_page == 'admin_stream_sales_documents' %}is-active{% endif %}"><a class="bv-submenu-link" href="/admin/operational-streams/sales-documents"><i class="fe fe-file-text"></i><span>{{ tt(request, 'sales_documents_short') }}</span></a></li>
+              <li class="{% if active_page == 'admin_stream_purchase_documents' %}is-active{% endif %}"><a class="bv-submenu-link" href="/admin/operational-streams/purchase-documents"><i class="fe fe-file"></i><span>{{ tt(request, 'purchases_documents_short') }}</span></a></li>
+              <li class="{% if active_page == 'admin_stream_warehouse_documents' %}is-active{% endif %}"><a class="bv-submenu-link" href="/admin/operational-streams/warehouse-documents"><i class="fe fe-repeat"></i><span>{{ tt(request, 'warehouse_documents_short') }}</span></a></li>
+              <li class="{% if active_page == 'admin_stream_cash_transactions' %}is-active{% endif %}"><a class="bv-submenu-link" href="/admin/operational-streams/cash-transactions"><i class="fe fe-credit-card"></i><span>{{ tt(request, 'cash_transactions_short') }}</span></a></li>
+              <li class="{% if active_page == 'admin_stream_supplier_balances' %}is-active{% endif %}"><a class="bv-submenu-link" href="/admin/operational-streams/supplier-balances"><i class="fe fe-truck"></i><span>{{ tt(request, 'supplier_open_balances_short') }}</span></a></li>
+              <li class="{% if active_page == 'admin_stream_customer_balances' %}is-active{% endif %}"><a class="bv-submenu-link" href="/admin/operational-streams/customer-balances"><i class="fe fe-users"></i><span>{{ tt(request, 'customer_open_balances_short') }}</span></a></li>
+            </ul>
+          </li>
+
+          <li class="nav-item bv-menu-group {% if _monitoring_open %}active open{% endif %}">
+            <button type="button" class="nav-link bv-group-toggle" data-menu-group-toggle="admin-monitoring" data-menu-group-open="{{ '1' if _monitoring_open else '0' }}" aria-expanded="{{ 'true' if _monitoring_open else 'false' }}">
+              <i class="fe fe-activity sidemenu-icon"></i><span class="sidemenu-label">{{ tt(request, 'sidebar_group_monitoring') }}</span><i class="fe fe-chevron-down bv-group-arrow"></i>
+            </button>
+            <ul class="bv-submenu" data-menu-group="admin-monitoring">
+              <li class="{% if active_page == 'monitoring_jobs' %}is-active{% endif %}"><a class="bv-submenu-link" href="/admin/monitoring/jobs"><i class="fe fe-briefcase"></i><span>{{ tt(request, 'sidebar_jobs_short') }}</span></a></li>
+              <li class="{% if active_page == 'monitoring_dead_letter_queue' %}is-active{% endif %}"><a class="bv-submenu-link" href="/admin/monitoring/dead-letter-queue"><i class="fe fe-alert-octagon"></i><span>{{ tt(request, 'sidebar_dlq_short') }}</span></a></li>
+              <li class="{% if active_page == 'monitoring_metrics' %}is-active{% endif %}"><a class="bv-submenu-link" href="/admin/monitoring/metrics"><i class="fe fe-bar-chart-2"></i><span>{{ tt(request, 'sidebar_metrics_short') }}</span></a></li>
+              <li class="{% if active_page == 'monitoring_logs' %}is-active{% endif %}"><a class="bv-submenu-link" href="/admin/monitoring/logs"><i class="fe fe-list"></i><span>{{ tt(request, 'sidebar_logs_short') }}</span></a></li>
+            </ul>
+          </li>
+
+          <li class="nav-item bv-menu-group {% if _settings_open %}active open{% endif %}">
+            <button type="button" class="nav-link bv-group-toggle" data-menu-group-toggle="admin-settings" data-menu-group-open="{{ '1' if _settings_open else '0' }}" aria-expanded="{{ 'true' if _settings_open else 'false' }}">
+              <i class="fe fe-settings sidemenu-icon"></i><span class="sidemenu-label">{{ tt(request, 'sidebar_group_settings') }}</span><i class="fe fe-chevron-down bv-group-arrow"></i>
+            </button>
+            <ul class="bv-submenu" data-menu-group="admin-settings">
+              <li class="{% if active_page == 'plans' %}is-active{% endif %}"><a class="bv-submenu-link" href="/admin/plans"><i class="fe fe-grid"></i><span>{{ tt(request, 'sidebar_plans_short') }}</span></a></li>
+              <li class="{% if active_page == 'settings_feature_flags' %}is-active{% endif %}"><a class="bv-submenu-link" href="/admin/settings/feature-flags"><i class="fe fe-toggle-right"></i><span>{{ tt(request, 'sidebar_flags_short') }}</span></a></li>
+              <li class="{% if active_page == 'settings_system_defaults' %}is-active{% endif %}"><a class="bv-submenu-link" href="/admin/settings/system-defaults"><i class="fe fe-settings"></i><span>{{ tt(request, 'sidebar_defaults_short') }}</span></a></li>
+            </ul>
+          </li>
+          {% endif %}
         </ul>
       </div>
     </aside>
@@ -272,25 +458,38 @@
       </div>
 
       <div class="dashboard-shell">
-        <div class="bv-page-head d-flex justify-content-between align-items-center mb-3">
-          <div>
-            <h3 class="mb-1">{{ tt(request, title) if title else tt(request, 'admin_panel') }}</h3>
+        <div class="bv-page-head">
+          <div class="bv-page-title-wrap">
+            <div class="bv-page-breadcrumb">
+              <span>Admin</span>
+              <i class="fe fe-chevron-right"></i>
+              <span>{{ tt(request, title) if title else tt(request, 'admin_panel') }}</span>
+            </div>
+            <h3>{{ tt(request, title) if title else tt(request, 'admin_panel') }}</h3>
             {% if active_page == 'dashboard' %}
-            <p class="mb-0 text-muted">Κεντρική παρακολούθηση tenants, subscriptions και server κατάστασης.</p>
+            <p class="bv-page-subtitle">Κεντρική παρακολούθηση tenants, subscriptions και server κατάστασης.</p>
             {% elif active_page == 'tenants' %}
-            <p class="mb-0 text-muted">Διαχείριση πελατών, πλάνων και lifecycle πρόσβασης.</p>
+            <p class="bv-page-subtitle">Διαχείριση πελατών, πλάνων και lifecycle πρόσβασης.</p>
             {% elif active_page == 'subscriptions' %}
-            <p class="mb-0 text-muted">Ενημέρωση συνδρομών και χρέωσης ανά tenant.</p>
+            <p class="bv-page-subtitle">Ενημέρωση συνδρομών και χρέωσης ανά tenant.</p>
             {% elif active_page == 'users' %}
-            <p class="mb-0 text-muted">Διαχείριση χρηστών, ρόλων και χρονικών ορίων πρόσβασης.</p>
-            {% elif active_page == 'connections' %}
-            <p class="mb-0 text-muted">Ρύθμιση data sources, SQL mapping και initial backfill.</p>
+            <p class="bv-page-subtitle">Διαχείριση χρηστών, ρόλων και χρονικών ορίων πρόσβασης.</p>
+            {% elif active_page in _data_source_pages %}
+            <p class="bv-page-subtitle">Καθορισμός connectors, stream mappings, query mappings και εισαγωγών αρχείων.</p>
             {% elif active_page == 'insights' or active_page == 'insight_rules' %}
-            <p class="mb-0 text-muted">Εκτέλεση και ρύθμιση κανόνων intelligence για κάθε tenant.</p>
+            <p class="bv-page-subtitle">Εκτέλεση και ρύθμιση κανόνων intelligence για κάθε tenant.</p>
+            {% elif active_page in _business_rules_pages %}
+            <p class="bv-page-subtitle">Κεντρική διαχείριση κανόνων επιχειρησιακής λογικής με tenant overrides.</p>
+            {% elif active_page in _operational_stream_admin_pages %}
+            <p class="bv-page-subtitle">Admin επισκόπηση των 6 επιχειρησιακών streams για έλεγχο ποιότητας δεδομένων.</p>
+            {% elif active_page in _monitoring_pages %}
+            <p class="bv-page-subtitle">Παρακολούθηση jobs, DLQ, metrics και logs για σταθερή λειτουργία της πλατφόρμας.</p>
+            {% elif active_page in _settings_pages %}
+            <p class="bv-page-subtitle">Κεντρικές ρυθμίσεις πλατφόρμας: plans, feature flags και system defaults.</p>
             {% endif %}
           </div>
           <div class="bv-page-meta d-none d-lg-flex align-items-center gap-2">
-            <span class="badge bg-light text-dark border">CloudOn BI Admin</span>
+            <span class="badge bg-light text-dark border">Operational Intelligence Platform</span>
             <span class="badge bg-light text-dark border" id="adminNowBadge">--:--</span>
           </div>
         </div>
@@ -305,6 +504,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="/static/azea/js/custom.js"></script>
   <script src="/static/azea/js/boxvisio-ui.js"></script>
+  <script src="/static/js/bv-unified-ui.js?v=20260308a"></script>
   <script>
     function getCookie(name) {
       const parts = document.cookie.split(';').map(v => v.trim());
@@ -465,6 +665,35 @@
           });
         });
       }
+
+      document.querySelectorAll('[data-menu-group-toggle]').forEach((toggleBtn) => {
+        if (toggleBtn.dataset.bound === '1') return;
+        const groupKey = toggleBtn.getAttribute('data-menu-group-toggle');
+        if (!groupKey) return;
+        const submenu = document.querySelector(`[data-menu-group="${groupKey}"]`);
+        if (!submenu) return;
+        const ownerItem = toggleBtn.closest('.nav-item');
+        const menuStorageKey = `bv_admin_menu_group_${groupKey}`;
+        const fromForcedOpen = toggleBtn.dataset.menuGroupOpen === '1' || ownerItem?.classList.contains('open');
+        const storageRaw = localStorage.getItem(menuStorageKey);
+        const hasStoredState = storageRaw !== null;
+        const fromStorage = storageRaw === '1';
+        const initialOpen = fromForcedOpen || (hasStoredState ? fromStorage : false);
+
+        submenu.hidden = !initialOpen;
+        ownerItem?.classList.toggle('open', initialOpen);
+        toggleBtn.setAttribute('aria-expanded', initialOpen ? 'true' : 'false');
+        toggleBtn.dataset.bound = '1';
+
+        toggleBtn.addEventListener('click', (event) => {
+          event.preventDefault();
+          const willOpen = submenu.hidden;
+          submenu.hidden = !willOpen;
+          ownerItem?.classList.toggle('open', willOpen);
+          toggleBtn.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+          localStorage.setItem(menuStorageKey, willOpen ? '1' : '0');
+        });
+      });
 
       const nowBadge = document.getElementById('adminNowBadge');
       if (nowBadge) {

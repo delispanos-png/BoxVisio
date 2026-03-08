@@ -1,0 +1,12 @@
+{% extends "base_tenant.html" %}
+{% block content %}
+<div class="card mt-3">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <h5 class="mb-0">{{ tt(request, title) if title else tt(request, page_title_key) }}</h5>
+    <span class="badge bg-warning text-dark">Placeholder</span>
+  </div>
+  <div class="card-body">
+    <p class="text-muted mb-0">{{ page_description }}</p>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,251 @@
+{% extends "base_tenant.html" %}
+
+{% block content %}
+<style>
+  .suppliers-table-wrap {
+    max-height: min(74vh, 820px);
+    overflow: auto;
+  }
+  #suppliersTable tbody tr { cursor: default; }
+  .suppliers-footer {
+    border-top: 1px solid #e5e7eb;
+    background: #f8fafc;
+  }
+  .suppliers-filters {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 8px;
+    align-items: end;
+  }
+</style>
+
+<div id="suppliersError" class="alert alert-danger d-none"></div>
+
+<div class="card border-0 shadow-sm mb-3 content-card">
+  <div class="card-header d-flex justify-content-between align-items-center gap-2 flex-wrap">
+    <h5 class="mb-0">Προμηθευτές</h5>
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+      <button type="button" id="suppliersRefresh" class="btn btn-sm btn-outline-secondary"><i class="fe fe-refresh-cw"></i> Ανανέωση</button>
+    </div>
+  </div>
+  <div class="card-body">
+    <div class="suppliers-filters mb-3">
+      <div>
+        <label class="form-label mb-1">Αναζήτηση</label>
+        <input type="text" id="suppliersSearch" class="form-control form-control-sm" placeholder="Αναζήτηση προμηθευτή / κωδικού">
+      </div>
+      <div>
+        <label class="form-label mb-1">Από</label>
+        <input class="form-control form-control-sm" type="text" id="suppliersFrom" value="{{ default_from.strftime('%d/%m/%Y') if default_from else '' }}" data-date-format="dmy" placeholder="ηη/μμ/εεεε" inputmode="numeric">
+      </div>
+      <div>
+        <label class="form-label mb-1">Έως</label>
+        <input class="form-control form-control-sm" type="text" id="suppliersTo" value="{{ default_to.strftime('%d/%m/%Y') if default_to else '' }}" data-date-format="dmy" placeholder="ηη/μμ/εεεε" inputmode="numeric">
+      </div>
+      <div class="d-grid">
+        <button type="button" id="suppliersApply" class="btn btn-sm btn-primary"><i class="fe fe-filter"></i> Εφαρμογή</button>
+      </div>
+      <div class="d-grid">
+        <button type="button" id="suppliersReset" class="btn btn-sm btn-outline-secondary"><i class="fe fe-rotate-ccw"></i> Καθαρισμός</button>
+      </div>
+    </div>
+    <div class="table-responsive suppliers-table-wrap">
+      <table class="table table-sm table-hover mb-0 bv-unified-table" id="suppliersTable">
+        <thead class="table-light sticky-top">
+          <tr>
+            <th>Κωδικός</th>
+            <th>Επωνυμία</th>
+            <th class="text-end">Παραστατικά</th>
+            <th class="text-end">Αγορές</th>
+            <th class="text-end">Πληρωμές</th>
+            <th class="text-end">Ανοιχτό Υπόλοιπο</th>
+            <th>Τελευταία αγορά</th>
+          </tr>
+        </thead>
+        <tbody id="suppliersBody">
+          <tr><td colspan="7" class="text-center text-muted py-3">Φόρτωση προμηθευτών...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="card-footer suppliers-footer bv-table-footer d-flex justify-content-between align-items-center gap-2 flex-wrap">
+    <div class="bv-summary-stack">
+      <small id="suppliersSummary" class="text-muted">Προμηθευτές: 0</small>
+      <small id="suppliersRangeSummary" class="text-muted">Εμφάνιση 0 από 0</small>
+    </div>
+    <div class="bv-pager">
+      <div class="bv-pager-field bv-pager-field--size">
+        <label for="suppliersPageSize" class="bv-pager-label">Ανά σελίδα</label>
+        <select id="suppliersPageSize" class="form-select form-select-sm">
+          <option value="100">100</option>
+          <option value="250" selected>250</option>
+          <option value="500">500</option>
+        </select>
+      </div>
+      <div class="bv-pager-field bv-pager-field--jump">
+        <span class="bv-pager-label">Σελίδα</span>
+        <input id="suppliersPageJump" type="number" min="1" step="1" value="1" class="form-control form-control-sm bv-pager-page-input" inputmode="numeric" aria-label="Μετάβαση σε σελίδα">
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="suppliersPageGo">Μετάβαση</button>
+      </div>
+      <div class="bv-pager-nav" role="group" aria-label="Πλοήγηση σελίδων">
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="suppliersFirstPage" title="Πρώτη σελίδα" aria-label="Πρώτη σελίδα">&laquo;</button>
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="suppliersPrevPage" title="Προηγούμενη σελίδα" aria-label="Προηγούμενη σελίδα">&lsaquo;</button>
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="suppliersNextPage" title="Επόμενη σελίδα" aria-label="Επόμενη σελίδα">&rsaquo;</button>
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="suppliersLastPage" title="Τελευταία σελίδα" aria-label="Τελευταία σελίδα">&raquo;</button>
+      </div>
+      <small id="suppliersPageInfo" class="bv-pager-info">1 / 1</small>
+    </div>
+  </div>
+</div>
+
+<script>
+  let _suppliersPage = 1;
+  let _suppliersTotal = 0;
+
+  function money(val){
+    const n = Number(val || 0);
+    return n.toLocaleString('el-GR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  function toISO(raw){
+    const val = String(raw || '').trim();
+    if(!val) return '';
+    if(window.bvToIsoDate){
+      const converted = String(window.bvToIsoDate(val) || '').trim();
+      if(/^\d{4}-\d{2}-\d{2}$/.test(converted)) return converted;
+    }
+    const iso = val.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if(iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+    const dmy = val.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+    if(dmy){
+      const dd = String(Number(dmy[1])).padStart(2, '0');
+      const mm = String(Number(dmy[2])).padStart(2, '0');
+      return `${dmy[3]}-${mm}-${dd}`;
+    }
+    return '';
+  }
+
+  function setSuppliersError(msg){
+    const el = document.getElementById('suppliersError');
+    if(!msg){ el.classList.add('d-none'); el.textContent=''; return; }
+    el.classList.remove('d-none'); el.textContent = msg;
+  }
+
+  async function fetchJsonOrThrow(url){
+    const res = await fetch(url);
+    let payload = null;
+    try {
+      payload = await res.json();
+    } catch (_) {
+      payload = null;
+    }
+    if(!res.ok){
+      const detail = typeof payload?.detail === 'string'
+        ? payload.detail
+        : (Array.isArray(payload?.detail) ? payload.detail.map((d)=>String(d?.msg || d || '')).join(', ') : '');
+      throw new Error(detail ? `HTTP ${res.status}: ${detail}` : `HTTP ${res.status}`);
+    }
+    return payload || {};
+  }
+
+  function suppliersParams(){
+    const p = new URLSearchParams();
+    const fromRaw = document.getElementById('suppliersFrom')?.value || '';
+    const toRaw = document.getElementById('suppliersTo')?.value || '';
+    const fromIso = toISO(fromRaw);
+    const toIso = toISO(toRaw);
+    if(fromIso) p.set('from', fromIso);
+    if(toIso) p.set('to', toIso);
+    const q = String(document.getElementById('suppliersSearch')?.value || '').trim();
+    if(q) p.set('q', q);
+    const limit = Number(document.getElementById('suppliersPageSize')?.value || 250);
+    const offset = Math.max(0, (_suppliersPage - 1) * limit);
+    p.set('limit', String(limit));
+    p.set('offset', String(offset));
+    return p;
+  }
+
+  function renderSuppliersTable(rows){
+    const body = document.getElementById('suppliersBody');
+    if(!rows || rows.length === 0){
+      body.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-3">Δεν υπάρχουν διαθέσιμα δεδομένα.</td></tr>';
+      return;
+    }
+    body.innerHTML = rows.map(r => `
+      <tr>
+        <td>${r.code || '-'}</td>
+        <td>${r.name || '-'}</td>
+        <td class="text-end">${Number(r.purchase_docs || 0).toLocaleString('el-GR')}</td>
+        <td class="text-end">${money(r.purchases_net || 0)}</td>
+        <td class="text-end">${money(r.payments_total || 0)}</td>
+        <td class="text-end">${money(r.open_balance || 0)}</td>
+        <td>${r.last_purchase_date || '-'}</td>
+      </tr>
+    `).join('');
+  }
+
+  function updateSuppliersPager(limit){
+    const pages = Math.max(1, Math.ceil((_suppliersTotal || 0) / limit));
+    if(_suppliersPage > pages) _suppliersPage = pages;
+    document.getElementById('suppliersPageInfo').textContent = `${_suppliersPage} / ${pages}`;
+    document.getElementById('suppliersPageJump').value = String(_suppliersPage);
+  }
+
+  async function loadSuppliers(){
+    setSuppliersError(null);
+    try{
+      const p = suppliersParams();
+      const data = await fetchJsonOrThrow(`/v1/kpi/suppliers?${p.toString()}`);
+      const rows = data.rows || [];
+      const summary = data.summary || {};
+      _suppliersTotal = Number(summary.suppliers || 0);
+      renderSuppliersTable(rows);
+      document.getElementById('suppliersSummary').textContent = `Προμηθευτές: ${_suppliersTotal} | Αγορές: ${money(summary.purchases_net || 0)} | Πληρωμές: ${money(summary.payments_total || 0)} | Ανοιχτό Υπόλοιπο: ${money(summary.open_balance || 0)}`;
+      const limit = Number(data.limit || 250);
+      const offset = Number(data.offset || 0);
+      const from = Math.min(offset + 1, Math.max(offset + rows.length, 0));
+      const to = Math.min(offset + rows.length, _suppliersTotal);
+      document.getElementById('suppliersRangeSummary').textContent = `Εμφάνιση ${from} έως ${to} από ${_suppliersTotal}`;
+      updateSuppliersPager(limit);
+    }catch(err){
+      setSuppliersError(err?.message || 'Σφάλμα φόρτωσης προμηθευτών');
+      renderSuppliersTable([]);
+    }
+  }
+
+  document.getElementById('suppliersRefresh')?.addEventListener('click', loadSuppliers);
+  document.getElementById('suppliersApply')?.addEventListener('click', ()=>{ _suppliersPage = 1; loadSuppliers(); });
+  document.getElementById('suppliersReset')?.addEventListener('click', ()=>{
+    const fromEl = document.getElementById('suppliersFrom');
+    const toEl = document.getElementById('suppliersTo');
+    const searchEl = document.getElementById('suppliersSearch');
+    if(searchEl) searchEl.value = '';
+    if(fromEl) fromEl.value = '{{ default_from.strftime('%d/%m/%Y') if default_from else '' }}';
+    if(toEl) toEl.value = '{{ default_to.strftime('%d/%m/%Y') if default_to else '' }}';
+    if(window.bvInitDmyDateInputs){
+      window.bvInitDmyDateInputs(fromEl?.closest('.card-body') || document);
+    }
+    _suppliersPage = 1;
+    loadSuppliers();
+  });
+  document.getElementById('suppliersPageSize')?.addEventListener('change', ()=>{ _suppliersPage = 1; loadSuppliers(); });
+  document.getElementById('suppliersSearch')?.addEventListener('input', ()=>{ _suppliersPage = 1; loadSuppliers(); });
+
+  document.getElementById('suppliersFirstPage')?.addEventListener('click', ()=>{ _suppliersPage = 1; loadSuppliers(); });
+  document.getElementById('suppliersPrevPage')?.addEventListener('click', ()=>{ _suppliersPage = Math.max(1, _suppliersPage - 1); loadSuppliers(); });
+  document.getElementById('suppliersNextPage')?.addEventListener('click', ()=>{ _suppliersPage += 1; loadSuppliers(); });
+  document.getElementById('suppliersLastPage')?.addEventListener('click', ()=>{
+    const limit = Number(document.getElementById('suppliersPageSize')?.value || 250);
+    const pages = Math.max(1, Math.ceil((_suppliersTotal || 0) / limit));
+    _suppliersPage = pages;
+    loadSuppliers();
+  });
+  document.getElementById('suppliersPageGo')?.addEventListener('click', ()=>{
+    const val = Number(document.getElementById('suppliersPageJump')?.value || 1);
+    _suppliersPage = Math.max(1, val);
+    loadSuppliers();
+  });
+
+  loadSuppliers();
+</script>
+{% endblock %}

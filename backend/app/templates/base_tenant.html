@@ -9,7 +9,9 @@
   <link href="/static/azea/plugins/iconfonts/icons.css" rel="stylesheet">
   <link href="/static/azea/css/main.css" rel="stylesheet">
   <link href="/static/azea/css/themes/all-themes.css" rel="stylesheet">
-  <link href="/static/css/boxvisio-ui.css?v=20260305a" rel="stylesheet">
+  <link href="/static/css/boxvisio-ui.css?v=20260306za" rel="stylesheet">
+  <link href="/static/css/bv-unified-ui.css?v=20260308a" rel="stylesheet">
+  <link href="/static/css/bv-modal-system.css?v=20260306c" rel="stylesheet">
   <style>
     :root {
       --shell-bg: #f3f5fb;
@@ -39,6 +41,29 @@
       background: var(--panel-bg) !important;
       border-right: 1px solid var(--panel-border);
     }
+    .tenant-shell #leftsidebar.sidebar,
+    .tenant-shell .left-sidebar {
+      height: 100vh !important;
+      overflow: hidden !important;
+      display: flex;
+      flex-direction: column;
+    }
+    .tenant-shell .left-sidebar .admin-image {
+      flex: 0 0 auto;
+    }
+    .tenant-shell .left-sidebar .menu.main-sidebar {
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow-y: auto;
+      overflow-x: hidden;
+      -webkit-overflow-scrolling: touch;
+      padding-bottom: 84px;
+    }
+    .tenant-shell .left-sidebar .menu.main-sidebar .list {
+      height: auto !important;
+      max-height: none !important;
+      padding-bottom: 88px !important;
+    }
     .azea-shell .main-sidebar .list .nav-item .nav-link {
       border-radius: 10px;
       margin: 2px 10px;
@@ -53,6 +78,89 @@
     .azea-shell .main-sidebar .list .nav-item .nav-link:hover {
       background: var(--menu-active-bg) !important;
       color: var(--menu-active-text) !important;
+    }
+    .azea-shell .main-sidebar .list .bv-menu-group .bv-group-toggle {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      width: calc(100% - 20px);
+      text-align: left;
+      border: 0;
+      background: transparent;
+      cursor: pointer;
+    }
+    .azea-shell .main-sidebar .list .bv-menu-group .bv-group-arrow {
+      margin-left: auto;
+      font-size: 13px;
+      transition: transform .2s ease;
+    }
+    .azea-shell .main-sidebar .list .bv-menu-group.open .bv-group-arrow {
+      transform: rotate(180deg);
+    }
+    .azea-shell .main-sidebar .list .bv-submenu {
+      list-style: none;
+      margin: 4px 8px 8px 26px;
+      padding: 4px 0 4px 10px;
+      border-left: 1px solid #d5ddec;
+    }
+    .azea-shell .main-sidebar .list .bv-submenu li {
+      margin: 2px 0;
+    }
+    .azea-shell .main-sidebar .list .bv-submenu .bv-menu-group {
+      margin: 2px 0;
+    }
+    .azea-shell .main-sidebar .list .bv-submenu .bv-menu-group .bv-group-toggle {
+      width: 100%;
+      margin: 0;
+      min-height: 34px;
+      border-radius: 8px;
+      padding: 6px 10px;
+      font-weight: 600;
+      font-size: 14px;
+      color: var(--menu-text) !important;
+    }
+    .azea-shell .main-sidebar .list .bv-submenu .bv-menu-group.active .bv-group-toggle,
+    .azea-shell .main-sidebar .list .bv-submenu .bv-menu-group .bv-group-toggle:hover {
+      background: var(--menu-active-bg) !important;
+      color: var(--menu-active-text) !important;
+    }
+    .azea-shell .main-sidebar .list .bv-submenu .bv-menu-group.active .bv-group-toggle i,
+    .azea-shell .main-sidebar .list .bv-submenu .bv-menu-group .bv-group-toggle:hover i {
+      color: var(--menu-active-text) !important;
+    }
+    .azea-shell .main-sidebar .list .bv-submenu .bv-submenu.bv-submenu--nested {
+      margin: 4px 0 8px 16px;
+      padding: 4px 0 4px 8px;
+    }
+    .azea-shell .main-sidebar .list .bv-submenu-link {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 34px;
+      border-radius: 8px;
+      padding: 6px 10px;
+      text-decoration: none;
+      color: var(--menu-text) !important;
+      font-weight: 600;
+      font-size: 14px;
+      margin-right: 2px;
+    }
+    .azea-shell .main-sidebar .list .bv-submenu-link i {
+      font-size: 12px;
+      color: #64748b;
+      line-height: 1;
+    }
+    .azea-shell .main-sidebar .list .bv-submenu-link:hover,
+    .azea-shell .main-sidebar .list .bv-submenu li.is-active .bv-submenu-link {
+      background: var(--menu-active-bg) !important;
+      color: var(--menu-active-text) !important;
+    }
+    .azea-shell .main-sidebar .list .bv-submenu li.is-active .bv-submenu-link i {
+      color: var(--menu-active-text);
+    }
+    .tenant-shell.admin-sidebar-collapsed .main-sidebar .list .bv-menu-group .bv-group-arrow,
+    .tenant-shell.admin-sidebar-collapsed .main-sidebar .list .bv-menu-group .bv-submenu {
+      display: none !important;
     }
     .menu-head {
       padding: 14px 18px 6px;
@@ -211,7 +319,8 @@
       position: fixed;
       left: 16px;
       bottom: 12px;
-      z-index: 99999;
+      z-index: 1100;
+      pointer-events: none;
       font-size: 11px;
       font-weight: 700;
       letter-spacing: .6px;
@@ -290,42 +399,6 @@
       margin: 0;
       font-size: 14px;
       color: #0f172a;
-    }
-    #globalDateModal {
-      position: fixed !important;
-      inset: 0 !important;
-      z-index: 500000 !important;
-      display: none !important;
-      align-items: center;
-      justify-content: center;
-      background: rgba(15, 23, 42, 0.45);
-      pointer-events: auto !important;
-      padding: 16px;
-    }
-    #globalDateModal.show {
-      display: flex !important;
-    }
-    #globalDateModal .modal-dialog {
-      width: 100%;
-      max-width: 560px;
-      margin: 0 !important;
-      pointer-events: auto !important;
-    }
-    #globalDateModal .modal-content {
-      border-radius: 14px;
-      box-shadow: 0 24px 48px rgba(15, 23, 42, 0.28);
-      pointer-events: auto !important;
-      opacity: 1 !important;
-      filter: none !important;
-    }
-    #globalDateModal .modal-content * {
-      pointer-events: auto !important;
-      opacity: 1 !important;
-    }
-    body.bv-global-date-open .overlay,
-    body.bv-global-date-open .sidebar-overlay {
-      display: none !important;
-      pointer-events: none !important;
     }
     /* Fallback to avoid unreadable KPI cards if cached CSS misses these classes */
     .bv-kpi-box.bv-kpi-red {
@@ -428,30 +501,281 @@
       <div class="menu main-sidebar">
         {% set _inventory_ok = inventory_enabled if inventory_enabled is defined else false %}
         {% set _cashflow_ok = cashflow_enabled if cashflow_enabled is defined else false %}
+        {% set _cashflow_category = (cashflow_menu_category if cashflow_menu_category is defined and cashflow_menu_category else request.query_params.get('category', '')) if active_page == 'cashflow' else '' %}
+        {% set _cashflow_stream_categories = ['customer_collections', 'customer_transfers', 'supplier_payments', 'supplier_transfers', 'financial_accounts'] %}
+        {% set _cashflow_is_stream = _cashflow_category in _cashflow_stream_categories %}
+        {% set _menu_visibility = request.state.menu_visibility if request.state.menu_visibility is defined else {} %}
+        {% set _menu_dashboard_executive = _menu_visibility.get('dashboard_executive', true) %}
+        {% set _menu_dashboard_finance = _menu_visibility.get('dashboard_finance', true) %}
+        {% set _menu_insights = _menu_visibility.get('insights', true) %}
+        {% set _menu_stream_sales = _menu_visibility.get('stream_sales_documents', true) %}
+        {% set _menu_stream_purchases = _menu_visibility.get('stream_purchase_documents', true) %}
+        {% set _menu_stream_inventory = _menu_visibility.get('stream_inventory_documents', true) %}
+        {% set _menu_stream_cash = _menu_visibility.get('stream_cash_transactions', true) %}
+        {% set _menu_stream_suppliers = _menu_visibility.get('stream_supplier_balances', true) %}
+        {% set _menu_stream_customers = _menu_visibility.get('stream_customer_balances', true) %}
+        {% set _menu_analytics_sales = _menu_visibility.get('analytics_sales', true) %}
+        {% set _menu_analytics_purchases = _menu_visibility.get('analytics_purchases', true) %}
+        {% set _menu_analytics_inventory = _menu_visibility.get('analytics_inventory', true) %}
+        {% set _menu_analytics_cash = _menu_visibility.get('analytics_cashflows', true) %}
+        {% set _menu_analytics_receivables = _menu_visibility.get('analytics_receivables_payables', true) %}
+        {% set _menu_comparisons = _menu_visibility.get('comparisons', true) %}
+        {% set _menu_exports = _menu_visibility.get('exports', true) %}
+        {% set _show_dashboard_group = _menu_dashboard_executive or _menu_dashboard_finance or _menu_insights %}
+        {% set _show_operational_stream_group = _menu_stream_sales or _menu_stream_purchases or _menu_stream_inventory or _menu_stream_cash or _menu_stream_suppliers or _menu_stream_customers %}
+        {% set _show_analytics_group = _menu_analytics_sales or _menu_analytics_purchases or _menu_analytics_inventory or _menu_analytics_cash or _menu_analytics_receivables %}
+        {% set _has_multiple_branches = tenant_has_multiple_branches if tenant_has_multiple_branches is defined else true %}
+        {% set _operational_stream_pages = ['sales_documents', 'purchase_documents', 'warehouse_documents', 'suppliers', 'customers'] %}
+        {% set _operational_stream_open = active_page in _operational_stream_pages or (active_page == 'cashflow' and _cashflow_is_stream) %}
+        {% set _dashboard_pages = ['dashboard', 'finance_dashboard', 'insights'] %}
+        {% set _dashboard_open = active_page in _dashboard_pages %}
+        {% set _analytics_open = active_page in ['sales', 'purchases', 'inventory', 'analytics_receivables_payables'] or (active_page == 'cashflow' and not _cashflow_is_stream) %}
+        {% set _comparison_pages = ['compare_period', 'compare_branch', 'compare_category'] %}
+        {% set _comparison_open = active_page in _comparison_pages %}
+        {% set _exports_open = active_page in ['exports_reports', 'exports_csv_excel'] %}
         <ul class="list">
-          <li class="menu-head">{{ tt(request, 'main') }}</li>
-          <li class="nav-item {% if active_page == 'dashboard' %}active{% endif %}"><a class="nav-link" href="/tenant/dashboard"><i class="fe fe-home sidemenu-icon"></i><span class="sidemenu-label">{{ tt(request, 'dashboard') }}</span></a></li>
-          <li class="menu-head">{{ tt(request, 'analytics') }}</li>
-          <li class="nav-item {% if active_page == 'sales' %}active{% endif %}"><a class="nav-link" href="/tenant/sales"><i class="fe fe-bar-chart-2 sidemenu-icon"></i><span class="sidemenu-label">{{ tt(request, 'sales') }}</span></a></li>
-          <li class="nav-item {% if active_page == 'purchases' %}active{% endif %}"><a class="nav-link" href="/tenant/purchases"><i class="fe fe-shopping-cart sidemenu-icon"></i><span class="sidemenu-label">{{ tt(request, 'purchases') }}</span></a></li>
-          <li class="nav-item {% if active_page == 'inventory' %}active{% endif %} {% if not _inventory_ok %}disabled opacity-75{% endif %}">
-            <a class="nav-link" href="/tenant/inventory"><i class="fe fe-layers sidemenu-icon"></i><span class="sidemenu-label">{{ tt(request, 'inventory') }}</span></a>
+          {% if _show_dashboard_group %}
+          <li class="nav-item bv-menu-group {% if _dashboard_open %}active open{% endif %}">
+            <button
+              type="button"
+              class="nav-link bv-group-toggle"
+              data-menu-group-toggle="tenant-dashboard"
+              data-menu-group-open="{{ '1' if _dashboard_open else '0' }}"
+              aria-expanded="{{ 'true' if _dashboard_open else 'false' }}"
+            >
+              <i class="fe fe-home sidemenu-icon"></i>
+              <span class="sidemenu-label">{{ tt(request, 'dashboard_section') }}</span>
+              <i class="fe fe-chevron-down bv-group-arrow"></i>
+            </button>
+            <ul class="bv-submenu" data-menu-group="tenant-dashboard">
+              {% if _menu_dashboard_executive %}
+              <li class="{% if active_page == 'dashboard' %}is-active{% endif %}">
+                <a class="bv-submenu-link" href="/tenant/dashboard">
+                  <i class="fe fe-bar-chart-2"></i>
+                  <span>{{ tt(request, 'executive_dashboard_short') }}</span>
+                </a>
+              </li>
+              {% endif %}
+              {% if _menu_dashboard_finance %}
+              <li class="{% if active_page == 'finance_dashboard' %}is-active{% endif %}">
+                <a class="bv-submenu-link" href="/tenant/finance-dashboard">
+                  <i class="fe fe-briefcase"></i>
+                  <span>{{ tt(request, 'finance_dashboard_short') }}</span>
+                </a>
+              </li>
+              {% endif %}
+              {% if _menu_insights %}
+              <li class="{% if active_page == 'insights' %}is-active{% endif %}">
+                <a class="bv-submenu-link" href="/tenant/insights">
+                  <i class="fe fe-alert-circle"></i>
+                  <span>{{ tt(request, 'insights_short') }}</span>
+                </a>
+              </li>
+              {% endif %}
+            </ul>
           </li>
-          <li class="nav-item {% if active_page == 'supplier_targets' %}active{% endif %}">
-            <a class="nav-link" href="/tenant/supplier-targets"><i class="fe fe-target sidemenu-icon"></i><span class="sidemenu-label">{{ tt(request, 'supplier_targets') }}</span></a>
+          {% endif %}
+
+          {% if _show_operational_stream_group %}
+          <li class="nav-item bv-menu-group {% if _operational_stream_open %}active open{% endif %}">
+            <button
+              type="button"
+              class="nav-link bv-group-toggle"
+              data-menu-group-toggle="operational-streams"
+              data-menu-group-open="{{ '1' if _operational_stream_open else '0' }}"
+              aria-expanded="{{ 'true' if _operational_stream_open else 'false' }}"
+            >
+              <i class="fe fe-activity sidemenu-icon"></i>
+              <span class="sidemenu-label">{{ tt(request, 'operational_streams_menu') }}</span>
+              <i class="fe fe-chevron-down bv-group-arrow"></i>
+            </button>
+            <ul class="bv-submenu" data-menu-group="operational-streams">
+              {% if _menu_stream_sales %}
+              <li class="{% if active_page == 'sales_documents' %}is-active{% endif %}">
+                <a class="bv-submenu-link" href="/tenant/sales-documents">
+                  <i class="fe fe-file-text"></i>
+                  <span>{{ tt(request, 'sales_documents_short') }}</span>
+                </a>
+              </li>
+              {% endif %}
+              {% if _menu_stream_purchases %}
+              <li class="{% if active_page == 'purchase_documents' %}is-active{% endif %}">
+                <a class="bv-submenu-link" href="/tenant/purchase-documents">
+                  <i class="fe fe-file"></i>
+                  <span>{{ tt(request, 'purchases_documents_short') }}</span>
+                </a>
+              </li>
+              {% endif %}
+              {% if _menu_stream_inventory %}
+              <li class="{% if active_page == 'warehouse_documents' %}is-active{% endif %} {% if not _inventory_ok %}disabled opacity-75{% endif %}">
+                <a class="bv-submenu-link" href="/tenant/warehouse-documents">
+                  <i class="fe fe-repeat"></i>
+                  <span>{{ tt(request, 'warehouse_documents_short') }}</span>
+                </a>
+              </li>
+              {% endif %}
+              {% if _menu_stream_cash %}
+              <li class="bv-menu-group {% if active_page == 'cashflow' and _cashflow_is_stream %}active open{% endif %} {% if not _cashflow_ok %}disabled opacity-75{% endif %}">
+                <button
+                  type="button"
+                  class="bv-submenu-link bv-group-toggle"
+                  data-menu-group-toggle="operational-cash-transactions"
+                  data-menu-group-open="{{ '1' if active_page == 'cashflow' and _cashflow_is_stream else '0' }}"
+                  aria-expanded="{{ 'true' if active_page == 'cashflow' and _cashflow_is_stream else 'false' }}"
+                >
+                  <i class="fe fe-credit-card"></i>
+                  <span>{{ tt(request, 'cash_transactions_short') }}</span>
+                  <i class="fe fe-chevron-down bv-group-arrow"></i>
+                </button>
+                <ul class="bv-submenu bv-submenu--nested" data-menu-group="operational-cash-transactions">
+                  <li class="{% if _cashflow_category == 'customer_collections' %}is-active{% endif %}">
+                    <a class="bv-submenu-link" href="/tenant/cashflow/customer_collections">
+                      <i class="fe fe-arrow-down-circle"></i>
+                      <span>{{ tt(request, 'cash_tx_customer_collections_short') }}</span>
+                    </a>
+                  </li>
+                  <li class="{% if _cashflow_category == 'customer_transfers' %}is-active{% endif %}">
+                    <a class="bv-submenu-link" href="/tenant/cashflow/customer_transfers">
+                      <i class="fe fe-repeat"></i>
+                      <span>{{ tt(request, 'cash_tx_customer_transfers_short') }}</span>
+                    </a>
+                  </li>
+                  <li class="{% if _cashflow_category == 'supplier_payments' %}is-active{% endif %}">
+                    <a class="bv-submenu-link" href="/tenant/cashflow/supplier_payments">
+                      <i class="fe fe-arrow-up-circle"></i>
+                      <span>{{ tt(request, 'cash_tx_supplier_payments_short') }}</span>
+                    </a>
+                  </li>
+                  <li class="{% if _cashflow_category == 'supplier_transfers' %}is-active{% endif %}">
+                    <a class="bv-submenu-link" href="/tenant/cashflow/supplier_transfers">
+                      <i class="fe fe-shuffle"></i>
+                      <span>{{ tt(request, 'cash_tx_supplier_transfers_short') }}</span>
+                    </a>
+                  </li>
+                  <li class="{% if _cashflow_category == 'financial_accounts' %}is-active{% endif %}">
+                    <a class="bv-submenu-link" href="/tenant/cashflow/financial_accounts">
+                      <i class="fe fe-credit-card"></i>
+                      <span>{{ tt(request, 'cash_tx_financial_accounts_short') }}</span>
+                    </a>
+                  </li>
+                </ul>
+              </li>
+              {% endif %}
+              {% if _menu_stream_suppliers %}
+              <li class="{% if active_page == 'suppliers' %}is-active{% endif %}">
+                <a class="bv-submenu-link" href="/tenant/suppliers">
+                  <i class="fe fe-truck"></i>
+                  <span>{{ tt(request, 'supplier_open_balances_short') }}</span>
+                </a>
+              </li>
+              {% endif %}
+              {% if _menu_stream_customers %}
+              <li class="{% if active_page == 'customers' %}is-active{% endif %}">
+                <a class="bv-submenu-link" href="/tenant/customers">
+                  <i class="fe fe-users"></i>
+                  <span>{{ tt(request, 'customer_open_balances_short') }}</span>
+                </a>
+              </li>
+              {% endif %}
+            </ul>
           </li>
-          <li class="nav-item {% if active_page == 'price_control' %}active{% endif %}">
-            <a class="nav-link" href="/tenant/price-control"><i class="fe fe-sliders sidemenu-icon"></i><span class="sidemenu-label">{{ tt(request, 'price_control') }}</span></a>
+          {% endif %}
+
+          {% if _show_analytics_group %}
+          <li class="nav-item bv-menu-group {% if _analytics_open %}active open{% endif %}">
+            <button
+              type="button"
+              class="nav-link bv-group-toggle"
+              data-menu-group-toggle="tenant-analytics"
+              data-menu-group-open="{{ '1' if _analytics_open else '0' }}"
+              aria-expanded="{{ 'true' if _analytics_open else 'false' }}"
+            >
+              <i class="fe fe-pie-chart sidemenu-icon"></i>
+              <span class="sidemenu-label">{{ tt(request, 'analytics_menu') }}</span>
+              <i class="fe fe-chevron-down bv-group-arrow"></i>
+            </button>
+            <ul class="bv-submenu" data-menu-group="tenant-analytics">
+              {% if _menu_analytics_sales %}
+              <li class="{% if active_page == 'sales' %}is-active{% endif %}">
+                <a class="bv-submenu-link" href="/tenant/sales"><i class="fe fe-bar-chart-2"></i><span>{{ tt(request, 'sales') }}</span></a>
+              </li>
+              {% endif %}
+              {% if _menu_analytics_purchases %}
+              <li class="{% if active_page == 'purchases' %}is-active{% endif %}">
+                <a class="bv-submenu-link" href="/tenant/purchases"><i class="fe fe-shopping-cart"></i><span>{{ tt(request, 'purchases') }}</span></a>
+              </li>
+              {% endif %}
+              {% if _menu_analytics_inventory %}
+              <li class="{% if active_page == 'inventory' %}is-active{% endif %} {% if not _inventory_ok %}disabled opacity-75{% endif %}">
+                <a class="bv-submenu-link" href="/tenant/inventory"><i class="fe fe-layers"></i><span>{{ tt(request, 'analytics_inventory') }}</span></a>
+              </li>
+              {% endif %}
+              {% if _menu_analytics_cash %}
+              <li class="{% if active_page == 'cashflow' and not _cashflow_is_stream %}is-active{% endif %} {% if not _cashflow_ok %}disabled opacity-75{% endif %}">
+                <a class="bv-submenu-link" href="/tenant/cashflow"><i class="fe fe-credit-card"></i><span>{{ tt(request, 'analytics_cashflows') }}</span></a>
+              </li>
+              {% endif %}
+              {% if _menu_analytics_receivables %}
+              <li class="{% if active_page == 'analytics_receivables_payables' %}is-active{% endif %}">
+                <a class="bv-submenu-link" href="/tenant/analytics/receivables-payables"><i class="fe fe-pie-chart"></i><span>{{ tt(request, 'analytics_receivables_payables_short') }}</span></a>
+              </li>
+              {% endif %}
+            </ul>
           </li>
-          <li class="nav-item {% if active_page == 'items' %}active{% endif %}">
-            <a class="nav-link" href="/tenant/items"><i class="fe fe-box sidemenu-icon"></i><span class="sidemenu-label">{{ tt(request, 'items_warehouse') }}</span></a>
+          {% endif %}
+
+          {% if _menu_comparisons %}
+          <li class="nav-item bv-menu-group {% if _comparison_open %}active open{% endif %}">
+            <button
+              type="button"
+              class="nav-link bv-group-toggle"
+              data-menu-group-toggle="tenant-comparisons"
+              data-menu-group-open="{{ '1' if _comparison_open else '0' }}"
+              aria-expanded="{{ 'true' if _comparison_open else 'false' }}"
+            >
+              <i class="fe fe-repeat sidemenu-icon"></i>
+              <span class="sidemenu-label">{{ tt(request, 'comparisons_menu') }}</span>
+              <i class="fe fe-chevron-down bv-group-arrow"></i>
+            </button>
+            <ul class="bv-submenu" data-menu-group="tenant-comparisons">
+              <li class="{% if active_page == 'compare_period' %}is-active{% endif %}">
+                <a class="bv-submenu-link" href="/tenant/comparisons/period-vs-period"><i class="fe fe-calendar"></i><span>{{ tt(request, 'period_vs_period_short') }}</span></a>
+              </li>
+              {% if _has_multiple_branches %}
+              <li class="{% if active_page == 'compare_branch' %}is-active{% endif %}">
+                <a class="bv-submenu-link" href="/tenant/comparisons/branch-vs-branch"><i class="fe fe-git-compare"></i><span>{{ tt(request, 'branch_vs_branch_short') }}</span></a>
+              </li>
+              {% endif %}
+              <li class="{% if active_page == 'compare_category' %}is-active{% endif %}">
+                <a class="bv-submenu-link" href="/tenant/comparisons/category-vs-category"><i class="fe fe-layers"></i><span>{{ tt(request, 'category_vs_category_short') }}</span></a>
+              </li>
+            </ul>
           </li>
-          <li class="nav-item {% if active_page == 'cashflow' %}active{% endif %} {% if not _cashflow_ok %}disabled opacity-75{% endif %}">
-            <a class="nav-link" href="/tenant/cashflow"><i class="fe fe-dollar-sign sidemenu-icon"></i><span class="sidemenu-label">{{ tt(request, 'cashflow') }}</span></a>
+          {% endif %}
+
+          {% if _menu_exports %}
+          <li class="nav-item bv-menu-group {% if _exports_open %}active open{% endif %}">
+            <button
+              type="button"
+              class="nav-link bv-group-toggle"
+              data-menu-group-toggle="tenant-exports"
+              data-menu-group-open="{{ '1' if _exports_open else '0' }}"
+              aria-expanded="{{ 'true' if _exports_open else 'false' }}"
+            >
+              <i class="fe fe-download sidemenu-icon"></i>
+              <span class="sidemenu-label">{{ tt(request, 'exports_menu') }}</span>
+              <i class="fe fe-chevron-down bv-group-arrow"></i>
+            </button>
+            <ul class="bv-submenu" data-menu-group="tenant-exports">
+              <li class="{% if active_page == 'exports_reports' %}is-active{% endif %}">
+                <a class="bv-submenu-link" href="/tenant/exports/reports"><i class="fe fe-file-text"></i><span>{{ tt(request, 'reports_short') }}</span></a>
+              </li>
+              <li class="{% if active_page == 'exports_csv_excel' %}is-active{% endif %}">
+                <a class="bv-submenu-link" href="/tenant/exports/csv-excel"><i class="fe fe-download"></i><span>{{ tt(request, 'csv_excel_short') }}</span></a>
+              </li>
+            </ul>
           </li>
-          <li class="nav-item {% if active_page == 'compare' %}active{% endif %}"><a class="nav-link" href="/tenant/compare"><i class="fe fe-repeat sidemenu-icon"></i><span class="sidemenu-label">{{ tt(request, 'comparison') }}</span></a></li>
-          <li class="menu-head">{{ tt(request, 'operations') }}</li>
-          <li class="nav-item {% if active_page == 'insights' %}active{% endif %}"><a class="nav-link" href="/tenant/insights"><i class="fe fe-alert-circle sidemenu-icon"></i><span class="sidemenu-label">{{ tt(request, 'insights') }}</span></a></li>
+          {% endif %}
         </ul>
       </div>
     </aside>
@@ -480,7 +804,7 @@
             <div class="bv-profile-dropdown" data-profile-dropdown hidden>
               <div class="bv-profile-head">
                 <div class="bv-profile-name">BoxVisio User</div>
-                <div class="bv-profile-role">Tenant Portal</div>
+                <div class="bv-profile-role">Tenant Portal · {{ request.state.professional_profile_name if request.state.professional_profile_name is defined else 'Manager' }}</div>
               </div>
               <a class="bv-profile-item" href="/tenant/profile"><i class="fe fe-user"></i> Profile</a>
               <a class="bv-profile-item" href="/tenant/settings"><i class="fe fe-settings"></i> Settings</a>
@@ -494,11 +818,38 @@
       </div>
 
       <div class="dashboard-shell">
-        <div class="d-flex justify-content-between align-items-center mb-3">
-          <h3 class="mb-0">{{ tt(request, title) if title else tt(request, 'tenant_portal_title') }}</h3>
+        <div class="bv-page-head">
+          <div class="bv-page-title-wrap">
+            <div class="bv-page-breadcrumb">
+              <span>Tenant</span>
+              <i class="fe fe-chevron-right"></i>
+              <span>{{ tt(request, title) if title else tt(request, 'tenant_portal_title') }}</span>
+            </div>
+            <h3>{{ tt(request, title) if title else tt(request, 'tenant_portal_title') }}</h3>
+            {% if active_page == 'dashboard' %}
+            <p class="bv-page-subtitle">Executive KPIs και εικόνα εταιρείας από τα επιχειρησιακά κυκλώματα.</p>
+            {% elif active_page == 'finance_dashboard' %}
+            <p class="bv-page-subtitle">Ανάλυση απαιτήσεων, υποχρεώσεων και ταμειακών ροών.</p>
+            {% elif active_page in ['sales_documents', 'purchase_documents', 'warehouse_documents', 'cashflow'] %}
+            <p class="bv-page-subtitle">Λίστα παραστατικών με ενιαία φίλτρα, αναζήτηση και σελιδοποίηση.</p>
+            {% elif active_page in ['suppliers', 'customers'] %}
+            <p class="bv-page-subtitle">Υπόλοιπα και ιστορικά στοιχεία με ενιαίο pattern πινάκων.</p>
+            {% elif active_page in ['sales', 'purchases', 'inventory', 'items', 'analytics_receivables_payables'] %}
+            <p class="bv-page-subtitle">Αναλυτικά KPIs, τάσεις και breakdowns σε συνεπή διάταξη.</p>
+            {% elif active_page in ['compare_period', 'compare_branch', 'compare_category'] %}
+            <p class="bv-page-subtitle">Συγκρίσεις περιόδων και διαστάσεων με κοινή παρουσίαση.</p>
+            {% elif active_page in ['exports_reports', 'exports_csv_excel'] %}
+            <p class="bv-page-subtitle">Εξαγωγές αναφορών και αρχείων σε ενιαίο format.</p>
+            {% endif %}
+          </div>
+          <div class="bv-page-meta d-none d-lg-flex align-items-center gap-2">
+            <span class="badge bg-light text-dark border">Operational Intelligence Platform</span>
+            <span class="badge bg-light text-dark border">{{ request.cookies.get('lang', 'el')|upper }}</span>
+          </div>
         </div>
 
-        {% if active_page in ['dashboard', 'sales', 'purchases', 'inventory', 'supplier_targets', 'price_control', 'items', 'cashflow', 'compare', 'insights'] %}
+        {% set _hide_page_filters = hide_page_filters if hide_page_filters is defined else false %}
+        {% if active_page in ['dashboard', 'finance_dashboard', 'sales', 'sales_documents', 'purchases', 'purchase_documents', 'suppliers', 'warehouse_documents', 'inventory', 'items', 'cashflow', 'customers', 'compare_period', 'compare_branch', 'compare_category', 'insights', 'analytics_receivables_payables', 'exports_reports', 'exports_csv_excel'] and not _hide_page_filters %}
         <div class="card filter-card mb-3">
           <div class="card-header d-flex justify-content-between align-items-center">
             <h5 class="mb-0">{{ tt(request, 'filters') }}</h5>
@@ -521,7 +872,7 @@
         </div>
       </div>
 
-      <div class="modal fade" id="globalDateModal" tabindex="-1" aria-hidden="true">
+      <div class="modal fade bv-modal bv-modal--responsive bv-modal--sm" id="globalDateModal" tabindex="-1" aria-hidden="true" data-bv-modal="true" data-bv-close-on-backdrop="true">
         <div class="modal-dialog modal-dialog-centered">
           <div class="modal-content">
             <div class="modal-header">
@@ -563,7 +914,7 @@
           </div>
         </div>
       </div>
-      <div class="modal fade" id="kpiHelpModal" tabindex="-1" aria-hidden="true">
+      <div class="modal fade bv-modal bv-modal--responsive bv-modal--sm" id="kpiHelpModal" tabindex="-1" aria-hidden="true" data-bv-modal="true" data-bv-close-on-backdrop="true">
         <div class="modal-dialog modal-dialog-centered">
           <div class="modal-content">
             <div class="modal-header">
@@ -596,6 +947,9 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="/static/azea/js/custom.js"></script>
   <script src="/static/azea/js/boxvisio-ui.js"></script>
+  <script src="/static/js/bv-unified-ui.js?v=20260308a"></script>
+  <script src="/static/js/bv-modal-system.js?v=20260306c"></script>
+  <script src="/static/js/bv-form-wizard.js?v=20260306w"></script>
   <script>
     function getCookie(name) {
       const parts = document.cookie.split(';').map(v => v.trim());
@@ -932,6 +1286,34 @@
           localStorage.setItem(SIDEBAR_KEY, '0');
         });
       }
+      document.querySelectorAll('[data-menu-group-toggle]').forEach((toggleBtn) => {
+        if (toggleBtn.dataset.bound === '1') return;
+        const groupKey = toggleBtn.getAttribute('data-menu-group-toggle');
+        if (!groupKey) return;
+        const submenu = document.querySelector(`[data-menu-group="${groupKey}"]`);
+        if (!submenu) return;
+        const ownerItem = toggleBtn.closest('.nav-item');
+        const menuStorageKey = `bv_menu_group_${groupKey}`;
+        const fromForcedOpen = toggleBtn.dataset.menuGroupOpen === '1' || ownerItem?.classList.contains('open');
+        const storageRaw = localStorage.getItem(menuStorageKey);
+        const hasStoredState = storageRaw !== null;
+        const fromStorage = storageRaw === '1';
+        const initialOpen = fromForcedOpen || (hasStoredState ? fromStorage : false);
+
+        submenu.hidden = !initialOpen;
+        ownerItem?.classList.toggle('open', initialOpen);
+        toggleBtn.setAttribute('aria-expanded', initialOpen ? 'true' : 'false');
+        toggleBtn.dataset.bound = '1';
+
+        toggleBtn.addEventListener('click', (event) => {
+          event.preventDefault();
+          const willOpen = submenu.hidden;
+          submenu.hidden = !willOpen;
+          ownerItem?.classList.toggle('open', willOpen);
+          toggleBtn.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+          localStorage.setItem(menuStorageKey, willOpen ? '1' : '0');
+        });
+      });
 
       const fsBtn = document.getElementById('fullscreenToggleBtn');
       if (fsBtn && fsBtn.dataset.bound !== '1') {
@@ -961,38 +1343,21 @@
       const globalDateFromEl = document.getElementById('globalDateFrom');
       const globalDateToEl = document.getElementById('globalDateTo');
       const globalDatePresetEl = document.getElementById('globalDatePreset');
-      const globalDateModal = null;
+      const globalDateModal = globalDateModalEl
+        ? (
+          window.BVModalSystem?.create(globalDateModalEl, { closeOnBackdrop: true, keyboard: true, focusTrap: true, restoreFocus: true })
+          || (window.bootstrap?.Modal
+            ? window.bootstrap.Modal.getOrCreateInstance(globalDateModalEl, { backdrop: true, keyboard: true, focus: true })
+            : null)
+        )
+        : null;
 
-      function fallbackModalShow() {
-        if (!globalDateModalEl) return;
-        globalDateModalEl.style.display = 'block';
-        globalDateModalEl.classList.add('show');
-        globalDateModalEl.removeAttribute('aria-hidden');
-        document.body.classList.add('modal-open', 'bv-global-date-open');
-      }
-
-      function fallbackModalHide() {
-        if (!globalDateModalEl) return;
-        globalDateModalEl.classList.remove('show');
-        globalDateModalEl.style.display = 'none';
-        globalDateModalEl.setAttribute('aria-hidden', 'true');
-        document.body.classList.remove('modal-open', 'bv-global-date-open');
-      }
-
-      function openGlobalDateModal() {
-        if (globalDateModal) {
-          globalDateModal.show();
-          return;
-        }
-        fallbackModalShow();
+      function openGlobalDateModal(triggerEl) {
+        globalDateModal?.show?.(triggerEl);
       }
 
       function closeGlobalDateModal() {
-        if (globalDateModal) {
-          globalDateModal.hide();
-          return;
-        }
-        fallbackModalHide();
+        globalDateModal?.hide?.();
       }
 
       function dmyFromDate(dateObj) {
@@ -1073,7 +1438,7 @@
           globalDateToEl.value = toSeed;
           if (globalDatePresetEl) globalDatePresetEl.value = '';
           bvInitDmyDateInputs(globalDateModalEl || document);
-          openGlobalDateModal();
+          openGlobalDateModal(globalDateBtn);
         });
       }
       if (globalDatePresetEl) {
@@ -1087,18 +1452,16 @@
           closeGlobalDateModal();
         });
       }
-      if (globalDateModalEl) {
-        globalDateModalEl.querySelectorAll('[data-bs-dismiss="modal"]').forEach((btn) => {
-          btn.addEventListener('click', () => closeGlobalDateModal());
-        });
-        globalDateModalEl.addEventListener('click', (e) => {
-          if (!globalDateModal && e.target === globalDateModalEl) {
-            closeGlobalDateModal();
-          }
-        });
-      }
 
       const kpiHelpModalEl = document.getElementById('kpiHelpModal');
+      const kpiHelpModal = kpiHelpModalEl
+        ? (
+          window.BVModalSystem?.create(kpiHelpModalEl, { closeOnBackdrop: true, keyboard: true, focusTrap: true, restoreFocus: true })
+          || (window.bootstrap?.Modal
+            ? window.bootstrap.Modal.getOrCreateInstance(kpiHelpModalEl, { backdrop: true, keyboard: true, focus: true })
+            : null)
+        )
+        : null;
       const kpiHelpTitle = document.getElementById('kpiHelpTitle');
       const kpiHelpWhat = document.getElementById('kpiHelpWhat');
       const kpiHelpFormula = document.getElementById('kpiHelpFormula');
@@ -1134,18 +1497,7 @@
         if (kpiHelpTitle) kpiHelpTitle.textContent = info.title;
         if (kpiHelpWhat) kpiHelpWhat.textContent = info.what;
         if (kpiHelpFormula) kpiHelpFormula.textContent = info.formula;
-        kpiHelpModalEl.style.display = 'block';
-        kpiHelpModalEl.classList.add('show');
-        kpiHelpModalEl.removeAttribute('aria-hidden');
-        document.body.classList.add('modal-open');
-      }
-
-      function closeKpiHelp() {
-        if (!kpiHelpModalEl) return;
-        kpiHelpModalEl.classList.remove('show');
-        kpiHelpModalEl.style.display = 'none';
-        kpiHelpModalEl.setAttribute('aria-hidden', 'true');
-        document.body.classList.remove('modal-open');
+        kpiHelpModal?.show?.(trigger || card);
       }
 
       document.addEventListener('click', (e) => {
@@ -1156,22 +1508,6 @@
           const card = icon.closest('.bv-kpi-box, .bv-stat-strip');
           openKpiHelpForCard(card, icon);
           return;
-        }
-        if (e.target.closest('#kpiHelpModal [data-bs-dismiss="modal"]')) {
-          closeKpiHelp();
-          return;
-        }
-        if (e.target === kpiHelpModalEl) {
-          closeKpiHelp();
-        }
-      });
-
-      document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape' && globalDateModalEl && globalDateModalEl.classList.contains('show')) {
-          closeGlobalDateModal();
-        }
-        if (e.key === 'Escape' && kpiHelpModalEl && kpiHelpModalEl.classList.contains('show')) {
-          closeKpiHelp();
         }
       });
       const observer = new MutationObserver((mutations) => {

@@ -1,0 +1,483 @@
+{% extends "base_tenant.html" %}
+{% set page_title = tt(request, 'cash_tx_financial_accounts') %}
+
+{% block content %}
+<style>
+  .cash-accounts-table-wrap {
+    max-height: min(74vh, 820px);
+    overflow: auto;
+  }
+  #cashAccountsTable tbody tr {
+    cursor: pointer;
+  }
+  #cashAccountsTable tbody tr.is-active {
+    background: rgba(59, 130, 246, 0.08);
+  }
+  .cash-account-modal {
+    --bv-modal-max-width: 1120px;
+    --bv-modal-max-height: 90vh;
+  }
+  .cash-account-modal .modal-body {
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+  .cash-account-modal .form-label {
+    font-size: 0.76rem;
+    font-weight: 700;
+    color: #334155;
+  }
+  .cash-account-notes {
+    min-height: 320px;
+    resize: vertical;
+  }
+</style>
+
+<div id="cashAccountsError" class="alert alert-danger d-none"></div>
+
+<div class="card border-0 shadow-sm mb-3 content-card">
+  <div class="card-header d-flex justify-content-between align-items-center gap-2 flex-wrap">
+    <h5 class="mb-0">{{ page_title }}</h5>
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+      <div class="input-group input-group-sm" style="min-width: 320px;">
+        <span class="input-group-text"><i class="fe fe-search"></i></span>
+        <input type="text" id="cashAccountsSearch" class="form-control" placeholder="Αναζήτηση...">
+      </div>
+      <button type="button" id="cashAccountsReset" class="btn btn-sm btn-outline-secondary"><i class="fe fe-rotate-ccw"></i> Καθαρισμός</button>
+      <button type="button" id="cashAccountsRefresh" class="btn btn-sm btn-outline-secondary"><i class="fe fe-refresh-cw"></i> Ανανέωση</button>
+    </div>
+  </div>
+  <div class="card-body table-responsive cash-accounts-table-wrap">
+    <table class="table table-sm table-hover mb-0 bv-unified-table" id="cashAccountsTable">
+      <thead class="table-light sticky-top">
+        <tr>
+          <th>Κωδικός</th>
+          <th>Περιγραφή</th>
+          <th class="text-end">Υπόλοιπο</th>
+        </tr>
+      </thead>
+      <tbody id="cashAccountsBody">
+        <tr><td colspan="3" class="text-center text-muted py-3">Φόρτωση λογαριασμών...</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="card-footer bv-table-footer d-flex justify-content-between align-items-center gap-2 flex-wrap">
+    <div class="bv-summary-stack">
+      <small id="cashAccountsSummary" class="text-muted">Λογαριασμοί: 0</small>
+      <small id="cashAccountsRangeSummary" class="text-muted">Εμφάνιση 0 από 0</small>
+    </div>
+    <div class="bv-pager">
+      <div class="bv-pager-field bv-pager-field--size">
+        <label for="cashAccountsPageSize" class="bv-pager-label">Ανά σελίδα</label>
+        <select id="cashAccountsPageSize" class="form-select form-select-sm">
+          <option value="50">50</option>
+          <option value="100">100</option>
+          <option value="250" selected>250</option>
+          <option value="500">500</option>
+        </select>
+      </div>
+      <div class="bv-pager-field bv-pager-field--jump">
+        <span class="bv-pager-label">Σελίδα</span>
+        <input id="cashAccountsPageJump" type="number" min="1" step="1" value="1" class="form-control form-control-sm bv-pager-page-input" inputmode="numeric" aria-label="Μετάβαση σε σελίδα">
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="cashAccountsPageGo">Μετάβαση</button>
+      </div>
+      <div class="bv-pager-nav" role="group" aria-label="Πλοήγηση σελίδων">
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="cashAccountsFirstPage" title="Πρώτη σελίδα" aria-label="Πρώτη σελίδα">&laquo;</button>
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="cashAccountsPrevPage" title="Προηγούμενη σελίδα" aria-label="Προηγούμενη σελίδα">&lsaquo;</button>
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="cashAccountsNextPage" title="Επόμενη σελίδα" aria-label="Επόμενη σελίδα">&rsaquo;</button>
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="cashAccountsLastPage" title="Τελευταία σελίδα" aria-label="Τελευταία σελίδα">&raquo;</button>
+      </div>
+      <small id="cashAccountsPageInfo" class="bv-pager-info">1 / 1</small>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade bv-modal bv-modal--responsive bv-modal--lg cash-account-modal" id="cashAccountModal" tabindex="-1" aria-hidden="true" aria-labelledby="cashAccountModalTitle" data-bv-modal="true" data-bv-close-on-backdrop="false">
+  <div class="modal-dialog modal-xl">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title mb-0" id="cashAccountModalTitle">{{ page_title }}</h5>
+          <small id="cashAccountModalSub" class="text-muted">-</small>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div id="cashAccountModalError" class="alert alert-danger d-none mb-3"></div>
+
+        <div class="bv-form-wizard mb-3" data-bv-form-wizard data-bv-wizard-content=".tab-content" data-bv-wizard-initial="#cashAccountTabGeneral">
+          <div class="bv-form-wizard-head">Form Wizard</div>
+          <div class="bv-form-wizard-steps" role="tablist" aria-label="Πλοήγηση καρτέλας λογαριασμού">
+            <button type="button" class="bv-wizard-step is-active" data-bv-wizard-step data-target="#cashAccountTabGeneral">
+              <span class="bv-wizard-step-index">1</span>
+              <span class="bv-wizard-step-label">Γενικά</span>
+            </button>
+            <button type="button" class="bv-wizard-step" data-bv-wizard-step data-target="#cashAccountTabNotes">
+              <span class="bv-wizard-step-index">2</span>
+              <span class="bv-wizard-step-label">Παρατηρήσεις</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="tab-content">
+          <div class="tab-pane fade show active" id="cashAccountTabGeneral" role="tabpanel">
+            <div class="fw-semibold text-warning border-bottom pb-1 mb-2">Βασικά στοιχεία</div>
+            <div class="row g-2 mb-3">
+              <div class="col-md-4">
+                <label class="form-label mb-1">Κωδικός</label>
+                <input type="text" class="form-control form-control-sm" id="cashAccountFCode" readonly>
+              </div>
+              <div class="col-md-8">
+                <label class="form-label mb-1">Περιγραφή</label>
+                <input type="text" class="form-control form-control-sm" id="cashAccountFName" readonly>
+              </div>
+              <div class="col-md-4">
+                <label class="form-label mb-1">ΑΦΜ Τράπεζας</label>
+                <input type="text" class="form-control form-control-sm" id="cashAccountFBankVat" readonly>
+              </div>
+              <div class="col-md-4">
+                <label class="form-label mb-1 d-block">Ενεργός</label>
+                <div class="form-check mt-2">
+                  <input class="form-check-input" type="checkbox" id="cashAccountFActive" disabled>
+                </div>
+              </div>
+              <div class="col-md-4">
+                <label class="form-label mb-1">Υπόλοιπο</label>
+                <input type="text" class="form-control form-control-sm" id="cashAccountTBalance" readonly>
+              </div>
+            </div>
+          </div>
+
+          <div class="tab-pane fade" id="cashAccountTabNotes" role="tabpanel">
+            <div class="fw-semibold text-warning border-bottom pb-1 mb-2">Παρατηρήσεις</div>
+            <textarea class="form-control form-control-sm cash-account-notes" id="cashAccountNNotes" readonly></textarea>
+          </div>
+        </div>
+
+        <div class="bv-form-wizard-actions">
+          <button type="button" class="btn btn-outline-secondary btn-sm" data-bv-wizard-prev>Πίσω</button>
+          <button type="button" class="btn btn-primary btn-sm" data-bv-wizard-next>Επόμενο</button>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ tt(request, 'close') if tt(request, 'close') != 'close' else 'Κλείσιμο' }}</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let cashAccountModalEl, cashAccountModalCtrl, cashAccountWizardCtrl, cashAccountSearchDebounce;
+let cashAccountActiveId = '';
+let cashAccountOpenToken = 0;
+let cashAccountsPage = 1;
+let cashAccountsTotal = 0;
+
+const fmt2 = new Intl.NumberFormat('el-GR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmt0 = new Intl.NumberFormat('el-GR', { maximumFractionDigits: 0 });
+
+function toNum(v){const n = Number(v || 0); return Number.isFinite(n) ? n : 0;}
+function moneySigned(v){
+  const n = toNum(v);
+  const abs = fmt2.format(Math.abs(n));
+  return n < 0 ? `-${abs}` : abs;
+}
+function escapeHtml(v){
+  return String(v ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+function textOrDash(v, fallback='-'){
+  const txt = String(v ?? '').trim();
+  return txt || fallback;
+}
+function setInputValue(id, v){
+  const el = document.getElementById(id);
+  if(el) el.value = textOrDash(v);
+}
+function setTextValue(id, v){
+  const el = document.getElementById(id);
+  if(el) el.value = String(v ?? '');
+}
+function setCheckboxValue(id, checked){
+  const el = document.getElementById(id);
+  if(el) el.checked = !!checked;
+}
+function setError(msg){
+  const el = document.getElementById('cashAccountsError');
+  if(!el) return;
+  if(!msg){
+    el.classList.add('d-none');
+    el.textContent = '';
+    return;
+  }
+  el.classList.remove('d-none');
+  el.textContent = msg;
+}
+function setModalError(msg){
+  const el = document.getElementById('cashAccountModalError');
+  if(!el) return;
+  if(!msg){
+    el.classList.add('d-none');
+    el.textContent = '';
+    return;
+  }
+  el.classList.remove('d-none');
+  el.textContent = msg;
+}
+
+function activateCashAccountTab(targetSelector){
+  if(!cashAccountModalEl) return;
+  const target = String(targetSelector || '').trim();
+  if(!target) return;
+  if(cashAccountWizardCtrl?.show){
+    cashAccountWizardCtrl.show(target);
+    return;
+  }
+  cashAccountModalEl.querySelectorAll('[data-bv-wizard-step][data-target]').forEach((btn) => {
+    const btnTarget = btn.getAttribute('data-target');
+    const isActive = btnTarget === target;
+    btn.classList.toggle('is-active', isActive);
+    btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
+  });
+  cashAccountModalEl.querySelectorAll('.tab-pane').forEach((pane) => {
+    const paneSelector = `#${pane.id}`;
+    const isActive = paneSelector === target;
+    pane.classList.toggle('active', isActive);
+    pane.classList.toggle('show', isActive);
+    pane.hidden = !isActive;
+    pane.setAttribute('aria-hidden', isActive ? 'false' : 'true');
+  });
+}
+function bindCashAccountTabs(){
+  if(!cashAccountModalEl || cashAccountModalEl.dataset.tabsBound === '1') return;
+  cashAccountModalEl.dataset.tabsBound = '1';
+  const wizardRoot = cashAccountModalEl.querySelector('[data-bv-form-wizard]');
+  if(window.BVFormWizard && wizardRoot){
+    cashAccountWizardCtrl = window.BVFormWizard.create(wizardRoot, { initialTarget: '#cashAccountTabGeneral' });
+    return;
+  }
+}
+function getCashAccountModalController(){
+  if(!cashAccountModalEl) return null;
+  if(window.BVModalSystem){
+    cashAccountModalCtrl = cashAccountModalCtrl || window.BVModalSystem.create(cashAccountModalEl, {
+      closeOnBackdrop: false,
+      keyboard: true,
+      focusTrap: true,
+      restoreFocus: true,
+    });
+    return cashAccountModalCtrl;
+  }
+  if(window.bootstrap?.Modal){
+    cashAccountModalCtrl = cashAccountModalCtrl || window.bootstrap.Modal.getOrCreateInstance(cashAccountModalEl, {
+      backdrop: 'static',
+      keyboard: true,
+      focus: true,
+    });
+    return cashAccountModalCtrl;
+  }
+  return null;
+}
+function showCashAccountModal(triggerEl){
+  const controller = getCashAccountModalController();
+  if(!controller) return;
+  if(controller.show.length >= 1) controller.show(triggerEl);
+  else controller.show();
+}
+
+function accountsParams(){
+  const p = new URLSearchParams();
+  const limit = Math.max(1, Number(document.getElementById('cashAccountsPageSize')?.value || 250));
+  const offset = Math.max(0, (cashAccountsPage - 1) * limit);
+  p.set('limit', String(limit));
+  p.set('offset', String(offset));
+  const q = String(document.getElementById('cashAccountsSearch')?.value || '').trim();
+  if(q) p.set('q', q);
+  return p;
+}
+
+function resetCashAccountModal(){
+  document.getElementById('cashAccountModalTitle').textContent = '{{ page_title }}';
+  document.getElementById('cashAccountModalSub').textContent = '-';
+  ['cashAccountFCode', 'cashAccountFName', 'cashAccountFBankVat', 'cashAccountTBalance'].forEach((id) => setInputValue(id, '-'));
+  setCheckboxValue('cashAccountFActive', false);
+  setTextValue('cashAccountNNotes', '');
+  setModalError(null);
+  activateCashAccountTab('#cashAccountTabGeneral');
+}
+
+function renderCashAccountsTable(rows){
+  const body = document.getElementById('cashAccountsBody');
+  if(!body) return;
+  body.innerHTML = '';
+  if(!(rows || []).length){
+    body.innerHTML = '<tr><td colspan="3" class="text-center text-muted py-3">Δεν βρέθηκαν λογαριασμοί.</td></tr>';
+    return;
+  }
+  (rows || []).forEach((row) => {
+    const accountId = String(row.account_id || '').trim();
+    const tr = document.createElement('tr');
+    tr.dataset.accountId = accountId;
+    tr.tabIndex = 0;
+    tr.setAttribute('role', 'button');
+    if(accountId && accountId === cashAccountActiveId) tr.classList.add('is-active');
+    tr.innerHTML = `
+      <td>${escapeHtml(textOrDash(row.account_code))}</td>
+      <td>${escapeHtml(textOrDash(row.account_name))}</td>
+      <td class="text-end">${moneySigned(row.balance)}</td>
+    `;
+    tr.addEventListener('click', () => {
+      cashAccountActiveId = accountId;
+      body.querySelectorAll('tr.is-active').forEach((el) => el.classList.remove('is-active'));
+      tr.classList.add('is-active');
+    });
+    tr.addEventListener('dblclick', () => {
+      if(accountId) openCashAccount(accountId, tr);
+    });
+    tr.addEventListener('keydown', (event) => {
+      if((event.key === 'Enter' || event.key === ' ') && accountId){
+        event.preventDefault();
+        openCashAccount(accountId, tr);
+      }
+    });
+    body.appendChild(tr);
+  });
+}
+function updateCashAccountsPager(limit){
+  const pages = Math.max(1, Math.ceil((cashAccountsTotal || 0) / limit));
+  if(cashAccountsPage > pages) cashAccountsPage = pages;
+  document.getElementById('cashAccountsPageInfo').textContent = `${cashAccountsPage} / ${pages}`;
+  document.getElementById('cashAccountsPageJump').value = String(cashAccountsPage);
+}
+function renderCashAccountsSummary(summary, meta={}){
+  const el = document.getElementById('cashAccountsSummary');
+  if(!el) return;
+  cashAccountsTotal = Math.max(0, Math.round(toNum(summary?.accounts)));
+  el.textContent = `Λογαριασμοί: ${fmt0.format(cashAccountsTotal)} | Σύνολο Υπολοίπου: ${moneySigned(summary?.balance_total)}`;
+  const limit = Math.max(1, Number(meta.limit || document.getElementById('cashAccountsPageSize')?.value || 250));
+  const offset = Math.max(0, Number(meta.offset || 0));
+  const rowsCount = Math.max(0, Number(meta.rowsCount || 0));
+  const from = cashAccountsTotal > 0 ? offset + 1 : 0;
+  const to = Math.min(offset + rowsCount, cashAccountsTotal);
+  const rangeEl = document.getElementById('cashAccountsRangeSummary');
+  if(rangeEl) rangeEl.textContent = `Εμφάνιση ${from} έως ${to} από ${cashAccountsTotal}`;
+  updateCashAccountsPager(limit);
+}
+
+function fillCashAccountModal(data){
+  const header = data?.header || {};
+  const notes = data?.notes || {};
+  const totals = data?.totals || {};
+  document.getElementById('cashAccountModalTitle').textContent = textOrDash(header.account_name, '{{ page_title }}');
+  document.getElementById('cashAccountModalSub').textContent =
+    `Κινήσεις: ${fmt0.format(Math.round(toNum(totals.tx_count)))}`;
+  setInputValue('cashAccountFCode', header.account_code);
+  setInputValue('cashAccountFName', header.account_name);
+  setInputValue('cashAccountFBankVat', header.bank_vat);
+  setCheckboxValue('cashAccountFActive', !!header.is_active);
+  setInputValue('cashAccountTBalance', moneySigned(totals.balance));
+  setTextValue('cashAccountNNotes', notes.notes_1 || '');
+}
+
+async function reloadCashAccounts(e){
+  if(e) e.preventDefault();
+  setError(null);
+  const body = document.getElementById('cashAccountsBody');
+  if(body){
+    body.innerHTML = '<tr><td colspan="3" class="text-center text-muted py-3">Φόρτωση λογαριασμών...</td></tr>';
+  }
+  try {
+    const p = accountsParams();
+    const res = await fetch(`/v1/kpi/cashflow/accounts?${p.toString()}`);
+    if(!res.ok) throw new Error('Αποτυχία φόρτωσης χρηματικών λογαριασμών.');
+    const payload = await res.json();
+    renderCashAccountsTable(payload?.rows || []);
+    renderCashAccountsSummary(payload?.summary || {}, {
+      limit: payload?.limit,
+      offset: payload?.offset,
+      rowsCount: (payload?.rows || []).length,
+    });
+  } catch (_err) {
+    setError('Αποτυχία φόρτωσης χρηματικών λογαριασμών.');
+    if(body){
+      body.innerHTML = '<tr><td colspan="3" class="text-center text-danger py-3">Αποτυχία φόρτωσης χρηματικών λογαριασμών.</td></tr>';
+    }
+    renderCashAccountsSummary(
+      { accounts: 0, balance_total: 0 },
+      { limit: document.getElementById('cashAccountsPageSize')?.value || 250, offset: 0, rowsCount: 0 }
+    );
+  }
+}
+
+async function openCashAccount(accountId, triggerEl){
+  const accId = String(accountId || '').trim();
+  if(!accId) return;
+  cashAccountActiveId = accId;
+  document.querySelectorAll('#cashAccountsBody tr.is-active').forEach((el) => el.classList.remove('is-active'));
+  Array.from(document.querySelectorAll('#cashAccountsBody tr')).find((el) => el.dataset.accountId === accId)?.classList.add('is-active');
+
+  resetCashAccountModal();
+  showCashAccountModal(triggerEl);
+  const token = ++cashAccountOpenToken;
+  try {
+    const res = await fetch(`/v1/kpi/cashflow/accounts/${encodeURIComponent(accId)}/detail`);
+    if(token !== cashAccountOpenToken) return;
+    if(!res.ok){
+      const err = await res.json().catch(() => ({ detail: 'Αποτυχία φόρτωσης καρτέλας λογαριασμού.' }));
+      throw new Error(err?.detail || 'Αποτυχία φόρτωσης καρτέλας λογαριασμού.');
+    }
+    const data = await res.json();
+    if(token !== cashAccountOpenToken) return;
+    fillCashAccountModal(data);
+  } catch (err) {
+    if(token !== cashAccountOpenToken) return;
+    setModalError(err?.message || 'Αποτυχία φόρτωσης καρτέλας λογαριασμού.');
+  }
+}
+
+window.addEventListener('load', async () => {
+  cashAccountModalEl = document.getElementById('cashAccountModal');
+  bindCashAccountTabs();
+  getCashAccountModalController();
+
+  const searchEl = document.getElementById('cashAccountsSearch');
+  if(searchEl){
+    searchEl.addEventListener('input', () => {
+      clearTimeout(cashAccountSearchDebounce);
+      cashAccountSearchDebounce = setTimeout(() => {
+        cashAccountsPage = 1;
+        reloadCashAccounts();
+      }, 260);
+    });
+  }
+  document.getElementById('cashAccountsReset')?.addEventListener('click', () => {
+    const searchEl = document.getElementById('cashAccountsSearch');
+    if(searchEl) searchEl.value = '';
+    cashAccountsPage = 1;
+    reloadCashAccounts();
+  });
+  document.getElementById('cashAccountsRefresh')?.addEventListener('click', () => reloadCashAccounts());
+  document.getElementById('cashAccountsPageSize')?.addEventListener('change', () => { cashAccountsPage = 1; reloadCashAccounts(); });
+  document.getElementById('cashAccountsFirstPage')?.addEventListener('click', () => { cashAccountsPage = 1; reloadCashAccounts(); });
+  document.getElementById('cashAccountsPrevPage')?.addEventListener('click', () => { cashAccountsPage = Math.max(1, cashAccountsPage - 1); reloadCashAccounts(); });
+  document.getElementById('cashAccountsNextPage')?.addEventListener('click', () => { cashAccountsPage += 1; reloadCashAccounts(); });
+  document.getElementById('cashAccountsLastPage')?.addEventListener('click', () => {
+    const limit = Math.max(1, Number(document.getElementById('cashAccountsPageSize')?.value || 250));
+    const pages = Math.max(1, Math.ceil((cashAccountsTotal || 0) / limit));
+    cashAccountsPage = pages;
+    reloadCashAccounts();
+  });
+  document.getElementById('cashAccountsPageGo')?.addEventListener('click', () => {
+    const val = Math.max(1, Number(document.getElementById('cashAccountsPageJump')?.value || 1));
+    cashAccountsPage = val;
+    reloadCashAccounts();
+  });
+  await reloadCashAccounts();
+});
+</script>
+{% endblock %}

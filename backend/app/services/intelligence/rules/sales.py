@@ -182,7 +182,7 @@ async def run_profit_drop_period(db: AsyncSession, params: dict, ctx: RuleContex
             delta_value=value - baseline,
             delta_pct=delta_pct,
             metadata_json=_meta(
-                why='Η πτώση κερδοφορίας μειώνει την ανθεκτικότητα του φαρμακείου.',
+                why='Η πτώση κερδοφορίας μειώνει την ανθεκτικότητα της επιχείρησης.',
                 formula='profit_A = sum(gross)-sum(net), compare vs previous period',
                 drilldown='/tenant/sales?metric=profit',
                 actions=[

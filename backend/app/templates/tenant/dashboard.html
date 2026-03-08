@@ -136,6 +136,69 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
+  .decision-insights-wrap {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 12px;
+  }
+  .decision-insight-item {
+    border: 1px solid #e6ebf4;
+    border-radius: 12px;
+    background: #fff;
+    padding: 12px;
+  }
+  .decision-insight-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+  .decision-insight-title {
+    font-weight: 700;
+    color: #1f2a44;
+    margin: 0;
+    font-size: 14px;
+  }
+  .decision-insight-meta {
+    color: #64748b;
+    font-size: 12px;
+    margin-bottom: 8px;
+  }
+  .decision-insight-expl {
+    font-size: 13px;
+    color: #334155;
+    margin-bottom: 6px;
+  }
+  .decision-insight-action {
+    font-size: 13px;
+    color: #0f172a;
+    font-weight: 600;
+    margin-bottom: 0;
+  }
+  .decision-count {
+    border-radius: 999px;
+    padding: 4px 10px;
+    font-size: 12px;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .decision-count-critical { background: #fee2e2; color: #b91c1c; }
+  .decision-count-warning { background: #fef3c7; color: #92400e; }
+  .decision-count-info { background: #dbeafe; color: #1d4ed8; }
+  .decision-badge {
+    border-radius: 999px;
+    padding: 2px 8px;
+    font-size: 11px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: .03em;
+  }
+  .decision-badge-critical { background: #fee2e2; color: #b91c1c; }
+  .decision-badge-warning { background: #fef3c7; color: #92400e; }
+  .decision-badge-info { background: #dbeafe; color: #1d4ed8; }
 </style>
 
 <div class="row row-cols-1 row-cols-md-2 row-cols-xl-5 g-3 mb-3">
@@ -270,6 +333,23 @@
 </div>
 
 <div class="card border-0 shadow-sm mb-3 content-card">
+  <div class="card-header d-flex align-items-center justify-content-between gap-2">
+    <h5 class="mb-0">Decision Engine | Κρίσιμα Insights</h5>
+    <a class="btn btn-sm bv-action-btn bv-action-edit" href="/tenant/insights"><i class="fe fe-external-link"></i>Όλα τα Insights</a>
+  </div>
+  <div class="card-body">
+    <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+      <span class="decision-count decision-count-critical">Κρίσιμα <strong id="decisionCntCritical">0</strong></span>
+      <span class="decision-count decision-count-warning">Προειδοποίηση <strong id="decisionCntWarning">0</strong></span>
+      <span class="decision-count decision-count-info">Πληροφορία <strong id="decisionCntInfo">0</strong></span>
+    </div>
+    <div id="decisionInsightsList" class="decision-insights-wrap">
+      <div class="text-muted">Φόρτωση insights...</div>
+    </div>
+  </div>
+</div>
+
+<div class="card border-0 shadow-sm mb-3 content-card">
   <div class="card-header"><h5 class="mb-0">Τζίρος Εταιρείας / Έτος</h5></div>
   <div class="card-body"><canvas id="companyTrendChart" height="110"></canvas></div>
 </div>
@@ -284,7 +364,7 @@
         </div>
         <div class="branch-donut-table-wrap">
           <div class="table-responsive">
-            <table class="table table-sm mb-0" id="tblDayByBranch">
+            <table class="table table-sm mb-0 bv-unified-table" id="tblDayByBranch">
               <thead><tr><th>{{ tt(request, 'branch') }}</th><th class="text-end">{{ tt(request, 'net') }}</th></tr></thead>
               <tbody></tbody>
             </table>
@@ -302,7 +382,7 @@
         </div>
         <div class="branch-donut-table-wrap">
           <div class="table-responsive">
-            <table class="table table-sm mb-0" id="tblMonthByBranch">
+            <table class="table table-sm mb-0 bv-unified-table" id="tblMonthByBranch">
               <thead><tr><th>{{ tt(request, 'branch') }}</th><th class="text-end">{{ tt(request, 'net') }}</th></tr></thead>
               <tbody></tbody>
             </table>
@@ -320,7 +400,7 @@
         </div>
         <div class="branch-donut-table-wrap">
           <div class="table-responsive">
-            <table class="table table-sm mb-0" id="tblYearByBranch">
+            <table class="table table-sm mb-0 bv-unified-table" id="tblYearByBranch">
               <thead><tr><th>{{ tt(request, 'branch') }}</th><th class="text-end">{{ tt(request, 'net') }}</th><th class="text-end">%</th></tr></thead>
               <tbody></tbody>
             </table>
@@ -343,6 +423,7 @@
 <script>
 let companyTrendChart, yearByBranchDonut;
 const branchDonutCharts = {};
+let dashboardReloadToken = 0;
 const centralFieldDefs = [
   {key:'branches', selectId:'centralBranches', label:'{{ tt(request, "branches") }}'},
 ];
@@ -367,6 +448,91 @@ function formatDMY(iso){
   const mm = String(d.getMonth()+1).padStart(2,'0');
   const yy = d.getFullYear();
   return `${dd}/${mm}/${yy}`;
+}
+function dmyDate(value){
+  if(!value) return '-';
+  const dt = new Date(value);
+  if(Number.isNaN(dt.getTime())) return String(value);
+  return dt.toLocaleString('el-GR');
+}
+function escHtml(v){
+  return String(v ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+function severityClass(severity){
+  const s = String(severity || '').toLowerCase();
+  if(s === 'critical') return 'critical';
+  if(s === 'warning') return 'warning';
+  return 'info';
+}
+function severityLabel(severity){
+  const s = severityClass(severity);
+  if(s === 'critical') return 'Κρίσιμο';
+  if(s === 'warning') return 'Προειδοποίηση';
+  return 'Πληροφορία';
+}
+function insightDrilldown(row){
+  if(row && row.metadata_json && row.metadata_json.drilldown){
+    return String(row.metadata_json.drilldown);
+  }
+  const cat = String(row?.category || '').toLowerCase();
+  if(cat === 'purchases') return '/tenant/purchases';
+  if(cat === 'inventory') return '/tenant/inventory';
+  if(cat === 'cashflow') return '/tenant/cashflow';
+  if(cat === 'receivables') return '/tenant/customers';
+  return '/tenant/sales';
+}
+function renderDecisionInsights(rows){
+  const listEl = document.getElementById('decisionInsightsList');
+  if(!listEl) return;
+  const normalized = Array.isArray(rows) ? rows : [];
+  const critical = normalized.filter(r => severityClass(r?.severity) === 'critical').length;
+  const warning = normalized.filter(r => severityClass(r?.severity) === 'warning').length;
+  const info = normalized.filter(r => severityClass(r?.severity) === 'info').length;
+  const criticalEl = document.getElementById('decisionCntCritical');
+  const warningEl = document.getElementById('decisionCntWarning');
+  const infoEl = document.getElementById('decisionCntInfo');
+  if(criticalEl) criticalEl.textContent = String(critical);
+  if(warningEl) warningEl.textContent = String(warning);
+  if(infoEl) infoEl.textContent = String(info);
+
+  if(!normalized.length){
+    listEl.innerHTML = '<div class="text-muted">Δεν υπάρχουν ανοιχτά insights στο επιλεγμένο διάστημα.</div>';
+    return;
+  }
+
+  const sorted = [...normalized].sort((a, b) => {
+    const rankA = severityClass(a?.severity) === 'critical' ? 0 : (severityClass(a?.severity) === 'warning' ? 1 : 2);
+    const rankB = severityClass(b?.severity) === 'critical' ? 0 : (severityClass(b?.severity) === 'warning' ? 1 : 2);
+    if(rankA !== rankB) return rankA - rankB;
+    return String(b?.created_at || '').localeCompare(String(a?.created_at || ''));
+  });
+  const topRows = sorted.slice(0, 6);
+  listEl.innerHTML = topRows.map((row) => {
+    const sev = severityClass(row?.severity);
+    const explain = String(row?.explanation || row?.message || '-');
+    const action = String(row?.suggested_action || (Array.isArray(row?.suggested_actions) && row.suggested_actions[0]) || 'Μετάβαση στη σελίδα detail για ενέργειες.');
+    const drill = insightDrilldown(row);
+    const when = row?.created_at ? dmyDate(row.created_at) : '-';
+    return `
+      <article class="decision-insight-item">
+        <div class="decision-insight-head">
+          <h6 class="decision-insight-title">${escHtml(row?.title || 'Insight')}</h6>
+          <span class="decision-badge decision-badge-${sev}">${severityLabel(sev)}</span>
+        </div>
+        <div class="decision-insight-meta">${escHtml(String(row?.category || '-'))} | ${escHtml(when)}</div>
+        <p class="decision-insight-expl">${escHtml(explain)}</p>
+        <p class="decision-insight-action">Προτεινόμενη ενέργεια: ${escHtml(action)}</p>
+        <div class="mt-2">
+          <a class="btn btn-sm bv-action-btn bv-action-edit" href="${escHtml(drill)}"><i class="fe fe-arrow-right-circle"></i>Άνοιγμα</a>
+        </div>
+      </article>
+    `;
+  }).join('');
 }
 function startOfWeek(d){ const x=new Date(d); const day=(x.getDay()+6)%7; x.setDate(x.getDate()-day); return x; }
 function startOfMonth(d){ return new Date(d.getFullYear(), d.getMonth(), 1); }
@@ -635,7 +801,10 @@ function renderTrend(monthly){
 async function fetchJsonStrict(url){
   const res = await fetch(url);
   if(!res.ok){
-    throw new Error(`${res.status}`);
+    const err = new Error(`${res.status}`);
+    err.status = res.status;
+    err.url = url;
+    throw err;
   }
   return res.json();
 }
@@ -643,9 +812,12 @@ async function fetchJsonStrict(url){
 async function reloadCentralDashboard(e){
   if(e) e.preventDefault();
   setError(null);
+  const reloadToken = ++dashboardReloadToken;
   try{
     const fd = new FormData(document.getElementById('centralFilters'));
+    const fromIsoRaw = window.bvToIsoDate ? window.bvToIsoDate(fd.get('from')) : fd.get('from');
     const toIsoRaw = window.bvToIsoDate ? window.bvToIsoDate(fd.get('to')) : fd.get('to');
+    const selectedFromDate = parseISOToDate(fromIsoRaw) || new Date();
     const anchorDate = parseISOToDate(toIsoRaw) || new Date();
     const dayFrom = dtISO(anchorDate);
     const weekFrom = dtISO(startOfWeek(anchorDate));
@@ -665,27 +837,39 @@ async function reloadCentralDashboard(e){
     const prevMonthFrom = dtISO(startOfMonth(prevMonthDate));
     const prevMonthToRaw = new Date(prevMonthDate.getFullYear(), prevMonthDate.getMonth(), anchorDate.getDate());
     const prevMonthTo = dtISO(prevMonthToRaw > prevMonthDate ? prevMonthDate : prevMonthToRaw);
+    const execParams = filtersToParams();
+    const executive = await fetchJsonStrict(`/v1/dashboard/executive-summary?${execParams.toString()}`);
+    const cards = executive?.cards || {};
+    const branchBreakdown = executive?.branch_breakdown || {};
+    const trend = executive?.trend || {};
 
-    const [day, week, month, year, prevYear, prevYearFull, dayByBranch, monthByBranch, yearByBranch, prevMonthByBranch, pack, trendY0, trendY1, trendY2] = await Promise.all([
-      fetchJsonStrict(`/v1/kpi/sales/summary?${filtersToParams(dayFrom, ytdTo).toString()}`),
-      fetchJsonStrict(`/v1/kpi/sales/summary?${filtersToParams(weekFrom, ytdTo).toString()}`),
-      fetchJsonStrict(`/v1/kpi/sales/summary?${filtersToParams(monthFrom, ytdTo).toString()}`),
-      fetchJsonStrict(`/v1/kpi/sales/summary?${filtersToParams(yearFrom, ytdTo).toString()}`),
-      fetchJsonStrict(`/v1/kpi/sales/summary?${filtersToParams(prevYtdFrom, prevYtdTo).toString()}`),
-      fetchJsonStrict(`/v1/kpi/sales/summary?${filtersToParams(dtISO(new Date(prev1Year, 0, 1)), dtISO(new Date(prev1Year, 11, 31))).toString()}`),
-      fetchJsonStrict(`/v1/kpi/sales/by-branch?${filtersToParams(dayFrom, ytdTo).toString()}`),
-      fetchJsonStrict(`/v1/kpi/sales/by-branch?${filtersToParams(monthFrom, ytdTo).toString()}`),
-      fetchJsonStrict(`/v1/kpi/sales/by-branch?${filtersToParams(yearFrom, ytdTo).toString()}`),
-      fetchJsonStrict(`/v1/kpi/sales/by-branch?${filtersToParams(prevMonthFrom, prevMonthTo).toString()}`),
-      fetchJsonStrict(`/v1/kpi/sales/decision-pack?${filtersToParams().toString()}`),
-      fetchJsonStrict(`/v1/kpi/sales/decision-pack?${filtersToParams(dtISO(new Date(currentYear, 0, 1)), dtISO(new Date(currentYear, 11, 31))).toString()}`),
-      fetchJsonStrict(`/v1/kpi/sales/decision-pack?${filtersToParams(dtISO(new Date(prev1Year, 0, 1)), dtISO(new Date(prev1Year, 11, 31))).toString()}`),
-      fetchJsonStrict(`/v1/kpi/sales/decision-pack?${filtersToParams(dtISO(new Date(prev2Year, 0, 1)), dtISO(new Date(prev2Year, 11, 31))).toString()}`)
-    ]);
+    const day = cards.day || {};
+    const week = cards.week || {};
+    const month = cards.month || {};
+    const year = cards.year || {};
+    const prevYear = cards.prev_year || {};
+    const prevYearFull = cards.prev_year_full || {};
+    const periodSales = cards.period_sales || {};
+    const purchasesPeriod = cards.purchases_period || {};
+    const purchasesYear = cards.purchases_year || {};
+    const dayByBranch = Array.isArray(branchBreakdown.day) ? branchBreakdown.day : [];
+    const monthByBranch = Array.isArray(branchBreakdown.month) ? branchBreakdown.month : [];
+    const yearByBranch = Array.isArray(branchBreakdown.year) ? branchBreakdown.year : [];
+    const prevMonthByBranch = Array.isArray(branchBreakdown.prev_month) ? branchBreakdown.prev_month : [];
+    const trendY0 = Array.isArray(trend?.y0?.rows) ? trend.y0.rows : [];
+    const trendY1 = Array.isArray(trend?.y1?.rows) ? trend.y1.rows : [];
+    const trendY2 = Array.isArray(trend?.y2?.rows) ? trend.y2.rows : [];
 
     const yearVal=toNum(year.net_value||year.turnover||0);
     const prevYearVal=toNum(prevYear.net_value||prevYear.turnover||0);
     const prevYearFullVal=toNum(prevYearFull.net_value||prevYearFull.turnover||0);
+    const periodSalesVal = toNum(periodSales.net_value || periodSales.turnover || 0);
+    const periodPurchasesVal = toNum(purchasesPeriod.net_value || purchasesPeriod.cost_amount || purchasesPeriod.total_cost || 0);
+    const yearPurchasesVal = toNum(purchasesYear.net_value || purchasesYear.cost_amount || purchasesYear.total_cost || 0);
+    const selectedDays = Math.max(1, Math.floor((anchorDate - selectedFromDate) / 86400000) + 1);
+    const periodGrossProfit = periodSalesVal - periodPurchasesVal;
+    const periodMarginPct = periodSalesVal > 0 ? (periodGrossProfit / periodSalesVal) * 100 : 0;
+    const avgDailyTurnover = periodSalesVal / selectedDays;
     const yoyAmount = yearVal - prevYearVal;
     const yoy = prevYearVal>0 ? ((yearVal-prevYearVal)/prevYearVal)*100 : null;
     const fullDeltaPct = prevYearFullVal>0 ? ((yearVal-prevYearFullVal)/prevYearFullVal)*100 : null;
@@ -709,11 +893,11 @@ async function reloadCentralDashboard(e){
     document.getElementById('kpiYearToDateFullCmpDelta').textContent = fullDeltaPct===null
       ? `Δ ${money(yearVal-prevYearFullVal)} vs ${prev1Year} full`
       : `${fullDeltaPct < 0 ? 'Υστέρηση' : 'Πάνω'} ${pct(Math.abs(fullDeltaPct))} vs ${prev1Year} full | ${cutoffLabel}`;
-    document.getElementById('kpiTotalSalesPeriod').textContent = money(toNum(pack.cards?.turnover));
-    document.getElementById('kpiGrossProfitPeriod').textContent = money(toNum(pack.cards?.gross_profit));
-    document.getElementById('kpiMarginPctPeriod').textContent = pct(pack.cards?.margin_pct);
-    document.getElementById('kpiAvgDailyTurnover').textContent = money(toNum(pack.cards?.avg_sale_per_day));
-    document.getElementById('kpiGrossProfitYear').textContent = money(toNum(year.profit_value || year.gross_profit));
+    document.getElementById('kpiTotalSalesPeriod').textContent = money(periodSalesVal);
+    document.getElementById('kpiGrossProfitPeriod').textContent = money(periodGrossProfit);
+    document.getElementById('kpiMarginPctPeriod').textContent = pct(periodMarginPct);
+    document.getElementById('kpiAvgDailyTurnover').textContent = money(avgDailyTurnover);
+    document.getElementById('kpiGrossProfitYear').textContent = money(yearVal - yearPurchasesVal);
     document.getElementById('kpiMonthQty').textContent = fmt0.format(Math.round(toNum(month.qty || month.quantity || month.qty_total)));
 
     const activeBranches = (yearByBranch||[]).filter(r => toNum(r.net_value) > 0).length;
@@ -723,23 +907,14 @@ async function reloadCentralDashboard(e){
     const topShare = yearTotal > 0 ? (topBranch / yearTotal) * 100 : 0;
     document.getElementById('kpiTopBranchShare').textContent = pct(topShare);
 
-    const purchasesRes = await fetch(`/v1/kpi/purchases/summary?${filtersToParams().toString()}`);
-    if (purchasesRes.ok) {
-      const purchases = await purchasesRes.json();
-      const purchasesVal = toNum(purchases.net_value || purchases.total_cost || 0);
-      document.getElementById('kpiTotalPurchasesPeriod').textContent = money(purchasesVal);
-      const salesVal = toNum(pack.cards?.turnover);
-      const ratio = salesVal > 0 ? (purchasesVal / salesVal) * 100 : null;
-      document.getElementById('kpiPurchasesToSales').textContent = ratio === null ? '-' : pct(ratio);
-    } else {
-      document.getElementById('kpiTotalPurchasesPeriod').textContent = '-';
-      document.getElementById('kpiPurchasesToSales').textContent = '-';
-    }
+    document.getElementById('kpiTotalPurchasesPeriod').textContent = money(periodPurchasesVal);
+    const ratio = periodSalesVal > 0 ? (periodPurchasesVal / periodSalesVal) * 100 : null;
+    document.getElementById('kpiPurchasesToSales').textContent = ratio === null ? '-' : pct(ratio);
 
     renderTrend([
-      { year: prev2Year, rows: trendY2.trend_monthly || [] },
-      { year: prev1Year, rows: trendY1.trend_monthly || [] },
-      { year: currentYear, rows: trendY0.trend_monthly || [] }
+      { year: prev2Year, rows: trendY2 || [] },
+      { year: prev1Year, rows: trendY1 || [] },
+      { year: currentYear, rows: trendY0 || [] }
     ]);
     fillTable('tblDayByBranch', dayByBranch, false);
     fillTable('tblMonthByBranch', monthByBranch, false);
@@ -748,7 +923,10 @@ async function reloadCentralDashboard(e){
     renderSmallDonut('monthByBranchDonut', monthByBranch||[]);
     renderYearDonut(yearByBranch||[]);
     renderMonthlyBranchPerformance(monthByBranch||[], prevMonthByBranch||[]);
+
+    renderDecisionInsights(Array.isArray(executive?.key_alerts) ? executive.key_alerts : []);
   }catch(err){
+    renderDecisionInsights([]);
     setError(err.message || '{{ tt(request, "dashboard_load_failed") }}');
   }
 }

@@ -99,6 +99,12 @@
 
 {% block content %}
 <div id="itemsError" class="alert alert-danger d-none mb-3"></div>
+<style>
+  .items-footer {
+    border-top: 1px solid #e5e7eb;
+    background: #f8fafc;
+  }
+</style>
 
 <div class="row g-3 mb-3">
   <div class="col-xl-2 col-md-4">
@@ -133,7 +139,7 @@
 <div class="card border-0 shadow-sm content-card">
   <div class="card-header"><h5 class="mb-0">{{ tt(request, 'items_warehouse') }}</h5></div>
   <div class="card-body table-responsive items-table-scroll">
-    <table class="table table-sm table-hover" id="itemsTable">
+    <table class="table table-sm table-hover bv-unified-table" id="itemsTable">
       <thead>
         <tr>
           <th>{{ tt(request, 'item') }}</th>
@@ -154,13 +160,40 @@
       <tbody></tbody>
     </table>
   </div>
+  <div class="card-footer items-footer d-flex justify-content-between align-items-center gap-2 flex-wrap">
+    <div class="d-flex flex-column">
+      <small id="itRangeSummary" class="text-muted">Εμφάνιση 0 από 0 | Διπλό κλικ σε γραμμή για προβολή καρτέλας</small>
+    </div>
+    <div class="bv-pager">
+      <div class="bv-pager-field bv-pager-field--size">
+        <label for="itPageSize" class="bv-pager-label">Ανά σελίδα</label>
+        <select id="itPageSize" class="form-select form-select-sm">
+          <option value="100">100</option>
+          <option value="250" selected>250</option>
+          <option value="500">500</option>
+        </select>
+      </div>
+      <div class="bv-pager-field bv-pager-field--jump">
+        <span class="bv-pager-label">Σελίδα</span>
+        <input id="itPageJump" type="number" min="1" step="1" value="1" class="form-control form-control-sm bv-pager-page-input" inputmode="numeric" aria-label="Μετάβαση σε σελίδα">
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="itPageGo">Μετάβαση</button>
+      </div>
+      <div class="bv-pager-nav" role="group" aria-label="Πλοήγηση σελίδων ειδών">
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="itFirstPage" title="Πρώτη σελίδα" aria-label="Πρώτη σελίδα">&laquo;</button>
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="itPrevPage" title="Προηγούμενη σελίδα" aria-label="Προηγούμενη σελίδα">&lsaquo;</button>
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="itNextPage" title="Επόμενη σελίδα" aria-label="Επόμενη σελίδα">&rsaquo;</button>
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="itLastPage" title="Τελευταία σελίδα" aria-label="Τελευταία σελίδα">&raquo;</button>
+      </div>
+      <small id="itPageInfo" class="bv-pager-info">1 / 1</small>
+    </div>
+  </div>
 </div>
 
-<div class="modal fade" id="itemDetailModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+<div class="modal fade bv-modal bv-modal--responsive bv-modal--lg" id="itemDetailModal" tabindex="-1" aria-hidden="true" aria-labelledby="itemDetailModalTitle" data-bv-modal="true" data-bv-close-on-backdrop="false">
+  <div class="modal-dialog modal-xl">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title">{{ tt(request, 'items_warehouse') }} - Καρτέλα Είδους</h5>
+        <h5 class="modal-title" id="itemDetailModalTitle">{{ tt(request, 'items_warehouse') }} - Καρτέλα Είδους</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <div class="modal-body">
@@ -235,27 +268,168 @@
             </div>
           </div>
           <div class="col-xl-7">
-            <div class="border rounded p-3 h-100">
-              <div class="d-flex justify-content-between align-items-center mb-2">
-                <h6 class="mb-0">Πλήρη Πεδία Βάσης</h6>
-                <small class="text-muted">
-                  <span id="itdSnapshotMeta">-</span>
-                  <span class="mx-1">|</span>
-                  Πεδία: <span id="itdRawCount">0</span>
-                </small>
-              </div>
-              <div class="table-responsive border rounded" style="max-height: 470px;">
-                <table class="table table-sm align-middle mb-0">
-                  <thead class="table-light sticky-top">
-                    <tr>
-                      <th style="width: 32%;">Πεδίο</th>
-                      <th>Τιμή</th>
-                    </tr>
-                  </thead>
-                  <tbody id="itdRawBody">
-                    <tr><td colspan="2" class="text-muted">Δεν υπάρχουν διαθέσιμα πεδία.</td></tr>
-                  </tbody>
-                </table>
+            <div class="border rounded p-3 h-100 bv-modal-panel">
+              <ul class="nav nav-tabs mb-3" role="tablist">
+                <li class="nav-item" role="presentation">
+                  <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#itdGeneralTab" type="button" role="tab">Γενικά</button>
+                </li>
+                <li class="nav-item" role="presentation">
+                  <button class="nav-link" data-bs-toggle="tab" data-bs-target="#itdRawTab" type="button" role="tab">Πεδία βάσης</button>
+                </li>
+              </ul>
+
+                <div class="tab-content bv-modal-tab-content">
+                <div class="tab-pane fade show active" id="itdGeneralTab" role="tabpanel">
+                  <div class="fw-semibold text-warning border-bottom pb-1 mb-2">Βασικά στοιχεία</div>
+                  <div class="row g-2 mb-3">
+                    <div class="col-12">
+                      <div class="bv-item-basic-hero">
+                        <div class="bv-item-basic-photo-wrap">
+                          <img class="bv-item-basic-photo d-none" id="itdFImagePreview" alt="Φωτογραφία είδους">
+                          <div class="bv-item-basic-photo-fallback" id="itdFImageFallback">Χωρίς φωτογραφία</div>
+                        </div>
+                        <div class="flex-grow-1">
+                          <label class="form-label mb-1">Όνομα είδους</label>
+                          <input type="text" class="form-control form-control-sm mb-2" id="itdFItemName" readonly>
+                          <label class="form-label mb-1">Κωδικός</label>
+                          <input type="text" class="form-control form-control-sm" id="itdFCode" readonly>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="col-md-6">
+                      <label class="form-label mb-1">Κύρια Μ.Μ.</label>
+                      <input type="text" class="form-control form-control-sm" id="itdFMainUnit" readonly>
+                    </div>
+                    <div class="col-md-6">
+                      <label class="form-label mb-1">Φ.Π.Α.</label>
+                      <input type="text" class="form-control form-control-sm" id="itdFVat" readonly>
+                    </div>
+                    <div class="col-md-6">
+                      <label class="form-label mb-1">Barcode</label>
+                      <input type="text" class="form-control form-control-sm" id="itdFBarcode" readonly>
+                    </div>
+                    <div class="col-md-6">
+                      <label class="form-label mb-1">Έκπτωση %</label>
+                      <input type="text" class="form-control form-control-sm" id="itdFDiscount" readonly>
+                    </div>
+                    <div class="col-md-6">
+                      <label class="form-label mb-1">URL Φωτογραφίας</label>
+                      <input type="text" class="form-control form-control-sm" id="itdFImageUrl" readonly>
+                    </div>
+                    <div class="col-md-6 d-flex align-items-center gap-2 mt-2">
+                      <input class="form-check-input" type="checkbox" id="itdFActive" disabled>
+                      <label class="form-check-label" for="itdFActive">Ενεργό</label>
+                    </div>
+                    <div class="col-md-6 d-flex align-items-center gap-2 mt-2">
+                      <input class="form-check-input" type="checkbox" id="itdFBatch" disabled>
+                      <label class="form-check-label" for="itdFBatch">Χρήση παρτίδας</label>
+                    </div>
+                  </div>
+
+                  <div class="fw-semibold text-warning border-bottom pb-1 mb-2">Κατηγορίες</div>
+                  <div class="row g-2 mb-3">
+                    <div class="col-md-6">
+                      <label class="form-label mb-1">Ομάδα είδους</label>
+                      <input type="text" class="form-control form-control-sm" id="itdFGroupCategory" readonly>
+                    </div>
+                    <div class="col-md-6">
+                      <label class="form-label mb-1">Brand</label>
+                      <input type="text" class="form-control form-control-sm" id="itdFBrand" readonly>
+                    </div>
+                    <div class="col-md-6">
+                      <label class="form-label mb-1">Εμπορική κατηγ.</label>
+                      <input type="text" class="form-control form-control-sm" id="itdFCommercialCategory" readonly>
+                    </div>
+                    <div class="col-md-6">
+                      <label class="form-label mb-1">Κατηγορία 1</label>
+                      <input type="text" class="form-control form-control-sm" id="itdFCategory1" readonly>
+                    </div>
+                    <div class="col-md-6">
+                      <label class="form-label mb-1">Κατηγορία 2</label>
+                      <input type="text" class="form-control form-control-sm" id="itdFCategory2" readonly>
+                    </div>
+                    <div class="col-md-6">
+                      <label class="form-label mb-1">Κατηγορία 3</label>
+                      <input type="text" class="form-control form-control-sm" id="itdFCategory3" readonly>
+                    </div>
+                    <div class="col-md-6">
+                      <label class="form-label mb-1">Μοντέλο</label>
+                      <input type="text" class="form-control form-control-sm" id="itdFModel" readonly>
+                    </div>
+                    <div class="col-md-6">
+                      <label class="form-label mb-1">Business unit</label>
+                      <input type="text" class="form-control form-control-sm" id="itdFBusinessUnit" readonly>
+                    </div>
+                    <div class="col-md-6">
+                      <label class="form-label mb-1">Κατηγορία ABC (Αγορά)</label>
+                      <input type="text" class="form-control form-control-sm" id="itdFAbcCategory" readonly>
+                    </div>
+                  </div>
+
+                  <div class="fw-semibold text-warning border-bottom pb-1 mb-2">Τιμές</div>
+                  <div class="row g-2 mb-3">
+                    <div class="col-md-6">
+                      <label class="form-label mb-1">Τιμή χονδρικής</label>
+                      <input type="text" class="form-control form-control-sm" id="itdFWholesalePrice" readonly>
+                    </div>
+                    <div class="col-md-6">
+                      <label class="form-label mb-1">Τιμή λιανικής</label>
+                      <input type="text" class="form-control form-control-sm" id="itdFRetailPrice" readonly>
+                    </div>
+                  </div>
+
+                  <div class="fw-semibold text-warning border-bottom pb-1 mb-2">Μονάδες μέτρησης</div>
+                  <div class="row g-2">
+                    <div class="col-md-4">
+                      <label class="form-label mb-1">Μ.Μ.2</label>
+                      <input type="text" class="form-control form-control-sm" id="itdFUnit2" readonly>
+                    </div>
+                    <div class="col-md-4">
+                      <label class="form-label mb-1">Μ.Μ. Αγορών</label>
+                      <input type="text" class="form-control form-control-sm" id="itdFUnitPurchase" readonly>
+                    </div>
+                    <div class="col-md-4">
+                      <label class="form-label mb-1">Μ.Μ. Πωλήσεων</label>
+                      <input type="text" class="form-control form-control-sm" id="itdFUnitSale" readonly>
+                    </div>
+                    <div class="col-md-4">
+                      <label class="form-label mb-1">Σχέση 2 με 1</label>
+                      <input type="text" class="form-control form-control-sm" id="itdFRel2to1" readonly>
+                    </div>
+                    <div class="col-md-4">
+                      <label class="form-label mb-1">Σχέση Αγορών με 1</label>
+                      <input type="text" class="form-control form-control-sm" id="itdFRelPurchase" readonly>
+                    </div>
+                    <div class="col-md-4">
+                      <label class="form-label mb-1">Σχέση Πωλήσεων με 1</label>
+                      <input type="text" class="form-control form-control-sm" id="itdFRelSale" readonly>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="tab-pane fade" id="itdRawTab" role="tabpanel">
+                  <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h6 class="mb-0">Πλήρη Πεδία Βάσης</h6>
+                    <small class="text-muted">
+                      <span id="itdSnapshotMeta">-</span>
+                      <span class="mx-1">|</span>
+                      Πεδία: <span id="itdRawCount">0</span>
+                    </small>
+                  </div>
+                  <div class="table-responsive border rounded bv-modal-raw-table">
+                    <table class="table table-sm align-middle mb-0">
+                      <thead class="table-light sticky-top">
+                        <tr>
+                          <th style="width: 32%;">Πεδίο</th>
+                          <th>Τιμή</th>
+                        </tr>
+                      </thead>
+                      <tbody id="itdRawBody">
+                        <tr><td colspan="2" class="text-muted">Δεν υπάρχουν διαθέσιμα πεδία.</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -279,49 +453,25 @@
   const movementEl = document.getElementById('itMovement');
   const fmtQty = (n)=> new Intl.NumberFormat('el-GR',{maximumFractionDigits:0}).format(Math.round(Number(n||0)));
   const fmtMoney = (n)=> new Intl.NumberFormat('el-GR',{style:'currency',currency:'EUR'}).format(Number(n||0));
+  const fmtDecimal2 = (n)=> new Intl.NumberFormat('el-GR',{minimumFractionDigits:2, maximumFractionDigits:2}).format(Number(n||0));
+  const fmtInt = (n)=> new Intl.NumberFormat('el-GR',{maximumFractionDigits:0}).format(Math.round(Number(n||0)));
   let fastChart;
+  let itemsLimit = 250;
+  let itemsOffset = 0;
+  let itemsTotal = 0;
   const itemDetailModalEl = document.getElementById('itemDetailModal');
-  const itemDetailModal = itemDetailModalEl && window.bootstrap?.Modal
-    ? new window.bootstrap.Modal(itemDetailModalEl)
+  const itemDetailModal = itemDetailModalEl
+    ? (
+      window.BVModalSystem?.create(itemDetailModalEl, { closeOnBackdrop: false, keyboard: true, focusTrap: true, restoreFocus: true })
+      || (window.bootstrap?.Modal
+        ? window.bootstrap.Modal.getOrCreateInstance(itemDetailModalEl, { backdrop: 'static', keyboard: true, focus: true })
+        : null)
+    )
     : null;
-  let itemDetailBackdrop = null;
 
-  function hideItemDetailModal(){
-    if(itemDetailModal){
-      itemDetailModal.hide();
-      return;
-    }
+  function showItemDetailModal(triggerEl){
     if(!itemDetailModalEl) return;
-    itemDetailModalEl.classList.remove('show');
-    itemDetailModalEl.classList.add('d-none');
-    itemDetailModalEl.style.display = 'none';
-    itemDetailModalEl.setAttribute('aria-hidden', 'true');
-    itemDetailModalEl.removeAttribute('aria-modal');
-    document.body.classList.remove('modal-open');
-    if(itemDetailBackdrop){
-      itemDetailBackdrop.remove();
-      itemDetailBackdrop = null;
-    }
-  }
-
-  function showItemDetailModal(){
-    if(itemDetailModal){
-      itemDetailModal.show();
-      return;
-    }
-    if(!itemDetailModalEl) return;
-    itemDetailModalEl.classList.remove('d-none');
-    itemDetailModalEl.classList.add('show');
-    itemDetailModalEl.style.display = 'block';
-    itemDetailModalEl.setAttribute('aria-hidden', 'false');
-    itemDetailModalEl.setAttribute('aria-modal', 'true');
-    document.body.classList.add('modal-open');
-    if(!itemDetailBackdrop){
-      itemDetailBackdrop = document.createElement('div');
-      itemDetailBackdrop.className = 'modal-backdrop fade show';
-      itemDetailBackdrop.addEventListener('click', hideItemDetailModal);
-      document.body.appendChild(itemDetailBackdrop);
-    }
+    itemDetailModal?.show?.(triggerEl);
   }
 
   const fieldDefs = [
@@ -340,6 +490,77 @@
     const el = document.getElementById('itemsError');
     if(!msg){ el.classList.add('d-none'); el.textContent=''; return; }
     el.classList.remove('d-none'); el.textContent = msg;
+  }
+
+  function totalPages(){
+    if(itemsTotal <= 0) return 1;
+    return Math.max(1, Math.ceil(itemsTotal / itemsLimit));
+  }
+
+  function currentPage(){
+    if(itemsTotal <= 0) return 1;
+    return Math.floor(itemsOffset / itemsLimit) + 1;
+  }
+
+  function setPaginationDisabled(disabled){
+    ['itPageSize', 'itPageJump', 'itPageGo', 'itFirstPage', 'itPrevPage', 'itNextPage', 'itLastPage'].forEach((id)=>{
+      const el = document.getElementById(id);
+      if(el) el.disabled = !!disabled;
+    });
+  }
+
+  function updatePagination(rowsCount){
+    const tPages = totalPages();
+    const cPage = Math.min(currentPage(), tPages);
+    const firstDisabled = itemsTotal <= 0 || itemsOffset <= 0;
+    const nextDisabled = itemsTotal <= 0 || (itemsOffset + itemsLimit >= itemsTotal);
+
+    const pageInfoEl = document.getElementById('itPageInfo');
+    if(pageInfoEl) pageInfoEl.textContent = `${fmtInt(cPage)} / ${fmtInt(tPages)}`;
+
+    const pageSizeEl = document.getElementById('itPageSize');
+    if(pageSizeEl && pageSizeEl.value !== String(itemsLimit)) pageSizeEl.value = String(itemsLimit);
+
+    const pageJumpEl = document.getElementById('itPageJump');
+    if(pageJumpEl){
+      pageJumpEl.min = '1';
+      pageJumpEl.max = String(tPages);
+      pageJumpEl.value = String(cPage);
+    }
+
+    const firstEl = document.getElementById('itFirstPage');
+    const prevEl = document.getElementById('itPrevPage');
+    const nextEl = document.getElementById('itNextPage');
+    const lastEl = document.getElementById('itLastPage');
+    if(firstEl) firstEl.disabled = firstDisabled;
+    if(prevEl) prevEl.disabled = firstDisabled;
+    if(nextEl) nextEl.disabled = nextDisabled;
+    if(lastEl) lastEl.disabled = nextDisabled;
+
+    const rangeEl = document.getElementById('itRangeSummary');
+    if(rangeEl){
+      if(itemsTotal <= 0 || rowsCount <= 0){
+        rangeEl.textContent = 'Εμφάνιση 0 από 0 | Διπλό κλικ σε γραμμή για προβολή καρτέλας';
+      }else{
+        const start = itemsOffset + 1;
+        const end = Math.min(itemsOffset + rowsCount, itemsTotal);
+        rangeEl.textContent = `Εμφάνιση ${fmtInt(start)}-${fmtInt(end)} από ${fmtInt(itemsTotal)} | Διπλό κλικ σε γραμμή για προβολή καρτέλας`;
+      }
+    }
+  }
+
+  function goToPage(pageNumber){
+    const parsed = Number(pageNumber);
+    const target = Number.isFinite(parsed) ? parsed : 1;
+    const safePage = Math.min(totalPages(), Math.max(1, target));
+    const nextOffset = (safePage - 1) * itemsLimit;
+    if(nextOffset === itemsOffset) return;
+    itemsOffset = nextOffset;
+    load();
+  }
+
+  function resetPagination(){
+    itemsOffset = 0;
   }
 
   function syncMulti(prefix, label, filterText=''){
@@ -490,7 +711,8 @@
     if(qEl.value) p.set('q', qEl.value.trim());
     p.set('status', statusEl.value || 'all');
     p.set('movement', movementEl.value || 'all');
-    p.set('limit', '300');
+    p.set('limit', String(itemsLimit));
+    p.set('offset', String(itemsOffset));
     fieldDefs.forEach((f)=>{
       const sel=document.getElementById(f.selectId);
       Array.from(sel?.selectedOptions || []).forEach(o=>p.append(f.key, o.value));
@@ -555,11 +777,11 @@
         <td>${statusBadge}</td>
         <td>${movementBadge}</td>
       `;
-      tr.addEventListener('dblclick', ()=> openItemDetail(r));
+      tr.addEventListener('dblclick', ()=> openItemDetail(r, tr));
       tr.addEventListener('keydown', (e)=>{
         if(e.key === 'Enter' || e.key === ' '){
           e.preventDefault();
-          openItemDetail(r);
+          openItemDetail(r, tr);
         }
       });
       tbody.appendChild(tr);
@@ -578,6 +800,350 @@
     return '-';
   }
 
+  function buildRawFieldMap(rawFields){
+    const out = {};
+    (Array.isArray(rawFields) ? rawFields : []).forEach((f)=>{
+      if(!f?.key) return;
+      out[f.key] = f.value;
+    });
+    return out;
+  }
+
+  function rawValue(rawMap, ...keys){
+    for(const k of keys){
+      const v = rawMap?.[k];
+      if(v !== null && v !== undefined && v !== '') return v;
+    }
+    return null;
+  }
+
+  function toNumber(value){
+    if(value === null || value === undefined || value === '') return null;
+    const n = Number(String(value).replace(',', '.'));
+    return Number.isFinite(n) ? n : null;
+  }
+
+  function toBoolOrNull(value){
+    if(value === null || value === undefined || value === '') return null;
+    if(typeof value === 'boolean') return value;
+    const s = String(value).trim().toLowerCase();
+    if(['1','true','yes','y','on','ναι'].includes(s)) return true;
+    if(['0','false','no','n','off','οχι','όχι'].includes(s)) return false;
+    return null;
+  }
+
+  function stripCodePrefix(code, name){
+    const c = (code ?? '').toString().trim();
+    const n = (name ?? '').toString().trim();
+    if(!n) return '';
+    if(!c) return n;
+    const withDash = `${c} - `;
+    if(n.startsWith(withDash)) return n.slice(withDash.length).trim();
+    if(n.startsWith(c)){
+      const rest = n.slice(c.length).trim();
+      if(rest.startsWith('-')) return rest.slice(1).trim();
+    }
+    return n;
+  }
+
+  function composeCodeName(code, name){
+    const c = (code ?? '').toString().trim();
+    const cleaned = stripCodePrefix(c, name);
+    return cleaned || c || '-';
+  }
+
+  function setFormInputValue(id, value){
+    const el = document.getElementById(id);
+    if(!el) return;
+    el.value = (value === null || value === undefined || value === '') ? '-' : String(value);
+  }
+
+  function setFormCheckbox(id, checked){
+    const el = document.getElementById(id);
+    if(!el) return;
+    el.checked = Boolean(checked);
+  }
+
+  function setItemImagePreview(url, itemName){
+    const imgEl = document.getElementById('itdFImagePreview');
+    const fallbackEl = document.getElementById('itdFImageFallback');
+    if(!imgEl || !fallbackEl) return;
+
+    const cleanUrl = String(url || '').trim();
+    const altText = itemName && itemName !== '-' ? `Φωτογραφία: ${itemName}` : 'Φωτογραφία είδους';
+    imgEl.alt = altText;
+
+    const showFallback = (message)=>{
+      imgEl.classList.add('d-none');
+      imgEl.removeAttribute('src');
+      fallbackEl.textContent = message || 'Χωρίς φωτογραφία';
+      fallbackEl.classList.remove('d-none');
+    };
+
+    if(!cleanUrl || cleanUrl === '-'){
+      showFallback('Χωρίς φωτογραφία');
+      return;
+    }
+
+    imgEl.onerror = ()=> showFallback('Μη έγκυρη φωτογραφία');
+    imgEl.onload = ()=>{
+      fallbackEl.classList.add('d-none');
+      imgEl.classList.remove('d-none');
+    };
+    imgEl.src = cleanUrl;
+  }
+
+  function unitPrice(amount, qty){
+    const a = toNumber(amount);
+    const q = toNumber(qty);
+    if(a === null || q === null || q <= 0) return null;
+    return a / q;
+  }
+
+  function formatPrice(value){
+    if(value === null || value === undefined || !Number.isFinite(value)) return '-';
+    return fmtDecimal2(value);
+  }
+
+  function guessVatText(rawMap){
+    const net = toNumber(rawValue(rawMap, 'sales_30d.sales_net_value'));
+    const gross = toNumber(rawValue(rawMap, 'sales_30d.sales_gross_value'));
+    if(net && gross && gross >= net){
+      const pct = ((gross / net) - 1) * 100;
+      if(Number.isFinite(pct) && pct >= 0) return `ΦΠΑ ${fmtDecimal2(pct)}%`;
+    }
+    return '-';
+  }
+
+  function setItemFormData(r){
+    const rawMap = buildRawFieldMap(r?.raw_fields || []);
+
+    const itemCode = rawValue(rawMap, 'dim_items.external_id') || r?.item_code || '-';
+    const itemDescription = rawValue(rawMap, 'dim_items.name') || r?.item_name || '-';
+    const itemBarcode = rawValue(rawMap, 'dim_items.barcode', 'dim_items.sku') || r?.barcode || '-';
+    const unitMain = rawValue(rawMap, 'dim_items.main_unit', 'dim_items.unit', 'dim_items.uom') || 'Τεμ.';
+
+    const vatRaw = rawValue(rawMap, 'dim_items.vat_label', 'dim_items.vat_rate', 'dim_items.vat_percent', 'dim_items.vat');
+    let vatText = '-';
+    if(vatRaw !== null && vatRaw !== undefined && vatRaw !== ''){
+      const n = toNumber(vatRaw);
+      vatText = n === null ? String(vatRaw) : `ΦΠΑ ${fmtDecimal2(n)}%`;
+    }else{
+      vatText = guessVatText(rawMap);
+    }
+
+    const statusRaw = String(rawValue(rawMap, 'classification.status') || r?.status || '').toLowerCase();
+    const batchFlag = toBoolOrNull(rawValue(rawMap, 'dim_items.use_batch', 'dim_items.batch_tracking', 'dim_items.lot_tracking'));
+
+    const brandText = composeCodeName(
+      rawValue(rawMap, 'dim_brands.external_id'),
+      rawValue(rawMap, 'dim_brands.name', 'dim_items.brand_name', r?.brand),
+    );
+    const groupText = composeCodeName(
+      rawValue(rawMap, 'dim_groups.external_id'),
+      rawValue(rawMap, 'dim_groups.name', 'dim_items.group_name', r?.group),
+    );
+    const categoryText = composeCodeName(
+      rawValue(rawMap, 'dim_categories.external_id'),
+      rawValue(rawMap, 'dim_categories.name', 'dim_items.category_name', r?.category),
+    );
+
+    const category1 = rawValue(rawMap, 'dim_items.category_1', 'dim_categories.level1_name', 'dim_categories.category_1', 'dim_categories.category1') || categoryText;
+    const category2 = rawValue(rawMap, 'dim_items.category_2', 'dim_categories.level2_name', 'dim_categories.category_2', 'dim_categories.category2');
+    const category3 = rawValue(rawMap, 'dim_items.category_3', 'dim_categories.level3_name', 'dim_categories.category_3', 'dim_categories.category3');
+
+    const commercialCategory = rawValue(rawMap, 'dim_categories.commercial_category', 'dim_items.commercial_category');
+    const modelName = rawValue(rawMap, 'dim_items.model', 'dim_items.model_name');
+    const businessUnit = rawValue(rawMap, 'dim_items.business_unit', 'dim_items.business_unit_name');
+    const abcCategory = rawValue(
+      rawMap,
+      'dim_items.abc_category',
+      'dim_items.abc_class',
+      'dim_items.abc_movement',
+      'dim_items.abc_velocity',
+      'dim_items.market_abc_category',
+      'dim_items.market_abc_class',
+      'dim_items.market_abc',
+      'dim_items.market_speed_abc',
+      'dim_items.new_item_abc',
+    );
+
+    const wholesalePrice =
+      unitPrice(rawValue(rawMap, 'purchases_30d.purchases_net_value'), rawValue(rawMap, 'purchases_30d.purchases_qty')) ??
+      unitPrice(rawValue(rawMap, 'inventory.cost_amount_sum'), rawValue(rawMap, 'inventory.qty_on_hand_sum'));
+    const retailPrice =
+      unitPrice(rawValue(rawMap, 'sales_30d.sales_gross_value'), rawValue(rawMap, 'sales_30d.sales_qty')) ??
+      unitPrice(rawValue(rawMap, 'inventory.stock_value_sum'), rawValue(rawMap, 'inventory.qty_on_hand_sum'));
+
+    const unit2 = rawValue(rawMap, 'dim_items.unit2', 'dim_items.second_unit') || unitMain;
+    const unitPurchase = rawValue(rawMap, 'dim_items.purchase_unit') || unitMain;
+    const unitSale = rawValue(rawMap, 'dim_items.sales_unit') || unitMain;
+
+    const rel2 = toNumber(rawValue(rawMap, 'dim_items.rel_2_to_1', 'dim_items.ratio_2_to_1'));
+    const relPurchase = toNumber(rawValue(rawMap, 'dim_items.rel_purchase_to_1', 'dim_items.purchase_ratio'));
+    const relSale = toNumber(rawValue(rawMap, 'dim_items.rel_sale_to_1', 'dim_items.sales_ratio'));
+
+    const imageUrl = rawValue(
+      rawMap,
+      'dim_items.image_url',
+      'dim_items.photo_url',
+      'dim_items.item_image_url',
+      'dim_items.product_image_url',
+      'dim_items.thumbnail_url',
+      'dim_items.image_link',
+      'dim_items.photo_link',
+    );
+    const discountPct = toNumber(rawValue(rawMap, 'dim_items.discount_pct', 'dim_items.discount_percent', 'dim_items.discount'));
+    const activeSource = toBoolOrNull(rawValue(rawMap, 'dim_items.is_active_source'));
+
+    setFormInputValue('itdFItemName', itemDescription);
+    setFormInputValue('itdFCode', itemCode);
+    setFormInputValue('itdFMainUnit', unitMain);
+    setFormInputValue('itdFVat', vatText);
+    setFormInputValue('itdFBarcode', itemBarcode || '-');
+    setFormInputValue('itdFDiscount', discountPct === null ? '-' : `${fmtDecimal2(discountPct)}%`);
+    setFormInputValue('itdFImageUrl', imageUrl || '-');
+    setItemImagePreview(imageUrl, itemDescription);
+    setFormCheckbox('itdFActive', activeSource === null ? statusRaw === 'active' : activeSource === true);
+    setFormCheckbox('itdFBatch', batchFlag === true);
+
+    setFormInputValue('itdFGroupCategory', groupText);
+    setFormInputValue('itdFBrand', brandText);
+    setFormInputValue('itdFCommercialCategory', commercialCategory || '-');
+    setFormInputValue('itdFCategory1', category1 || '-');
+    setFormInputValue('itdFCategory2', category2 || '-');
+    setFormInputValue('itdFCategory3', category3 || '-');
+    setFormInputValue('itdFModel', modelName || '-');
+    setFormInputValue('itdFBusinessUnit', businessUnit || '-');
+    setFormInputValue('itdFAbcCategory', abcCategory || '-');
+
+    setFormInputValue('itdFWholesalePrice', formatPrice(wholesalePrice));
+    setFormInputValue('itdFRetailPrice', formatPrice(retailPrice));
+
+    setFormInputValue('itdFUnit2', unit2 || '-');
+    setFormInputValue('itdFUnitPurchase', unitPurchase || '-');
+    setFormInputValue('itdFUnitSale', unitSale || '-');
+    setFormInputValue('itdFRel2to1', rel2 === null ? '1,00' : fmtDecimal2(rel2));
+    setFormInputValue('itdFRelPurchase', relPurchase === null ? '1,00' : fmtDecimal2(relPurchase));
+    setFormInputValue('itdFRelSale', relSale === null ? '1,00' : fmtDecimal2(relSale));
+  }
+
+  function prettifyFieldToken(token){
+    const t = String(token || '').trim();
+    if(!t) return '-';
+    const tokenMap = {
+      id: 'UUID',
+      external_id: 'Εξωτερικό ID',
+      sku: 'Barcode / SKU',
+      barcode: 'Barcode',
+      name: 'Όνομα',
+      main_unit: 'Κύρια Μ.Μ.',
+      vat_rate: 'Φ.Π.Α. %',
+      vat_label: 'Φ.Π.Α.',
+      use_batch: 'Χρήση παρτίδας',
+      commercial_category: 'Εμπορική κατηγ.',
+      category_1: 'Κατηγορία 1',
+      category_2: 'Κατηγορία 2',
+      category_3: 'Κατηγορία 3',
+      model_name: 'Μοντέλο',
+      business_unit_name: 'Business unit',
+      unit2: 'Μ.Μ.2',
+      purchase_unit: 'Μ.Μ. Αγορών',
+      sales_unit: 'Μ.Μ. Πωλήσεων',
+      rel_2_to_1: 'Σχέση 2 με 1',
+      rel_purchase_to_1: 'Σχέση Αγορών με 1',
+      rel_sale_to_1: 'Σχέση Πωλήσεων με 1',
+      strict_rel_2_to_1: 'Αυστηρή σχέση 2 με 1',
+      strict_purchase_rel: 'Αυστηρή σχέση αγορών',
+      strict_sale_rel: 'Αυστηρή σχέση πωλήσεων',
+      abc_category: 'Κατηγορία ABC (Αγοράς)',
+      image_url: 'URL Φωτογραφίας',
+      photo_url: 'URL Φωτογραφίας',
+      item_image_url: 'URL Φωτογραφίας',
+      product_image_url: 'URL Φωτογραφίας',
+      thumbnail_url: 'URL Thumbnail',
+      image_link: 'Σύνδεσμος φωτογραφίας',
+      photo_link: 'Σύνδεσμος φωτογραφίας',
+      discount_pct: 'Έκπτωση %',
+      is_active_source: 'Ενεργό (πηγή)',
+      brand_id: 'UUID Μάρκας',
+      category_id: 'UUID Κατηγορίας',
+      group_id: 'UUID Ομάδας',
+      parent_id: 'UUID Γονέα',
+      item_id: 'Item UUID',
+      branch_id: 'UUID Καταστήματος',
+      warehouse_id: 'UUID Αποθήκης',
+      doc_date: 'Ημ/νία Παραστατικού',
+      created_at: 'Δημιουργία',
+      updated_at: 'Ενημέρωση',
+      qty_on_hand: 'Ποσότητα Αποθέματος',
+      qty_reserved: 'Δεσμευμένη Ποσότητα',
+      value_amount: 'Αξία Αποθέματος',
+      cost_amount: 'Κόστος',
+      branch_external_id: 'Κατάστημα External ID',
+      branch_name: 'Κατάστημα',
+      warehouse_external_id: 'Αποθήκη External ID',
+      warehouse_name: 'Αποθήκη',
+      snapshot_date: 'Ημερομηνία Snapshot',
+      rows_in_snapshot: 'Γραμμές Snapshot',
+      branch_count: 'Πλήθος Καταστημάτων',
+      warehouse_count: 'Πλήθος Αποθηκών',
+      qty_on_hand_sum: 'Σύνολο Ποσότητας',
+      qty_reserved_sum: 'Σύνολο Δεσμευμένης Ποσότητας',
+      cost_amount_sum: 'Σύνολο Κόστους',
+      stock_value_sum: 'Σύνολο Αξίας Αποθέματος',
+      sales_rows: 'Γραμμές Πωλήσεων',
+      sales_qty: 'Ποσότητα Πωλήσεων',
+      sales_net_value: 'Καθαρή Αξία Πωλήσεων',
+      sales_gross_value: 'Μικτή Αξία Πωλήσεων',
+      sales_cost_amount: 'Κόστος Πωλήσεων',
+      sales_profit_amount: 'Κέρδος Πωλήσεων',
+      last_sale_date: 'Τελευταία Πώληση',
+      purchase_rows: 'Γραμμές Αγορών',
+      purchases_qty: 'Ποσότητα Αγορών',
+      purchases_net_value: 'Καθαρή Αξία Αγορών',
+      purchases_cost_amount: 'Κόστος Αγορών',
+      last_purchase_date: 'Τελευταία Αγορά',
+      first_seen_inventory_date: 'Πρώτη Εμφάνιση',
+      last_inventory_date: 'Τελευταία Ημ/νία Αποθέματος',
+      status: 'Κατάσταση',
+      movement: 'Κίνηση',
+    };
+    if(tokenMap[t]) return tokenMap[t];
+    return t.replace(/_/g, ' ').replace(/\b\w/g, (c)=>c.toUpperCase());
+  }
+
+  function prettifyFieldLabel(field){
+    const rawKey = String(field?.key || '').trim();
+    const rawLabel = String(field?.label || '').trim();
+    if(rawLabel && rawLabel !== rawKey) return rawLabel;
+    if(!rawKey) return rawLabel || '-';
+
+    const inventoryRow = rawKey.match(/^fact_inventory\[(\d+)\]\.(.+)$/);
+    if(inventoryRow){
+      return `Απόθεμα Γραμμή ${inventoryRow[1]} • ${prettifyFieldToken(inventoryRow[2])}`;
+    }
+
+    const parts = rawKey.split('.');
+    if(parts.length === 1) return prettifyFieldToken(parts[0]);
+
+    const section = parts[0];
+    const sectionMap = {
+      dim_items: 'Είδος',
+      dim_brands: 'Μάρκα',
+      dim_categories: 'Κατηγορία',
+      dim_groups: 'Ομάδα',
+      inventory: 'Απόθεμα (Σύνολα)',
+      sales_30d: 'Πωλήσεις 30ημ',
+      purchases_30d: 'Αγορές 30ημ',
+      lifecycle: 'Κύκλος Ζωής',
+      classification: 'Χαρακτηρισμός',
+    };
+    const sectionLabel = sectionMap[section] || prettifyFieldToken(section);
+    const fieldLabel = prettifyFieldToken(parts.slice(1).join('.'));
+    return `${sectionLabel} • ${fieldLabel}`;
+  }
+
   function setRawFields(rawFields){
     const body = document.getElementById('itdRawBody');
     const countEl = document.getElementById('itdRawCount');
@@ -593,23 +1159,33 @@
       const tr = document.createElement('tr');
       const key = document.createElement('td');
       key.className = 'text-muted';
-      key.textContent = f?.label || f?.key || '-';
+      key.textContent = prettifyFieldLabel(f);
       const value = document.createElement('td');
       const raw = f?.value;
       let text = '-';
       if(raw !== null && raw !== undefined && raw !== ''){
-        if(typeof raw === 'number'){
+        if(typeof raw === 'boolean'){
+          text = raw ? 'Ναι' : 'Όχι';
+        }else if(typeof raw === 'number'){
           if((f?.key || '').includes('qty')) text = fmtQty(raw);
           else if((f?.key || '').includes('amount') || (f?.key || '').includes('value')) text = fmtMoney(raw);
           else text = new Intl.NumberFormat('el-GR', {maximumFractionDigits: 4}).format(raw);
         }else{
           text = String(raw);
+          if((f?.key || '').endsWith('classification.status')){
+            text = statusLabel(text);
+          }else if((f?.key || '').endsWith('classification.movement')){
+            text = movementLabel(text);
+          }
           if(/^\d{4}-\d{2}-\d{2}/.test(text) && window.bvToDmyDate){
             text = window.bvToDmyDate(text);
           }
         }
       }
       value.textContent = text;
+      if(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(text))){
+        value.classList.add('font-monospace', 'text-break');
+      }
       tr.append(key, value);
       body.appendChild(tr);
     });
@@ -640,19 +1216,21 @@
         ? `Snapshot: ${window.bvToDmyDate ? window.bvToDmyDate(r.snapshot_date) : r.snapshot_date}`
         : '-';
     }
+    setItemFormData(r);
     setRawFields(r?.raw_fields || []);
   }
 
-  async function openItemDetail(r){
+  async function openItemDetail(r, triggerEl){
     if(!r || !r.item_code || !itemDetailModalEl) return;
     setItemDetailData(r);
-    showItemDetailModal();
+    showItemDetailModal(triggerEl);
     try{
       const p = params();
       p.delete('q');
       p.delete('status');
       p.delete('movement');
       p.delete('limit');
+      p.delete('offset');
       const endpoint = `/v1/kpi/inventory/items/${encodeURIComponent(r.item_code)}/detail?${p.toString()}`;
       const res = await fetch(endpoint);
       const data = await res.json();
@@ -660,10 +1238,17 @@
         throw new Error(data?.detail || 'Αποτυχία φόρτωσης λεπτομερειών είδους');
       }
       setItemDetailData(data || r);
-    }catch(_e){
+    }catch(e){
       const body = document.getElementById('itdRawBody');
       if(body){
-        body.innerHTML = '<tr><td colspan="2" class="text-danger">Αποτυχία φόρτωσης πλήρων πεδίων βάσης.</td></tr>';
+        body.innerHTML = '';
+        const tr = document.createElement('tr');
+        const td = document.createElement('td');
+        td.colSpan = 2;
+        td.className = 'text-danger';
+        td.textContent = e?.message || 'Αποτυχία φόρτωσης πλήρων πεδίων βάσης.';
+        tr.appendChild(td);
+        body.appendChild(tr);
       }
     }
   }
@@ -686,45 +1271,71 @@
 
   async function load(){
     setError(null);
+    setPaginationDisabled(true);
     try{
       const res = await fetch(`/v1/kpi/inventory/items?${params().toString()}`);
       const data = await res.json();
       if(!res.ok) throw new Error(data.detail || 'Load failed');
+      const rows = Array.isArray(data.rows) ? data.rows : [];
+      const total = Number(data.total);
+      itemsTotal = Number.isFinite(total) ? Math.max(0, total) : rows.length;
+      if(itemsTotal > 0 && itemsOffset >= itemsTotal){
+        itemsOffset = Math.max(0, (Math.ceil(itemsTotal / itemsLimit) - 1) * itemsLimit);
+        return await load();
+      }
       renderSummary(data.summary || {});
-      renderRows(data.rows || []);
-      renderFastChart(data.rows || []);
+      renderRows(rows);
+      renderFastChart(rows);
+      updatePagination(rows.length);
     }catch(e){
       setError(e.message || '{{ tt(request, "load_failed") }}');
+      itemsTotal = 0;
+      renderRows([]);
+      updatePagination(0);
+    }finally{
+      setPaginationDisabled(false);
     }
   }
 
-  form.addEventListener('submit', (e)=>{e.preventDefault(); load();});
-  statusEl.addEventListener('change', load);
-  movementEl.addEventListener('change', load);
-  ['change','blur'].forEach(ev=>asOfEl.addEventListener(ev, ()=>{loadFilterOptions(); load();}));
+  form.addEventListener('submit', (e)=>{e.preventDefault(); resetPagination(); load();});
+  statusEl.addEventListener('change', ()=>{ resetPagination(); load(); });
+  movementEl.addEventListener('change', ()=>{ resetPagination(); load(); });
+  ['change','blur'].forEach(ev=>asOfEl.addEventListener(ev, ()=>{ resetPagination(); loadFilterOptions(); load(); }));
   uiFieldDefs.forEach((f)=>initMulti(f.selectId, f.label));
   const brandsSel = document.getElementById('itBrands');
-  if(brandsSel) brandsSel.addEventListener('change', load);
+  if(brandsSel) brandsSel.addEventListener('change', ()=>{ resetPagination(); load(); });
   ['itCategoryL1','itCategoryL2','itCategoryL3'].forEach((id)=>{
     const sel = document.getElementById(id);
     if(!sel) return;
     sel.addEventListener('change', ()=>{
       syncCategoryHierarchy();
+      resetPagination();
       load();
     });
   });
-  qEl.addEventListener('keydown', (e)=>{ if(e.key === 'Enter'){ e.preventDefault(); load(); }});
-  if(itemDetailModalEl){
-    itemDetailModalEl.querySelectorAll('[data-bs-dismiss="modal"], .btn-close').forEach((btn)=>{
-      btn.addEventListener('click', hideItemDetailModal);
-    });
-    itemDetailModalEl.addEventListener('click', (e)=>{
-      if(e.target === itemDetailModalEl) hideItemDetailModal();
-    });
-  }
-  document.addEventListener('keydown', (e)=>{
-    if(e.key === 'Escape') hideItemDetailModal();
+  qEl.addEventListener('keydown', (e)=>{ if(e.key === 'Enter'){ e.preventDefault(); resetPagination(); load(); }});
+
+  document.getElementById('itPageSize')?.addEventListener('change', (event)=>{
+    const raw = Number(event.target?.value || 250);
+    const nextLimit = [100, 250, 500].includes(raw) ? raw : 250;
+    if(nextLimit === itemsLimit) return;
+    itemsLimit = nextLimit;
+    resetPagination();
+    load();
   });
+  document.getElementById('itPageGo')?.addEventListener('click', ()=>{
+    goToPage(document.getElementById('itPageJump')?.value || 1);
+  });
+  document.getElementById('itPageJump')?.addEventListener('keydown', (event)=>{
+    if(event.key === 'Enter'){
+      event.preventDefault();
+      goToPage(event.target?.value || 1);
+    }
+  });
+  document.getElementById('itFirstPage')?.addEventListener('click', ()=> goToPage(1));
+  document.getElementById('itPrevPage')?.addEventListener('click', ()=> goToPage(currentPage() - 1));
+  document.getElementById('itNextPage')?.addEventListener('click', ()=> goToPage(currentPage() + 1));
+  document.getElementById('itLastPage')?.addEventListener('click', ()=> goToPage(totalPages()));
 
   loadFilterOptions().then(load);
 })();

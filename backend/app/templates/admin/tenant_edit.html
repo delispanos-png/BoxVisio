@@ -27,7 +27,7 @@
       <div class="col-md-3">
         <label class="form-label">{{ tt(request, 'source') }}</label>
         <select class="form-select" name="source">
-          <option value="pharmacyone" {% if tenant.source == 'pharmacyone' %}selected{% endif %}>SQL</option>
+          <option value="sql" {% if tenant.source in ['sql', 'pharmacyone', 'pharmacyone_sql'] %}selected{% endif %}>SQL</option>
           <option value="external" {% if tenant.source == 'external' %}selected{% endif %}>API</option>
           <option value="files" {% if tenant.source == 'files' %}selected{% endif %}>Αρχεία</option>
         </select>

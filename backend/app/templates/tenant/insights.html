@@ -2,7 +2,7 @@
 
 {% block filters %}
 <form id="insightFilters" class="row g-2">
-  <div class="col-12"><label class="form-label mb-1">{{ tt(request, 'category') }}</label><select class="form-select" name="category"><option value="">{{ tt(request, 'all') }}</option><option value="sales">{{ tt(request, 'sales') }}</option><option value="purchases">{{ tt(request, 'purchases') }}</option><option value="inventory">{{ tt(request, 'inventory') }}</option><option value="cashflow">{{ tt(request, 'cashflow') }}</option></select></div>
+  <div class="col-12"><label class="form-label mb-1">{{ tt(request, 'category') }}</label><select class="form-select" name="category"><option value="">{{ tt(request, 'all') }}</option><option value="sales">{{ tt(request, 'sales') }}</option><option value="purchases">{{ tt(request, 'purchases') }}</option><option value="inventory">{{ tt(request, 'inventory') }}</option><option value="cashflow">{{ tt(request, 'cashflow') }}</option><option value="receivables">{{ tt(request, 'receivables') }}</option></select></div>
   <div class="col-12"><label class="form-label mb-1">{{ tt(request, 'severity') }}</label><select class="form-select" name="severity"><option value="">{{ tt(request, 'all') }}</option><option value="critical">{{ tt(request, 'critical') }}</option><option value="warning">{{ tt(request, 'warning') }}</option><option value="info">{{ tt(request, 'info') }}</option></select></div>
   <div class="col-12"><label class="form-label mb-1">{{ tt(request, 'status') }}</label><select class="form-select" name="status"><option value="">{{ tt(request, 'all') }}</option><option value="open">{{ tt(request, 'open') }}</option><option value="acknowledged">{{ tt(request, 'acknowledged') }}</option><option value="resolved">{{ tt(request, 'resolved') }}</option></select></div>
   <div class="col-12"><label class="form-label mb-1">{{ tt(request, 'from') }}</label><input class="form-control" type="text" name="from" value="{{ default_from.strftime('%d/%m/%Y') if default_from else '' }}" data-date-format="dmy" placeholder="ηη/μμ/εεεε" inputmode="numeric"></div>
@@ -46,7 +46,7 @@
       </div>
     </div>
     <div class="table-responsive">
-      <table class="table table-hover" id="insightsTable">
+      <table class="table table-hover bv-unified-table" id="insightsTable">
         <thead><tr><th>{{ tt(request, 'when') }}</th><th>{{ tt(request, 'category') }}</th><th>{{ tt(request, 'severity') }}</th><th>{{ tt(request, 'title') }}</th><th>{{ tt(request, 'entity') }}</th><th>{{ tt(request, 'status') }}</th><th>{{ tt(request, 'drilldown') }}</th><th>{{ tt(request, 'actions') }}</th></tr></thead>
         <tbody>
           {% for r in (initial_insights or []) %}
@@ -54,6 +54,7 @@
           {% if r.category == 'purchases' %}{% set drill = '/tenant/purchases' %}{% endif %}
           {% if r.category == 'inventory' %}{% set drill = '/tenant/inventory' %}{% endif %}
           {% if r.category == 'cashflow' %}{% set drill = '/tenant/cashflow' %}{% endif %}
+          {% if r.category == 'receivables' %}{% set drill = '/tenant/customers' %}{% endif %}
           {% if r.metadata_json and r.metadata_json.get('drilldown') %}{% set drill = r.metadata_json.get('drilldown') %}{% endif %}
           <tr>
             <td>{{ r.created_at or '-' }}</td>
@@ -88,16 +89,16 @@
         </tbody>
       </table>
     </div>
-    <div class="d-flex justify-content-between align-items-center mt-2">
+    <div class="bv-pager bv-pager--center bv-pager-inline mt-3">
       <button type="button" class="btn btn-sm btn-outline-secondary" id="insightsPrevBtn"><i class="fe fe-chevron-left"></i> Προηγούμενη</button>
-      <span id="insightsPageLabel" class="small text-muted">Σελίδα 1</span>
+      <span id="insightsPageLabel" class="bv-pager-info">Σελίδα 1 / 1</span>
       <button type="button" class="btn btn-sm btn-outline-secondary" id="insightsNextBtn">Επόμενη <i class="fe fe-chevron-right"></i></button>
     </div>
   </div>
 </div>
 
-<div class="modal fade" id="insightDetailModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+<div class="modal fade bv-modal bv-modal--responsive bv-modal--md" id="insightDetailModal" tabindex="-1" aria-hidden="true" data-bv-modal="true" data-bv-close-on-backdrop="true">
+  <div class="modal-dialog modal-lg">
     <div class="modal-content">
       <div class="modal-header">
         <h5 class="modal-title" id="insightDetailTitle">{{ tt(request, 'insight_details') }}</h5>
@@ -128,6 +129,15 @@ let _insightRows = {};
 let _allRows = [];
 let _currentPage = 1;
 const _initialInsights = {{ (initial_insights or []) | tojson }};
+const insightDetailModalEl = document.getElementById('insightDetailModal');
+const insightDetailModal = insightDetailModalEl
+  ? (
+    window.BVModalSystem?.create(insightDetailModalEl, { closeOnBackdrop: true, keyboard: true, focusTrap: true, restoreFocus: true })
+    || (window.bootstrap?.Modal
+      ? window.bootstrap.Modal.getOrCreateInstance(insightDetailModalEl, { backdrop: true, keyboard: true, focus: true })
+      : null)
+  )
+  : null;
 function parseFromUrl(){
   const p = new URLSearchParams(window.location.search || '');
   const form = document.getElementById('insightFilters');
@@ -221,6 +231,7 @@ function renderTableRows(rows){
     if((r.category||'')==='purchases') drill='/tenant/purchases';
     if((r.category||'')==='inventory') drill='/tenant/inventory';
     if((r.category||'')==='cashflow') drill='/tenant/cashflow';
+    if((r.category||'')==='receivables') drill='/tenant/customers';
     if(r.metadata_json && r.metadata_json.drilldown) drill = String(r.metadata_json.drilldown);
     const whyText = `${(r.metadata_json && r.metadata_json.why) ? String(r.metadata_json.why) : '{{ tt(request, "no_explanation_available") }}'}${(r.metadata_json && r.metadata_json.formula) ? ' Formula: ' + String(r.metadata_json.formula) : ''}`;
     const whyBtn = `<button class="btn btn-sm bv-action-btn bv-action-toggle me-1" data-bs-toggle="popover" data-bs-trigger="focus" title="{{ tt(request, 'why_am_i_seeing_this') }}" data-bs-content="${esc(whyText)}"><i class="fe fe-help-circle"></i>Why</button>`;
@@ -357,8 +368,7 @@ function openDetail(id){
   } else {
     actions.forEach(a=>{const li=document.createElement('li'); li.textContent=String(a); list.appendChild(li);});
   }
-  const modal = new bootstrap.Modal(document.getElementById('insightDetailModal'));
-  modal.show();
+  insightDetailModal?.show?.(document.activeElement);
 }
 async function loadInsights(e){
   if(e) e.preventDefault();

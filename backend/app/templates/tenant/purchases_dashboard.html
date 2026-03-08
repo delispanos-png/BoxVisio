@@ -109,6 +109,7 @@
   <select name="groups" id="purchasesGroups" multiple hidden></select>
   <div class="col-12 col-xl-2 d-grid gap-2 align-content-end">
     <button class="btn btn-primary" type="submit"><i class="fe fe-filter"></i> {{ tt(request, 'apply') }}</button>
+    <button class="btn btn-outline-secondary" type="button" id="purchasesFiltersReset"><i class="fe fe-rotate-ccw"></i> Καθαρισμός</button>
     <a id="exportPurchasesCsv" class="btn btn-outline-secondary" href="#" target="_blank"><i class="fe fe-download"></i> {{ tt(request, 'export_supplier_csv') }}</a>
   </div>
 </form>
@@ -215,16 +216,16 @@
 
 <div class="row g-3 mb-3">
   <div class="col-xl-3 col-md-6">
-    <div class="bv-kpi-box bv-kpi-purple"><div class="kpi-icon"><i class="fe fe-shopping-bag"></i></div><div class="kpi-title">Total Purchases</div><div id="cardTotalPurchases" class="kpi-value">0.00</div><div class="kpi-meta">Procurement Value</div></div>
+    <div class="bv-kpi-box bv-kpi-purple"><div class="kpi-icon"><i class="fe fe-shopping-bag"></i></div><div class="kpi-title">Σύνολο Αγορών</div><div id="cardTotalPurchases" class="kpi-value">0.00</div><div class="kpi-meta">Αξία προμηθειών</div></div>
   </div>
   <div class="col-xl-3 col-md-6">
-    <div class="bv-kpi-box bv-kpi-blue"><div class="kpi-icon"><i class="fe fe-credit-card"></i></div><div class="kpi-title">Purchase Cost</div><div id="cardCost" class="kpi-value">0.00</div><div class="kpi-meta">Total Cost</div></div>
+    <div class="bv-kpi-box bv-kpi-blue"><div class="kpi-icon"><i class="fe fe-credit-card"></i></div><div class="kpi-title">Κόστος Αγορών</div><div id="cardCost" class="kpi-value">0.00</div><div class="kpi-meta">Συνολικό κόστος</div></div>
   </div>
   <div class="col-xl-3 col-md-6">
     <div class="bv-kpi-box bv-kpi-green"><div class="kpi-icon"><i class="fe fe-layers"></i></div><div class="kpi-title">{{ tt(request, 'purchased_qty') }}</div><div id="cardQty" class="kpi-value">0</div><div class="kpi-meta">{{ tt(request, 'units') }}</div></div>
   </div>
   <div class="col-xl-3 col-md-6">
-    <div class="bv-kpi-box bv-kpi-orange"><div class="kpi-icon"><i class="fe fe-activity"></i></div><div class="kpi-title">Margin Proxy %</div><div id="cardMarginProxy" class="kpi-value">0.00%</div><div class="kpi-meta">Efficiency Signal</div></div>
+    <div class="bv-kpi-box bv-kpi-orange"><div class="kpi-icon"><i class="fe fe-activity"></i></div><div class="kpi-title">Περιθώριο %</div><div id="cardMarginProxy" class="kpi-value">0.00%</div><div class="kpi-meta">Δείκτης αποδοτικότητας</div></div>
   </div>
 </div>
 
@@ -248,7 +249,7 @@
     <div class="card border-0 shadow-sm h-100 content-card">
       <div class="card-header"><h5 class="mb-0">{{ tt(request, 'margin_by_supplier') }}</h5></div>
       <div class="card-body table-responsive">
-        <table class="table table-sm" id="marginBySupplierTable">
+        <table class="table table-sm bv-unified-table" id="marginBySupplierTable">
           <thead><tr><th>{{ tt(request, 'supplier') }}</th><th>{{ tt(request, 'net') }}</th><th>Κόστος</th><th>Μικτό Κέρδος</th><th>Περιθώριο</th></tr></thead>
           <tbody></tbody>
         </table>
@@ -278,7 +279,7 @@
     <div class="card border-0 shadow-sm h-100 content-card">
       <div class="card-header"><h5 class="mb-0">{{ tt(request, 'new_codes_purchases') }}</h5></div>
       <div class="card-body table-responsive">
-        <table class="table table-sm" id="purchasesNewCodesTbl">
+        <table class="table table-sm bv-unified-table" id="purchasesNewCodesTbl">
           <thead>
             <tr>
               <th>{{ tt(request, 'item') }}</th>
@@ -585,7 +586,7 @@ function renderCards(summary){
 function renderTrend(rows){
   const labels=rows.map(r=>r.month_start); const data=rows.map(r=>toNum(r.net_value));
   if(purchaseTrendChart) purchaseTrendChart.destroy();
-  purchaseTrendChart=new Chart(document.getElementById('purchaseTrendChart'),{type:'line',data:{labels,datasets:[{label:'Purchases',data,borderColor:'#f59e0b',backgroundColor:'rgba(245,158,11,.14)',fill:true,tension:.25}]},options:{responsive:true,maintainAspectRatio:false}});
+  purchaseTrendChart=new Chart(document.getElementById('purchaseTrendChart'),{type:'line',data:{labels,datasets:[{label:'Αγορές',data,borderColor:'#f59e0b',backgroundColor:'rgba(245,158,11,.14)',fill:true,tension:.25}]},options:{responsive:true,maintainAspectRatio:false}});
 }
 
 function renderSupplierDistribution(rows){
@@ -754,6 +755,24 @@ purchasesFieldDefs.forEach((field)=>{
   if(select){
     select.addEventListener('change', loadPurchasesFilterOptions);
   }
+});
+document.getElementById('purchasesFiltersReset')?.addEventListener('click', async () => {
+  const form = document.getElementById('purchasesFilters');
+  form?.reset();
+  if(window.bvInitDmyDateInputs) window.bvInitDmyDateInputs(form);
+
+  purchasesFieldDefs.forEach((field) => {
+    const select = document.getElementById(field.selectId);
+    Array.from(select?.options || []).forEach((opt) => { opt.selected = false; });
+  });
+  ['purchasesCategoryL1','purchasesCategoryL2','purchasesCategoryL3'].forEach((id) => {
+    const select = document.getElementById(id);
+    Array.from(select?.options || []).forEach((opt) => { opt.selected = false; });
+  });
+  syncPurchasesCategoryHierarchy();
+  purchasesUiFieldDefs.forEach((field) => syncPurchasesMultiUI(field.selectId, field.label));
+  await loadPurchasesFilterOptions();
+  await reloadPurchases();
 });
 </script>
 {% endblock %}

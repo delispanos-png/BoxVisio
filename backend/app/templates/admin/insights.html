@@ -10,7 +10,7 @@
 <div class="card">
   <div class="card-header"><h5 class="mb-0">{{ tt(request, 'tenant_insights_overview') }}</h5></div>
   <div class="card-body table-responsive">
-    <table class="table table-hover">
+    <table class="table table-hover bv-unified-table" data-bv-admin-table="1">
       <thead><tr><th>{{ tt(request, 'tenant') }}</th><th>{{ tt(request, 'critical') }}</th><th>{{ tt(request, 'warning') }}</th><th>{{ tt(request, 'info') }}</th><th>{{ tt(request, 'open') }}</th><th>{{ tt(request, 'actions') }}</th></tr></thead>
       <tbody>
         {% for row in tenant_rows %}

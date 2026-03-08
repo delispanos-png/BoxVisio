@@ -14,13 +14,12 @@ from app.services.intelligence.types import InsightCreate, RuleContext
 
 def _rule_allowed_for_plan(rule: RuleSpec, tenant_plan: str, tenant_source: str) -> bool:
     plan = (tenant_plan or '').lower()
-    source = (tenant_source or '').lower()
     if rule.category == 'sales':
         return True
-    if rule.category == 'purchases':
+    if rule.category in {'purchases', 'receivables'}:
         return plan in {'pro', 'enterprise'}
     if rule.category in {'inventory', 'cashflow'}:
-        return plan == 'enterprise' and source == 'pharmacyone'
+        return plan == 'enterprise'
     return False
 
 
@@ -215,30 +214,39 @@ async def list_insights(
         await db.execute(stmt.order_by(Insight.created_at.desc()).limit(max(1, min(limit, 500))))
     ).scalars().all()
     rows = sorted(rows, key=lambda r: (_severity_rank(r.severity), -(int(r.created_at.timestamp()) if r.created_at else 0)))
-    return [
-        {
-            'id': str(r.id),
-            'type': r.rule_code,
-            'rule_code': r.rule_code,
-            'category': r.category,
-            'severity': r.severity,
-            'title': r.title,
-            'message': r.message,
-            'entity_type': r.entity_type,
-            'entity_external_id': r.entity_external_id,
-            'entity_name': r.entity_name,
-            'period_from': str(r.period_from),
-            'period_to': str(r.period_to),
-            'value': float(r.value) if r.value is not None else None,
-            'baseline_value': float(r.baseline_value) if r.baseline_value is not None else None,
-            'delta_value': float(r.delta_value) if r.delta_value is not None else None,
-            'delta_pct': float(r.delta_pct) if r.delta_pct is not None else None,
-            'status': r.status,
-            'created_at': r.created_at.isoformat() if r.created_at else None,
-            'metadata_json': r.metadata_json or {},
-        }
-        for r in rows
-    ]
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        metadata = dict(r.metadata_json or {})
+        actions_raw = metadata.get('actions')
+        suggested_actions = [str(x).strip() for x in actions_raw if str(x).strip()] if isinstance(actions_raw, list) else []
+        explanation = str(metadata.get('why') or r.message or '').strip()
+        out.append(
+            {
+                'id': str(r.id),
+                'type': r.rule_code,
+                'rule_code': r.rule_code,
+                'category': r.category,
+                'severity': r.severity,
+                'title': r.title,
+                'message': r.message,
+                'explanation': explanation,
+                'suggested_action': suggested_actions[0] if suggested_actions else None,
+                'suggested_actions': suggested_actions,
+                'entity_type': r.entity_type,
+                'entity_external_id': r.entity_external_id,
+                'entity_name': r.entity_name,
+                'period_from': str(r.period_from),
+                'period_to': str(r.period_to),
+                'value': float(r.value) if r.value is not None else None,
+                'baseline_value': float(r.baseline_value) if r.baseline_value is not None else None,
+                'delta_value': float(r.delta_value) if r.delta_value is not None else None,
+                'delta_pct': float(r.delta_pct) if r.delta_pct is not None else None,
+                'status': r.status,
+                'created_at': r.created_at.isoformat() if r.created_at else None,
+                'metadata_json': metadata,
+            }
+        )
+    return out
 
 
 async def acknowledge_insight(db: AsyncSession, *, insight_id: UUID, user_id: UUID | None = None) -> bool:

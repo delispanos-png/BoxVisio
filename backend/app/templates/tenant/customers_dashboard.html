@@ -1,0 +1,883 @@
+{% extends "base_tenant.html" %}
+
+{% block content %}
+<style>
+  .customers-table-wrap {
+    max-height: min(74vh, 820px);
+    overflow: auto;
+  }
+  #customersTable tbody tr {
+    cursor: pointer;
+  }
+  #customersTable tbody tr.is-active {
+    background: rgba(99, 102, 241, 0.1);
+  }
+  .customer-modal {
+    --bv-modal-max-width: 1380px;
+    --bv-modal-max-height: 94vh;
+  }
+  .customer-modal .modal-body {
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+  .customer-modal .form-label {
+    font-size: 0.76rem;
+    font-weight: 700;
+    color: #334155;
+  }
+  .customer-modal textarea.form-control {
+    min-height: 120px;
+    resize: vertical;
+  }
+  .customer-history-wrap {
+    max-height: min(43vh, 430px);
+    overflow: auto;
+  }
+  .customers-footer {
+    border-top: 1px solid #e5e7eb;
+    background: #f8fafc;
+  }
+</style>
+
+<div id="customersError" class="alert alert-danger d-none"></div>
+
+<div class="card border-0 shadow-sm mb-3 content-card">
+  <div class="card-header d-flex justify-content-between align-items-center gap-2 flex-wrap">
+    <h5 class="mb-0">Πελάτες</h5>
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+      <input type="text" id="customersSearch" class="form-control form-control-sm" placeholder="Αναζήτηση πελάτη / κωδικού" style="min-width: 280px;">
+      <button type="button" id="customersClearSearch" class="btn btn-sm btn-outline-secondary"><i class="fe fe-rotate-ccw"></i> Καθαρισμός</button>
+      <button type="button" id="customersRefresh" class="btn btn-sm btn-outline-secondary"><i class="fe fe-refresh-cw"></i> Ανανέωση</button>
+    </div>
+  </div>
+  <div class="card-body table-responsive customers-table-wrap">
+    <table class="table table-sm table-hover mb-0 bv-unified-table" id="customersTable">
+      <thead class="table-light sticky-top">
+        <tr>
+          <th>Κωδικός</th>
+          <th>Επωνυμία</th>
+          <th>ΑΦΜ</th>
+          <th>Α.Μ.Κ.Α</th>
+          <th>Διεύθυνση</th>
+          <th>Πόλη</th>
+          <th>Τηλέφωνο 1</th>
+          <th>Τηλέφωνο 2</th>
+          <th>Επάγγελμα</th>
+          <th class="text-end">Υπόλοιπο</th>
+          <th class="text-end">Τζίρος</th>
+        </tr>
+      </thead>
+      <tbody id="customersBody">
+        <tr><td colspan="11" class="text-center text-muted py-3">Φόρτωση πελατών...</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="card-footer customers-footer bv-table-footer d-flex justify-content-between align-items-center gap-2 flex-wrap">
+    <div class="bv-summary-stack">
+      <small id="customersSummary" class="text-muted">Πελάτες: 0</small>
+      <small id="customersRangeSummary" class="text-muted">Εμφάνιση 0 από 0 | Διπλό κλικ σε γραμμή για προβολή καρτέλας</small>
+    </div>
+    <div class="bv-pager">
+      <div class="bv-pager-field bv-pager-field--size">
+        <label for="customersPageSize" class="bv-pager-label">Ανά σελίδα</label>
+        <select id="customersPageSize" class="form-select form-select-sm">
+          <option value="100">100</option>
+          <option value="250" selected>250</option>
+          <option value="500">500</option>
+        </select>
+      </div>
+      <div class="bv-pager-field bv-pager-field--jump">
+        <span class="bv-pager-label">Σελίδα</span>
+        <input id="customersPageJump" type="number" min="1" step="1" value="1" class="form-control form-control-sm bv-pager-page-input" inputmode="numeric" aria-label="Μετάβαση σε σελίδα">
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="customersPageGo">Μετάβαση</button>
+      </div>
+      <div class="bv-pager-nav" role="group" aria-label="Πλοήγηση σελίδων">
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="customersFirstPage" title="Πρώτη σελίδα" aria-label="Πρώτη σελίδα">&laquo;</button>
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="customersPrevPage" title="Προηγούμενη σελίδα" aria-label="Προηγούμενη σελίδα">&lsaquo;</button>
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="customersNextPage" title="Επόμενη σελίδα" aria-label="Επόμενη σελίδα">&rsaquo;</button>
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="customersLastPage" title="Τελευταία σελίδα" aria-label="Τελευταία σελίδα">&raquo;</button>
+      </div>
+      <small id="customersPageInfo" class="bv-pager-info">1 / 1</small>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade bv-modal bv-modal--responsive bv-modal--lg customer-modal" id="customerModal" tabindex="-1" aria-hidden="true" aria-labelledby="customerModalTitle" data-bv-modal="true" data-bv-close-on-backdrop="false">
+  <div class="modal-dialog modal-xl">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title mb-0" id="customerModalTitle">Καρτέλα πελάτη</h5>
+          <small id="customerModalSub" class="text-muted">-</small>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div id="customerModalError" class="alert alert-danger d-none mb-3"></div>
+
+        <div class="bv-form-wizard mb-3" data-bv-form-wizard data-bv-wizard-content="#customerWizardTabContent" data-bv-wizard-initial="#customerPaneInfo">
+          <div class="bv-form-wizard-head">Form Wizard</div>
+          <div class="bv-form-wizard-steps" role="tablist" aria-label="Πλοήγηση καρτέλας πελάτη">
+            <button type="button" class="bv-wizard-step is-active" data-bv-wizard-step data-target="#customerPaneInfo">
+              <span class="bv-wizard-step-index">1</span>
+              <span class="bv-wizard-step-label">Στοιχεία πελάτη</span>
+            </button>
+            <button type="button" class="bv-wizard-step" data-bv-wizard-step data-target="#customerPaneSales">
+              <span class="bv-wizard-step-index">2</span>
+              <span class="bv-wizard-step-label">Ιστορικό πωλήσεων</span>
+            </button>
+            <button type="button" class="bv-wizard-step" data-bv-wizard-step data-target="#customerPaneCollections">
+              <span class="bv-wizard-step-index">3</span>
+              <span class="bv-wizard-step-label">Ιστορικό εισπράξεων</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="tab-content" id="customerWizardTabContent">
+          <div class="tab-pane fade show active" id="customerPaneInfo" role="tabpanel">
+            <div class="fw-semibold text-warning border-bottom pb-1 mb-2">Βασικά στοιχεία</div>
+            <div class="row g-2 mb-3">
+              <div class="col-md-4">
+                <label class="form-label mb-1">Κωδικός</label>
+                <input type="text" class="form-control form-control-sm" id="custFCode" readonly>
+              </div>
+              <div class="col-md-8">
+                <label class="form-label mb-1">Επωνυμία</label>
+                <input type="text" class="form-control form-control-sm" id="custFName" readonly>
+              </div>
+              <div class="col-md-3">
+                <label class="form-label mb-1">ΑΦΜ</label>
+                <input type="text" class="form-control form-control-sm" id="custFAfm" readonly>
+              </div>
+              <div class="col-md-3">
+                <label class="form-label mb-1">Α.Μ.Κ.Α</label>
+                <input type="text" class="form-control form-control-sm" id="custFAmka" readonly>
+              </div>
+              <div class="col-md-3">
+                <label class="form-label mb-1">Επάγγελμα</label>
+                <input type="text" class="form-control form-control-sm" id="custFProfession" readonly>
+              </div>
+              <div class="col-md-3">
+                <label class="form-label mb-1">Καθεστώς ΦΠΑ</label>
+                <input type="text" class="form-control form-control-sm" id="custFVat" readonly>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label mb-1">Τρ. πληρωμής</label>
+                <input type="text" class="form-control form-control-sm" id="custFPayment" readonly>
+              </div>
+              <div class="col-md-3">
+                <label class="form-label mb-1">Υπόλοιπο</label>
+                <input type="text" class="form-control form-control-sm" id="custFBalance" readonly>
+              </div>
+              <div class="col-md-3">
+                <label class="form-label mb-1">Κατάσταση</label>
+                <input type="text" class="form-control form-control-sm" id="custFActive" readonly>
+              </div>
+            </div>
+
+            <div class="fw-semibold text-warning border-bottom pb-1 mb-2">Διεύθυνση & Επικοινωνία</div>
+            <div class="row g-2 mb-3">
+              <div class="col-md-4">
+                <label class="form-label mb-1">Περιοχή</label>
+                <input type="text" class="form-control form-control-sm" id="custAArea" readonly>
+              </div>
+              <div class="col-md-4">
+                <label class="form-label mb-1">Πόλη</label>
+                <input type="text" class="form-control form-control-sm" id="custACity" readonly>
+              </div>
+              <div class="col-md-4">
+                <label class="form-label mb-1">ΤΚ</label>
+                <input type="text" class="form-control form-control-sm" id="custAZip" readonly>
+              </div>
+              <div class="col-md-8">
+                <label class="form-label mb-1">Διεύθυνση</label>
+                <input type="text" class="form-control form-control-sm" id="custAAddress" readonly>
+              </div>
+              <div class="col-md-4">
+                <label class="form-label mb-1">Μεταφορέας</label>
+                <input type="text" class="form-control form-control-sm" id="custACarrier" readonly>
+              </div>
+              <div class="col-md-4">
+                <label class="form-label mb-1">Τηλέφωνο 1</label>
+                <input type="text" class="form-control form-control-sm" id="custAPhone1" readonly>
+              </div>
+              <div class="col-md-4">
+                <label class="form-label mb-1">Τηλέφωνο 2</label>
+                <input type="text" class="form-control form-control-sm" id="custAPhone2" readonly>
+              </div>
+              <div class="col-md-8">
+                <label class="form-label mb-1">e-mail</label>
+                <input type="text" class="form-control form-control-sm" id="custAEmail" readonly>
+              </div>
+              <div class="col-md-4">
+                <label class="form-label mb-1">Τελευταία ενημέρωση</label>
+                <input type="text" class="form-control form-control-sm" id="custAUpdated" readonly>
+              </div>
+            </div>
+
+            <div class="fw-semibold text-warning border-bottom pb-1 mb-2">Στοιχεία ανά υποκατάστημα</div>
+            <div class="table-responsive border rounded customer-history-wrap mb-3">
+              <table class="table table-sm align-middle mb-0">
+                <thead class="table-light sticky-top">
+                  <tr>
+                    <th>Υποκατάστημα</th>
+                    <th class="text-end">Παραστατικά</th>
+                    <th class="text-end">Τζίρος</th>
+                    <th>Τελ. Πώληση</th>
+                  </tr>
+                </thead>
+                <tbody id="customerBranchesBody">
+                  <tr><td colspan="4" class="text-center text-muted py-3">Δεν υπάρχουν δεδομένα.</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="fw-semibold text-warning border-bottom pb-1 mb-2">Αιτιολογία</div>
+            <textarea class="form-control form-control-sm mb-3" id="custNReason" readonly></textarea>
+            <div class="fw-semibold text-warning border-bottom pb-1 mb-2">Παρατηρήσεις</div>
+            <textarea class="form-control form-control-sm mb-3" id="custNNotes" readonly></textarea>
+            <div class="fw-semibold text-warning border-bottom pb-1 mb-2">Παρατηρήσεις 2</div>
+            <textarea class="form-control form-control-sm" id="custNNotes2" readonly></textarea>
+          </div>
+
+          <div class="tab-pane fade" id="customerPaneSales" role="tabpanel">
+            <div class="row g-2 mb-2">
+              <div class="col-md-3">
+                <label class="form-label mb-1">Από</label>
+                <input type="text" class="form-control form-control-sm" id="custSalesFrom" data-date-format="dmy" placeholder="ηη/μμ/εεεε" inputmode="numeric">
+              </div>
+              <div class="col-md-3">
+                <label class="form-label mb-1">Έως</label>
+                <input type="text" class="form-control form-control-sm" id="custSalesTo" data-date-format="dmy" placeholder="ηη/μμ/εεεε" inputmode="numeric">
+              </div>
+              <div class="col-md-3 d-grid align-content-end">
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="custSalesApply"><i class="fe fe-filter"></i> Εφαρμογή</button>
+              </div>
+            </div>
+            <div class="table-responsive border rounded customer-history-wrap mb-2">
+              <table class="table table-sm align-middle mb-0">
+                <thead class="table-light sticky-top">
+                  <tr>
+                    <th>Ημερομηνία</th>
+                    <th>Υποκατάστημα</th>
+                    <th>Αποθ. χώρος</th>
+                    <th>Σειρά</th>
+                    <th>Status</th>
+                    <th>Κωδ. παραστ.</th>
+                    <th>Κωδ. eshop</th>
+                    <th class="text-end">Συν.Αξία</th>
+                  </tr>
+                </thead>
+                <tbody id="customerSalesBody">
+                  <tr><td colspan="8" class="text-center text-muted py-3">Δεν υπάρχουν παραστατικά.</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <small id="customerSalesSummary" class="text-muted">Παραστατικά: 0</small>
+          </div>
+
+          <div class="tab-pane fade" id="customerPaneCollections" role="tabpanel">
+            <div class="row g-2 mb-2">
+              <div class="col-md-3">
+                <label class="form-label mb-1">Από</label>
+                <input type="text" class="form-control form-control-sm" id="custCollectionsFrom" data-date-format="dmy" placeholder="ηη/μμ/εεεε" inputmode="numeric">
+              </div>
+              <div class="col-md-3">
+                <label class="form-label mb-1">Έως</label>
+                <input type="text" class="form-control form-control-sm" id="custCollectionsTo" data-date-format="dmy" placeholder="ηη/μμ/εεεε" inputmode="numeric">
+              </div>
+              <div class="col-md-3 d-grid align-content-end">
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="custCollectionsApply"><i class="fe fe-filter"></i> Εφαρμογή</button>
+              </div>
+            </div>
+            <div class="table-responsive border rounded customer-history-wrap mb-2">
+              <table class="table table-sm align-middle mb-0">
+                <thead class="table-light sticky-top">
+                  <tr>
+                    <th>Ημερομηνία</th>
+                    <th>Υποκατάστημα</th>
+                    <th>Σειρά</th>
+                    <th>Κωδ. παραστ.</th>
+                    <th>Αιτιολογία</th>
+                    <th class="text-end">Συν.Αξία</th>
+                  </tr>
+                </thead>
+                <tbody id="customerCollectionsBody">
+                  <tr><td colspan="6" class="text-center text-muted py-3">Δεν υπάρχουν εισπράξεις.</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <small id="customerCollectionsSummary" class="text-muted">Παραστατικά: 0</small>
+          </div>
+        </div>
+
+        <div class="bv-form-wizard-actions">
+          <button type="button" class="btn btn-outline-secondary btn-sm" data-bv-wizard-prev>Πίσω</button>
+          <button type="button" class="btn btn-primary btn-sm" data-bv-wizard-next>Επόμενο</button>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ tt(request, 'close') if tt(request, 'close') != 'close' else 'Κλείσιμο' }}</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const defaultFrom = '{{ default_from.strftime('%d/%m/%Y') if default_from else '' }}';
+  const defaultTo = '{{ default_to.strftime('%d/%m/%Y') if default_to else '' }}';
+  let customersRows = [];
+  let customersLimit = 250;
+  let customersOffset = 0;
+  let customersTotal = 0;
+  let activeCustomerId = '';
+  let currentDetailToken = 0;
+  let searchDebounce = 0;
+  let customerModalEl = null;
+  let customerModalCtrl = null;
+  let customerWizardCtrl = null;
+
+  function escapeHtml(v){
+    return String(v ?? '')
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#39;');
+  }
+
+  function textOrDash(value, fallback='-'){
+    const txt = String(value ?? '').trim();
+    return txt || fallback;
+  }
+
+  function formatMoney(v){
+    const n = Number(v || 0);
+    return n.toLocaleString('el-GR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  function formatInt(v){
+    const n = Number(v || 0);
+    return n.toLocaleString('el-GR');
+  }
+
+  function formatDate(v){
+    if(!v) return '';
+    const s = String(v);
+    if(/^\d{4}-\d{2}-\d{2}/.test(s)){
+      const [y,m,d] = s.slice(0,10).split('-');
+      return `${d}/${m}/${y}`;
+    }
+    return s;
+  }
+
+  function parseDmyToIso(value){
+    const raw = String(value || '').trim();
+    if(!raw) return '';
+    const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if(iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+    const m = raw.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+    if(!m) return '';
+    return `${m[3]}-${String(Number(m[2])).padStart(2, '0')}-${String(Number(m[1])).padStart(2, '0')}`;
+  }
+
+  function setInputValue(id, value){
+    const el = document.getElementById(id);
+    if(el) el.value = value ?? '';
+  }
+
+  function showPageError(message){
+    const el = document.getElementById('customersError');
+    if(!el) return;
+    if(message){
+      el.classList.remove('d-none');
+      el.textContent = message;
+    } else {
+      el.classList.add('d-none');
+      el.textContent = '';
+    }
+  }
+
+  function showModalError(message){
+    const el = document.getElementById('customerModalError');
+    if(!el) return;
+    if(message){
+      el.classList.remove('d-none');
+      el.textContent = message;
+    } else {
+      el.classList.add('d-none');
+      el.textContent = '';
+    }
+  }
+
+  async function fetchJsonOrThrow(url){
+    const res = await fetch(url);
+    let payload = null;
+    try {
+      payload = await res.json();
+    } catch (_) {
+      payload = null;
+    }
+    if(!res.ok){
+      const detail = typeof payload?.detail === 'string'
+        ? payload.detail
+        : (Array.isArray(payload?.detail) ? payload.detail.map((d)=>String(d?.msg || d || '')).join(', ') : '');
+      throw new Error(detail ? `HTTP ${res.status}: ${detail}` : `HTTP ${res.status}`);
+    }
+    return payload || {};
+  }
+
+  function customerListParams(){
+    const p = new URLSearchParams();
+    const q = String(document.getElementById('customersSearch')?.value || '').trim();
+    if(q) p.set('q', q);
+    const fallbackFrom = new Date();
+    fallbackFrom.setDate(fallbackFrom.getDate() - 365);
+    p.set('from', parseDmyToIso(defaultFrom) || fallbackFrom.toISOString().slice(0, 10));
+    p.set('to', parseDmyToIso(defaultTo) || new Date().toISOString().slice(0, 10));
+    p.set('limit', String(customersLimit));
+    p.set('offset', String(customersOffset));
+    return p;
+  }
+
+  function customersTotalPages(){
+    if(customersTotal <= 0) return 1;
+    return Math.max(1, Math.ceil(customersTotal / customersLimit));
+  }
+
+  function customersCurrentPage(){
+    if(customersTotal <= 0) return 1;
+    return Math.floor(customersOffset / customersLimit) + 1;
+  }
+
+  function setPaginationDisabled(disabled){
+    ['customersPageSize', 'customersPageJump', 'customersPageGo', 'customersFirstPage', 'customersPrevPage', 'customersNextPage', 'customersLastPage'].forEach((id) => {
+      const el = document.getElementById(id);
+      if(el) el.disabled = !!disabled;
+    });
+  }
+
+  function goToCustomerPage(pageNumber){
+    const totalPages = customersTotalPages();
+    const parsed = Number(pageNumber);
+    const safePage = Number.isFinite(parsed) ? parsed : 1;
+    const target = Math.min(totalPages, Math.max(1, safePage));
+    const nextOffset = (target - 1) * customersLimit;
+    if(nextOffset === customersOffset) return;
+    customersOffset = nextOffset;
+    loadCustomers();
+  }
+
+  function updateCustomersPagination(rowsCount){
+    const totalPages = customersTotalPages();
+    const currentPage = Math.min(customersCurrentPage(), totalPages);
+    const firstDisabled = customersTotal <= 0 || customersOffset <= 0;
+    const nextDisabled = customersTotal <= 0 || (customersOffset + customersLimit >= customersTotal);
+    const pageInfoEl = document.getElementById('customersPageInfo');
+    if(pageInfoEl) pageInfoEl.textContent = `${formatInt(currentPage)} / ${formatInt(totalPages)}`;
+    const pageSizeEl = document.getElementById('customersPageSize');
+    if(pageSizeEl && pageSizeEl.value !== String(customersLimit)) pageSizeEl.value = String(customersLimit);
+    const pageJumpEl = document.getElementById('customersPageJump');
+    if(pageJumpEl){
+      pageJumpEl.min = '1';
+      pageJumpEl.max = String(totalPages);
+      pageJumpEl.value = String(currentPage);
+    }
+    const firstEl = document.getElementById('customersFirstPage');
+    const prevEl = document.getElementById('customersPrevPage');
+    const nextEl = document.getElementById('customersNextPage');
+    const lastEl = document.getElementById('customersLastPage');
+    if(firstEl) firstEl.disabled = firstDisabled;
+    if(prevEl) prevEl.disabled = firstDisabled;
+    if(nextEl) nextEl.disabled = nextDisabled;
+    if(lastEl) lastEl.disabled = nextDisabled;
+
+    const rangeEl = document.getElementById('customersRangeSummary');
+    if(rangeEl){
+      if(customersTotal <= 0 || rowsCount <= 0){
+        rangeEl.textContent = 'Εμφάνιση 0 από 0 | Διπλό κλικ σε γραμμή για προβολή καρτέλας';
+      } else {
+        const start = customersOffset + 1;
+        const end = Math.min(customersOffset + rowsCount, customersTotal);
+        rangeEl.textContent = `Εμφάνιση ${formatInt(start)}-${formatInt(end)} από ${formatInt(customersTotal)} | Διπλό κλικ σε γραμμή για προβολή καρτέλας`;
+      }
+    }
+  }
+
+  function renderCustomersSummary(summary, rowsCount){
+    const el = document.getElementById('customersSummary');
+    if(!el) return;
+    const count = Number(summary?.customers || 0);
+    customersTotal = Number.isFinite(count) ? Math.max(0, count) : 0;
+    const turnover = formatMoney(summary?.turnover || 0);
+    el.textContent = `Πελάτες: ${formatInt(count)} | Τζίρος: ${turnover}`;
+    updateCustomersPagination(Number(rowsCount || 0));
+  }
+
+  function renderCustomers(rows){
+    const body = document.getElementById('customersBody');
+    if(!body) return;
+    customersRows = Array.isArray(rows) ? rows : [];
+    if(!customersRows.length){
+      body.innerHTML = '<tr><td colspan="11" class="text-center text-muted py-3">Δεν βρέθηκαν πελάτες.</td></tr>';
+      return;
+    }
+    body.innerHTML = customersRows.map((row) => {
+      const customerId = String(row.customer_id || '');
+      const activeCls = customerId && customerId === activeCustomerId ? 'is-active' : '';
+      return `<tr class="${activeCls}" data-customer-id="${escapeHtml(customerId)}">
+        <td>${escapeHtml(textOrDash(row.code))}</td>
+        <td>${escapeHtml(textOrDash(row.name))}</td>
+        <td>${escapeHtml(textOrDash(row.afm, ''))}</td>
+        <td>${escapeHtml(textOrDash(row.amka, ''))}</td>
+        <td>${escapeHtml(textOrDash(row.address, ''))}</td>
+        <td>${escapeHtml(textOrDash(row.city, ''))}</td>
+        <td>${escapeHtml(textOrDash(row.phone_1, ''))}</td>
+        <td>${escapeHtml(textOrDash(row.phone_2, ''))}</td>
+        <td>${escapeHtml(textOrDash(row.profession, ''))}</td>
+        <td class="text-end">${escapeHtml(formatMoney(row.balance || 0))}</td>
+        <td class="text-end">${escapeHtml(formatMoney(row.turnover || 0))}</td>
+      </tr>`;
+    }).join('');
+
+    body.querySelectorAll('tr[data-customer-id]').forEach((tr) => {
+      tr.addEventListener('click', () => {
+        body.querySelectorAll('tr.is-active').forEach((row) => row.classList.remove('is-active'));
+        tr.classList.add('is-active');
+      });
+      tr.addEventListener('dblclick', () => {
+        const id = String(tr.dataset.customerId || '').trim();
+        if(id) openCustomer(id);
+      });
+    });
+  }
+
+  async function loadCustomers(){
+    showPageError('');
+    setPaginationDisabled(true);
+    const body = document.getElementById('customersBody');
+    if(body) body.innerHTML = '<tr><td colspan="11" class="text-center text-muted py-3">Φόρτωση πελατών...</td></tr>';
+    try {
+      const data = await fetchJsonOrThrow(`/v1/kpi/customers?${customerListParams().toString()}`);
+      const rows = Array.isArray(data?.rows) ? data.rows : [];
+      const summary = data?.summary || {};
+      const total = Number(summary?.customers || 0);
+      customersTotal = Number.isFinite(total) ? Math.max(0, total) : 0;
+      if(customersTotal > 0 && customersOffset >= customersTotal){
+        const lastOffset = Math.max(0, (Math.ceil(customersTotal / customersLimit) - 1) * customersLimit);
+        customersOffset = lastOffset;
+        return await loadCustomers();
+      }
+      renderCustomers(rows);
+      renderCustomersSummary(summary, rows.length);
+    } catch (err) {
+      if(body) body.innerHTML = '<tr><td colspan="11" class="text-center text-danger py-3">Αποτυχία φόρτωσης πελατών.</td></tr>';
+      showPageError(err?.message || 'Αποτυχία φόρτωσης πελατών.');
+      customersRows = [];
+      customersTotal = 0;
+      renderCustomersSummary({ customers: 0, turnover: 0 }, 0);
+      console.error(err);
+    } finally {
+      setPaginationDisabled(false);
+      updateCustomersPagination(customersRows.length);
+    }
+  }
+
+  function renderBranchRows(rows){
+    const body = document.getElementById('customerBranchesBody');
+    if(!body) return;
+    const list = Array.isArray(rows) ? rows : [];
+    if(!list.length){
+      body.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-3">Δεν υπάρχουν δεδομένα.</td></tr>';
+      return;
+    }
+    body.innerHTML = list.map((row) => `
+      <tr>
+        <td>${escapeHtml(textOrDash(row.branch))}</td>
+        <td class="text-end">${escapeHtml(String(Number(row.documents || 0)))}</td>
+        <td class="text-end">${escapeHtml(formatMoney(row.turnover || 0))}</td>
+        <td>${escapeHtml(formatDate(row.last_sale_date))}</td>
+      </tr>
+    `).join('');
+  }
+
+  function renderSalesRows(rows){
+    const body = document.getElementById('customerSalesBody');
+    if(!body) return;
+    const list = Array.isArray(rows) ? rows : [];
+    if(!list.length){
+      body.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-3">Δεν υπάρχουν παραστατικά.</td></tr>';
+      document.getElementById('customerSalesSummary').textContent = 'Παραστατικά: 0';
+      return;
+    }
+    body.innerHTML = list.map((row) => `
+      <tr>
+        <td>${escapeHtml(formatDate(row.document_date))}</td>
+        <td>${escapeHtml(textOrDash(row.branch))}</td>
+        <td>${escapeHtml(textOrDash(row.warehouse))}</td>
+        <td>${escapeHtml(textOrDash(row.series))}</td>
+        <td>${escapeHtml(textOrDash(row.status, ''))}</td>
+        <td>${escapeHtml(textOrDash(row.document_no))}</td>
+        <td>${escapeHtml(textOrDash(row.eshop_code, ''))}</td>
+        <td class="text-end">${escapeHtml(formatMoney(row.gross_value || 0))}</td>
+      </tr>
+    `).join('');
+    const total = list.reduce((acc, row) => acc + Number(row.gross_value || 0), 0);
+    document.getElementById('customerSalesSummary').textContent = `Παραστατικά: ${list.length} | Σύνολο: ${formatMoney(total)}`;
+  }
+
+  function renderCollectionRows(rows){
+    const body = document.getElementById('customerCollectionsBody');
+    if(!body) return;
+    const list = Array.isArray(rows) ? rows : [];
+    if(!list.length){
+      body.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3">Δεν υπάρχουν εισπράξεις.</td></tr>';
+      document.getElementById('customerCollectionsSummary').textContent = 'Παραστατικά: 0';
+      return;
+    }
+    body.innerHTML = list.map((row) => `
+      <tr>
+        <td>${escapeHtml(formatDate(row.document_date))}</td>
+        <td>${escapeHtml(textOrDash(row.branch))}</td>
+        <td>${escapeHtml(textOrDash(row.series))}</td>
+        <td>${escapeHtml(textOrDash(row.document_no))}</td>
+        <td>${escapeHtml(textOrDash(row.reason, ''))}</td>
+        <td class="text-end">${escapeHtml(formatMoney(row.total_value || 0))}</td>
+      </tr>
+    `).join('');
+    const total = list.reduce((acc, row) => acc + Number(row.total_value || 0), 0);
+    document.getElementById('customerCollectionsSummary').textContent = `Παραστατικά: ${list.length} | Σύνολο: ${formatMoney(total)}`;
+  }
+
+  function fillCustomerInfo(payload){
+    const customer = payload?.customer || {};
+    setInputValue('custFCode', customer.customer_code || payload?.customer_id || '');
+    setInputValue('custFName', customer.customer_name || 'ΠΕΛΑΤΗΣ ΛΙΑΝΙΚΗΣ');
+    setInputValue('custFAfm', customer.afm || '');
+    setInputValue('custFAmka', customer.amka || '');
+    setInputValue('custFProfession', customer.profession || '');
+    setInputValue('custFVat', customer.vat_status || '');
+    setInputValue('custFPayment', customer.payment_method || '');
+    setInputValue('custFBalance', formatMoney(customer.balance || 0));
+    setInputValue('custFActive', customer.is_active === false ? 'ανενεργό' : 'ενεργό');
+
+    setInputValue('custAArea', customer.area || '');
+    setInputValue('custACity', customer.city || '');
+    setInputValue('custAZip', customer.zip || '');
+    setInputValue('custAAddress', customer.address || '');
+    setInputValue('custACarrier', customer.carrier_name || '');
+    setInputValue('custAPhone1', customer.phone_1 || '');
+    setInputValue('custAPhone2', customer.phone_2 || '');
+    setInputValue('custAEmail', customer.email || '');
+    setInputValue('custAUpdated', formatDate(customer.updated_at || ''));
+
+    setInputValue('custNReason', customer.reason || '');
+    setInputValue('custNNotes', customer.notes_1 || '');
+    setInputValue('custNNotes2', customer.notes_2 || '');
+
+    document.getElementById('customerModalTitle').textContent = customer.customer_name || 'Καρτέλα πελάτη';
+    document.getElementById('customerModalSub').textContent = customer.customer_code || payload?.customer_id || '-';
+
+    renderBranchRows(payload?.branch_history || []);
+    renderSalesRows(payload?.sales_history || []);
+    renderCollectionRows(payload?.collections_history || []);
+  }
+
+  function customerDateParams(){
+    const p = new URLSearchParams();
+    const salesFrom = parseDmyToIso(document.getElementById('custSalesFrom')?.value || '');
+    const salesTo = parseDmyToIso(document.getElementById('custSalesTo')?.value || '');
+    const colFrom = parseDmyToIso(document.getElementById('custCollectionsFrom')?.value || '');
+    const colTo = parseDmyToIso(document.getElementById('custCollectionsTo')?.value || '');
+    const from = salesFrom || colFrom;
+    const to = salesTo || colTo;
+    if(from) p.set('from', from);
+    if(to) p.set('to', to);
+    return p;
+  }
+
+  function getCustomerWizardPanes(){
+    if(!customerModalEl) return [];
+    return Array.from(customerModalEl.querySelectorAll('#customerWizardTabContent > .tab-pane'));
+  }
+
+  function activateCustomerPane(target){
+    if(!customerModalEl) return;
+    const selector = target || '#customerPaneInfo';
+    getCustomerWizardPanes().forEach((pane) => {
+      const active = `#${pane.id}` === selector;
+      pane.classList.toggle('show', active);
+      pane.classList.toggle('active', active);
+    });
+    customerModalEl.querySelectorAll('[data-bv-wizard-step][data-target]').forEach((stepBtn) => {
+      const active = stepBtn.dataset.target === selector;
+      stepBtn.classList.toggle('is-active', active);
+      stepBtn.setAttribute('aria-selected', active ? 'true' : 'false');
+    });
+  }
+
+  function bindCustomerWizard(){
+    if(!customerModalEl || customerModalEl.dataset.tabsBound === '1') return;
+    customerModalEl.dataset.tabsBound = '1';
+    const wizardRoot = customerModalEl.querySelector('[data-bv-form-wizard]');
+    if(window.BVFormWizard && wizardRoot){
+      customerWizardCtrl = window.BVFormWizard.create(wizardRoot, { initialTarget: '#customerPaneInfo' });
+    }
+    customerModalEl.querySelectorAll('[data-bv-wizard-step][data-target]').forEach((btn) => {
+      btn.addEventListener('click', (event) => {
+        event.preventDefault();
+        const target = btn.dataset.target;
+        if(customerWizardCtrl && target){
+          customerWizardCtrl.goTo(target);
+        } else {
+          activateCustomerPane(target);
+        }
+      });
+    });
+    customerModalEl.querySelector('[data-bv-wizard-prev]')?.addEventListener('click', (event) => {
+      event.preventDefault();
+      if(customerWizardCtrl){
+        customerWizardCtrl.prev();
+        return;
+      }
+      const panes = getCustomerWizardPanes();
+      const idx = Math.max(0, panes.findIndex((pane) => pane.classList.contains('active')) - 1);
+      activateCustomerPane(`#${panes[idx]?.id || 'customerPaneInfo'}`);
+    });
+    customerModalEl.querySelector('[data-bv-wizard-next]')?.addEventListener('click', (event) => {
+      event.preventDefault();
+      if(customerWizardCtrl){
+        customerWizardCtrl.next();
+        return;
+      }
+      const panes = getCustomerWizardPanes();
+      const current = panes.findIndex((pane) => pane.classList.contains('active'));
+      const idx = current < 0 ? 0 : Math.min(panes.length - 1, current + 1);
+      activateCustomerPane(`#${panes[idx]?.id || 'customerPaneInfo'}`);
+    });
+  }
+
+  function customerModalController(){
+    if(!customerModalEl) return null;
+    if(window.BVModalSystem){
+      customerModalCtrl = customerModalCtrl || window.BVModalSystem.create(customerModalEl, {
+        closeOnBackdrop: false,
+        trapFocus: true,
+      });
+      return customerModalCtrl;
+    }
+    if(window.bootstrap?.Modal){
+      customerModalCtrl = customerModalCtrl || window.bootstrap.Modal.getOrCreateInstance(customerModalEl, {
+        backdrop: 'static',
+        keyboard: true,
+      });
+      return customerModalCtrl;
+    }
+    return null;
+  }
+
+  async function openCustomer(customerId){
+    activeCustomerId = String(customerId || '').trim();
+    if(!activeCustomerId) return;
+    showModalError('');
+    const token = ++currentDetailToken;
+    const params = customerDateParams();
+    try {
+      const data = await fetchJsonOrThrow(`/v1/kpi/customers/${encodeURIComponent(activeCustomerId)}/detail?${params.toString()}`);
+      if(token !== currentDetailToken) return;
+      fillCustomerInfo(data || {});
+      activateCustomerPane('#customerPaneInfo');
+      bindCustomerWizard();
+      customerModalController()?.show();
+      document.querySelectorAll('#customersBody tr.is-active').forEach((row) => row.classList.remove('is-active'));
+      Array.from(document.querySelectorAll('#customersBody tr')).find((row) => row.dataset.customerId === activeCustomerId)?.classList.add('is-active');
+    } catch (err) {
+      if(token !== currentDetailToken) return;
+      showModalError(err?.message || 'Αποτυχία φόρτωσης καρτέλας πελάτη.');
+      customerModalController()?.show();
+      console.error(err);
+    }
+  }
+
+  document.getElementById('customersSearch')?.addEventListener('input', () => {
+    clearTimeout(searchDebounce);
+    searchDebounce = setTimeout(() => {
+      customersOffset = 0;
+      loadCustomers();
+    }, 240);
+  });
+  document.getElementById('customersRefresh')?.addEventListener('click', () => loadCustomers());
+  document.getElementById('customersClearSearch')?.addEventListener('click', () => {
+    const searchEl = document.getElementById('customersSearch');
+    if(searchEl) searchEl.value = '';
+    customersOffset = 0;
+    loadCustomers();
+  });
+  document.getElementById('customersPageSize')?.addEventListener('change', (event) => {
+    const raw = Number(event?.target?.value || 250);
+    const nextLimit = [100, 250, 500].includes(raw) ? raw : 250;
+    if(nextLimit === customersLimit) return;
+    customersLimit = nextLimit;
+    customersOffset = 0;
+    loadCustomers();
+  });
+  document.getElementById('customersPageGo')?.addEventListener('click', () => {
+    const value = Number(document.getElementById('customersPageJump')?.value || 1);
+    goToCustomerPage(value);
+  });
+  document.getElementById('customersPageJump')?.addEventListener('keydown', (event) => {
+    if(event.key !== 'Enter') return;
+    event.preventDefault();
+    const value = Number(event.currentTarget?.value || 1);
+    goToCustomerPage(value);
+  });
+  document.getElementById('customersFirstPage')?.addEventListener('click', () => {
+    goToCustomerPage(1);
+  });
+  document.getElementById('customersPrevPage')?.addEventListener('click', () => {
+    if(customersOffset <= 0) return;
+    goToCustomerPage(customersCurrentPage() - 1);
+  });
+  document.getElementById('customersNextPage')?.addEventListener('click', () => {
+    if(customersTotal <= 0) return;
+    goToCustomerPage(customersCurrentPage() + 1);
+  });
+  document.getElementById('customersLastPage')?.addEventListener('click', () => {
+    if(customersTotal <= 0) return;
+    goToCustomerPage(customersTotalPages());
+  });
+
+  document.getElementById('custSalesApply')?.addEventListener('click', () => {
+    if(activeCustomerId) openCustomer(activeCustomerId);
+  });
+  document.getElementById('custCollectionsApply')?.addEventListener('click', () => {
+    if(activeCustomerId) openCustomer(activeCustomerId);
+  });
+
+  document.getElementById('custSalesFrom').value = defaultFrom;
+  document.getElementById('custSalesTo').value = defaultTo;
+  document.getElementById('custCollectionsFrom').value = defaultFrom;
+  document.getElementById('custCollectionsTo').value = defaultTo;
+
+  customerModalEl = document.getElementById('customerModal');
+  if(customerModalEl){
+    customerModalEl.addEventListener('shown.bs.modal', () => {
+      bindCustomerWizard();
+      activateCustomerPane('#customerPaneInfo');
+    });
+    customerModalEl.addEventListener('hidden.bs.modal', () => {
+      currentDetailToken += 1;
+      showModalError('');
+      if(customerWizardCtrl && typeof customerWizardCtrl.goTo === 'function'){
+        customerWizardCtrl.goTo('#customerPaneInfo');
+      } else {
+        activateCustomerPane('#customerPaneInfo');
+      }
+    });
+  }
+
+  loadCustomers();
+})();
+</script>
+{% endblock %}

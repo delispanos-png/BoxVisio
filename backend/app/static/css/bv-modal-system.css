@@ -1,0 +1,127 @@
+.bv-modal {
+  --bv-modal-max-width: 960px;
+  --bv-modal-max-height: 90vh;
+}
+
+.bv-modal .modal-dialog {
+  margin: 1rem auto;
+}
+
+.bv-modal--responsive .modal-dialog {
+  width: min(var(--bv-modal-max-width), calc(100vw - 2rem));
+  max-width: none;
+}
+
+.bv-modal .modal-content {
+  display: flex;
+  flex-direction: column;
+  max-height: var(--bv-modal-max-height);
+  height: min(var(--bv-modal-max-height), 980px);
+}
+
+.bv-modal .modal-header,
+.bv-modal .modal-footer {
+  flex: 0 0 auto;
+}
+
+.bv-modal .modal-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.bv-modal--sm {
+  --bv-modal-max-width: 560px;
+}
+
+.bv-modal--md {
+  --bv-modal-max-width: 860px;
+}
+
+.bv-modal--lg {
+  --bv-modal-max-width: 1280px;
+}
+
+.bv-modal-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+.bv-modal-tab-content {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.bv-modal-raw-table {
+  overflow: visible;
+}
+
+.bv-item-basic-hero {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  border: 1px solid #e6eaf0;
+  border-radius: 0.5rem;
+  background: #f8fafc;
+  padding: 0.65rem;
+}
+
+.bv-item-basic-photo-wrap {
+  width: 96px;
+  height: 96px;
+  border: 1px solid #d5dde8;
+  border-radius: 0.5rem;
+  background: #fff;
+  overflow: hidden;
+  flex: 0 0 auto;
+}
+
+.bv-item-basic-photo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.bv-item-basic-photo-fallback {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: #6b7280;
+  font-size: 0.73rem;
+  padding: 0.5rem;
+}
+
+body.bv-modal-lock {
+  overflow: hidden;
+}
+
+@media (max-width: 991.98px) {
+  .bv-modal--responsive .modal-dialog {
+    width: calc(100vw - 1rem);
+    margin: 0.5rem auto;
+  }
+
+  .bv-modal .modal-content {
+    max-height: min(96vh, 960px);
+    height: min(96vh, 960px);
+  }
+
+  .bv-item-basic-hero {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .bv-item-basic-photo-wrap {
+    width: 100%;
+    max-width: 180px;
+    height: 180px;
+  }
+}

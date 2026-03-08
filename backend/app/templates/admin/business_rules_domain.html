@@ -1,0 +1,97 @@
+{% extends "base_admin.html" %}
+{% block content %}
+<div class="card mt-3">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <h5 class="mb-0">{{ tt(request, page_label_key) }}</h5>
+    <span class="badge bg-primary">{{ domain_label }}</span>
+  </div>
+  <div class="card-body">
+    <p class="text-muted mb-3">{{ page_description }}</p>
+
+    {% if saved %}
+      <div class="alert alert-success">Η αποθήκευση ολοκληρώθηκε.</div>
+    {% endif %}
+    {% if error_message %}
+      <div class="alert alert-danger">{{ error_message }}</div>
+    {% endif %}
+
+    <div class="border rounded p-3 mb-4">
+      <h6 class="mb-3">Νέος / Ενημέρωση Κανόνα</h6>
+      <form method="post" action="/admin/business-rules/global-rule/upsert" class="row g-2">
+        <input type="hidden" name="domain_value" value="{{ domain_value }}">
+        <input type="hidden" name="active_page" value="{{ active_page }}">
+        <input type="hidden" name="redirect_to" value="{{ request.url.path }}">
+
+        <div class="col-md-3">
+          <label class="form-label">Ruleset</label>
+          <input class="form-control" name="ruleset_code" value="{{ initial_ruleset_code or 'softone_default_v1' }}" required>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">Stream</label>
+          <select class="form-select" name="stream_value" required>
+            {% for stream in stream_options %}
+              <option value="{{ stream.value }}">{{ stream.label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">Rule Key</label>
+          <input class="form-control" name="rule_key" placeholder="π.χ. SALES_INVOICE_INCLUDE" required>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Ενεργό</label>
+          <select class="form-select" name="is_active">
+            <option value="1">Ναι</option>
+            <option value="0">Όχι</option>
+          </select>
+        </div>
+        <div class="col-12">
+          <label class="form-label">Payload JSON</label>
+          <textarea class="form-control font-monospace" name="payload_json" rows="4">{}</textarea>
+          <div class="form-text">Παράδειγμα: {"include_revenue": true, "sign": 1}</div>
+        </div>
+        <div class="col-12 d-flex gap-2">
+          <button class="btn bv-action-btn bv-action-save" type="submit">
+            <i class="fe fe-save"></i> Αποθήκευση
+          </button>
+          <a class="btn btn-outline-secondary" href="/admin/business-rules">
+            <i class="fe fe-arrow-left"></i> Επιστροφή
+          </a>
+        </div>
+      </form>
+    </div>
+
+    <h6 class="mb-2">Υπάρχοντες Κανόνες</h6>
+    {% if entries %}
+      <div class="table-responsive">
+        <table class="table table-hover align-middle bv-unified-table" data-bv-admin-table="1">
+          <thead>
+            <tr>
+              <th>Ruleset</th>
+              <th>Stream</th>
+              <th>Rule Key</th>
+              <th>Ενεργό</th>
+              <th>Payload</th>
+              <th>Ενημέρωση</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in entries %}
+              <tr>
+                <td>{{ row.ruleset_code }}</td>
+                <td>{{ row.stream_label }}</td>
+                <td><code>{{ row.rule_key }}</code></td>
+                <td>{% if row.is_active %}Ναι{% else %}Όχι{% endif %}</td>
+                <td><pre class="mb-0 small">{{ row.payload_json }}</pre></td>
+                <td>{{ row.updated_at or '-' }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="alert alert-info mb-0">Δεν υπάρχουν κανόνες για αυτό το domain ακόμη.</div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

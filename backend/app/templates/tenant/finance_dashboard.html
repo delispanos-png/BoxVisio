@@ -1,0 +1,334 @@
+{% extends "base_tenant.html" %}
+
+{% block filters %}
+<form id="financeFilters" class="row g-2">
+  <div class="col-12 col-md-4">
+    <label class="form-label mb-1">{{ tt(request, 'from') }}</label>
+    <input class="form-control" type="text" name="from" value="{{ default_from.strftime('%d/%m/%Y') if default_from else '' }}" data-date-format="dmy" placeholder="ηη/μμ/εεεε" inputmode="numeric">
+  </div>
+  <div class="col-12 col-md-4">
+    <label class="form-label mb-1">{{ tt(request, 'to') }}</label>
+    <input class="form-control" type="text" name="to" value="{{ default_to.strftime('%d/%m/%Y') if default_to else '' }}" data-date-format="dmy" placeholder="ηη/μμ/εεεε" inputmode="numeric">
+  </div>
+  <div class="col-12 col-md-4">
+    <label class="form-label mb-1">{{ tt(request, 'branches') }}</label>
+    <select class="form-select" id="financeBranches" name="branches" multiple size="4"></select>
+  </div>
+  <div class="col-12 d-grid d-md-flex justify-content-md-end">
+    <button class="btn btn-primary" type="submit"><i class="fe fe-filter"></i> {{ tt(request, 'apply') }}</button>
+  </div>
+</form>
+{% endblock %}
+
+{% block content %}
+<div id="financeError" class="alert alert-danger d-none"></div>
+
+<div class="row g-3 mb-3">
+  <div class="col-12 col-md-6 col-xl-3">
+    <div class="bv-stat-strip bv-kpi-style bv-tone-blue">
+      <div class="kpi-icon"><i class="fe fe-users"></i></div>
+      <div class="label">Συνολικές Απαιτήσεις</div>
+      <div id="finReceivables" class="value">0.00</div>
+      <div class="small text-muted">Ανοικτά υπόλοιπα πελατών</div>
+    </div>
+  </div>
+  <div class="col-12 col-md-6 col-xl-3">
+    <div class="bv-stat-strip bv-kpi-style bv-tone-red">
+      <div class="kpi-icon"><i class="fe fe-alert-triangle"></i></div>
+      <div class="label">Ληξιπρόθεσμες Απαιτήσεις</div>
+      <div id="finOverdueReceivables" class="value">0.00</div>
+      <div id="finOverdueRatio" class="small text-muted">0.00%</div>
+    </div>
+  </div>
+  <div class="col-12 col-md-6 col-xl-3">
+    <div class="bv-stat-strip bv-kpi-style bv-tone-orange">
+      <div class="kpi-icon"><i class="fe fe-truck"></i></div>
+      <div class="label">Υποχρεώσεις Προμηθευτών</div>
+      <div id="finPayables" class="value">0.00</div>
+      <div id="finOverduePayables" class="small text-muted">Ληξιπρόθεσμα: 0.00</div>
+    </div>
+  </div>
+  <div class="col-12 col-md-6 col-xl-3">
+    <div class="bv-stat-strip bv-kpi-style bv-tone-cyan">
+      <div class="kpi-icon"><i class="fe fe-credit-card"></i></div>
+      <div class="label">Καθαρή Ταμειακή Ροή</div>
+      <div id="finNetCash" class="value">0.00</div>
+      <div id="finCashInOut" class="small text-muted">In: 0.00 | Out: 0.00</div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3">
+  <div class="col-12 col-xl-6">
+    <div class="card border-0 shadow-sm content-card h-100">
+      <div class="card-header"><h5 class="mb-0">Aging Ανάλυση Απαιτήσεων</h5></div>
+      <div class="card-body">
+        <div class="table-responsive">
+          <table class="table table-sm mb-0 bv-unified-table" id="tblFinanceAging">
+            <thead>
+              <tr><th>Bucket</th><th class="text-end">Αξία</th><th class="text-end">%</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-xl-6">
+    <div class="card border-0 shadow-sm content-card h-100">
+      <div class="card-header"><h5 class="mb-0">Reconciliation View</h5></div>
+      <div class="card-body">
+        <div class="table-responsive">
+          <table class="table table-sm mb-0 bv-unified-table" id="tblFinanceReconciliation">
+            <tbody>
+              <tr><th>Απαιτήσεις Πελατών</th><td class="text-end" id="recReceivables">0.00</td></tr>
+              <tr><th>Υποχρεώσεις Προμηθευτών</th><td class="text-end" id="recPayables">0.00</td></tr>
+              <tr><th>Καθαρό Κεφάλαιο Κίνησης</th><td class="text-end" id="recWorkingCapital">0.00</td></tr>
+              <tr><th>Καθαρή Ταμειακή Ροή Περιόδου</th><td class="text-end" id="recNetCash">0.00</td></tr>
+              <tr><th>Εκτιμώμενες Εισπράξεις Περιόδου</th><td class="text-end" id="recCollections">0.00</td></tr>
+              <tr><th>Liquidity Gap</th><td class="text-end" id="recLiquidityGap">0.00</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12">
+    <div class="card border-0 shadow-sm content-card">
+      <div class="card-header"><h5 class="mb-0">Προμηθευτές με Υπόλοιπο</h5></div>
+      <div class="card-body">
+        <div class="table-responsive">
+          <table class="table table-sm mb-0 bv-unified-table" id="tblFinanceSuppliers">
+            <thead>
+              <tr>
+                <th>Προμηθευτής</th>
+                <th class="text-end">Ανοικτό Υπόλοιπο</th>
+                <th class="text-end">Ληξιπρόθεσμο</th>
+                <th class="text-end">Πληρωμές</th>
+                <th class="text-end">Αγορές</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12 col-xl-6">
+    <div class="card border-0 shadow-sm content-card h-100">
+      <div class="card-header"><h5 class="mb-0">Cash Transactions ανά Τύπο</h5></div>
+      <div class="card-body">
+        <div class="table-responsive">
+          <table class="table table-sm mb-0 bv-unified-table" id="tblFinanceCashTypes">
+            <thead>
+              <tr><th>Τύπος</th><th class="text-end">Inflow</th><th class="text-end">Outflow</th><th class="text-end">Net</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12 col-xl-6">
+    <div class="card border-0 shadow-sm content-card h-100">
+      <div class="card-header"><h5 class="mb-0">Χρηματοοικονομικοί Λογαριασμοί</h5></div>
+      <div class="card-body">
+        <div class="table-responsive">
+          <table class="table table-sm mb-0 bv-unified-table" id="tblFinanceAccounts">
+            <thead>
+              <tr><th>Λογαριασμός</th><th class="text-end">Υπόλοιπο</th><th class="text-end">Κινήσεις</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const fmtMoney = new Intl.NumberFormat('el-GR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmtPct = new Intl.NumberFormat('el-GR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+function toNum(v){ const n = Number(v || 0); return Number.isFinite(n) ? n : 0; }
+function money(v){ return fmtMoney.format(toNum(v)); }
+function pct(v){ return `${fmtPct.format(toNum(v))}%`; }
+function esc(v){ return String(v ?? '').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;'); }
+
+function setError(msg){
+  const el = document.getElementById('financeError');
+  if(!msg){ el.classList.add('d-none'); el.textContent=''; return; }
+  el.classList.remove('d-none');
+  el.textContent = msg;
+}
+
+function financeParams(){
+  const fd = new FormData(document.getElementById('financeFilters'));
+  const p = new URLSearchParams();
+  const fromRaw = fd.get('from');
+  const toRaw = fd.get('to');
+  p.set('from', window.bvToIsoDate ? window.bvToIsoDate(fromRaw) : fromRaw);
+  p.set('to', window.bvToIsoDate ? window.bvToIsoDate(toRaw) : toRaw);
+  const branchSel = document.getElementById('financeBranches');
+  Array.from(branchSel?.selectedOptions || []).forEach(o => p.append('branches', o.value));
+  return p;
+}
+
+async function fetchJson(url){
+  const res = await fetch(url);
+  if(!res.ok) throw new Error(`${res.status}`);
+  return res.json();
+}
+
+async function loadBranchOptions(){
+  const p = financeParams();
+  try {
+    const data = await fetchJson(`/v1/kpi/sales/filter-options?${p.toString()}`);
+    const branches = Array.isArray(data?.branches) ? data.branches : [];
+    const labels = (data?.labels?.branches && typeof data.labels.branches === 'object') ? data.labels.branches : {};
+    const sel = document.getElementById('financeBranches');
+    const previous = new Set(Array.from(sel?.selectedOptions || []).map(o => o.value));
+    sel.innerHTML = '';
+    branches.forEach((code) => {
+      const opt = document.createElement('option');
+      opt.value = code;
+      opt.textContent = labels[code] ? `${labels[code]}` : code;
+      if(previous.has(code)) opt.selected = true;
+      sel.appendChild(opt);
+    });
+  } catch(_err) {
+    // Non-blocking.
+  }
+}
+
+function renderAging(agingData){
+  const tbody = document.querySelector('#tblFinanceAging tbody');
+  if(!tbody) return;
+  const aging = agingData?.aging || {};
+  const shares = agingData?.shares_pct || {};
+  const rows = [
+    ['0-30', 'aging_bucket_0_30'],
+    ['31-60', 'aging_bucket_31_60'],
+    ['61-90', 'aging_bucket_61_90'],
+    ['90+', 'aging_bucket_90_plus'],
+  ];
+  tbody.innerHTML = rows.map(([label,key]) => (
+    `<tr><td>${label}</td><td class="text-end">${money(aging[key])}</td><td class="text-end">${pct(shares[key])}</td></tr>`
+  )).join('');
+}
+
+function renderSuppliers(data){
+  const tbody = document.querySelector('#tblFinanceSuppliers tbody');
+  if(!tbody) return;
+  const rows = Array.isArray(data?.rows) ? [...data.rows] : [];
+  rows.sort((a,b)=> toNum(b.open_balance) - toNum(a.open_balance));
+  const top = rows.slice(0, 10);
+  if(!top.length){
+    tbody.innerHTML = '<tr><td colspan="5" class="text-muted">Δεν υπάρχουν δεδομένα.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = top.map(r => (
+    `<tr>
+      <td>${esc(r.name || r.code || '-')}</td>
+      <td class="text-end">${money(r.open_balance)}</td>
+      <td class="text-end">${money(r.overdue_balance)}</td>
+      <td class="text-end">${money(r.payments_total)}</td>
+      <td class="text-end">${money(r.purchases_net)}</td>
+    </tr>`
+  )).join('');
+}
+
+function renderCashTypes(rows){
+  const tbody = document.querySelector('#tblFinanceCashTypes tbody');
+  if(!tbody) return;
+  const list = Array.isArray(rows) ? rows : [];
+  if(!list.length){
+    tbody.innerHTML = '<tr><td colspan="4" class="text-muted">Δεν υπάρχουν δεδομένα.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = list.map(r => (
+    `<tr>
+      <td>${esc(r.entry_type || '-')}</td>
+      <td class="text-end">${money(r.inflows)}</td>
+      <td class="text-end">${money(r.outflows)}</td>
+      <td class="text-end">${money(r.net)}</td>
+    </tr>`
+  )).join('');
+}
+
+function renderAccounts(data){
+  const tbody = document.querySelector('#tblFinanceAccounts tbody');
+  if(!tbody) return;
+  const rows = Array.isArray(data?.rows) ? data.rows.slice(0, 10) : [];
+  if(!rows.length){
+    tbody.innerHTML = '<tr><td colspan="3" class="text-muted">Δεν υπάρχουν δεδομένα.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map(r => (
+    `<tr>
+      <td>${esc(r.account_name || r.account_code || r.account_id || '-')}</td>
+      <td class="text-end">${money(r.balance)}</td>
+      <td class="text-end">${toNum(r.tx_count)}</td>
+    </tr>`
+  )).join('');
+}
+
+async function reloadFinanceDashboard(e){
+  if(e) e.preventDefault();
+  setError(null);
+  try {
+    const p = financeParams();
+    p.set('supplier_limit', '50');
+    p.set('account_limit', '50');
+    const finance = await fetchJson(`/v1/dashboard/finance-summary?${p.toString()}`);
+    const recSummary = finance?.receivables_summary || {};
+    const recAging = finance?.receivables_aging || {};
+    const recTrend = finance?.receivables_trend || {};
+    const suppliers = finance?.suppliers || {};
+    const cashSummary = finance?.cash_summary || {};
+    const cashTypes = Array.isArray(finance?.cash_types) ? finance.cash_types : [];
+    const cashAccounts = finance?.cash_accounts || {};
+
+    const receivables = recSummary?.summary || {};
+    const payables = suppliers?.summary || {};
+
+    document.getElementById('finReceivables').textContent = money(receivables.total_receivables);
+    document.getElementById('finOverdueReceivables').textContent = money(receivables.overdue_receivables);
+    document.getElementById('finOverdueRatio').textContent = `Overdue ratio: ${pct(receivables.overdue_ratio_pct)}`;
+    document.getElementById('finPayables').textContent = money(payables.open_balance);
+    document.getElementById('finOverduePayables').textContent = `Ληξιπρόθεσμα: ${money(payables.overdue_balance)}`;
+    document.getElementById('finNetCash').textContent = money(cashSummary?.net);
+    document.getElementById('finCashInOut').textContent = `In: ${money(cashSummary?.inflows)} | Out: ${money(cashSummary?.outflows)}`;
+
+    const netWorkingCapital = toNum(receivables.total_receivables) - toNum(payables.open_balance);
+    const collections = toNum(recTrend?.summary?.estimated_collections);
+    const liquidityGap = toNum(cashSummary?.net) - toNum(payables.overdue_balance);
+
+    document.getElementById('recReceivables').textContent = money(receivables.total_receivables);
+    document.getElementById('recPayables').textContent = money(payables.open_balance);
+    document.getElementById('recWorkingCapital').textContent = money(netWorkingCapital);
+    document.getElementById('recNetCash').textContent = money(cashSummary?.net);
+    document.getElementById('recCollections').textContent = money(collections);
+    document.getElementById('recLiquidityGap').textContent = money(liquidityGap);
+
+    renderAging(recAging);
+    renderSuppliers(suppliers);
+    renderCashTypes(cashTypes);
+    renderAccounts(cashAccounts);
+  } catch (err) {
+    setError(`Σφάλμα φόρτωσης οικονομικού dashboard: ${err.message || 'unknown'}`);
+  }
+}
+
+document.getElementById('financeFilters')?.addEventListener('submit', reloadFinanceDashboard);
+window.addEventListener('load', async ()=>{
+  await loadBranchOptions();
+  await reloadFinanceDashboard();
+});
+</script>
+{% endblock %}

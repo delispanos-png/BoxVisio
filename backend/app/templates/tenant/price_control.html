@@ -83,7 +83,7 @@
     <h5 class="mb-0">{{ tt(request, 'price_control') }}</h5>
   </div>
   <div class="card-body table-responsive">
-    <table class="table table-sm table-hover align-middle" id="pcTable">
+    <table class="table table-sm table-hover align-middle bv-unified-table" id="pcTable">
       <thead>
         <tr>
           <th>{{ tt(request, 'item') }}</th>
@@ -162,7 +162,7 @@
     const res = await fetch(`/v1/kpi/price-control/filter-options?${qs.toString()}`);
     if(!res.ok){
       const t = await res.text();
-      throw new Error(t || 'Filter options failed');
+      throw new Error(t || 'Αποτυχία φόρτωσης επιλογών φίλτρων.');
     }
     const data = await res.json();
 
@@ -255,7 +255,7 @@
     let data = null;
     try{ data = await res.json(); }catch(_e){}
     if(!res.ok){
-      throw new Error(data?.detail || 'Load failed');
+      throw new Error(data?.detail || 'Αποτυχία φόρτωσης αποτελεσμάτων.');
     }
     const summary = data.summary || {};
     summaryItemsEl.textContent = String(summary.items || 0);

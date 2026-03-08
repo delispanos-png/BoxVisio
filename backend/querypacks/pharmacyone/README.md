@@ -5,7 +5,7 @@ This folder is intentionally split so query intent does not get mixed:
 - `facts/`:
   - Row-level ingestion queries only.
   - Used by worker ingestion jobs and backfill.
-  - Production source for canonical facts (`fact_sales`, `fact_purchases`, `fact_inventory`, `fact_cashflows`).
+  - Production source for canonical facts (`fact_sales`, `fact_purchases`, `fact_inventory`, `fact_cashflows`, `fact_supplier_balances`, `fact_customer_balances`).
 - `kpi_validation/`:
   - Optional legacy-style KPI queries for temporary validation against old system.
   - Never used by production dashboard endpoints.

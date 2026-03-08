@@ -1,0 +1,723 @@
+{% extends "base_tenant.html" %}
+{% block filters %}
+<form id="purchaseDocumentsFilters" class="row g-2">
+  <div class="col-12 col-md-4 col-xl-3">
+    <label class="form-label mb-1">{{ tt(request, 'from') }}</label>
+    <input
+      class="form-control"
+      type="text"
+      name="from"
+      value="{{ default_from.strftime('%d/%m/%Y') if default_from else '' }}"
+      data-date-format="dmy"
+      placeholder="ηη/μμ/εεεε"
+      inputmode="numeric"
+    >
+  </div>
+  <div class="col-12 col-md-4 col-xl-3">
+    <label class="form-label mb-1">{{ tt(request, 'to') }}</label>
+    <input
+      class="form-control"
+      type="text"
+      name="to"
+      value="{{ default_to.strftime('%d/%m/%Y') if default_to else '' }}"
+      data-date-format="dmy"
+      placeholder="ηη/μμ/εεεε"
+      inputmode="numeric"
+    >
+  </div>
+  <div class="col-12 col-md-4 col-xl-3 d-grid gap-2 align-content-end">
+    <button class="btn btn-primary" type="submit"><i class="fe fe-filter"></i> {{ tt(request, 'apply') }}</button>
+    <button class="btn btn-outline-secondary" type="button" id="purchaseDocsReset"><i class="fe fe-rotate-ccw"></i> Καθαρισμός</button>
+  </div>
+</form>
+{% endblock %}
+
+{% block content %}
+<style>
+  .purchase-docs-table-wrap {
+    max-height: min(72vh, 780px);
+    overflow: auto;
+  }
+  #purchaseDocsTable tbody tr {
+    cursor: pointer;
+  }
+  #purchaseDocsTable tbody tr.is-active {
+    background: rgba(59, 130, 246, 0.08);
+  }
+  .purchase-doc-modal {
+    --bv-modal-max-width: 1320px;
+    --bv-modal-max-height: 92vh;
+  }
+  .purchase-doc-modal .modal-body {
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+  .purchase-doc-lines-wrap {
+    max-height: min(34vh, 360px);
+    overflow: auto;
+  }
+  .purchase-doc-modal .form-label {
+    font-size: 0.76rem;
+    font-weight: 700;
+    color: #334155;
+  }
+</style>
+
+<div id="purchaseDocsError" class="alert alert-danger d-none"></div>
+
+<div class="card border-0 shadow-sm mb-3 content-card">
+  <div class="card-header d-flex justify-content-between align-items-center gap-2 flex-wrap">
+    <h5 class="mb-0">Κύκλωμα Αγορών - Παραστατικά ERP</h5>
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+      <input type="text" id="purchaseDocsSearch" class="form-control form-control-sm" placeholder="Αναζήτηση παραστατικού / προμηθευτή" style="min-width: 280px;">
+      <button type="button" id="purchaseDocsRefresh" class="btn btn-sm btn-outline-secondary"><i class="fe fe-refresh-cw"></i> Ανανέωση</button>
+    </div>
+  </div>
+  <div class="card-body table-responsive purchase-docs-table-wrap">
+    <table class="table table-sm table-hover mb-0 bv-unified-table" id="purchaseDocsTable">
+      <thead class="table-light sticky-top">
+        <tr>
+          <th>Ημερομηνία</th>
+          <th>Υποκατάστημα</th>
+          <th>Αποθ. χώρος</th>
+          <th>Σειρά</th>
+          <th>Κωδ. παραστ.</th>
+          <th>Προμηθευτής</th>
+          <th class="text-end">Συν.Αξία</th>
+          <th>Αιτιολογία</th>
+        </tr>
+      </thead>
+      <tbody id="purchaseDocsBody">
+        <tr><td colspan="8" class="text-center text-muted py-3">Φόρτωση παραστατικών...</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="card-footer bv-table-footer d-flex justify-content-between align-items-center gap-2 flex-wrap">
+    <div class="bv-summary-stack">
+      <small id="purchaseDocsSummary" class="text-muted">Παραστατικά: 0</small>
+      <small id="purchaseDocsRangeSummary" class="text-muted">Εμφάνιση 0 από 0</small>
+    </div>
+    <div class="bv-pager">
+      <div class="bv-pager-field bv-pager-field--size">
+        <label for="purchaseDocsPageSize" class="bv-pager-label">Ανά σελίδα</label>
+        <select id="purchaseDocsPageSize" class="form-select form-select-sm">
+          <option value="50">50</option>
+          <option value="100" selected>100</option>
+          <option value="250">250</option>
+          <option value="500">500</option>
+        </select>
+      </div>
+      <div class="bv-pager-field bv-pager-field--jump">
+        <span class="bv-pager-label">Σελίδα</span>
+        <input id="purchaseDocsPageJump" type="number" min="1" step="1" value="1" class="form-control form-control-sm bv-pager-page-input" inputmode="numeric" aria-label="Μετάβαση σε σελίδα">
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="purchaseDocsPageGo">Μετάβαση</button>
+      </div>
+      <div class="bv-pager-nav" role="group" aria-label="Πλοήγηση σελίδων">
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="purchaseDocsFirstPage" title="Πρώτη σελίδα" aria-label="Πρώτη σελίδα">&laquo;</button>
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="purchaseDocsPrevPage" title="Προηγούμενη σελίδα" aria-label="Προηγούμενη σελίδα">&lsaquo;</button>
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="purchaseDocsNextPage" title="Επόμενη σελίδα" aria-label="Επόμενη σελίδα">&rsaquo;</button>
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="purchaseDocsLastPage" title="Τελευταία σελίδα" aria-label="Τελευταία σελίδα">&raquo;</button>
+      </div>
+      <small id="purchaseDocsPageInfo" class="bv-pager-info">1 / 1</small>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade bv-modal bv-modal--responsive bv-modal--lg purchase-doc-modal" id="purchaseDocumentModal" tabindex="-1" aria-hidden="true" aria-labelledby="purchaseDocumentModalTitle" data-bv-modal="true" data-bv-close-on-backdrop="false">
+  <div class="modal-dialog modal-xl">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title mb-0" id="purchaseDocumentModalTitle">Παραστατικό Αγορών</h5>
+          <small id="purchaseDocumentModalSub" class="text-muted">-</small>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div id="purchaseDocModalError" class="alert alert-danger d-none mb-3"></div>
+
+        <div class="bv-form-wizard mb-3" data-bv-form-wizard data-bv-wizard-content=".tab-content" data-bv-wizard-initial="#purchaseDocTabGeneral">
+          <div class="bv-form-wizard-head">Form Wizard</div>
+          <div class="bv-form-wizard-steps" role="tablist" aria-label="Πλοήγηση καρτέλας παραστατικού">
+            <button type="button" class="bv-wizard-step is-active" data-bv-wizard-step data-target="#purchaseDocTabGeneral">
+              <span class="bv-wizard-step-index">1</span>
+              <span class="bv-wizard-step-label">Γενικά</span>
+            </button>
+            <button type="button" class="bv-wizard-step" data-bv-wizard-step data-target="#purchaseDocTabNotes">
+              <span class="bv-wizard-step-index">2</span>
+              <span class="bv-wizard-step-label">Παρατηρήσεις</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="tab-content">
+          <div class="tab-pane fade show active" id="purchaseDocTabGeneral" role="tabpanel">
+            <div class="fw-semibold text-warning border-bottom pb-1 mb-2">Βασικά στοιχεία</div>
+            <div class="row g-2 mb-3">
+              <div class="col-md-6">
+                <label class="form-label mb-1">Υποκατάστημα</label>
+                <input type="text" class="form-control form-control-sm" id="purchaseDocFBranch" readonly>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label mb-1">Αποθ. χώρος</label>
+                <input type="text" class="form-control form-control-sm" id="purchaseDocFWarehouse" readonly>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label mb-1">Σειρά</label>
+                <input type="text" class="form-control form-control-sm" id="purchaseDocFSeries" readonly>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label mb-1">Τύπος</label>
+                <input type="text" class="form-control form-control-sm" id="purchaseDocFType" readonly>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label mb-1">Κωδ. παραστ.</label>
+                <input type="text" class="form-control form-control-sm" id="purchaseDocFDocumentNo" readonly>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label mb-1">Προμηθευτής</label>
+                <input type="text" class="form-control form-control-sm" id="purchaseDocFSupplier" readonly>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label mb-1">Ημερομηνία</label>
+                <input type="text" class="form-control form-control-sm" id="purchaseDocFDate" readonly>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label mb-1">Τρ.πληρωμής</label>
+                <input type="text" class="form-control form-control-sm" id="purchaseDocFPayment" readonly>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label mb-1">Status</label>
+                <input type="text" class="form-control form-control-sm" id="purchaseDocFStatus" readonly>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label mb-1">Αιτιολογία</label>
+                <input type="text" class="form-control form-control-sm" id="purchaseDocFReason" readonly>
+              </div>
+            </div>
+
+            <div class="fw-semibold text-warning border-bottom pb-1 mb-2">Είδη</div>
+            <div class="table-responsive border rounded purchase-doc-lines-wrap mb-3">
+              <table class="table table-sm align-middle mb-0">
+                <thead class="table-light sticky-top">
+                  <tr>
+                    <th style="width:52px">Α/Α</th>
+                    <th style="width:120px">Κωδικός</th>
+                    <th>Περιγραφή</th>
+                    <th class="text-end">Ποσ. 1</th>
+                    <th class="text-end">Εκτελ.</th>
+                    <th class="text-end">Τιμή</th>
+                    <th class="text-end">Εκπτ. %</th>
+                    <th class="text-end">Αξία εκπτ.</th>
+                    <th class="text-end">Αξία ΦΠΑ</th>
+                    <th class="text-end">Αξία</th>
+                  </tr>
+                </thead>
+                <tbody id="purchaseDocLinesBody">
+                  <tr><td colspan="10" class="text-center text-muted py-3">Δεν υπάρχουν γραμμές.</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="fw-semibold text-warning border-bottom pb-1 mb-2">Σύνολα</div>
+            <div class="row g-2">
+              <div class="col-md-4">
+                <label class="form-label mb-1">Συν.Αξία</label>
+                <input type="text" class="form-control form-control-sm" id="purchaseDocTGross" readonly>
+              </div>
+              <div class="col-md-4">
+                <label class="form-label mb-1">Αξία ΦΠΑ</label>
+                <input type="text" class="form-control form-control-sm" id="purchaseDocTVat" readonly>
+              </div>
+              <div class="col-md-4">
+                <label class="form-label mb-1">Αξία Εξόδων</label>
+                <input type="text" class="form-control form-control-sm" id="purchaseDocTExpenses" readonly>
+              </div>
+              <div class="col-md-4">
+                <label class="form-label mb-1">Καθ.Αξία</label>
+                <input type="text" class="form-control form-control-sm" id="purchaseDocTNet" readonly>
+              </div>
+              <div class="col-md-4">
+                <label class="form-label mb-1">Κόστος</label>
+                <input type="text" class="form-control form-control-sm" id="purchaseDocTCost" readonly>
+              </div>
+              <div class="col-md-4">
+                <label class="form-label mb-1">Συν.ποσ.1</label>
+                <input type="text" class="form-control form-control-sm" id="purchaseDocTQty" readonly>
+              </div>
+            </div>
+          </div>
+
+          <div class="tab-pane fade" id="purchaseDocTabNotes" role="tabpanel">
+            <div class="fw-semibold text-warning border-bottom pb-1 mb-2">Αιτιολογία 2</div>
+            <textarea class="form-control form-control-sm mb-3" id="purchaseDocNReason2" readonly></textarea>
+
+            <div class="fw-semibold text-warning border-bottom pb-1 mb-2">Παρατηρήσεις</div>
+            <textarea class="form-control form-control-sm mb-3" id="purchaseDocNNotes" readonly></textarea>
+
+            <div class="row g-2">
+              <div class="col-md-6">
+                <label class="form-label mb-1">Ημ/νία εισαγωγής</label>
+                <input type="text" class="form-control form-control-sm" id="purchaseDocACreatedAt" readonly>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label mb-1">Ημ/νία τελ.ενημ.</label>
+                <input type="text" class="form-control form-control-sm" id="purchaseDocAUpdatedAt" readonly>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label mb-1">Χρήστης εισαγωγής</label>
+                <input type="text" class="form-control form-control-sm" id="purchaseDocACreatedBy" readonly>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label mb-1">Χρήστης τελ.ενημ.</label>
+                <input type="text" class="form-control form-control-sm" id="purchaseDocAUpdatedBy" readonly>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="bv-form-wizard-actions">
+          <button type="button" class="btn btn-outline-secondary btn-sm" data-bv-wizard-prev>Πίσω</button>
+          <button type="button" class="btn btn-primary btn-sm" data-bv-wizard-next>Επόμενο</button>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ tt(request, 'close') if tt(request, 'close') != 'close' else 'Κλείσιμο' }}</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let purchaseDocModalEl, purchaseDocModalCtrl, purchaseDocWizardCtrl, purchaseDocSearchDebounce;
+let purchaseDocActiveId = '';
+let purchaseDocOpenToken = 0;
+let purchaseDocsPage = 1;
+let purchaseDocsTotal = 0;
+
+const fmt2 = new Intl.NumberFormat('el-GR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmt0 = new Intl.NumberFormat('el-GR', { maximumFractionDigits: 0 });
+
+function toNum(v){const n = Number(v || 0); return Number.isFinite(n) ? n : 0;}
+function money(v){return fmt2.format(toNum(v));}
+
+function toIsoDate(raw){
+  const val = String(raw || '').trim();
+  if(!val) return '';
+  if(window.bvToIsoDate) return window.bvToIsoDate(val);
+  if(/^\d{4}-\d{2}-\d{2}$/.test(val)) return val;
+  const m = val.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if(!m) return val;
+  const dd = String(m[1]).padStart(2, '0');
+  const mm = String(m[2]).padStart(2, '0');
+  const yyyy = m[3];
+  return `${yyyy}-${mm}-${dd}`;
+}
+function formatDateOnly(v){
+  if(!v) return '-';
+  if(window.bvToDmyDate) return window.bvToDmyDate(v);
+  const raw = String(v).trim();
+  const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if(m) return `${m[3]}/${m[2]}/${m[1]}`;
+  return raw || '-';
+}
+function formatDateTime(v){
+  if(!v) return '-';
+  if(window.bvToDmyDate) return window.bvToDmyDate(v);
+  return String(v);
+}
+function escapeHtml(v){
+  return String(v ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+function textOrDash(v, fallback='-'){
+  const txt = String(v ?? '').trim();
+  return txt || fallback;
+}
+function combineCodeName(code, name){
+  const c = String(code ?? '').trim();
+  const n = String(name ?? '').trim();
+  if(c && n && c.toLowerCase() !== n.toLowerCase()) return `${c}  ${n}`;
+  return n || c || '-';
+}
+function setInputValue(id, v){
+  const el = document.getElementById(id);
+  if(el) el.value = textOrDash(v);
+}
+function setTextValue(id, v){
+  const el = document.getElementById(id);
+  if(el) el.value = String(v ?? '');
+}
+function setError(msg){
+  const el = document.getElementById('purchaseDocsError');
+  if(!el) return;
+  if(!msg){
+    el.classList.add('d-none');
+    el.textContent = '';
+    return;
+  }
+  el.classList.remove('d-none');
+  el.textContent = msg;
+}
+function setModalError(msg){
+  const el = document.getElementById('purchaseDocModalError');
+  if(!el) return;
+  if(!msg){
+    el.classList.add('d-none');
+    el.textContent = '';
+    return;
+  }
+  el.classList.remove('d-none');
+  el.textContent = msg;
+}
+
+function activatePurchaseDocTab(targetSelector){
+  if(!purchaseDocModalEl) return;
+  const target = String(targetSelector || '').trim();
+  if(!target) return;
+  if(purchaseDocWizardCtrl?.show){
+    purchaseDocWizardCtrl.show(target);
+    return;
+  }
+  purchaseDocModalEl.querySelectorAll('[data-bv-wizard-step][data-target]').forEach((btn) => {
+    const btnTarget = btn.getAttribute('data-target');
+    const isActive = btnTarget === target;
+    btn.classList.toggle('is-active', isActive);
+    btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
+  });
+  purchaseDocModalEl.querySelectorAll('.tab-pane').forEach((pane) => {
+    const paneSelector = `#${pane.id}`;
+    const isActive = paneSelector === target;
+    pane.classList.toggle('active', isActive);
+    pane.classList.toggle('show', isActive);
+    pane.hidden = !isActive;
+    pane.setAttribute('aria-hidden', isActive ? 'false' : 'true');
+  });
+}
+function bindPurchaseDocTabs(){
+  if(!purchaseDocModalEl || purchaseDocModalEl.dataset.tabsBound === '1') return;
+  purchaseDocModalEl.dataset.tabsBound = '1';
+  const wizardRoot = purchaseDocModalEl.querySelector('[data-bv-form-wizard]');
+  if(window.BVFormWizard && wizardRoot){
+    purchaseDocWizardCtrl = window.BVFormWizard.create(wizardRoot, { initialTarget: '#purchaseDocTabGeneral' });
+    return;
+  }
+  purchaseDocModalEl.querySelectorAll('[data-bv-wizard-step][data-target]').forEach((btn) => {
+    btn.addEventListener('click', (event) => {
+      event.preventDefault();
+      activatePurchaseDocTab(btn.getAttribute('data-target'));
+    });
+  });
+  purchaseDocModalEl.querySelector('[data-bv-wizard-prev]')?.addEventListener('click', (event) => {
+    event.preventDefault();
+    const panes = Array.from(purchaseDocModalEl.querySelectorAll('.tab-pane'));
+    const currentIndex = panes.findIndex((pane) => pane.classList.contains('active'));
+    const prevPane = panes[Math.max(currentIndex - 1, 0)];
+    if(prevPane) activatePurchaseDocTab(`#${prevPane.id}`);
+  });
+  purchaseDocModalEl.querySelector('[data-bv-wizard-next]')?.addEventListener('click', (event) => {
+    event.preventDefault();
+    const panes = Array.from(purchaseDocModalEl.querySelectorAll('.tab-pane'));
+    const currentIndex = panes.findIndex((pane) => pane.classList.contains('active'));
+    const nextPane = panes[Math.min(currentIndex + 1, panes.length - 1)];
+    if(nextPane) activatePurchaseDocTab(`#${nextPane.id}`);
+  });
+}
+function getPurchaseDocModalController(){
+  if(!purchaseDocModalEl) return null;
+  if(window.BVModalSystem){
+    purchaseDocModalCtrl = purchaseDocModalCtrl || window.BVModalSystem.create(purchaseDocModalEl, {
+      closeOnBackdrop: false,
+      keyboard: true,
+      focusTrap: true,
+      restoreFocus: true,
+    });
+    return purchaseDocModalCtrl;
+  }
+  if(window.bootstrap?.Modal){
+    purchaseDocModalCtrl = purchaseDocModalCtrl || window.bootstrap.Modal.getOrCreateInstance(purchaseDocModalEl, {
+      backdrop: 'static',
+      keyboard: true,
+      focus: true,
+    });
+    return purchaseDocModalCtrl;
+  }
+  return null;
+}
+function showPurchaseDocModal(triggerEl){
+  const controller = getPurchaseDocModalController();
+  if(!controller) return;
+  if(controller.show.length >= 1) controller.show(triggerEl);
+  else controller.show();
+}
+
+function params(){
+  const fd = new FormData(document.getElementById('purchaseDocumentsFilters'));
+  const p = new URLSearchParams();
+  p.set('from', toIsoDate(fd.get('from')));
+  p.set('to', toIsoDate(fd.get('to')));
+  return p;
+}
+function purchaseDocumentsParams(){
+  const p = params();
+  const limit = Math.max(1, Number(document.getElementById('purchaseDocsPageSize')?.value || 100));
+  const offset = Math.max(0, (purchaseDocsPage - 1) * limit);
+  p.set('limit', String(limit));
+  p.set('offset', String(offset));
+  const q = String(document.getElementById('purchaseDocsSearch')?.value || '').trim();
+  if(q) p.set('q', q);
+  return p;
+}
+
+function resetPurchaseDocModal(){
+  document.getElementById('purchaseDocumentModalTitle').textContent = 'Παραστατικό Αγορών';
+  document.getElementById('purchaseDocumentModalSub').textContent = '-';
+  [
+    'purchaseDocFBranch','purchaseDocFWarehouse','purchaseDocFSeries','purchaseDocFType','purchaseDocFDocumentNo',
+    'purchaseDocFSupplier','purchaseDocFDate','purchaseDocFPayment','purchaseDocFStatus','purchaseDocFReason',
+    'purchaseDocTGross','purchaseDocTVat','purchaseDocTExpenses','purchaseDocTNet','purchaseDocTCost','purchaseDocTQty',
+    'purchaseDocACreatedAt','purchaseDocAUpdatedAt','purchaseDocACreatedBy','purchaseDocAUpdatedBy',
+  ].forEach((id) => setInputValue(id, '-'));
+  setTextValue('purchaseDocNReason2', '');
+  setTextValue('purchaseDocNNotes', '');
+  const linesBody = document.getElementById('purchaseDocLinesBody');
+  if(linesBody){
+    linesBody.innerHTML = '<tr><td colspan="10" class="text-center text-muted py-3">Δεν υπάρχουν γραμμές.</td></tr>';
+  }
+  setModalError(null);
+  activatePurchaseDocTab('#purchaseDocTabGeneral');
+}
+
+function renderPurchaseDocumentsTable(rows){
+  const body = document.getElementById('purchaseDocsBody');
+  if(!body) return;
+  body.innerHTML = '';
+  if(!(rows || []).length){
+    body.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-3">Δεν βρέθηκαν παραστατικά.</td></tr>';
+    return;
+  }
+  (rows || []).forEach((r) => {
+    const docId = String(r.document_id || '').trim();
+    const tr = document.createElement('tr');
+    tr.dataset.docId = docId;
+    tr.tabIndex = 0;
+    tr.setAttribute('role', 'button');
+    if(docId && docId === purchaseDocActiveId) tr.classList.add('is-active');
+    tr.innerHTML = `
+      <td>${escapeHtml(formatDateOnly(r.document_date))}</td>
+      <td>${escapeHtml(textOrDash(r.branch))}</td>
+      <td>${escapeHtml(textOrDash(r.warehouse))}</td>
+      <td>${escapeHtml(textOrDash(r.series))}</td>
+      <td>${escapeHtml(textOrDash(r.document_no))}</td>
+      <td>${escapeHtml(textOrDash(r.supplier))}</td>
+      <td class="text-end">${money(r.total_net_value)}</td>
+      <td>${escapeHtml(textOrDash(r.reason, ''))}</td>
+    `;
+    tr.addEventListener('click', () => {
+      purchaseDocActiveId = docId;
+      body.querySelectorAll('tr.is-active').forEach((row) => row.classList.remove('is-active'));
+      tr.classList.add('is-active');
+    });
+    tr.addEventListener('dblclick', () => {
+      if(docId) openPurchaseDocument(docId, tr);
+    });
+    tr.addEventListener('keydown', (event) => {
+      if((event.key === 'Enter' || event.key === ' ') && docId){
+        event.preventDefault();
+        openPurchaseDocument(docId, tr);
+      }
+    });
+    body.appendChild(tr);
+  });
+}
+function updatePurchaseDocsPager(limit){
+  const pages = Math.max(1, Math.ceil((purchaseDocsTotal || 0) / limit));
+  if(purchaseDocsPage > pages) purchaseDocsPage = pages;
+  document.getElementById('purchaseDocsPageInfo').textContent = `${purchaseDocsPage} / ${pages}`;
+  document.getElementById('purchaseDocsPageJump').value = String(purchaseDocsPage);
+}
+function renderPurchaseDocumentsSummary(summary, meta={}){
+  const el = document.getElementById('purchaseDocsSummary');
+  if(!el) return;
+  const docs = toNum(summary?.documents);
+  purchaseDocsTotal = Math.max(0, Math.round(docs));
+  el.textContent = `Παραστατικά: ${fmt0.format(Math.round(docs))} | Συν.Αξία: ${money(summary?.net_value)} | Κόστος: ${money(summary?.cost_value)} | Συν.ποσ.: ${fmt2.format(toNum(summary?.qty_total))}`;
+
+  const limit = Math.max(1, Number(meta.limit || document.getElementById('purchaseDocsPageSize')?.value || 100));
+  const offset = Math.max(0, Number(meta.offset || 0));
+  const rowsCount = Math.max(0, Number(meta.rowsCount || 0));
+  const from = purchaseDocsTotal > 0 ? offset + 1 : 0;
+  const to = Math.min(offset + rowsCount, purchaseDocsTotal);
+  const rangeEl = document.getElementById('purchaseDocsRangeSummary');
+  if(rangeEl) rangeEl.textContent = `Εμφάνιση ${from} έως ${to} από ${purchaseDocsTotal}`;
+  updatePurchaseDocsPager(limit);
+}
+function renderPurchaseDocumentLines(lines){
+  const linesBody = document.getElementById('purchaseDocLinesBody');
+  if(!linesBody) return;
+  linesBody.innerHTML = '';
+  if(!(lines || []).length){
+    linesBody.innerHTML = '<tr><td colspan="10" class="text-center text-muted py-3">Δεν υπάρχουν γραμμές.</td></tr>';
+    return;
+  }
+  (lines || []).forEach((line, idx) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${fmt0.format(Number(line.row_no || idx + 1))}</td>
+      <td>${escapeHtml(textOrDash(line.item_code, '-'))}</td>
+      <td>${escapeHtml(textOrDash(line.item_name, '-'))}</td>
+      <td class="text-end">${fmt2.format(toNum(line.qty))}</td>
+      <td class="text-end">${fmt2.format(toNum(line.qty_executed))}</td>
+      <td class="text-end">${money(line.unit_price)}</td>
+      <td class="text-end">${fmt2.format(toNum(line.discount_pct))}</td>
+      <td class="text-end">${money(line.discount_amount)}</td>
+      <td class="text-end">${money(line.vat_amount)}</td>
+      <td class="text-end">${money(line.line_total)}</td>
+    `;
+    linesBody.appendChild(tr);
+  });
+}
+
+function fillPurchaseDocumentModal(data){
+  const header = data?.header || {};
+  const notes = data?.notes || {};
+  const audit = data?.audit || {};
+  const totals = data?.totals || {};
+
+  const docNo = textOrDash(data?.document_no || data?.document_id, 'Παραστατικό Αγορών');
+  document.getElementById('purchaseDocumentModalTitle').textContent = docNo;
+  document.getElementById('purchaseDocumentModalSub').textContent =
+    `Snapshot: ${formatDateOnly(data?.document_date)} | Γραμμές: ${fmt0.format(Math.round(toNum(totals.line_count)))}`;
+
+  setInputValue('purchaseDocFBranch', combineCodeName(header.branch_code, header.branch_name));
+  setInputValue('purchaseDocFWarehouse', combineCodeName(header.warehouse_code, header.warehouse_name));
+  setInputValue('purchaseDocFSeries', header.series);
+  setInputValue('purchaseDocFType', header.document_type);
+  setInputValue('purchaseDocFDocumentNo', data?.document_no || data?.document_id);
+  setInputValue('purchaseDocFSupplier', combineCodeName(header.supplier_code, header.supplier_name));
+  setInputValue('purchaseDocFDate', formatDateOnly(data?.document_date));
+  setInputValue('purchaseDocFPayment', header.payment_method);
+  setInputValue('purchaseDocFStatus', header.status);
+  setInputValue('purchaseDocFReason', header.reason);
+
+  renderPurchaseDocumentLines(data?.lines || []);
+  setInputValue('purchaseDocTGross', money(totals.gross_value));
+  setInputValue('purchaseDocTVat', money(totals.vat_value));
+  setInputValue('purchaseDocTExpenses', money(totals.expenses_value));
+  setInputValue('purchaseDocTNet', money(totals.net_value));
+  setInputValue('purchaseDocTCost', money(totals.cost_value));
+  setInputValue('purchaseDocTQty', fmt2.format(toNum(totals.qty_total)));
+
+  setTextValue('purchaseDocNReason2', notes.notes_2 || '');
+  setTextValue('purchaseDocNNotes', notes.notes_1 || '');
+  setInputValue('purchaseDocACreatedAt', formatDateTime(audit.created_at));
+  setInputValue('purchaseDocAUpdatedAt', formatDateTime(audit.updated_at));
+  setInputValue('purchaseDocACreatedBy', audit.created_by);
+  setInputValue('purchaseDocAUpdatedBy', audit.updated_by);
+}
+
+async function reloadPurchaseDocuments(e){
+  if(e) e.preventDefault();
+  setError(null);
+  const body = document.getElementById('purchaseDocsBody');
+  if(body){
+    body.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-3">Φόρτωση παραστατικών...</td></tr>';
+  }
+  try {
+    const p = purchaseDocumentsParams();
+    const res = await fetch(`/v1/kpi/purchases/documents?${p.toString()}`);
+    if(!res.ok) throw new Error('Αποτυχία φόρτωσης παραστατικών.');
+    const payload = await res.json();
+    renderPurchaseDocumentsTable(payload?.rows || []);
+    renderPurchaseDocumentsSummary(payload?.summary || {}, {
+      limit: payload?.limit,
+      offset: payload?.offset,
+      rowsCount: (payload?.rows || []).length,
+    });
+  } catch (_err) {
+    setError('Αποτυχία φόρτωσης παραστατικών.');
+    if(body){
+      body.innerHTML = '<tr><td colspan="8" class="text-center text-danger py-3">Αποτυχία φόρτωσης παραστατικών.</td></tr>';
+    }
+    renderPurchaseDocumentsSummary({ documents: 0, net_value: 0, cost_value: 0, qty_total: 0 }, { limit: document.getElementById('purchaseDocsPageSize')?.value || 100, offset: 0, rowsCount: 0 });
+  }
+}
+
+async function openPurchaseDocument(documentId, triggerEl){
+  const docId = String(documentId || '').trim();
+  if(!docId) return;
+  purchaseDocActiveId = docId;
+  document.querySelectorAll('#purchaseDocsBody tr.is-active').forEach((row) => row.classList.remove('is-active'));
+  Array.from(document.querySelectorAll('#purchaseDocsBody tr')).find((row) => row.dataset.docId === docId)?.classList.add('is-active');
+
+  resetPurchaseDocModal();
+  showPurchaseDocModal(triggerEl);
+  const token = ++purchaseDocOpenToken;
+  try {
+    const p = params();
+    const res = await fetch(`/v1/kpi/purchases/documents/${encodeURIComponent(docId)}/detail?${p.toString()}`);
+    if(token !== purchaseDocOpenToken) return;
+    if(!res.ok){
+      const err = await res.json().catch(() => ({ detail: 'Αποτυχία φόρτωσης παραστατικού.' }));
+      throw new Error(err?.detail || 'Αποτυχία φόρτωσης παραστατικού.');
+    }
+    const data = await res.json();
+    if(token !== purchaseDocOpenToken) return;
+    fillPurchaseDocumentModal(data);
+  } catch (err) {
+    if(token !== purchaseDocOpenToken) return;
+    setModalError(err?.message || 'Αποτυχία φόρτωσης παραστατικού.');
+  }
+}
+
+document.getElementById('purchaseDocumentsFilters').addEventListener('submit', (e) => {
+  purchaseDocsPage = 1;
+  reloadPurchaseDocuments(e);
+});
+
+window.addEventListener('load', async () => {
+  purchaseDocModalEl = document.getElementById('purchaseDocumentModal');
+  bindPurchaseDocTabs();
+  getPurchaseDocModalController();
+
+  const searchEl = document.getElementById('purchaseDocsSearch');
+  if(searchEl){
+    searchEl.addEventListener('input', () => {
+      clearTimeout(purchaseDocSearchDebounce);
+      purchaseDocSearchDebounce = setTimeout(() => {
+        purchaseDocsPage = 1;
+        reloadPurchaseDocuments();
+      }, 260);
+    });
+  }
+  document.getElementById('purchaseDocsRefresh')?.addEventListener('click', () => reloadPurchaseDocuments());
+  document.getElementById('purchaseDocsReset')?.addEventListener('click', () => {
+    document.getElementById('purchaseDocumentsFilters')?.reset();
+    if(window.bvInitDmyDateInputs) window.bvInitDmyDateInputs(document.getElementById('purchaseDocumentsFilters'));
+    purchaseDocsPage = 1;
+    reloadPurchaseDocuments();
+  });
+  document.getElementById('purchaseDocsPageSize')?.addEventListener('change', () => { purchaseDocsPage = 1; reloadPurchaseDocuments(); });
+  document.getElementById('purchaseDocsFirstPage')?.addEventListener('click', () => { purchaseDocsPage = 1; reloadPurchaseDocuments(); });
+  document.getElementById('purchaseDocsPrevPage')?.addEventListener('click', () => { purchaseDocsPage = Math.max(1, purchaseDocsPage - 1); reloadPurchaseDocuments(); });
+  document.getElementById('purchaseDocsNextPage')?.addEventListener('click', () => { purchaseDocsPage += 1; reloadPurchaseDocuments(); });
+  document.getElementById('purchaseDocsLastPage')?.addEventListener('click', () => {
+    const limit = Math.max(1, Number(document.getElementById('purchaseDocsPageSize')?.value || 100));
+    const pages = Math.max(1, Math.ceil((purchaseDocsTotal || 0) / limit));
+    purchaseDocsPage = pages;
+    reloadPurchaseDocuments();
+  });
+  document.getElementById('purchaseDocsPageGo')?.addEventListener('click', () => {
+    const val = Math.max(1, Number(document.getElementById('purchaseDocsPageJump')?.value || 1));
+    purchaseDocsPage = val;
+    reloadPurchaseDocuments();
+  });
+  await reloadPurchaseDocuments();
+});
+</script>
+{% endblock %}

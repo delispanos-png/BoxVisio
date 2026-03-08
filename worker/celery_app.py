@@ -13,8 +13,18 @@ celery.conf.task_acks_late = True
 celery.conf.task_reject_on_worker_lost = True
 celery.conf.broker_transport_options = {'visibility_timeout': 3600}
 celery.conf.task_routes = {
+    'worker.tasks.ingest_sales_documents': {'queue': 'ingest'},
+    'worker.tasks.ingest_purchase_documents': {'queue': 'ingest'},
+    'worker.tasks.ingest_inventory_documents': {'queue': 'ingest'},
+    'worker.tasks.ingest_cash_transactions': {'queue': 'ingest'},
+    'worker.tasks.ingest_supplier_balances': {'queue': 'ingest'},
+    'worker.tasks.ingest_customer_balances': {'queue': 'ingest'},
     'worker.tasks.sync_pharmacyone_sales': {'queue': 'ingest'},
     'worker.tasks.sync_pharmacyone_purchases': {'queue': 'ingest'},
+    'worker.tasks.sync_pharmacyone_inventory': {'queue': 'ingest'},
+    'worker.tasks.sync_pharmacyone_cashflows': {'queue': 'ingest'},
+    'worker.tasks.sync_pharmacyone_supplier_balances': {'queue': 'ingest'},
+    'worker.tasks.sync_pharmacyone_customer_balances': {'queue': 'ingest'},
     'worker.tasks.enqueue_external_ingest': {'queue': 'ingest'},
     'worker.tasks.drain_tenant_ingest_queue': {'queue': 'ingest'},
     'worker.tasks.refresh_aggregates_for_entity': {'queue': 'ingest'},

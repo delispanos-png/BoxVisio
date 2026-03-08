@@ -1,0 +1,21 @@
+{% extends "base_admin.html" %}
+{% block content %}
+<div class="card mt-3">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <h5 class="mb-0">{{ tt(request, title) if title else tt(request, page_title_key) }}</h5>
+    <span class="badge bg-warning text-dark">Placeholder</span>
+  </div>
+  <div class="card-body">
+    <p class="text-muted mb-3">{{ page_description }}</p>
+    {% if quick_links %}
+    <div class="d-flex flex-wrap gap-2">
+      {% for link in quick_links %}
+      <a class="btn btn-outline-secondary" href="{{ link.href }}">
+        {{ tt(request, link.label_key) if link.label_key else link.href }}
+      </a>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
