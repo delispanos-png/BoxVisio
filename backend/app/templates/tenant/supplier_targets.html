@@ -2,13 +2,17 @@
 
 {% block filters %}
 <form id="supplierTargetsFilters" class="row g-3">
-  <div class="col-lg-3 col-md-6">
+  <div class="col-lg-2 col-md-6">
     <label class="form-label">Έτος Στόχου</label>
     <input id="stYear" type="number" class="form-control" min="2000" max="2100" value="{{ default_year }}">
   </div>
   <div class="col-lg-3 col-md-6">
     <label class="form-label">Έως ημερομηνία</label>
     <input id="stAsOf" type="text" class="form-control" data-date-format="dmy" placeholder="ηη/μμ/εεεε" inputmode="numeric">
+  </div>
+  <div class="col-lg-4 col-md-12">
+    <label class="form-label">Αναζήτηση συμφωνίας / προμηθευτή</label>
+    <input id="stTargetsFilterSearch" type="text" class="form-control" placeholder="Όνομα συμφωνίας ή προμηθευτή">
   </div>
   <div class="col-lg-3 col-md-6 d-flex align-items-end">
     <button type="submit" class="btn btn-primary w-100"><i class="fe fe-filter me-1"></i>{{ tt(request, 'apply') }}</button>
@@ -94,9 +98,8 @@
             </div>
             <div class="col-lg-2">
               <label class="form-label mb-1">Ενέργειες</label>
-              <div class="d-flex gap-1">
-                <button id="stSelectPageBtn" type="button" class="btn btn-sm btn-outline-secondary w-100">Επιλογή σελίδας</button>
-                <button id="stClearPageBtn" type="button" class="btn btn-sm btn-outline-secondary w-100">Καθαρισμός</button>
+              <div class="d-grid gap-1">
+                <button id="stAddToTargetBtn" type="button" class="btn btn-sm btn-primary">Προσθήκη στη λίστα στόχου</button>
               </div>
             </div>
           </div>
@@ -123,8 +126,20 @@
             </table>
           </div>
 
+          <div class="border rounded p-2 mt-2 bg-light-subtle">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+              <small class="fw-semibold">Λίστα ειδών που συμμετέχουν στον ετήσιο στόχο</small>
+              <div class="d-flex align-items-center gap-2">
+                <small id="stSelectedItemsCount" class="text-muted">0 είδη</small>
+                <button id="stAddToTargetBtnBottom" type="button" class="btn btn-sm btn-primary">Προσθήκη επιλεγμένων</button>
+                <button id="stClearTargetList" type="button" class="btn btn-sm btn-outline-danger">Καθαρισμός λίστας</button>
+              </div>
+            </div>
+            <div id="stSelectedItemsWrap" class="d-flex flex-wrap gap-2 mt-2"></div>
+          </div>
+
           <div class="d-flex justify-content-between align-items-center gap-2 mt-2 flex-wrap">
-            <small id="stItemsMeta" class="text-muted">0 επιλεγμένα</small>
+            <small id="stItemsMeta" class="text-muted">0 στη λίστα στόχου | 0 προς προσθήκη</small>
             <div class="d-flex align-items-center gap-2">
               <button id="stItemsPrevPage" type="button" class="btn btn-sm btn-outline-secondary">Προηγ.</button>
               <small id="stItemsPageInfo" class="text-muted">1 / 1</small>
@@ -151,73 +166,149 @@
   <small id="stSummaryHint" class="text-muted">-</small>
 </div>
 
-<div id="stTargetsGrid" class="row g-3"></div>
+<div class="card border-0 shadow-sm">
+  <div class="card-header d-flex justify-content-between align-items-center gap-2 flex-wrap">
+    <h6 class="mb-0">Αποθηκευμένες συμφωνίες</h6>
+    <div class="d-flex align-items-center gap-2">
+      <input id="stTargetsSearch" type="text" class="form-control form-control-sm" placeholder="Αναζήτηση συμφωνίας / προμηθευτή..." style="min-width:260px;">
+      <small id="stTargetsCount" class="text-muted">0 εγγραφές</small>
+    </div>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table id="stTargetsTable" class="table table-sm table-hover align-middle mb-0 bv-unified-table">
+        <thead>
+          <tr>
+            <th>Συμφωνία</th>
+            <th>Προμηθευτής</th>
+            <th>Έτος</th>
+            <th class="text-end">Ετήσιος Στόχος</th>
+            <th class="text-end">Πραγματικό YTD</th>
+            <th class="text-end">Πρόοδος</th>
+            <th class="text-end">Πιθανό Credit</th>
+            <th class="text-end">Ενέργειες</th>
+          </tr>
+        </thead>
+        <tbody id="stTargetsBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+<div id="stTargetsEmpty" class="alert alert-light border mt-3 d-none">Δεν υπάρχουν αποθηκευμένες συμφωνίες για το επιλεγμένο έτος.</div>
 
-<template id="stCardTemplate">
-  <div class="col-12 col-xxl-6">
-    <div class="card border-0 shadow-sm h-100">
-      <div class="card-header d-flex justify-content-between align-items-center">
+<div class="modal fade bv-modal bv-modal--responsive bv-modal--lg" id="stDetailsModal" tabindex="-1" aria-hidden="true" aria-labelledby="stDetailsTitle" data-bv-modal="true">
+  <div class="modal-dialog modal-xl">
+    <div class="modal-content">
+      <div class="modal-header">
         <div>
-          <h6 class="mb-1 st-name"></h6>
-          <small class="text-muted st-supplier"></small>
+          <h5 class="modal-title mb-1" id="stDetailsTitle">Λεπτομέρειες συμφωνίας</h5>
+          <small id="stDetailsSubtitle" class="text-muted">-</small>
         </div>
-        <button type="button" class="btn btn-sm btn-outline-primary st-edit"><i class="fe fe-edit-2 me-1"></i>Edit</button>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
-      <div class="card-body">
-        <div class="row g-2 mb-2">
-          <div class="col-md-4"><div class="small text-muted">Ετήσιος Στόχος</div><div class="fw-bold st-target-amount"></div></div>
-          <div class="col-md-4"><div class="small text-muted">Πραγματικό YTD</div><div class="fw-bold st-actual"></div></div>
-          <div class="col-md-4"><div class="small text-muted">Πιθανό Credit</div><div class="fw-bold st-credit"></div></div>
+      <div class="modal-body">
+        <div class="row g-3 mb-3">
+          <div class="col-md-4"><div class="small text-muted">Ετήσιος Στόχος</div><div class="fw-bold h5 mb-0" id="stDetailsTargetAmount">0,00 €</div></div>
+          <div class="col-md-4"><div class="small text-muted">Πραγματικό YTD</div><div class="fw-bold h5 mb-0" id="stDetailsActual">0,00 €</div></div>
+          <div class="col-md-4"><div class="small text-muted">Πιθανό Credit</div><div class="fw-bold h5 mb-0" id="stDetailsCredit">0,00 €</div></div>
         </div>
-
-        <div class="border rounded-3 p-2 mb-2 st-track-wrap">
+        <div class="border rounded-3 p-3 mb-3">
           <div class="d-flex justify-content-between align-items-center mb-1">
             <small class="text-muted">Πρόοδος έναντι χρονοδιαγράμματος</small>
-            <small class="fw-bold st-track-pct"></small>
+            <small id="stDetailsTrackPct" class="fw-bold">0,00%</small>
           </div>
           <div class="progress" style="height:8px;">
-            <div class="progress-bar st-track-bar" role="progressbar" style="width:0%"></div>
+            <div id="stDetailsTrackBar" class="progress-bar" role="progressbar" style="width:0%"></div>
           </div>
           <div class="d-flex justify-content-between mt-1">
-            <small class="text-muted">Αναμενόμενο YTD: <span class="st-expected-ytd"></span></small>
-            <small class="st-track-amount"></small>
+            <small class="text-muted">Αναμενόμενο YTD: <span id="stDetailsExpectedYtd">0,00 €</span></small>
+            <small id="stDetailsTrackAmount">0,00 €</small>
           </div>
         </div>
-
         <div class="small text-muted mb-1">Επίτευξη Στόχου</div>
         <div class="progress" style="height:12px;">
-          <div class="progress-bar bg-success st-progress-bar" role="progressbar" style="width:0%"></div>
+          <div id="stDetailsProgressBar" class="progress-bar bg-success" role="progressbar" style="width:0%"></div>
         </div>
-        <div class="d-flex justify-content-between mt-1 mb-2">
-          <small class="text-muted st-progress-text"></small>
-          <small class="text-muted st-remaining"></small>
+        <div class="d-flex justify-content-between mt-1 mb-3">
+          <small id="stDetailsProgressText" class="text-muted">Πρόοδος: 0,00% | Υπόλοιπο: 100,00%</small>
+          <small id="stDetailsRemaining" class="text-muted">Απόσταση: 0,00 €</small>
         </div>
-
         <div class="small text-muted mb-1">Μηνιαία πρόοδος</div>
-        <div class="st-months"></div>
-
-        <details class="mt-3">
-          <summary class="small fw-bold">Είδη συμμετοχής</summary>
-          <div class="mt-2 st-items d-flex flex-wrap gap-1"></div>
-        </details>
-        <div class="mt-2">
-          <div class="small text-muted">Σχόλια Συμφωνίας</div>
-          <div class="small st-agreement-notes">-</div>
-        </div>
+        <div id="stDetailsMonths"></div>
+        <div class="small text-muted mt-3 mb-1">Είδη συμμετοχής</div>
+        <div id="stDetailsItems" class="d-flex flex-wrap gap-1"></div>
+        <div class="small text-muted mt-3 mb-1">Σχόλια συμφωνίας</div>
+        <div id="stDetailsNotes" class="small">-</div>
+      </div>
+      <div class="modal-footer">
+        <button id="stDetailsPrintBtn" type="button" class="btn btn-outline-secondary"><i class="fe fe-printer me-1"></i>Εκτύπωση</button>
+        <button id="stDetailsEmailBtn" type="button" class="btn btn-outline-secondary"><i class="fe fe-mail me-1"></i>Αποστολή email</button>
+        <button id="stDetailsCloneBtn" type="button" class="btn btn-outline-primary"><i class="fe fe-copy me-1"></i>Αντιγραφή σε νέα περίοδο</button>
+        <button id="stDetailsEditBtn" type="button" class="btn btn-primary"><i class="fe fe-edit-2 me-1"></i>Επεξεργασία</button>
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Κλείσιμο</button>
       </div>
     </div>
   </div>
-</template>
+</div>
 
 <style>
   .st-month-row { display:grid; grid-template-columns: 38px 1fr 70px; gap:8px; align-items:center; margin-bottom:6px; }
   .st-month-bar { width:100%; height:8px; border-radius:999px; background:#e5e7eb; overflow:hidden; }
   .st-month-fill { height:100%; background:linear-gradient(90deg, #3b82f6, #22c55e); }
   .st-item-chip { padding:2px 8px; border-radius:999px; background:#eef4ff; color:#334155; font-size:12px; }
-  .st-track-pct.pos, .st-track-amount.pos { color:#16a34a; }
-  .st-track-pct.neg, .st-track-amount.neg { color:#dc2626; }
   .st-items-search { max-width: 360px; }
   .st-item-name { max-width: 480px; white-space: normal; }
+  .st-target-name { font-weight: 600; }
+  .st-target-sub { color: #64748b; font-size: 12px; }
+  .st-target-actions { display: inline-flex; gap: 6px; justify-content: flex-end; }
+  .st-details-track.pos { color:#16a34a; }
+  .st-details-track.neg { color:#dc2626; }
+  .st-selected-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    border: 1px solid #dbeafe;
+    background: #eff6ff;
+    color: #1e3a8a;
+    font-size: 12px;
+  }
+  .st-selected-chip .st-remove {
+    border: 0;
+    background: transparent;
+    color: #1e3a8a;
+    line-height: 1;
+    font-weight: 700;
+    cursor: pointer;
+    padding: 0;
+  }
+  .st-item-select-cell {
+    width: 42px;
+    text-align: center;
+    vertical-align: middle;
+  }
+  #stToggleAllVisible,
+  #stItemsBody .st-item-check {
+    position: static !important;
+    left: auto !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    accent-color: #4f46e5;
+    cursor: pointer;
+  }
+  #stItemsBody tr.st-item-row {
+    cursor: pointer;
+  }
+  #stItemsBody tr.st-item-row td {
+    user-select: none;
+  }
+  #stItemsBody tr.st-item-row.is-pending td {
+    background: color-mix(in srgb, var(--bv-accent) 12%, transparent) !important;
+  }
 </style>
 {% endblock %}
 
@@ -233,12 +324,44 @@
   const filtersForm = document.getElementById('supplierTargetsFilters');
   const yearEl = document.getElementById('stYear');
   const asOfEl = document.getElementById('stAsOf');
+  const targetsFilterSearchEl = document.getElementById('stTargetsFilterSearch');
   const summaryHintEl = document.getElementById('stSummaryHint');
-  const grid = document.getElementById('stTargetsGrid');
-  const tpl = document.getElementById('stCardTemplate');
+  const targetsSearchEl = document.getElementById('stTargetsSearch');
+  const targetsCountEl = document.getElementById('stTargetsCount');
+  const targetsBodyEl = document.getElementById('stTargetsBody');
+  const targetsEmptyEl = document.getElementById('stTargetsEmpty');
   const editorCardEl = document.getElementById('stEditorCard');
   const openNewBtn = document.getElementById('stOpenNewBtn');
   const closeEditorBtn = document.getElementById('stCloseEditor');
+
+  const detailsModalEl = document.getElementById('stDetailsModal');
+  const detailsModal = detailsModalEl
+    ? (
+      window.BVModalSystem?.create(detailsModalEl, { closeOnBackdrop: true, keyboard: true, focusTrap: true, restoreFocus: true })
+      || (window.bootstrap?.Modal
+        ? window.bootstrap.Modal.getOrCreateInstance(detailsModalEl, { keyboard: true, focus: true })
+        : null)
+    )
+    : null;
+  const detailsTitleEl = document.getElementById('stDetailsTitle');
+  const detailsSubtitleEl = document.getElementById('stDetailsSubtitle');
+  const detailsTargetAmountEl = document.getElementById('stDetailsTargetAmount');
+  const detailsActualEl = document.getElementById('stDetailsActual');
+  const detailsCreditEl = document.getElementById('stDetailsCredit');
+  const detailsTrackPctEl = document.getElementById('stDetailsTrackPct');
+  const detailsTrackBarEl = document.getElementById('stDetailsTrackBar');
+  const detailsExpectedYtdEl = document.getElementById('stDetailsExpectedYtd');
+  const detailsTrackAmountEl = document.getElementById('stDetailsTrackAmount');
+  const detailsProgressBarEl = document.getElementById('stDetailsProgressBar');
+  const detailsProgressTextEl = document.getElementById('stDetailsProgressText');
+  const detailsRemainingEl = document.getElementById('stDetailsRemaining');
+  const detailsMonthsEl = document.getElementById('stDetailsMonths');
+  const detailsItemsEl = document.getElementById('stDetailsItems');
+  const detailsNotesEl = document.getElementById('stDetailsNotes');
+  const detailsPrintBtn = document.getElementById('stDetailsPrintBtn');
+  const detailsEmailBtn = document.getElementById('stDetailsEmailBtn');
+  const detailsEditBtn = document.getElementById('stDetailsEditBtn');
+  const detailsCloneBtn = document.getElementById('stDetailsCloneBtn');
 
   const form = document.getElementById('supplierTargetForm');
   const idEl = document.getElementById('stTargetId');
@@ -261,15 +384,21 @@
   const itemsNextBtn = document.getElementById('stItemsNextPage');
   const itemsPageSizeEl = document.getElementById('stItemsPageSize');
   const toggleAllVisibleEl = document.getElementById('stToggleAllVisible');
-  const selectPageBtn = document.getElementById('stSelectPageBtn');
-  const clearPageBtn = document.getElementById('stClearPageBtn');
+  const addToTargetBtn = document.getElementById('stAddToTargetBtn');
+  const addToTargetBtnBottom = document.getElementById('stAddToTargetBtnBottom');
+  const selectedItemsWrapEl = document.getElementById('stSelectedItemsWrap');
+  const selectedItemsCountEl = document.getElementById('stSelectedItemsCount');
+  const clearTargetListBtn = document.getElementById('stClearTargetList');
   const quickFilterAllBtn = document.getElementById('stQuickFilterAll');
   const quickFilterTopBtn = document.getElementById('stQuickFilterTop');
   const quickFilterSlowBtn = document.getElementById('stQuickFilterSlow');
 
   let allItems = [];
   let selectedItemIds = new Set();
+  let pendingItemIds = new Set();
+  let selectedItemMeta = new Map();
   let targetByName = new Map();
+  let loadedTargets = [];
   const itemsState = {
     quickFilter: 'all',
     page: 1,
@@ -278,6 +407,203 @@
   };
   const normalizeTargetName = (v)=> String(v || '').trim().toLowerCase();
   const normalizeText = (v)=> String(v || '').trim().toLowerCase();
+  const toItemId = (row)=> String(row?.product_id || row?.value || '').trim();
+  const toItemLabel = (row)=> {
+    const name = String(row?.product_name || row?.label || '').trim();
+    const id = toItemId(row);
+    return name || id || 'Άγνωστο είδος';
+  };
+
+  function syncTargetsSearchInputs(source){
+    const value = String(source?.value || '');
+    if (targetsFilterSearchEl && source !== targetsFilterSearchEl) targetsFilterSearchEl.value = value;
+    if (targetsSearchEl && source !== targetsSearchEl) targetsSearchEl.value = value;
+  }
+
+  function activeTargetsSearchTerm(){
+    const topSearch = normalizeText(targetsFilterSearchEl?.value || '');
+    const listSearch = normalizeText(targetsSearchEl?.value || '');
+    return topSearch || listSearch;
+  }
+
+  function escapeHtml(value){
+    return String(value ?? '')
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#39;');
+  }
+
+  function targetItemNames(target){
+    return Array.isArray(target?.items)
+      ? target.items.map((it)=> String(it?.item_name || it?.item_external_id || '').trim()).filter(Boolean)
+      : [];
+  }
+
+  function targetStatusLabel(target){
+    const canEdit = Boolean(target?.is_editable ?? target?.is_active ?? false);
+    return canEdit ? 'Ενεργή' : 'Ανενεργή';
+  }
+
+  function agreementMailBody(target){
+    const items = targetItemNames(target);
+    const notes = String(target?.agreement_notes || target?.notes || '-').trim() || '-';
+    const itemLines = items.length ? items.map((name)=> `- ${name}`).join('\n') : '- Δεν έχουν οριστεί είδη';
+    return [
+      `Συμφωνία: ${target?.name || '-'}`,
+      `Προμηθευτής: ${target?.supplier_name || target?.supplier_ext_id || '-'}`,
+      `Έτος: ${target?.target_year || '-'}`,
+      `Ποσό συμφωνίας: ${fmtMoney(target?.target_amount || 0)}`,
+      `Επιστροφή %: ${fmtPct(target?.rebate_percent || 0)}`,
+      `Επιστροφή ποσού: ${fmtMoney(target?.rebate_amount || 0)}`,
+      `Κατάσταση: ${targetStatusLabel(target)}`,
+      `Συμμετέχοντα είδη (${items.length}):`,
+      itemLines,
+      '',
+      'Σχόλια συμφωνίας:',
+      notes,
+    ].join('\n');
+  }
+
+  function sendAgreementEmail(target){
+    const subject = `Συμφωνία: ${target?.name || '-'} (${target?.target_year || '-'})`;
+    const body = agreementMailBody(target);
+    window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  }
+
+  function printAgreement(target){
+    const items = targetItemNames(target);
+    const notes = String(target?.agreement_notes || target?.notes || '-').trim() || '-';
+    const itemsHtml = items.length
+      ? items.map((name)=> `<li>${escapeHtml(name)}</li>`).join('')
+      : '<li>Δεν έχουν οριστεί είδη</li>';
+    const printHtml = `<!doctype html>
+<html lang="el">
+<head>
+  <meta charset="utf-8">
+  <title>Συμφωνία ${escapeHtml(target?.name || '-')}</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 24px; color:#0f172a; }
+    h1 { margin: 0 0 6px; font-size: 22px; }
+    .meta { color:#475569; margin-bottom: 14px; }
+    .grid { display:grid; grid-template-columns: repeat(2,minmax(220px,1fr)); gap:10px; margin-bottom: 14px; }
+    .card { border:1px solid #e2e8f0; border-radius:8px; padding:10px; }
+    .label { color:#64748b; font-size: 12px; margin-bottom: 4px; text-transform: uppercase; }
+    .value { font-size: 16px; font-weight: 700; }
+    h3 { margin: 16px 0 8px; font-size: 16px; }
+    ul { margin: 6px 0 0 18px; }
+    .notes { white-space: pre-wrap; border:1px solid #e2e8f0; border-radius:8px; padding:10px; }
+  </style>
+</head>
+<body>
+  <h1>${escapeHtml(target?.name || '-')}</h1>
+  <div class="meta">${escapeHtml(target?.supplier_name || target?.supplier_ext_id || '-')} | ${escapeHtml(target?.target_year || '-')}</div>
+  <div class="grid">
+    <div class="card"><div class="label">Ποσό Συμφωνίας</div><div class="value">${escapeHtml(fmtMoney(target?.target_amount || 0))}</div></div>
+    <div class="card"><div class="label">Επιστροφή %</div><div class="value">${escapeHtml(fmtPct(target?.rebate_percent || 0))}</div></div>
+    <div class="card"><div class="label">Επιστροφή ποσού</div><div class="value">${escapeHtml(fmtMoney(target?.rebate_amount || 0))}</div></div>
+    <div class="card"><div class="label">Κατάσταση</div><div class="value">${escapeHtml(targetStatusLabel(target))}</div></div>
+  </div>
+  <h3>Είδη που συμμετέχουν (${items.length})</h3>
+  <ul>${itemsHtml}</ul>
+  <h3>Σχόλια συμφωνίας</h3>
+  <div class="notes">${escapeHtml(notes)}</div>
+</body>
+</html>`;
+    const printWindow = window.open('', '_blank', 'width=980,height=780');
+    if (!printWindow) {
+      setError('Δεν άνοιξε το παράθυρο εκτύπωσης. Ενεργοποίησε pop-ups και ξαναδοκίμασε.');
+      return;
+    }
+    printWindow.document.open();
+    printWindow.document.write(printHtml);
+    printWindow.document.close();
+    printWindow.focus();
+    setTimeout(() => {
+      printWindow.print();
+    }, 150);
+  }
+
+  function resolveItemLabel(itemId){
+    const fromMeta = String(selectedItemMeta.get(itemId) || '').trim();
+    if(fromMeta) return fromMeta;
+    const row = allItems.find((x)=> toItemId(x) === itemId);
+    return toItemLabel(row || { product_id: itemId });
+  }
+
+  function renderSelectedItemsList(){
+    if(!selectedItemsWrapEl || !selectedItemsCountEl) return;
+    selectedItemsWrapEl.innerHTML = '';
+    const sortedIds = [...selectedItemIds].sort((a,b)=> resolveItemLabel(a).localeCompare(resolveItemLabel(b), 'el'));
+    selectedItemsCountEl.textContent = `${sortedIds.length} είδη`;
+    if(!sortedIds.length){
+      selectedItemsWrapEl.innerHTML = '<small class="text-muted">Δεν έχουν προστεθεί είδη στη λίστα στόχου.</small>';
+      return;
+    }
+    sortedIds.forEach((itemId)=>{
+      const chip = document.createElement('span');
+      chip.className = 'st-selected-chip';
+      chip.innerHTML = `
+        <span>${resolveItemLabel(itemId)}</span>
+        <button type="button" class="st-remove" data-item-id="${itemId}" title="Αφαίρεση">×</button>
+      `;
+      selectedItemsWrapEl.appendChild(chip);
+    });
+  }
+
+  function suggestCloneYear(target){
+    const yearNow = (new Date()).getFullYear();
+    const baseYear = Number(target?.target_year || yearNow);
+    return Math.max(yearNow, baseYear + 1);
+  }
+
+  async function cloneTargetAgreement(target){
+    if(!target?.id){
+      setError('Δεν βρέθηκε συμφωνία για αντιγραφή.');
+      return;
+    }
+    const proposedYear = suggestCloneYear(target);
+    const rawYear = window.prompt('Νέο έτος συμφωνίας:', String(proposedYear));
+    if (rawYear === null) return;
+    const cloneYear = Number(String(rawYear).trim());
+    if (!Number.isInteger(cloneYear) || cloneYear < 2000 || cloneYear > 2100){
+      setError('Το έτος πρέπει να είναι μεταξύ 2000 και 2100.');
+      return;
+    }
+    const rawName = window.prompt('Όνομα νέας συμφωνίας (κενό = ίδιο όνομα):', String(target.name || ''));
+    if (rawName === null) return;
+    const payload = { target_year: cloneYear };
+    if (String(rawName || '').trim()) payload.name = String(rawName || '').trim();
+
+    const res = await fetch(`/v1/kpi/supplier-targets/${target.id}/clone`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok){
+      let msg = '';
+      try {
+        const err = await res.json();
+        msg = err?.detail || '';
+      } catch(_) {
+        msg = await res.text();
+      }
+      setError(`Αποτυχία αντιγραφής συμφωνίας. ${msg || ''}`);
+      return;
+    }
+
+    setError('');
+    const data = await res.json();
+    yearEl.value = String(cloneYear);
+    yearFormEl.value = String(cloneYear);
+    await loadTargets();
+    const createdId = String(data?.id || '');
+    const cloned = loadedTargets.find((x)=> String(x.id || '') === createdId);
+    if (cloned){
+      await openTargetEditor(cloned);
+    }
+  }
 
   document.getElementById('stClearForm').addEventListener('click', clearForm);
   document.getElementById('stResetEdit').addEventListener('click', clearForm);
@@ -320,7 +646,10 @@
     agreementNotesEl.value = '';
     itemsSearchEl.value = '';
     selectedItemIds = new Set();
+    pendingItemIds = new Set();
+    selectedItemMeta = new Map();
     itemsState.page = 1;
+    renderSelectedItemsList();
     renderItemsTable();
     form.querySelector('button[type="submit"]').innerHTML = '<i class="fe fe-save me-1"></i>Αποθήκευση';
   }
@@ -348,12 +677,14 @@
     const q = String(itemsSearchEl.value || '').trim().toLowerCase();
     let rows = [...allItems];
     if (itemsState.quickFilter === 'top') {
+      const topScore = (row) => Math.max(Number(row.sales_last_30_days || 0), Number(row.purchases_last_30_days || 0));
       rows = rows
-        .filter((row) => Number(row.sales_last_30_days || 0) > 0)
-        .sort((a, b) => Number(b.sales_last_30_days || 0) - Number(a.sales_last_30_days || 0));
+        .filter((row) => topScore(row) > 0)
+        .sort((a, b) => topScore(b) - topScore(a));
     } else if (itemsState.quickFilter === 'slow') {
+      const topScore = (row) => Math.max(Number(row.sales_last_30_days || 0), Number(row.purchases_last_30_days || 0));
       rows = rows
-        .filter((row) => Number(row.sales_last_30_days || 0) <= 0)
+        .filter((row) => topScore(row) <= 0)
         .sort((a, b) => Number(b.purchases_last_30_days || 0) - Number(a.purchases_last_30_days || 0));
     } else {
       rows.sort((a, b) => normalizeText(a.product_name || a.product_id).localeCompare(normalizeText(b.product_name || b.product_id), 'el'));
@@ -404,15 +735,24 @@
     }
 
     pageRows.forEach((row) => {
-      const productId = String(row.product_id || row.value || '').trim();
+      const productId = toItemId(row);
       if (!productId) return;
+      const productName = String(row.product_name || row.label || '').trim();
+      const displayName = productName || productId || 'Χωρίς διαθέσιμη ονομασία';
+      const showCodeLine = Boolean(productId) && productId !== displayName;
+      const inTargetList = selectedItemIds.has(productId);
       const tr = document.createElement('tr');
+      tr.className = `st-item-row ${pendingItemIds.has(productId) ? 'is-pending' : ''}`;
+      tr.setAttribute('data-item-id', productId);
       tr.innerHTML = `
-        <td><input type="checkbox" class="form-check-input st-item-check" data-item-id="${productId}" ${selectedItemIds.has(productId) ? 'checked' : ''}></td>
+        <td class="st-item-select-cell"><input type="checkbox" class="form-check-input st-item-check" data-item-id="${productId}" ${pendingItemIds.has(productId) ? 'checked' : ''}></td>
         <td>
           <div class="st-item-name">
-            <div class="fw-semibold">${row.product_name || row.label || productId}</div>
-            <small class="text-muted">${productId}</small>
+            <div class="fw-semibold">
+              ${displayName}
+              ${inTargetList ? '<span class="badge bg-success-subtle text-success ms-2">Στη λίστα στόχου</span>' : ''}
+            </div>
+            ${showCodeLine ? `<small class="text-muted">${productId}</small>` : ''}
           </div>
         </td>
         <td>${row.category || '-'}</td>
@@ -423,13 +763,28 @@
       itemsBodyEl.appendChild(tr);
     });
 
-    const visibleIds = pageRows.map((row) => String(row.product_id || row.value || '').trim()).filter(Boolean);
-    const visibleSelected = visibleIds.filter((id) => selectedItemIds.has(id));
+    const visibleIds = pageRows.map((row) => toItemId(row)).filter(Boolean);
+    const visibleSelected = visibleIds.filter((id) => pendingItemIds.has(id));
     toggleAllVisibleEl.checked = Boolean(visibleIds.length) && visibleSelected.length === visibleIds.length;
     itemsPrevBtn.disabled = itemsState.page <= 1;
     itemsNextBtn.disabled = itemsState.page >= totalPages;
     itemsPageInfoEl.textContent = `${itemsState.page} / ${totalPages}`;
-    itemsMetaEl.textContent = `${selectedItemIds.size} επιλεγμένα | ${rows.length} αποτελέσματα`;
+    itemsMetaEl.textContent = `${selectedItemIds.size} στη λίστα στόχου | ${pendingItemIds.size} προς προσθήκη | ${rows.length} αποτελέσματα`;
+  }
+
+  function applyPendingSelectionToTarget(){
+    if (!pendingItemIds.size){
+      setError('Επίλεξε πρώτα τουλάχιστον ένα είδος και μετά πάτησε "Προσθήκη στη λίστα στόχου".');
+      return;
+    }
+    setError('');
+    pendingItemIds.forEach((id)=>{
+      selectedItemIds.add(id);
+      if (!selectedItemMeta.has(id)) selectedItemMeta.set(id, resolveItemLabel(id));
+    });
+    pendingItemIds = new Set();
+    renderSelectedItemsList();
+    renderItemsTable();
   }
 
   function currentPageRows(){
@@ -441,6 +796,7 @@
 
   async function loadOptions(){
     const prevSelected = new Set(selectedItemIds);
+    const prevPending = new Set(pendingItemIds);
     const prevSupplier = supplierEl.value;
     const qs = new URLSearchParams();
     if (supplierEl.value) qs.set('supplier_ext_id', supplierEl.value);
@@ -466,47 +822,45 @@
     if (prevSupplier) supplierEl.value = prevSupplier;
 
     allItems = Array.isArray(data.items) ? data.items : [];
-    const availableIds = new Set(allItems.map((row) => String(row.product_id || row.value || '').trim()).filter(Boolean));
-    selectedItemIds = new Set([...prevSelected].filter((id) => availableIds.has(id)));
+    const availableIds = new Set(allItems.map((row) => toItemId(row)).filter(Boolean));
+    selectedItemIds = new Set(prevSelected);
+    pendingItemIds = new Set([...prevPending].filter((id) => availableIds.has(id)));
+    selectedItemIds.forEach((id)=> {
+      if (!selectedItemMeta.has(id)) selectedItemMeta.set(id, resolveItemLabel(id));
+    });
     itemsState.loading = false;
     itemsState.page = 1;
+    renderSelectedItemsList();
     renderItemsTable();
   }
 
-  function renderTargetCard(t){
-    const node = tpl.content.cloneNode(true);
-    node.querySelector('.st-name').textContent = t.name;
-    node.querySelector('.st-supplier').textContent = `${t.supplier_name || t.supplier_ext_id} | ${t.target_year}`;
-    node.querySelector('.st-target-amount').textContent = fmtMoney(t.target_amount);
-    node.querySelector('.st-actual').textContent = fmtMoney(t.year_actual);
-    node.querySelector('.st-credit').textContent = `${fmtMoney(t.potential_credit)} (${fmtPct(t.rebate_percent)} + ${fmtMoney(t.rebate_amount || 0)})`;
+  async function openTargetEditor(t){
+    if (!Boolean(t?.is_editable ?? t?.is_active ?? true)) {
+      setError('Η συμφωνία είναι ανενεργή λόγω λήξης περιόδου. Επιτρέπεται μόνο προβολή ή αντιγραφή.');
+      return;
+    }
+    idEl.value = t.id;
+    nameEl.value = t.name || '';
+    supplierEl.value = t.supplier_ext_id || '';
+    yearFormEl.value = t.target_year || yearEl.value;
+    targetAmountEl.value = t.target_amount || 0;
+    rebateEl.value = t.rebate_percent || 0;
+    agreementNotesEl.value = t.agreement_notes || t.notes || '';
+    rebateAmountEl.value = t.rebate_amount || 0;
+    selectedItemIds = new Set((t.items || []).map(x => x.item_external_id));
+    pendingItemIds = new Set();
+    selectedItemMeta = new Map((t.items || []).map((x)=> [String(x.item_external_id || ''), String(x.item_name || x.item_external_id || '')]));
+    showEditor();
+    await loadOptions();
+    renderSelectedItemsList();
+    renderItemsTable();
+    form.querySelector('button[type="submit"]').innerHTML = '<i class="fe fe-save me-1"></i>Ενημέρωση';
+  }
 
-    const pct = Math.max(0, Math.min(100, Number(t.progress_pct || 0)));
-    const pbar = node.querySelector('.st-progress-bar');
-    pbar.style.width = `${pct}%`;
-    pbar.classList.toggle('bg-success', pct >= 100);
-    pbar.classList.toggle('bg-primary', pct < 100);
-
-    node.querySelector('.st-progress-text').textContent = `Πρόοδος: ${fmtPct(t.progress_pct)} | Υπόλοιπο: ${fmtPct(t.remaining_pct)}`;
-    node.querySelector('.st-remaining').textContent = `Απόσταση: ${fmtMoney(t.remaining_amount)}`;
-
-    const trackPct = Number(t.trajectory_gap_pct || 0);
-    const trackAmt = Number(t.trajectory_gap_amount || 0);
-    const trackRatio = Math.max(0, Math.min(100, Number(t.expected_to_date || 0) > 0 ? (Number(t.year_actual || 0) / Number(t.expected_to_date || 0) * 100) : 0));
-    const trackBar = node.querySelector('.st-track-bar');
-    trackBar.style.width = `${trackRatio}%`;
-    trackBar.classList.add(trackPct >= 0 ? 'bg-success' : 'bg-danger');
-    node.querySelector('.st-expected-ytd').textContent = fmtMoney(t.expected_to_date || 0);
-    const trackPctEl = node.querySelector('.st-track-pct');
-    const trackAmtEl = node.querySelector('.st-track-amount');
-    const cls = trackPct >= 0 ? 'pos' : 'neg';
-    trackPctEl.classList.add(cls);
-    trackAmtEl.classList.add(cls);
-    trackPctEl.textContent = `${trackPct >= 0 ? '+' : ''}${fmtPct(trackPct)}`;
-    trackAmtEl.textContent = `${trackAmt >= 0 ? '+' : ''}${fmtMoney(trackAmt)}`;
-
-    const monthsWrap = node.querySelector('.st-months');
-    (t.monthly || []).forEach(m => {
+  function renderTargetDetailMonths(monthly){
+    if(!detailsMonthsEl) return;
+    detailsMonthsEl.innerHTML = '';
+    (monthly || []).forEach((m) => {
       const expected = Number(m.target_progress || 0);
       const actual = Number(m.actual || 0);
       const ratio = expected > 0 ? Math.max(0, Math.min(1, actual / expected)) : 0;
@@ -517,35 +871,131 @@
         <div class="st-month-bar"><div class="st-month-fill" style="width:${Math.round(ratio*100)}%"></div></div>
         <small class="text-end">${fmtShort(actual)}</small>
       `;
-      monthsWrap.appendChild(row);
+      detailsMonthsEl.appendChild(row);
     });
+  }
 
-    const itemsWrap = node.querySelector('.st-items');
-    (t.items || []).forEach(it => {
-      const span = document.createElement('span');
-      span.className = 'st-item-chip';
-      span.textContent = it.item_name || it.item_external_id;
-      itemsWrap.appendChild(span);
+  function openTargetDetails(t, triggerEl){
+    if(!detailsModalEl) return;
+    const canEdit = Boolean(t?.is_editable ?? t?.is_active ?? false);
+    detailsTitleEl.textContent = t.name || 'Συμφωνία';
+    detailsSubtitleEl.textContent = `${t.supplier_name || t.supplier_ext_id || '-'} | ${t.target_year || '-'}`;
+    detailsTargetAmountEl.textContent = fmtMoney(t.target_amount || 0);
+    detailsActualEl.textContent = fmtMoney(t.year_actual || 0);
+    detailsCreditEl.textContent = `${fmtMoney(t.potential_credit || 0)} (${fmtPct(t.rebate_percent || 0)} + ${fmtMoney(t.rebate_amount || 0)})`;
+
+    const progressPct = Math.max(0, Math.min(100, Number(t.progress_pct || 0)));
+    detailsProgressBarEl.style.width = `${progressPct}%`;
+    detailsProgressBarEl.classList.toggle('bg-success', progressPct >= 100);
+    detailsProgressBarEl.classList.toggle('bg-primary', progressPct < 100);
+    detailsProgressTextEl.textContent = `Πρόοδος: ${fmtPct(t.progress_pct || 0)} | Υπόλοιπο: ${fmtPct(t.remaining_pct || 0)}`;
+    detailsRemainingEl.textContent = `Απόσταση: ${fmtMoney(t.remaining_amount || 0)}`;
+
+    const trackPct = Number(t.trajectory_gap_pct || 0);
+    const trackAmt = Number(t.trajectory_gap_amount || 0);
+    const trackRatio = Math.max(0, Math.min(100, Number(t.expected_to_date || 0) > 0 ? (Number(t.year_actual || 0) / Number(t.expected_to_date || 0) * 100) : 0));
+    detailsTrackBarEl.style.width = `${trackRatio}%`;
+    detailsTrackBarEl.classList.remove('bg-success', 'bg-danger');
+    detailsTrackBarEl.classList.add(trackPct >= 0 ? 'bg-success' : 'bg-danger');
+    detailsExpectedYtdEl.textContent = fmtMoney(t.expected_to_date || 0);
+    detailsTrackPctEl.classList.remove('st-details-track', 'pos', 'neg');
+    detailsTrackAmountEl.classList.remove('st-details-track', 'pos', 'neg');
+    detailsTrackPctEl.classList.add('st-details-track', trackPct >= 0 ? 'pos' : 'neg');
+    detailsTrackAmountEl.classList.add('st-details-track', trackPct >= 0 ? 'pos' : 'neg');
+    detailsTrackPctEl.textContent = `${trackPct >= 0 ? '+' : ''}${fmtPct(trackPct)}`;
+    detailsTrackAmountEl.textContent = `${trackAmt >= 0 ? '+' : ''}${fmtMoney(trackAmt)}`;
+
+    renderTargetDetailMonths(t.monthly || []);
+
+    if(detailsItemsEl){
+      detailsItemsEl.innerHTML = '';
+      const items = Array.isArray(t.items) ? t.items : [];
+      if(!items.length){
+        detailsItemsEl.innerHTML = '<small class="text-muted">Δεν έχουν οριστεί είδη στη συμφωνία.</small>';
+      }else{
+        items.forEach((it)=>{
+          const chip = document.createElement('span');
+          chip.className = 'st-item-chip';
+          chip.textContent = it.item_name || it.item_external_id || '-';
+          detailsItemsEl.appendChild(chip);
+        });
+      }
+    }
+    detailsNotesEl.textContent = t.agreement_notes || t.notes || '-';
+    if(detailsPrintBtn){
+      detailsPrintBtn.onclick = ()=> printAgreement(t);
+    }
+    if(detailsEmailBtn){
+      detailsEmailBtn.onclick = ()=> sendAgreementEmail(t);
+    }
+    if(detailsEditBtn){
+      detailsEditBtn.onclick = async () => {
+        detailsModal?.hide?.();
+        await openTargetEditor(t);
+      };
+      detailsEditBtn.disabled = !canEdit;
+      detailsEditBtn.classList.toggle('d-none', !canEdit);
+    }
+    if(detailsCloneBtn){
+      detailsCloneBtn.onclick = async () => {
+        detailsModal?.hide?.();
+        await cloneTargetAgreement(t);
+      };
+    }
+    detailsModal?.show?.(triggerEl);
+  }
+
+  function filteredTargets(){
+    const q = activeTargetsSearchTerm();
+    if(!q) return [...loadedTargets];
+    return loadedTargets.filter((t)=>{
+      return normalizeText(t.name).includes(q)
+        || normalizeText(t.supplier_name || t.supplier_ext_id).includes(q)
+        || normalizeText(t.target_year).includes(q);
     });
-    node.querySelector('.st-agreement-notes').textContent = t.agreement_notes || t.notes || '-';
+  }
 
-    node.querySelector('.st-edit').addEventListener('click', async ()=> {
-      idEl.value = t.id;
-      nameEl.value = t.name || '';
-      supplierEl.value = t.supplier_ext_id || '';
-      yearFormEl.value = t.target_year || yearEl.value;
-      targetAmountEl.value = t.target_amount || 0;
-      rebateEl.value = t.rebate_percent || 0;
-      agreementNotesEl.value = t.agreement_notes || t.notes || '';
-      rebateAmountEl.value = t.rebate_amount || 0;
-      selectedItemIds = new Set((t.items || []).map(x => x.item_external_id));
-      showEditor();
-      await loadOptions();
-      renderItemsTable();
-      form.querySelector('button[type="submit"]').innerHTML = '<i class="fe fe-save me-1"></i>Update';
+  function renderTargetsList(){
+    if(!targetsBodyEl || !targetsEmptyEl || !targetsCountEl) return;
+    targetsBodyEl.innerHTML = '';
+    const rows = filteredTargets();
+    targetsCountEl.textContent = `${rows.length} εγγραφές`;
+    if(!rows.length){
+      targetsEmptyEl.textContent = loadedTargets.length
+        ? 'Δεν βρέθηκαν συμφωνίες με τα τρέχοντα κριτήρια αναζήτησης.'
+        : 'Δεν υπάρχουν αποθηκευμένες συμφωνίες για το επιλεγμένο έτος.';
+      targetsEmptyEl.classList.remove('d-none');
+      return;
+    }
+    targetsEmptyEl.classList.add('d-none');
+    rows.forEach((t)=>{
+      const tr = document.createElement('tr');
+      const itemCount = Array.isArray(t.items) ? t.items.length : 0;
+      const canEdit = Boolean(t?.is_editable ?? t?.is_active ?? false);
+      tr.innerHTML = `
+        <td>
+          <div class="st-target-name">${t.name || '-'}</div>
+          <div class="st-target-sub d-flex gap-2 align-items-center flex-wrap">
+            <span>${itemCount} είδη</span>
+            <span class="badge ${canEdit ? 'bg-success-subtle text-success' : 'bg-secondary-subtle text-secondary'}">${canEdit ? 'Ενεργή' : 'Ανενεργή'}</span>
+          </div>
+        </td>
+        <td>${t.supplier_name || t.supplier_ext_id || '-'}</td>
+        <td>${t.target_year || '-'}</td>
+        <td class="text-end">${fmtMoney(t.target_amount || 0)}</td>
+        <td class="text-end">${fmtMoney(t.year_actual || 0)}</td>
+        <td class="text-end">${fmtPct(t.progress_pct || 0)}</td>
+        <td class="text-end">${fmtMoney(t.potential_credit || 0)}</td>
+        <td class="text-end">
+          <div class="st-target-actions">
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-action="view" data-id="${t.id}">Λεπτομέρειες</button>
+            <button type="button" class="btn btn-sm btn-outline-primary" data-action="clone" data-id="${t.id}">Αντιγραφή</button>
+            ${canEdit ? `<button type="button" class="btn btn-sm btn-primary" data-action="edit" data-id="${t.id}">Επεξεργασία</button>` : ''}
+          </div>
+        </td>
+      `;
+      targetsBodyEl.appendChild(tr);
     });
-
-    return node;
   }
 
   async function loadTargets(){
@@ -560,6 +1010,7 @@
     }
     const payload = await res.json();
     const targets = payload.targets || [];
+    loadedTargets = [...targets];
     targetByName = new Map(
       targets
         .filter(t => (t.name || '').trim())
@@ -573,12 +1024,10 @@
       nameSuggestionsEl.appendChild(o);
     });
 
-    summaryHintEl.textContent = `Έτος ${payload.year} | ${targets.length} στόχοι`;
-    grid.innerHTML = '';
-    targets.forEach(t => grid.appendChild(renderTargetCard(t)));
-    if (!targets.length) {
-      grid.innerHTML = '<div class="col-12"><div class="alert alert-light border">Δεν υπάρχουν αποθηκευμένοι στόχοι για το επιλεγμένο έτος.</div></div>';
-    }
+    const activeCount = targets.filter((x)=> Boolean(x?.is_editable ?? x?.is_active)).length;
+    const inactiveCount = Math.max(0, targets.length - activeCount);
+    summaryHintEl.textContent = `Έτος ${payload.year} | ${targets.length} στόχοι | ${activeCount} ενεργοί | ${inactiveCount} ανενεργοί`;
+    renderTargetsList();
   }
 
   form.addEventListener('submit', async (e)=> {
@@ -660,27 +1109,15 @@
   quickFilterAllBtn?.addEventListener('click', ()=> setQuickFilter('all'));
   quickFilterTopBtn?.addEventListener('click', ()=> setQuickFilter('top'));
   quickFilterSlowBtn?.addEventListener('click', ()=> setQuickFilter('slow'));
-  selectPageBtn?.addEventListener('click', ()=> {
-    currentPageRows().forEach((row)=> {
-      const id = String(row.product_id || row.value || '').trim();
-      if (id) selectedItemIds.add(id);
-    });
-    renderItemsTable();
-  });
-  clearPageBtn?.addEventListener('click', ()=> {
-    currentPageRows().forEach((row)=> {
-      const id = String(row.product_id || row.value || '').trim();
-      if (id) selectedItemIds.delete(id);
-    });
-    renderItemsTable();
-  });
+  addToTargetBtn?.addEventListener('click', applyPendingSelectionToTarget);
+  addToTargetBtnBottom?.addEventListener('click', applyPendingSelectionToTarget);
   toggleAllVisibleEl?.addEventListener('change', ()=> {
     const shouldSelect = Boolean(toggleAllVisibleEl.checked);
     currentPageRows().forEach((row)=> {
-      const id = String(row.product_id || row.value || '').trim();
+      const id = toItemId(row);
       if (!id) return;
-      if (shouldSelect) selectedItemIds.add(id);
-      else selectedItemIds.delete(id);
+      if (shouldSelect) pendingItemIds.add(id);
+      else pendingItemIds.delete(id);
     });
     renderItemsTable();
   });
@@ -689,14 +1126,46 @@
     if (!input || !input.classList || !input.classList.contains('st-item-check')) return;
     const itemId = String(input.getAttribute('data-item-id') || '').trim();
     if (!itemId) return;
-    if (input.checked) selectedItemIds.add(itemId);
-    else selectedItemIds.delete(itemId);
+    if (input.checked) pendingItemIds.add(itemId);
+    else pendingItemIds.delete(itemId);
+    renderItemsTable();
+  });
+  itemsBodyEl?.addEventListener('click', (event)=> {
+    const input = event.target?.closest?.('input.st-item-check');
+    if (input) return;
+    if (event.target?.closest?.('a,button,label,input,select,textarea')) return;
+    const row = event.target?.closest?.('tr[data-item-id]');
+    if (!row) return;
+    const itemId = String(row.getAttribute('data-item-id') || '').trim();
+    if (!itemId) return;
+    if (pendingItemIds.has(itemId)) pendingItemIds.delete(itemId);
+    else pendingItemIds.add(itemId);
+    renderItemsTable();
+  });
+  selectedItemsWrapEl?.addEventListener('click', (event)=> {
+    const btn = event.target?.closest?.('.st-remove');
+    if (!btn) return;
+    const itemId = String(btn.getAttribute('data-item-id') || '').trim();
+    if (!itemId) return;
+    selectedItemIds.delete(itemId);
+    selectedItemMeta.delete(itemId);
+    renderSelectedItemsList();
+    renderItemsTable();
+  });
+  clearTargetListBtn?.addEventListener('click', ()=> {
+    selectedItemIds = new Set();
+    pendingItemIds = new Set();
+    selectedItemMeta = new Map();
+    renderSelectedItemsList();
     renderItemsTable();
   });
 
   supplierEl.addEventListener('change', async ()=> {
     selectedItemIds = new Set();
+    pendingItemIds = new Set();
+    selectedItemMeta = new Map();
     await loadOptions();
+    renderSelectedItemsList();
     renderItemsTable();
   });
 
@@ -708,9 +1177,38 @@
       supplierEl.dispatchEvent(new Event('change'));
     }
   });
+  targetsFilterSearchEl?.addEventListener('input', (event)=> {
+    syncTargetsSearchInputs(event.target);
+    renderTargetsList();
+  });
+  targetsSearchEl?.addEventListener('input', (event)=> {
+    syncTargetsSearchInputs(event.target);
+    renderTargetsList();
+  });
+  targetsBodyEl?.addEventListener('click', async (event)=> {
+    const targetEl = event.target;
+    const btn = targetEl && targetEl.closest ? targetEl.closest('button[data-action][data-id]') : null;
+    if(!btn) return;
+    const targetId = String(btn.getAttribute('data-id') || '').trim();
+    if(!targetId) return;
+    const target = loadedTargets.find((x)=> String(x.id || '') === targetId);
+    if(!target) return;
+    const action = String(btn.getAttribute('data-action') || '').trim();
+    if(action === 'view'){
+      openTargetDetails(target, btn);
+      return;
+    }
+    if(action === 'edit'){
+      await openTargetEditor(target);
+      return;
+    }
+    if(action === 'clone'){
+      await cloneTargetAgreement(target);
+    }
+  });
 
   loadOptions()
-    .then(()=> loadTargets())
+    .then(()=> { renderSelectedItemsList(); return loadTargets(); })
     .catch((err)=> setError(err?.message || 'Απρόβλεπτο σφάλμα'));
 })();
 </script>

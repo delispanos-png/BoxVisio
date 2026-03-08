@@ -258,6 +258,17 @@ For each change:
 1. patch code
 2. restart affected service
 3. validate endpoint + UI
+
+## 21. Integration References
+- `INTEGRATION_GUIDE.md`
+- `INTEGRATION_EXAMPLES.md`
+- `DATA_STRUCTURE_OVERVIEW.md`
+- `DATA_STRUCTURE_SALES_DOCUMENTS.md`
+- `DATA_STRUCTURE_PURCHASE_DOCUMENTS.md`
+- `DATA_STRUCTURE_INVENTORY_DOCUMENTS.md`
+- `DATA_STRUCTURE_CASH_TRANSACTIONS.md`
+- `DATA_STRUCTURE_SUPPLIER_BALANCES.md`
+- `DATA_STRUCTURE_CUSTOMER_BALANCES.md`
 4. confirm logs have no traceback
 5. document in changelog/runbook
 
@@ -567,3 +578,37 @@ python3 -m compileall backend/app
   - raised filter card/menu stacking context for multi-selects.
 - Cache bust:
   - `boxvisio-ui.css` version bumped to `20260305a` (tenant + admin).
+
+## 21. Data Ingestion Structure Specifications (2026-03-08)
+
+Official external ingestion specifications are now documented and versioned for all six operational streams.
+
+Purpose:
+- define required/optional canonical fields
+- standardize validation/business rules for external integrations
+- provide JSON and CSV examples for connectors, APIs, and file imports
+
+These specs are the reference for:
+- SQL connectors
+- API integrations
+- CSV/Excel/SFTP imports
+- external ERP integrations
+
+### Master Index
+- `DATA_STRUCTURE_OVERVIEW.md`
+- `INTEGRATION_GUIDE.md`
+- `INTEGRATION_EXAMPLES.md`
+
+### Stream Specifications
+1. `DATA_STRUCTURE_SALES_DOCUMENTS.md`
+2. `DATA_STRUCTURE_PURCHASE_DOCUMENTS.md`
+3. `DATA_STRUCTURE_INVENTORY_DOCUMENTS.md`
+4. `DATA_STRUCTURE_CASH_TRANSACTIONS.md`
+5. `DATA_STRUCTURE_SUPPLIER_BALANCES.md`
+6. `DATA_STRUCTURE_CUSTOMER_BALANCES.md`
+
+### Governance Notes
+- Mapping to canonical fields happens in connector mapping/staging, not dashboard logic.
+- Ingestion remains idempotent using source keys (`external_id`) and connector context.
+- Validation failures must be routed to DLQ with explicit reason and source payload reference.
+- CloudOn customer onboarding should start from `INTEGRATION_GUIDE.md` and then apply stream-level specs.

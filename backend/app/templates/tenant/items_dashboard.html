@@ -579,7 +579,11 @@
         row.className='bv-multi-opt';
         const cb=document.createElement('input');
         cb.type='checkbox'; cb.checked=o.selected;
-        cb.addEventListener('change', ()=>{o.selected=cb.checked; syncMulti(prefix,label,document.getElementById(`${prefix}Search`)?.value||'');});
+        cb.addEventListener('change', ()=>{
+          o.selected=cb.checked;
+          syncMulti(prefix,label,document.getElementById(`${prefix}Search`)?.value||'');
+          select.dispatchEvent(new Event('change', { bubbles: true }));
+        });
         const span=document.createElement('span');
         span.textContent=o.textContent||o.value;
         row.append(cb,span);
@@ -607,8 +611,16 @@
     toggle.dataset.bound='1';
     toggle.addEventListener('click', ()=>{menu.hidden=!menu.hidden;});
     search.addEventListener('input', ()=>syncMulti(prefix,label,search.value));
-    btnAll.addEventListener('click', ()=>{Array.from(select.options).forEach(o=>o.selected=true); syncMulti(prefix,label,search.value);});
-    btnClear.addEventListener('click', ()=>{Array.from(select.options).forEach(o=>o.selected=false); syncMulti(prefix,label,search.value);});
+    btnAll.addEventListener('click', ()=>{
+      Array.from(select.options).forEach(o=>o.selected=true);
+      syncMulti(prefix,label,search.value);
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    btnClear.addEventListener('click', ()=>{
+      Array.from(select.options).forEach(o=>o.selected=false);
+      syncMulti(prefix,label,search.value);
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
     document.addEventListener('click', (e)=>{ if(!document.getElementById(`${prefix}Multi`)?.contains(e.target)) menu.hidden=true; });
   }
 
@@ -651,6 +663,9 @@
     const hidden = document.getElementById('itCategories');
     if(!hidden) return;
     hidden.innerHTML = '';
+    // No category level selected => no category filter in API params.
+    // Sending all categories here silently filtered out null-category items.
+    if(!l1.size && !l2.size && !l3.size) return;
     categoryHierarchy
       .filter(c => !l1.size || l1.has(c.l1))
       .filter(c => !l2.size || l2.has(c.l2))
@@ -706,6 +721,8 @@
   }
 
   function params(){
+    // Keep hidden category list aligned with current Category 1/2/3 selections.
+    rebuildHiddenCategories();
     const p = new URLSearchParams();
     if(asOfEl.value) p.set('as_of', window.bvToIsoDate ? window.bvToIsoDate(asOfEl.value) : asOfEl.value);
     if(qEl.value) p.set('q', qEl.value.trim());

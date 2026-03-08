@@ -519,17 +519,18 @@
         {% set _menu_analytics_inventory = _menu_visibility.get('analytics_inventory', true) %}
         {% set _menu_analytics_cash = _menu_visibility.get('analytics_cashflows', true) %}
         {% set _menu_analytics_receivables = _menu_visibility.get('analytics_receivables_payables', true) %}
+        {% set _menu_analytics_supplier_targets = _menu_visibility.get('analytics_supplier_targets', true) %}
         {% set _menu_comparisons = _menu_visibility.get('comparisons', true) %}
         {% set _menu_exports = _menu_visibility.get('exports', true) %}
         {% set _show_dashboard_group = _menu_dashboard_executive or _menu_dashboard_finance or _menu_insights %}
         {% set _show_operational_stream_group = _menu_stream_sales or _menu_stream_purchases or _menu_stream_inventory or _menu_stream_cash or _menu_stream_suppliers or _menu_stream_customers %}
-        {% set _show_analytics_group = _menu_analytics_sales or _menu_analytics_purchases or _menu_analytics_inventory or _menu_analytics_cash or _menu_analytics_receivables %}
+        {% set _show_analytics_group = _menu_analytics_sales or _menu_analytics_purchases or _menu_analytics_inventory or _menu_analytics_cash or _menu_analytics_receivables or _menu_analytics_supplier_targets %}
         {% set _has_multiple_branches = tenant_has_multiple_branches if tenant_has_multiple_branches is defined else true %}
         {% set _operational_stream_pages = ['sales_documents', 'purchase_documents', 'warehouse_documents', 'suppliers', 'customers'] %}
         {% set _operational_stream_open = active_page in _operational_stream_pages or (active_page == 'cashflow' and _cashflow_is_stream) %}
         {% set _dashboard_pages = ['dashboard', 'finance_dashboard', 'insights'] %}
         {% set _dashboard_open = active_page in _dashboard_pages %}
-        {% set _analytics_open = active_page in ['sales', 'purchases', 'inventory', 'analytics_receivables_payables'] or (active_page == 'cashflow' and not _cashflow_is_stream) %}
+        {% set _analytics_open = active_page in ['sales', 'purchases', 'inventory', 'items', 'analytics_receivables_payables', 'supplier_targets'] or (active_page == 'cashflow' and not _cashflow_is_stream) %}
         {% set _comparison_pages = ['compare_period', 'compare_branch', 'compare_category'] %}
         {% set _comparison_open = active_page in _comparison_pages %}
         {% set _exports_open = active_page in ['exports_reports', 'exports_csv_excel'] %}
@@ -709,6 +710,9 @@
               <li class="{% if active_page == 'inventory' %}is-active{% endif %} {% if not _inventory_ok %}disabled opacity-75{% endif %}">
                 <a class="bv-submenu-link" href="/tenant/inventory"><i class="fe fe-layers"></i><span>{{ tt(request, 'analytics_inventory') }}</span></a>
               </li>
+              <li class="{% if active_page == 'items' %}is-active{% endif %} {% if not _inventory_ok %}disabled opacity-75{% endif %}">
+                <a class="bv-submenu-link" href="/tenant/items"><i class="fe fe-box"></i><span>{{ tt(request, 'items_warehouse') }}</span></a>
+              </li>
               {% endif %}
               {% if _menu_analytics_cash %}
               <li class="{% if active_page == 'cashflow' and not _cashflow_is_stream %}is-active{% endif %} {% if not _cashflow_ok %}disabled opacity-75{% endif %}">
@@ -718,6 +722,11 @@
               {% if _menu_analytics_receivables %}
               <li class="{% if active_page == 'analytics_receivables_payables' %}is-active{% endif %}">
                 <a class="bv-submenu-link" href="/tenant/analytics/receivables-payables"><i class="fe fe-pie-chart"></i><span>{{ tt(request, 'analytics_receivables_payables_short') }}</span></a>
+              </li>
+              {% endif %}
+              {% if _menu_analytics_supplier_targets %}
+              <li class="{% if active_page == 'supplier_targets' %}is-active{% endif %}">
+                <a class="bv-submenu-link" href="/tenant/supplier-targets"><i class="fe fe-target"></i><span>{{ tt(request, 'supplier_targets') }}</span></a>
               </li>
               {% endif %}
             </ul>
@@ -834,7 +843,7 @@
             <p class="bv-page-subtitle">Λίστα παραστατικών με ενιαία φίλτρα, αναζήτηση και σελιδοποίηση.</p>
             {% elif active_page in ['suppliers', 'customers'] %}
             <p class="bv-page-subtitle">Υπόλοιπα και ιστορικά στοιχεία με ενιαίο pattern πινάκων.</p>
-            {% elif active_page in ['sales', 'purchases', 'inventory', 'items', 'analytics_receivables_payables'] %}
+            {% elif active_page in ['sales', 'purchases', 'inventory', 'items', 'analytics_receivables_payables', 'supplier_targets'] %}
             <p class="bv-page-subtitle">Αναλυτικά KPIs, τάσεις και breakdowns σε συνεπή διάταξη.</p>
             {% elif active_page in ['compare_period', 'compare_branch', 'compare_category'] %}
             <p class="bv-page-subtitle">Συγκρίσεις περιόδων και διαστάσεων με κοινή παρουσίαση.</p>
@@ -849,7 +858,7 @@
         </div>
 
         {% set _hide_page_filters = hide_page_filters if hide_page_filters is defined else false %}
-        {% if active_page in ['dashboard', 'finance_dashboard', 'sales', 'sales_documents', 'purchases', 'purchase_documents', 'suppliers', 'warehouse_documents', 'inventory', 'items', 'cashflow', 'customers', 'compare_period', 'compare_branch', 'compare_category', 'insights', 'analytics_receivables_payables', 'exports_reports', 'exports_csv_excel'] and not _hide_page_filters %}
+        {% if active_page in ['dashboard', 'finance_dashboard', 'sales', 'sales_documents', 'purchases', 'purchase_documents', 'suppliers', 'warehouse_documents', 'inventory', 'items', 'cashflow', 'customers', 'compare_period', 'compare_branch', 'compare_category', 'insights', 'analytics_receivables_payables', 'supplier_targets', 'exports_reports', 'exports_csv_excel'] and not _hide_page_filters %}
         <div class="card filter-card mb-3">
           <div class="card-header d-flex justify-content-between align-items-center">
             <h5 class="mb-0">{{ tt(request, 'filters') }}</h5>

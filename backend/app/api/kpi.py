@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_user, get_request_tenant, get_tenant_db
 from app.models.control import PlanName, Tenant
 from app.services.supplier_targets import (
+    clone_supplier_target,
     create_supplier_target,
     list_supplier_targets,
     supplier_target_filter_options,
@@ -102,6 +103,11 @@ class SupplierTargetUpdateIn(BaseModel):
     agreement_notes: str | None = Field(default=None, max_length=4000)
     notes: str | None = Field(default=None, max_length=500)
     is_active: bool | None = None
+
+
+class SupplierTargetCloneIn(BaseModel):
+    target_year: int | None = Field(default=None, ge=2000, le=2100)
+    name: str | None = Field(default=None, min_length=1, max_length=120)
 
 
 def _default_from() -> date:
@@ -1985,10 +1991,41 @@ async def patch_supplier_target(
                 status_code=409,
                 detail='Υπάρχει ήδη στόχος με ίδιο όνομα για τον ίδιο προμηθευτή και έτος.',
             ) from exc
+        if str(exc) == 'target_locked':
+            raise HTTPException(
+                status_code=409,
+                detail='Η συμφωνία είναι ανενεργή λόγω λήξης περιόδου και δεν επιτρέπεται επεξεργασία.',
+            ) from exc
         raise
     if not ok:
         raise HTTPException(status_code=404, detail='Supplier target not found')
     return {'status': 'updated', 'id': str(target_id)}
+
+
+@router.post('/v1/kpi/supplier-targets/{target_id}/clone')
+async def post_supplier_target_clone(
+    target_id: UUID,
+    payload: SupplierTargetCloneIn,
+    _user=Depends(get_current_user),
+    tenant_db: AsyncSession = Depends(get_tenant_db),
+):
+    try:
+        cloned = await clone_supplier_target(
+            tenant_db,
+            target_id=target_id,
+            target_year=payload.target_year,
+            name=payload.name,
+        )
+    except ValueError as exc:
+        if str(exc) == 'duplicate_target':
+            raise HTTPException(
+                status_code=409,
+                detail='Υπάρχει ήδη στόχος με ίδιο όνομα για τον ίδιο προμηθευτή και έτος.',
+            ) from exc
+        raise
+    if not cloned:
+        raise HTTPException(status_code=404, detail='Supplier target not found')
+    return {'status': 'cloned', **cloned}
 
 
 @router.get('/v1/kpi/price-control/filter-options')

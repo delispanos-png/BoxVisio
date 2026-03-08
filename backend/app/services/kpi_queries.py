@@ -7100,6 +7100,11 @@ async def inventory_items_overview(
         mapped = [x for x in mapped if x['status'] == status]
     if movement in {'fast', 'slow', 'normal'}:
         mapped = [x for x in mapped if x['movement'] == movement]
+
+    # Summary cards must reflect active filters (status/movement/search/etc.),
+    # not the unfiltered snapshot.
+    summary_source = list(mapped)
+
     mapped.sort(key=lambda x: (x['stock_value'], x['qty_on_hand']), reverse=True)
     safe_limit = max(1, min(int(limit), 500))
     safe_offset = max(0, int(offset))
@@ -7107,12 +7112,12 @@ async def inventory_items_overview(
     mapped = mapped[safe_offset : safe_offset + safe_limit]
 
     summary = {
-        'total_items': len(rows),
-        'active_items': sum(1 for x in rows if x[9] and x[9] >= (as_of - timedelta(days=60))),
-        'inactive_items': sum(1 for x in rows if not (x[9] and x[9] >= (as_of - timedelta(days=60)))),
-        'fast_items': sum(1 for x in rows if float(x[8] or 0) >= 50),
-        'slow_items': sum(1 for x in rows if float(x[8] or 0) <= 5),
-        'stock_value': float(sum(float(x[7] or 0) for x in rows)),
+        'total_items': len(summary_source),
+        'active_items': sum(1 for x in summary_source if x.get('status') == 'active'),
+        'inactive_items': sum(1 for x in summary_source if x.get('status') == 'inactive'),
+        'fast_items': sum(1 for x in summary_source if x.get('movement') == 'fast'),
+        'slow_items': sum(1 for x in summary_source if x.get('movement') == 'slow'),
+        'stock_value': float(sum(float(x.get('stock_value') or 0) for x in summary_source)),
     }
     return {
         'snapshot_date': str(latest_date),

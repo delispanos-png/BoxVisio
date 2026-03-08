@@ -53,6 +53,7 @@ def resolve_menu_visibility(user: User, professional_profile_code: str | None = 
         'analytics_inventory': True,
         'analytics_cashflows': True,
         'analytics_receivables_payables': True,
+        'analytics_supplier_targets': True,
         'comparisons': True,
         'exports': True,
     }
@@ -76,6 +77,7 @@ def resolve_menu_visibility(user: User, professional_profile_code: str | None = 
             'analytics_inventory': False,
             'analytics_cashflows': True,
             'analytics_receivables_payables': True,
+            'analytics_supplier_targets': False,
             'comparisons': False,
             'exports': True,
         }
@@ -96,6 +98,7 @@ def resolve_menu_visibility(user: User, professional_profile_code: str | None = 
             'analytics_inventory': True,
             'analytics_cashflows': False,
             'analytics_receivables_payables': False,
+            'analytics_supplier_targets': False,
             'comparisons': False,
             'exports': True,
         }
@@ -116,6 +119,7 @@ def resolve_menu_visibility(user: User, professional_profile_code: str | None = 
             'analytics_inventory': False,
             'analytics_cashflows': False,
             'analytics_receivables_payables': False,
+            'analytics_supplier_targets': True,
             'comparisons': True,
             'exports': True,
         }
