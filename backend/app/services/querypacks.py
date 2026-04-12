@@ -50,25 +50,24 @@ def load_querypack(provider: str = 'erp_sql', pack_name: str = 'default') -> Que
     _ = pack_name
     root = _querypack_dir(provider)
     mapping = json.loads((root / 'mapping.json').read_text(encoding='utf-8'))
-    # Production ingestion must always use row-level facts queries.
-    # Keep fallback paths for backward compatibility with existing deployments.
-    sales_sql = _read_sql(root, ['facts/sales_facts.sql', 'sales_facts.sql'], required=True)
-    purchases_sql = _read_sql(root, ['facts/purchases_facts.sql', 'purchases_facts.sql'], required=True)
-    inventory_sql = _read_sql(root, ['facts/inventory_facts.sql', 'inventory_facts.sql'], required=False)
-    cashflow_sql = _read_sql(root, ['facts/cashflow_facts.sql', 'cashflow_facts.sql'], required=False)
+    # Querypacks are canonical under facts/.
+    sales_sql = _read_sql(root, ['facts/sales_facts.sql'], required=True)
+    purchases_sql = _read_sql(root, ['facts/purchases_facts.sql'], required=True)
+    inventory_sql = _read_sql(root, ['facts/inventory_facts.sql'], required=False)
+    cashflow_sql = _read_sql(root, ['facts/cashflow_facts.sql'], required=False)
     supplier_balances_sql = _read_sql(
         root,
-        ['facts/supplier_balances_facts.sql', 'supplier_balances_facts.sql'],
+        ['facts/supplier_balances_facts.sql'],
         required=False,
     )
     customer_balances_sql = _read_sql(
         root,
-        ['facts/customer_balances_facts.sql', 'customer_balances_facts.sql'],
+        ['facts/customer_balances_facts.sql'],
         required=False,
     )
     expenses_sql = _read_sql(
         root,
-        ['facts/expenses_facts.sql', 'expenses_facts.sql'],
+        ['facts/expenses_facts.sql'],
         required=False,
     )
 

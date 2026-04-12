@@ -4,7 +4,7 @@ import logging
 import re
 import shutil
 import time
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlencode
 from uuid import UUID
@@ -85,15 +85,18 @@ from app.services.ingestion.base import ALL_OPERATIONAL_STREAMS, STREAM_TO_ENTIT
 from app.services.ingestion.progress import begin_ingest_progress, get_ingest_progress, queue_depth, update_ingest_progress
 from app.services.ingestion.queueing import tenant_lock_name, tenant_queue_name, tenant_stop_key, tenant_throttle_key
 from app.services.ingestion.sync_planner import plan_tenant_sync_jobs
+from app.services.kpi_cache import invalidate_tenant_cache
 from app.services.querypacks import apply_querypack_to_connection, load_querypack
 from app.services.subscriptions import get_or_create_subscription, sync_tenant_from_subscription
 
 router = APIRouter(tags=['ui'])
 templates = Jinja2Templates(
     directory=str(Path(__file__).resolve().parents[1] / 'templates'),
-    context_processors=[lambda request: {'tt': tt}],
+    context_processors=[lambda request: {'tt': tt, 'app_version': settings.app_version, 'project_name': settings.project_name}],
 )
 templates.env.globals.setdefault('tt', tt)
+templates.env.globals.setdefault('app_version', settings.app_version)
+templates.env.globals.setdefault('project_name', settings.project_name)
 celery_client = Celery('ui_sender', broker=settings.celery_broker_url)
 logger = logging.getLogger(__name__)
 
@@ -350,9 +353,37 @@ def _tenant_feature_flags(tenant: Tenant) -> dict[str, bool]:
     }
 
 
+async def _schedule_document_rule_refresh(
+    *,
+    db: AsyncSession,
+    tenant_ids: list[int],
+    stream: OperationalStream,
+) -> None:
+    if not tenant_ids:
+        return
+    entity = STREAM_TO_ENTITY.get(stream.value)
+    for tenant_id in sorted({int(x) for x in tenant_ids if x}):
+        tenant = (await db.execute(select(Tenant).where(Tenant.id == tenant_id))).scalar_one_or_none()
+        if tenant is None:
+            continue
+        await invalidate_tenant_cache(str(tenant.id))
+        if entity:
+            try:
+                celery_client.send_task(
+                    'worker.tasks.refresh_aggregates_for_entity',
+                    args=[tenant.slug, entity, None, None],
+                )
+            except Exception:
+                logger.exception(
+                    'document_rule_refresh_enqueue_failed',
+                    extra={'tenant_id': tenant.id, 'tenant_slug': tenant.slug, 'stream': stream.value},
+                )
+
+
 async def _tenant_navigation_context(tenant: Tenant) -> dict[str, bool | int | str | None]:
     branch_count = 0
     last_sync_at: datetime | None = None
+    last_sync_utc: datetime | None = None
     try:
         async for tenant_db in get_tenant_db_session(
             tenant_key=str(tenant.id),
@@ -395,17 +426,24 @@ async def _tenant_navigation_context(tenant: Tenant) -> dict[str, bool | int | s
     except Exception:
         logger.exception('tenant_navigation_sync_context_failed', extra={'tenant_id': tenant.id})
         last_sync_at = None
-    last_sync_display = last_sync_at.strftime('%d/%m/%Y %H:%M') if last_sync_at else 'Δεν υπάρχει ακόμη'
+    if last_sync_at is not None:
+        last_sync_utc = (
+            last_sync_at.replace(tzinfo=timezone.utc)
+            if last_sync_at.tzinfo is None
+            else last_sync_at.astimezone(timezone.utc)
+        )
+    last_sync_display = last_sync_at.strftime('%d/%m/%Y %H:%M') if last_sync_at else 'Μη διαθέσιμο'
     last_sync_title = (
-        f'Τελευταίος συγχρονισμός SoftOne: {last_sync_at.strftime("%d/%m/%Y %H:%M:%S")}'
+        f'Τελευταίος συγχρονισμός: {last_sync_at.strftime("%d/%m/%Y %H:%M:%S")}'
         if last_sync_at
-        else 'Δεν έχει καταγραφεί ακόμη συγχρονισμός SoftOne'
+        else 'Δεν έχει καταγραφεί ακόμη συγχρονισμός'
     )
     return {
         **_tenant_feature_flags(tenant),
         'tenant_branch_count': branch_count,
         'tenant_has_multiple_branches': branch_count > 1,
         'tenant_softone_last_sync_at': last_sync_at,
+        'tenant_softone_last_sync_iso': last_sync_utc.isoformat() if last_sync_utc else None,
         'tenant_softone_last_sync_display': last_sync_display,
         'tenant_softone_last_sync_title': last_sync_title,
     }
@@ -4356,6 +4394,7 @@ async def admin_business_rules_document_types_upsert_form(
             )
         )
         await db.commit()
+        await _schedule_document_rule_refresh(db=db, tenant_ids=[tenant_id_int], stream=stream)
         return RedirectResponse(url=f'{redirect_base}?saved=1&tenant_id={tenant_id_int}', status_code=303)
 
     await _upsert_document_rule_global(
@@ -4469,6 +4508,7 @@ async def admin_business_rules_document_types_delete_tenant_override(
         )
     )
     await db.commit()
+    await _schedule_document_rule_refresh(db=db, tenant_ids=[tenant_id_int], stream=stream)
     return RedirectResponse(url=f'{redirect_base}?deleted=1&tenant_id={tenant_id_int}', status_code=303)
 
 
@@ -4511,6 +4551,10 @@ async def admin_business_rules_document_types_set_tenant_ruleset(
         )
     )
     await db.commit()
+    await _schedule_document_rule_refresh(db=db, tenant_ids=[tenant_id_int], stream=OperationalStream.sales_documents)
+    await _schedule_document_rule_refresh(db=db, tenant_ids=[tenant_id_int], stream=OperationalStream.purchase_documents)
+    await _schedule_document_rule_refresh(db=db, tenant_ids=[tenant_id_int], stream=OperationalStream.inventory_documents)
+    await _schedule_document_rule_refresh(db=db, tenant_ids=[tenant_id_int], stream=OperationalStream.cash_transactions)
     return RedirectResponse(url=f'{redirect_base}?tenant_id={tenant_id_int}&ruleset_saved=1', status_code=303)
 
 
@@ -4559,6 +4603,10 @@ async def admin_business_rules_document_types_clear_tenant_overrides(
         )
     )
     await db.commit()
+    await _schedule_document_rule_refresh(db=db, tenant_ids=[tenant_id_int], stream=OperationalStream.sales_documents)
+    await _schedule_document_rule_refresh(db=db, tenant_ids=[tenant_id_int], stream=OperationalStream.purchase_documents)
+    await _schedule_document_rule_refresh(db=db, tenant_ids=[tenant_id_int], stream=OperationalStream.inventory_documents)
+    await _schedule_document_rule_refresh(db=db, tenant_ids=[tenant_id_int], stream=OperationalStream.cash_transactions)
     return RedirectResponse(url=f'{redirect_base}?tenant_id={tenant_id_int}&tenant_overrides_cleared=1', status_code=303)
 
 
@@ -4623,6 +4671,10 @@ async def admin_business_rules_document_types_apply_softone_template(
             )
         )
         await db.commit()
+        await _schedule_document_rule_refresh(db=db, tenant_ids=[tenant_id_int], stream=OperationalStream.sales_documents)
+        await _schedule_document_rule_refresh(db=db, tenant_ids=[tenant_id_int], stream=OperationalStream.purchase_documents)
+        await _schedule_document_rule_refresh(db=db, tenant_ids=[tenant_id_int], stream=OperationalStream.inventory_documents)
+        await _schedule_document_rule_refresh(db=db, tenant_ids=[tenant_id_int], stream=OperationalStream.cash_transactions)
         return RedirectResponse(url=f'{redirect_base}?template_saved=1&wizard_applied=1&tenant_id={tenant_id_int}', status_code=303)
 
     for item in _SOFTONE_DOCUMENT_RULE_TEMPLATES:
@@ -5980,7 +6032,7 @@ async def _render_tenant_compare_page(
 
 
 @router.get('/tenant/compare', response_class=HTMLResponse)
-async def tenant_compare_legacy(
+async def tenant_compare_period_redirect(
     request: Request,
     tenant: Tenant = Depends(get_request_tenant),
     _user=Depends(get_current_user),

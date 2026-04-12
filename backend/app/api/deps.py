@@ -8,9 +8,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import expected_audience_for_host, safe_decode
 from app.db.tenant_manager import get_tenant_db_session
-from app.models.control import ProfessionalProfile, RoleName, Tenant, TenantStatus, User
+from app.models.control import OperationalStream, ProfessionalProfile, RoleName, RuleDomain, Tenant, TenantStatus, User
 from app.models.tenant import DimBranch
+from app.services.kpi_participation_scope import (
+    reset_current_sales_kpi_participation_config,
+    set_current_sales_kpi_participation_config,
+)
 from app.services.request_scope import reset_allowed_branch_scope, set_allowed_branch_scope
+from app.services.rule_config import resolve_rule_payload
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl='/v1/auth/login', auto_error=False)
 
@@ -266,13 +271,26 @@ async def get_tenant_db(
     user: User = Depends(get_current_user),
     tenant: Tenant = Depends(get_request_tenant),
 ) -> AsyncGenerator[AsyncSession, None]:
+    control_sessionmaker = request.app.state.control_sessionmaker
+    async with control_sessionmaker() as control_db:
+        sales_kpi_participation_config = await resolve_rule_payload(
+            control_db,
+            tenant_id=int(tenant.id),
+            domain=RuleDomain.kpi_participation_rules,
+            stream=OperationalStream.sales_documents,
+            rule_key='turnover',
+            fallback_payload={},
+        )
+
     async for session in get_tenant_db_session(
         tenant_key=str(tenant.id),
         db_name=tenant.db_name,
         db_user=tenant.db_user,
         db_password=tenant.db_password,
     ):
-        scoped_company_id = str(user.company_id or '').strip() if user.role != RoleName.cloudon_admin else ''
+        # Tenant admins must see the full tenant dataset. Branch scoping is only
+        # applied to tenant_user profiles that are intentionally limited by company.
+        scoped_company_id = str(user.company_id or '').strip() if user.role == RoleName.tenant_user else ''
         scoped_branches: list[str] | None = None
         if scoped_company_id:
             branch_rows = (
@@ -295,10 +313,12 @@ async def get_tenant_db(
         request.state.scoped_company_id = scoped_company_id or None
         request.state.allowed_branch_scope = tuple(scoped_branches or []) if scoped_company_id else None
         scope_token = set_allowed_branch_scope(scoped_branches if scoped_company_id else None)
+        sales_kpi_scope_token = set_current_sales_kpi_participation_config(sales_kpi_participation_config)
         try:
             if isinstance(getattr(request.state, 'kpi_perf', None), dict):
                 yield _InstrumentedAsyncSession(session, request)
             else:
                 yield session
         finally:
+            reset_current_sales_kpi_participation_config(sales_kpi_scope_token)
             reset_allowed_branch_scope(scope_token)

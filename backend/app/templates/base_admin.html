@@ -191,6 +191,21 @@
       border: 1px solid #e5e7eb;
       pointer-events: none;
     }
+    .app-version-badge {
+      position: fixed;
+      right: 16px;
+      bottom: 44px;
+      z-index: 99999;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .6px;
+      color: #4b5563;
+      background: rgba(255, 255, 255, 0.92);
+      padding: 4px 8px;
+      border-radius: 999px;
+      border: 1px solid #e5e7eb;
+      pointer-events: none;
+    }
     body[data-theme='dark'] {
       --shell-bg: #0b1220;
       --panel-bg: #111827;
@@ -252,6 +267,11 @@
       border-color: #334155 !important;
     }
     body[data-theme='dark'] .powered-by-cloudon {
+      background: rgba(15, 23, 42, 0.92);
+      border-color: #334155;
+      color: #cbd5e1;
+    }
+    body[data-theme='dark'] .app-version-badge {
       background: rgba(15, 23, 42, 0.92);
       border-color: #334155;
       color: #cbd5e1;
@@ -742,6 +762,7 @@
     });
   </script>
   {% block scripts %}{% endblock %}
+  <div class="app-version-badge">Version {{ app_version }}</div>
   <div class="powered-by-cloudon">{{ tt(request, 'powered_by') }}</div>
 </body>
 </html>

@@ -3,12 +3,13 @@ from decimal import Decimal
 import re
 from uuid import UUID
 
-from sqlalchemy import Date, Integer, String, case, cast, func, literal, literal_column, or_, select
+from sqlalchemy import Date, Integer, String, and_, case, cast, func, literal, literal_column, not_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 from sqlalchemy.sql import over
 
 from app.services.intelligence_service import list_recent_insights
+from app.services.kpi_participation_scope import get_current_sales_kpi_participation_config
 from app.services.request_scope import get_allowed_branch_scope
 from app.models.tenant import (
     AggPurchasesDaily,
@@ -382,6 +383,131 @@ def _apply_fact_sales_filters(stmt, branches=None, warehouses=None, brands=None,
         stmt = stmt.where(FactSales.category_ext_id.in_(categories))
     if groups:
         stmt = stmt.where(FactSales.group_ext_id.in_(groups))
+    return stmt
+
+
+def _parse_rule_date(value: object) -> date | None:
+    txt = str(value or '').strip()
+    if not txt:
+        return None
+    try:
+        return date.fromisoformat(txt[:10])
+    except ValueError:
+        return None
+
+
+def _normalize_sales_turnover_rule(raw: object) -> dict | None:
+    if not isinstance(raw, dict):
+        return None
+    series = str(raw.get('series') or raw.get('document_series') or '').strip()
+    if not series:
+        return None
+    include_turnover_raw = raw.get('include_turnover')
+    exclude_raw = raw.get('exclude')
+    enabled_raw = raw.get('enabled')
+    branch_ext_ids_raw = raw.get('branch_ext_ids') or raw.get('branches') or []
+    branch_ext_ids = []
+    if isinstance(branch_ext_ids_raw, list):
+        seen: set[str] = set()
+        for item in branch_ext_ids_raw:
+            code = str(item or '').strip()
+            if not code or code in seen:
+                continue
+            seen.add(code)
+            branch_ext_ids.append(code)
+    include_turnover = True
+    if include_turnover_raw is not None:
+        include_turnover = bool(include_turnover_raw)
+    elif exclude_raw is not None:
+        include_turnover = not bool(exclude_raw)
+    enabled = bool(enabled_raw) if enabled_raw is not None else True
+    return {
+        'series': series,
+        'include_turnover': include_turnover,
+        'enabled': enabled,
+        'date_from': _parse_rule_date(raw.get('date_from')),
+        'date_to': _parse_rule_date(raw.get('date_to')),
+        'branch_ext_ids': branch_ext_ids,
+    }
+
+
+def _sales_turnover_rules() -> list[dict]:
+    raw = get_current_sales_kpi_participation_config()
+    turnover_payload = raw.get('turnover') if isinstance(raw.get('turnover'), dict) else raw
+    raw_rules = turnover_payload.get('series_rules') if isinstance(turnover_payload, dict) else []
+    if not isinstance(raw_rules, list):
+        return []
+    normalized: list[dict] = []
+    for item in raw_rules:
+        row = _normalize_sales_turnover_rule(item)
+        if row is not None:
+            normalized.append(row)
+    return normalized
+
+
+def _has_sales_turnover_series_rules() -> bool:
+    return bool(_sales_turnover_rules())
+
+
+def _normalize_sales_branch_adjustment(raw: object) -> dict | None:
+    if not isinstance(raw, dict):
+        return None
+    branch_ext_id = str(raw.get('branch_ext_id') or raw.get('branch') or '').strip()
+    if not branch_ext_id:
+        return None
+    try:
+        delta_net_value = float(raw.get('delta_net_value') or raw.get('net_delta') or 0.0)
+    except (TypeError, ValueError):
+        return None
+    return {
+        'branch_ext_id': branch_ext_id,
+        'delta_net_value': delta_net_value,
+        'date_from': _parse_rule_date(raw.get('date_from')),
+        'date_to': _parse_rule_date(raw.get('date_to')),
+    }
+
+
+def _sales_branch_adjustments_for_range(date_from: date, date_to: date) -> list[dict]:
+    raw = get_current_sales_kpi_participation_config()
+    turnover_payload = raw.get('turnover') if isinstance(raw.get('turnover'), dict) else raw
+    raw_adjustments = turnover_payload.get('branch_adjustments') if isinstance(turnover_payload, dict) else []
+    if not isinstance(raw_adjustments, list):
+        return []
+    normalized: list[dict] = []
+    for item in raw_adjustments:
+        row = _normalize_sales_branch_adjustment(item)
+        if row is None:
+            continue
+        adj_from = row.get('date_from')
+        adj_to = row.get('date_to')
+        if isinstance(adj_from, date) and adj_from != date_from:
+            continue
+        if isinstance(adj_to, date) and adj_to != date_to:
+            continue
+        normalized.append(row)
+    return normalized
+
+
+def _apply_fact_sales_turnover_rules(stmt):
+    exclusion_predicates = []
+    for rule in _sales_turnover_rules():
+        if not bool(rule.get('enabled', True)):
+            continue
+        if bool(rule.get('include_turnover', True)):
+            continue
+        predicate = FactSales.document_series == str(rule.get('series') or '').strip()
+        date_from = rule.get('date_from')
+        date_to = rule.get('date_to')
+        branch_ext_ids = rule.get('branch_ext_ids') or []
+        if isinstance(date_from, date):
+            predicate = and_(predicate, FactSales.doc_date >= date_from)
+        if isinstance(date_to, date):
+            predicate = and_(predicate, FactSales.doc_date <= date_to)
+        if branch_ext_ids:
+            predicate = and_(predicate, FactSales.branch_ext_id.in_(branch_ext_ids))
+        exclusion_predicates.append(predicate)
+    if exclusion_predicates:
+        stmt = stmt.where(not_(or_(*exclusion_predicates)))
     return stmt
 
 
@@ -924,6 +1050,41 @@ async def _sales_summaries_by_windows(
         return {}
 
     global_from, global_to = _window_bounds(windows)
+    if _has_sales_turnover_series_rules():
+        cols = []
+        for key, (window_from, window_to) in windows.items():
+            cond = FactSales.doc_date.between(window_from, window_to)
+            cols.extend(
+                [
+                    func.count(FactSales.id).filter(cond).label(f'{key}_records'),
+                    func.coalesce(func.sum(FactSales.qty).filter(cond), 0).label(f'{key}_qty'),
+                    func.coalesce(func.sum(FactSales.net_value).filter(cond), 0).label(f'{key}_net_value'),
+                    func.coalesce(func.sum(FactSales.gross_value).filter(cond), 0).label(f'{key}_gross_value'),
+                ]
+            )
+
+        stmt = select(*cols).where(*_date_range(FactSales.doc_date, global_from, global_to))
+        stmt = _apply_fact_sales_filters(
+            stmt,
+            branches=branches,
+            warehouses=warehouses,
+            brands=brands,
+            categories=categories,
+            groups=groups,
+        )
+        stmt = _apply_fact_sales_turnover_rules(stmt)
+        row = (await db.execute(stmt)).mappings().one()
+
+        out: dict[str, dict] = {}
+        for key in windows:
+            out[key] = {
+                'records': int(row.get(f'{key}_records') or 0),
+                'qty': float(row.get(f'{key}_qty') or 0),
+                'net_value': float(row.get(f'{key}_net_value') or 0),
+                'gross_value': float(row.get(f'{key}_gross_value') or 0),
+            }
+        return out
+
     cols = []
     for key, (window_from, window_to) in windows.items():
         cond = AggSalesDaily.doc_date.between(window_from, window_to)
@@ -1059,6 +1220,43 @@ async def _sales_by_branch_windows(
     if not windows:
         return {}
 
+    if _has_sales_turnover_series_rules():
+        global_from, global_to = _window_bounds(windows)
+        cols = [
+            FactSales.branch_ext_id.label('branch_ext_id'),
+            func.coalesce(func.max(DimBranch.name), FactSales.branch_ext_id).label('branch_name'),
+        ]
+        for key, (window_from, window_to) in windows.items():
+            cond = FactSales.doc_date.between(window_from, window_to)
+            cols.extend(
+                [
+                    func.coalesce(func.sum(FactSales.net_value).filter(cond), 0).label(f'{key}_net'),
+                    func.coalesce(func.sum(FactSales.gross_value).filter(cond), 0).label(f'{key}_gross'),
+                    func.coalesce(func.sum(FactSales.cost_amount).filter(cond), 0).label(f'{key}_cost'),
+                ]
+            )
+
+        stmt = (
+            select(*cols)
+            .select_from(FactSales)
+            .join(DimBranch, DimBranch.external_id == FactSales.branch_ext_id, isouter=True)
+            .where(*_date_range(FactSales.doc_date, global_from, global_to))
+        )
+        stmt = _apply_fact_sales_filters(
+            stmt,
+            branches=branches,
+            warehouses=warehouses,
+            brands=brands,
+            categories=categories,
+            groups=groups,
+        )
+        stmt = _apply_fact_sales_turnover_rules(stmt)
+        rows = (await db.execute(stmt.group_by(FactSales.branch_ext_id))).mappings().all()
+        out: dict[str, list[dict]] = {}
+        for key in windows:
+            out[key] = _map_branch_window_rows(rows, key_prefix=key)
+        return out
+
     use_branch_daily = not any([warehouses, brands, categories, groups])
     global_from, global_to = _window_bounds(windows)
     if use_branch_daily:
@@ -1167,6 +1365,28 @@ async def sales_summary(
     categories: list[str] | None = None,
     groups: list[str] | None = None,
 ):
+    if _has_sales_turnover_series_rules():
+        stmt = (
+            select(
+                func.count(FactSales.id),
+                func.coalesce(func.sum(FactSales.qty), 0),
+                func.coalesce(func.sum(FactSales.net_value), 0),
+                func.coalesce(func.sum(FactSales.gross_value), 0),
+            )
+            .where(*_date_range(FactSales.doc_date, date_from, date_to))
+        )
+        stmt = _apply_fact_sales_filters(
+            stmt, branches=branches, warehouses=warehouses, brands=brands, categories=categories, groups=groups
+        )
+        stmt = _apply_fact_sales_turnover_rules(stmt)
+        row = (await db.execute(stmt)).one()
+        return {
+            'records': int(row[0] or 0),
+            'qty': float(row[1] or 0),
+            'net_value': float(row[2] or 0),
+            'gross_value': float(row[3] or 0),
+        }
+
     stmt = (
         select(
             func.count(AggSalesDaily.id),
@@ -1198,53 +1418,91 @@ async def sales_by_branch(
     categories: list[str] | None = None,
     groups: list[str] | None = None,
 ):
-    use_branch_level_agg = not any([warehouses, brands, categories, groups])
-    rows = []
-
-    if use_branch_level_agg:
-        try:
-            stmt = (
-                select(
-                    AggSalesDailyBranch.branch_ext_id,
-                    func.coalesce(func.max(DimBranch.name), AggSalesDailyBranch.branch_ext_id).label('branch_name'),
-                    func.coalesce(func.sum(AggSalesDailyBranch.net_value), 0).label('net_value'),
-                    func.coalesce(func.sum(AggSalesDailyBranch.gross_value), 0).label('gross_value'),
-                    func.coalesce(func.sum(AggSalesDailyBranch.cost_amount), 0).label('cost_amount'),
-                )
-                .join(DimBranch, DimBranch.external_id == AggSalesDailyBranch.branch_ext_id, isouter=True)
-                .where(*_date_range(AggSalesDailyBranch.doc_date, date_from, date_to))
-            )
-            branches = _effective_branch_filter(branches)
-            if branches is not None:
-                stmt = stmt.where(AggSalesDailyBranch.branch_ext_id.in_(branches))
-            stmt = stmt.group_by(AggSalesDailyBranch.branch_ext_id).order_by(func.sum(AggSalesDailyBranch.net_value).desc())
-            rows = (await db.execute(stmt)).all()
-        except Exception:
-            rows = []
-
-    if not rows:
+    if _has_sales_turnover_series_rules():
         stmt = (
             select(
-                AggSalesDaily.branch_ext_id,
-                func.coalesce(func.max(DimBranch.name), AggSalesDaily.branch_ext_id).label('branch_name'),
-                func.coalesce(func.sum(AggSalesDaily.net_value), 0).label('net_value'),
-                func.coalesce(func.sum(AggSalesDaily.gross_value), 0).label('gross_value'),
-                literal(0).label('cost_amount'),
+                FactSales.branch_ext_id,
+                func.coalesce(func.max(DimBranch.name), FactSales.branch_ext_id).label('branch_name'),
+                func.coalesce(func.sum(FactSales.net_value), 0).label('net_value'),
+                func.coalesce(func.sum(FactSales.gross_value), 0).label('gross_value'),
+                func.coalesce(func.sum(FactSales.cost_amount), 0).label('cost_amount'),
             )
-            .join(DimBranch, DimBranch.external_id == AggSalesDaily.branch_ext_id, isouter=True)
-            .where(*_date_range(AggSalesDaily.doc_date, date_from, date_to))
+            .join(DimBranch, DimBranch.external_id == FactSales.branch_ext_id, isouter=True)
+            .where(*_date_range(FactSales.doc_date, date_from, date_to))
         )
-        stmt = _apply_sales_filters(
+        stmt = _apply_fact_sales_filters(
             stmt, branches=branches, warehouses=warehouses, brands=brands, categories=categories, groups=groups
         )
-        stmt = stmt.group_by(AggSalesDaily.branch_ext_id).order_by(func.sum(AggSalesDaily.net_value).desc())
-        rows = (await db.execute(stmt)).all()
+        stmt = _apply_fact_sales_turnover_rules(stmt)
+        rows = (
+            await db.execute(
+                stmt.group_by(FactSales.branch_ext_id).order_by(func.sum(FactSales.net_value).desc())
+            )
+        ).all()
+    else:
+        use_branch_level_agg = not any([warehouses, brands, categories, groups])
+        rows = []
 
-    total_net = sum(float(r[2] or 0) for r in rows)
-    avg_net = (total_net / len(rows)) if rows else 0.0
+        if use_branch_level_agg:
+            try:
+                stmt = (
+                    select(
+                        AggSalesDailyBranch.branch_ext_id,
+                        func.coalesce(func.max(DimBranch.name), AggSalesDailyBranch.branch_ext_id).label('branch_name'),
+                        func.coalesce(func.sum(AggSalesDailyBranch.net_value), 0).label('net_value'),
+                        func.coalesce(func.sum(AggSalesDailyBranch.gross_value), 0).label('gross_value'),
+                        func.coalesce(func.sum(AggSalesDailyBranch.cost_amount), 0).label('cost_amount'),
+                    )
+                    .join(DimBranch, DimBranch.external_id == AggSalesDailyBranch.branch_ext_id, isouter=True)
+                    .where(*_date_range(AggSalesDailyBranch.doc_date, date_from, date_to))
+                )
+                branches = _effective_branch_filter(branches)
+                if branches is not None:
+                    stmt = stmt.where(AggSalesDailyBranch.branch_ext_id.in_(branches))
+                stmt = stmt.group_by(AggSalesDailyBranch.branch_ext_id).order_by(func.sum(AggSalesDailyBranch.net_value).desc())
+                rows = (await db.execute(stmt)).all()
+            except Exception:
+                rows = []
+
+        if not rows:
+            stmt = (
+                select(
+                    AggSalesDaily.branch_ext_id,
+                    func.coalesce(func.max(DimBranch.name), AggSalesDaily.branch_ext_id).label('branch_name'),
+                    func.coalesce(func.sum(AggSalesDaily.net_value), 0).label('net_value'),
+                    func.coalesce(func.sum(AggSalesDaily.gross_value), 0).label('gross_value'),
+                    literal(0).label('cost_amount'),
+                )
+                .join(DimBranch, DimBranch.external_id == AggSalesDaily.branch_ext_id, isouter=True)
+                .where(*_date_range(AggSalesDaily.doc_date, date_from, date_to))
+            )
+            stmt = _apply_sales_filters(
+                stmt, branches=branches, warehouses=warehouses, brands=brands, categories=categories, groups=groups
+            )
+            stmt = stmt.group_by(AggSalesDaily.branch_ext_id).order_by(func.sum(AggSalesDaily.net_value).desc())
+            rows = (await db.execute(stmt)).all()
+
+    branch_adjustments = _sales_branch_adjustments_for_range(date_from, date_to)
+    branch_delta_map = {
+        str(item.get('branch_ext_id') or '').strip(): float(item.get('delta_net_value') or 0.0)
+        for item in branch_adjustments
+        if str(item.get('branch_ext_id') or '').strip()
+    }
+    row_map: dict[str, tuple] = {str(r[0] or '').strip(): r for r in rows}
+    for branch_ext_id in branch_delta_map:
+        if branch_ext_id not in row_map:
+            row_map[branch_ext_id] = (branch_ext_id, branch_ext_id, 0.0, 0.0, 0.0)
+    adjusted_rows = list(row_map.values())
+
+    total_net = sum(
+        float(r[2] or 0) + float(branch_delta_map.get(str(r[0] or '').strip(), 0.0))
+        for r in adjusted_rows
+    )
+    avg_net = (total_net / len(adjusted_rows)) if adjusted_rows else 0.0
     out = []
-    for r in rows:
-        net_value = float(r[2] or 0)
+    for r in adjusted_rows:
+        branch_key = str(r[0] or '').strip()
+        net_value = float(r[2] or 0) + float(branch_delta_map.get(branch_key, 0.0))
         gross_value = float(r[3] or 0)
         cost_amount = float(r[4] or 0)
         contribution_pct = (net_value / total_net * 100.0) if total_net > 0 else 0.0
@@ -1262,6 +1520,7 @@ async def sales_by_branch(
                 'performance_index_pct': performance_index_pct,
             }
         )
+    out.sort(key=lambda item: float(item.get('net_value') or 0.0), reverse=True)
     return out
 
 
@@ -1486,6 +1745,33 @@ async def sales_monthly_trend_from_monthly_agg(
     categories: list[str] | None = None,
     groups: list[str] | None = None,
 ):
+    if _has_sales_turnover_series_rules():
+        month_start_expr = cast(func.date_trunc(literal_column("'month'"), FactSales.doc_date), Date)
+        stmt = (
+            select(
+                month_start_expr.label('month_start'),
+                func.coalesce(func.sum(FactSales.net_value), 0).label('net_value'),
+                func.coalesce(func.sum(FactSales.gross_value), 0).label('gross_value'),
+                func.coalesce(func.sum(FactSales.qty), 0).label('qty'),
+            )
+            .where(*_date_range(FactSales.doc_date, date_from, date_to))
+        )
+        stmt = _apply_fact_sales_filters(
+            stmt, branches=branches, warehouses=warehouses, brands=brands, categories=categories, groups=groups
+        )
+        stmt = _apply_fact_sales_turnover_rules(stmt)
+        stmt = stmt.group_by(month_start_expr).order_by(month_start_expr)
+        rows = (await db.execute(stmt)).all()
+        return [
+            {
+                'month_start': str(r[0]),
+                'net_value': float(r[1] or 0),
+                'gross_value': float(r[2] or 0),
+                'qty': float(r[3] or 0),
+            }
+            for r in rows
+        ]
+
     stmt = (
         select(
             AggSalesMonthly.month_start.label('month_start'),
@@ -3531,6 +3817,30 @@ async def sales_monthly_company_totals(
     date_from: date,
     date_to: date,
 ):
+    if _has_sales_turnover_series_rules():
+        month_start_expr = cast(func.date_trunc(literal_column("'month'"), FactSales.doc_date), Date)
+        stmt = (
+            select(
+                month_start_expr.label('month_start'),
+                func.coalesce(func.sum(FactSales.net_value), 0).label('net_value'),
+                func.coalesce(func.sum(FactSales.gross_value), 0).label('gross_value'),
+                func.coalesce(func.sum(FactSales.qty), 0).label('qty'),
+            )
+            .where(*_date_range(FactSales.doc_date, date_from, date_to))
+        )
+        stmt = _apply_fact_sales_turnover_rules(stmt)
+        stmt = stmt.group_by(month_start_expr).order_by(month_start_expr)
+        rows = (await db.execute(stmt)).all()
+        return [
+            {
+                'month_start': str(r[0]),
+                'net_value': float(r[1] or 0),
+                'gross_value': float(r[2] or 0),
+                'qty': float(r[3] or 0),
+            }
+            for r in rows
+        ]
+
     month_start_expr = cast(func.date_trunc(literal_column("'month'"), AggSalesDailyCompany.doc_date), Date)
     stmt = (
         select(
@@ -3578,6 +3888,7 @@ async def sales_decision_pack(
     current_stmt = _apply_fact_sales_filters(
         current_stmt, branches=branches, warehouses=warehouses, brands=brands, categories=categories, groups=groups
     )
+    current_stmt = _apply_fact_sales_turnover_rules(current_stmt)
     current_row = (await db.execute(current_stmt)).one()
     current = {
         'records': int(current_row[0] or 0),
@@ -3600,6 +3911,7 @@ async def sales_decision_pack(
     previous_stmt = _apply_fact_sales_filters(
         previous_stmt, branches=branches, warehouses=warehouses, brands=brands, categories=categories, groups=groups
     )
+    previous_stmt = _apply_fact_sales_turnover_rules(previous_stmt)
     previous_row = (await db.execute(previous_stmt)).one()
     previous = {
         'records': int(previous_row[0] or 0),
@@ -3633,6 +3945,7 @@ async def sales_decision_pack(
         branch_stmt = _apply_fact_sales_filters(
             branch_stmt, branches=branches, warehouses=warehouses, brands=brands, categories=categories, groups=groups
         )
+        branch_stmt = _apply_fact_sales_turnover_rules(branch_stmt)
         branch_stmt = branch_stmt.group_by(FactSales.branch_ext_id).order_by(func.sum(FactSales.net_value).desc())
         branch_rows = (await db.execute(branch_stmt)).all()
         by_branch = []
@@ -4625,6 +4938,237 @@ async def inventory_summary_bundle_from_aggregates(
             for label, v in ranked_groups
         ],
         'by_manufacturer': [],
+    }
+
+
+async def inventory_summary_bundle_from_current_state(
+    db: AsyncSession,
+    *,
+    as_of: date,
+    branches: list[str] | None = None,
+    warehouses: list[str] | None = None,
+    brands: list[str] | None = None,
+    categories: list[str] | None = None,
+    groups: list[str] | None = None,
+    limit: int = 12,
+) -> dict:
+    latest_date = (await db.execute(select(func.max(FactInventory.doc_date)).where(FactInventory.doc_date <= as_of))).scalar_one_or_none()
+    empty_aging = {k: {'qty_on_hand': 0.0, 'value_amount': 0.0} for k in ['0_30', '31_60', '61_90', '90_plus']}
+    if latest_date is None:
+        return {
+            'snapshot': {
+                'snapshot_date': None,
+                'qty_on_hand': 0.0,
+                'qty_reserved': 0.0,
+                'cost_amount': 0.0,
+                'value_amount': 0.0,
+            },
+            'aging': empty_aging,
+            'by_brand': [],
+            'by_commercial_category': [],
+            'by_manufacturer': [],
+        }
+
+    latest_inventory_rows = (
+        select(
+            FactInventory.branch_id.label('branch_id'),
+            FactInventory.branch_ext_id.label('branch_ext_id'),
+            FactInventory.warehouse_id.label('warehouse_id'),
+            FactInventory.item_id.label('item_id'),
+            FactInventory.item_code.label('item_code'),
+            FactInventory.qty_on_hand.label('qty_on_hand'),
+            FactInventory.qty_reserved.label('qty_reserved'),
+            FactInventory.cost_amount.label('cost_amount'),
+            FactInventory.value_amount.label('value_amount'),
+            func.row_number()
+            .over(
+                partition_by=(
+                    FactInventory.branch_id,
+                    FactInventory.warehouse_id,
+                    func.coalesce(cast(FactInventory.item_id, String), FactInventory.item_code, literal('')),
+                ),
+                order_by=(FactInventory.doc_date.desc(), FactInventory.updated_at.desc(), FactInventory.id.desc()),
+            )
+            .label('rn'),
+        )
+        .where(FactInventory.doc_date <= as_of)
+        .subquery('inventory_current_state_rows')
+    )
+
+    item_code_expr = func.coalesce(DimItem.external_id, latest_inventory_rows.c.item_code)
+    inv_base = (
+        select(
+            item_code_expr.label('item_code'),
+            func.coalesce(func.max(DimBrand.name), func.max(DimBrand.external_id), literal('N/A')).label('brand_label'),
+            func.coalesce(func.max(DimGroup.name), func.max(DimGroup.external_id), literal('N/A')).label('group_label'),
+            func.coalesce(func.sum(latest_inventory_rows.c.qty_on_hand), 0).label('qty_on_hand'),
+            func.coalesce(func.sum(latest_inventory_rows.c.qty_reserved), 0).label('qty_reserved'),
+            func.coalesce(func.sum(latest_inventory_rows.c.cost_amount), 0).label('cost_amount'),
+            func.coalesce(func.sum(latest_inventory_rows.c.value_amount), 0).label('stock_value'),
+        )
+        .select_from(latest_inventory_rows)
+        .join(DimBranch, latest_inventory_rows.c.branch_id == DimBranch.id, isouter=True)
+        .join(DimWarehouse, latest_inventory_rows.c.warehouse_id == DimWarehouse.id, isouter=True)
+        .join(DimItem, latest_inventory_rows.c.item_id == DimItem.id, isouter=True)
+        .join(DimBrand, DimItem.brand_id == DimBrand.id, isouter=True)
+        .join(DimCategory, DimItem.category_id == DimCategory.id, isouter=True)
+        .join(DimGroup, DimItem.group_id == DimGroup.id, isouter=True)
+        .where(latest_inventory_rows.c.rn == 1)
+    )
+    inv_base = _apply_inventory_filters(
+        inv_base,
+        branches=branches,
+        warehouses=warehouses,
+        brands=brands,
+        categories=categories,
+        groups=groups,
+        branch_ext_col=latest_inventory_rows.c.branch_ext_id,
+    )
+    inv_base = inv_base.group_by(item_code_expr).subquery('inventory_current_state_base')
+
+    sales_last = (
+        select(
+            FactSales.item_code.label('item_code'),
+            func.max(FactSales.doc_date).label('last_sale_date'),
+        )
+        .where(FactSales.doc_date <= as_of)
+    )
+    sales_last = _apply_fact_sales_filters(
+        sales_last,
+        branches=branches,
+        warehouses=warehouses,
+        brands=brands,
+        categories=categories,
+        groups=groups,
+    )
+    sales_last = sales_last.group_by(FactSales.item_code).subquery('inventory_sales_last')
+
+    supplier_ranked = (
+        select(
+            FactPurchases.item_code.label('item_code'),
+            FactPurchases.supplier_ext_id.label('supplier_ext_id'),
+            over(
+                func.row_number(),
+                partition_by=FactPurchases.item_code,
+                order_by=(FactPurchases.doc_date.desc(), FactPurchases.updated_at.desc()),
+            ).label('rn'),
+        )
+        .where(FactPurchases.item_code.is_not(None))
+        .where(FactPurchases.doc_date <= as_of)
+        .where(FactPurchases.doc_date >= (as_of - timedelta(days=365)))
+    )
+    branches = _effective_branch_filter(branches)
+    if branches is not None:
+        supplier_ranked = supplier_ranked.where(FactPurchases.branch_ext_id.in_(branches))
+    if warehouses:
+        supplier_ranked = supplier_ranked.where(FactPurchases.warehouse_ext_id.in_(warehouses))
+    if brands:
+        supplier_ranked = supplier_ranked.where(FactPurchases.brand_ext_id.in_(brands))
+    if categories:
+        supplier_ranked = supplier_ranked.where(FactPurchases.category_ext_id.in_(categories))
+    if groups:
+        supplier_ranked = supplier_ranked.where(FactPurchases.group_ext_id.in_(groups))
+    supplier_ranked = supplier_ranked.subquery('inventory_supplier_ranked')
+    latest_supplier = (
+        select(supplier_ranked.c.item_code, supplier_ranked.c.supplier_ext_id)
+        .where(supplier_ranked.c.rn == 1)
+        .subquery('inventory_latest_supplier')
+    )
+
+    rows = (
+        await db.execute(
+            select(
+                inv_base.c.brand_label,
+                inv_base.c.group_label,
+                inv_base.c.qty_on_hand,
+                inv_base.c.qty_reserved,
+                inv_base.c.cost_amount,
+                inv_base.c.stock_value,
+                sales_last.c.last_sale_date,
+                func.coalesce(DimSupplier.name, latest_supplier.c.supplier_ext_id, literal('N/A')).label('manufacturer_label'),
+            )
+            .select_from(inv_base)
+            .join(sales_last, sales_last.c.item_code == inv_base.c.item_code, isouter=True)
+            .join(latest_supplier, latest_supplier.c.item_code == inv_base.c.item_code, isouter=True)
+            .join(DimSupplier, DimSupplier.external_id == latest_supplier.c.supplier_ext_id, isouter=True)
+        )
+    ).mappings().all()
+
+    total_qty = 0.0
+    total_reserved = 0.0
+    total_cost = 0.0
+    total_value = 0.0
+    aging = {k: {'qty_on_hand': 0.0, 'value_amount': 0.0} for k in ['0_30', '31_60', '61_90', '90_plus']}
+    by_brand: dict[str, dict[str, float]] = {}
+    by_group: dict[str, dict[str, float]] = {}
+    by_manufacturer: dict[str, dict[str, float]] = {}
+
+    for row in rows:
+        qty = float(row.get('qty_on_hand') or 0)
+        reserved = float(row.get('qty_reserved') or 0)
+        cost = float(row.get('cost_amount') or 0)
+        value = float(row.get('stock_value') or 0)
+        total_qty += qty
+        total_reserved += reserved
+        total_cost += cost
+        total_value += value
+
+        last_sale_date = row.get('last_sale_date')
+        days_since_last_sale = (as_of - last_sale_date).days if isinstance(last_sale_date, date) else None
+        if days_since_last_sale is None:
+            bucket = '90_plus'
+        elif days_since_last_sale <= 30:
+            bucket = '0_30'
+        elif days_since_last_sale <= 60:
+            bucket = '31_60'
+        elif days_since_last_sale <= 90:
+            bucket = '61_90'
+        else:
+            bucket = '90_plus'
+        aging[bucket]['qty_on_hand'] += qty
+        aging[bucket]['value_amount'] += value
+
+        brand_label = str(row.get('brand_label') or 'N/A')
+        group_label = str(row.get('group_label') or 'N/A')
+        manufacturer_label = str(row.get('manufacturer_label') or 'N/A')
+
+        brand_bucket = by_brand.setdefault(brand_label, {'qty_on_hand': 0.0, 'value_amount': 0.0})
+        brand_bucket['qty_on_hand'] += qty
+        brand_bucket['value_amount'] += value
+
+        group_bucket = by_group.setdefault(group_label, {'qty_on_hand': 0.0, 'value_amount': 0.0})
+        group_bucket['qty_on_hand'] += qty
+        group_bucket['value_amount'] += value
+
+        manufacturer_bucket = by_manufacturer.setdefault(manufacturer_label, {'qty_on_hand': 0.0, 'value_amount': 0.0})
+        manufacturer_bucket['qty_on_hand'] += qty
+        manufacturer_bucket['value_amount'] += value
+
+    ranked_brands = sorted(by_brand.items(), key=lambda item: item[1]['value_amount'], reverse=True)[: max(1, min(int(limit), 100))]
+    ranked_groups = sorted(by_group.items(), key=lambda item: item[1]['value_amount'], reverse=True)[: max(1, min(int(limit), 100))]
+    ranked_manufacturers = sorted(by_manufacturer.items(), key=lambda item: item[1]['value_amount'], reverse=True)[: max(1, min(int(limit), 100))]
+
+    return {
+        'snapshot': {
+            'snapshot_date': str(latest_date),
+            'qty_on_hand': float(total_qty),
+            'qty_reserved': float(total_reserved),
+            'cost_amount': float(total_cost),
+            'value_amount': float(total_value),
+        },
+        'aging': aging,
+        'by_brand': [
+            {'brand': label, 'qty_on_hand': float(v['qty_on_hand']), 'value_amount': float(v['value_amount'])}
+            for label, v in ranked_brands
+        ],
+        'by_commercial_category': [
+            {'commercial_category': label, 'qty_on_hand': float(v['qty_on_hand']), 'value_amount': float(v['value_amount'])}
+            for label, v in ranked_groups
+        ],
+        'by_manufacturer': [
+            {'manufacturer': label, 'qty_on_hand': float(v['qty_on_hand']), 'value_amount': float(v['value_amount'])}
+            for label, v in ranked_manufacturers
+        ],
     }
 
 
@@ -7591,54 +8135,21 @@ async def stream_inventory_summary(
     *,
     as_of: date,
     branches: list[str] | None = None,
+    warehouses: list[str] | None = None,
     brands: list[str] | None = None,
     categories: list[str] | None = None,
     groups: list[str] | None = None,
 ) -> dict:
-    snapshot_date = await _latest_stock_aging_snapshot_date(db, as_of=as_of, branches=branches)
-    snapshot = await inventory_snapshot_from_aggregates(
+    return await inventory_summary_bundle_from_current_state(
         db,
         as_of=as_of,
-        snapshot_date=snapshot_date,
         branches=branches,
+        warehouses=warehouses,
         brands=brands,
         categories=categories,
         groups=groups,
+        limit=12,
     )
-    aging = await stock_aging_from_aggregates(
-        db,
-        as_of=as_of,
-        snapshot_date=snapshot_date,
-        branches=branches,
-        brands=brands,
-        categories=categories,
-        groups=groups,
-    )
-    by_brand = await inventory_by_brand_from_aggregates(
-        db,
-        as_of=as_of,
-        snapshot_date=snapshot_date,
-        branches=branches,
-        brands=brands,
-        categories=categories,
-        groups=groups,
-    )
-    by_commercial = await inventory_by_group_from_aggregates(
-        db,
-        as_of=as_of,
-        snapshot_date=snapshot_date,
-        branches=branches,
-        brands=brands,
-        categories=categories,
-        groups=groups,
-    )
-    return {
-        'snapshot': snapshot,
-        'aging': aging,
-        'by_brand': by_brand,
-        'by_commercial_category': by_commercial,
-        'by_manufacturer': [],
-    }
 
 
 async def stream_cash_summary(

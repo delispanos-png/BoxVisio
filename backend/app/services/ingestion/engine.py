@@ -390,11 +390,14 @@ def _upsert_sales_stmt(fact: dict):
         set_={
             'doc_date': ins.excluded.doc_date,
             'updated_at': ins.excluded.updated_at,
+            'branch_id': ins.excluded.branch_id,
             'branch_ext_id': ins.excluded.branch_ext_id,
+            'warehouse_id': ins.excluded.warehouse_id,
             'warehouse_ext_id': ins.excluded.warehouse_ext_id,
             'brand_ext_id': ins.excluded.brand_ext_id,
             'category_ext_id': ins.excluded.category_ext_id,
             'group_ext_id': ins.excluded.group_ext_id,
+            'item_id': ins.excluded.item_id,
             'customer_id': ins.excluded.customer_id,
             'source_connector_id': ins.excluded.source_connector_id,
             'document_id': ins.excluded.document_id,
@@ -451,9 +454,12 @@ def _upsert_purchases_stmt(fact: dict):
         set_={
             'doc_date': ins.excluded.doc_date,
             'updated_at': ins.excluded.updated_at,
+            'branch_id': ins.excluded.branch_id,
             'branch_ext_id': ins.excluded.branch_ext_id,
             'source_connector_id': ins.excluded.source_connector_id,
+            'warehouse_id': ins.excluded.warehouse_id,
             'warehouse_ext_id': ins.excluded.warehouse_ext_id,
+            'supplier_id': ins.excluded.supplier_id,
             'supplier_ext_id': ins.excluded.supplier_ext_id,
             'brand_ext_id': ins.excluded.brand_ext_id,
             'category_ext_id': ins.excluded.category_ext_id,
@@ -467,6 +473,7 @@ def _upsert_purchases_stmt(fact: dict):
             'source_entity_id': ins.excluded.source_entity_id,
             'object_id': ins.excluded.object_id,
             'source_payload_json': ins.excluded.source_payload_json,
+            'item_id': ins.excluded.item_id,
             'item_code': ins.excluded.item_code,
             'qty': ins.excluded.qty,
             'discount1_pct': ins.excluded.discount1_pct,
@@ -744,11 +751,14 @@ def _build_fact_upsert_stmt(entity: str, facts: list[dict]):
             set_={
                 'doc_date': ins.excluded.doc_date,
                 'updated_at': ins.excluded.updated_at,
+                'branch_id': ins.excluded.branch_id,
                 'branch_ext_id': ins.excluded.branch_ext_id,
+                'warehouse_id': ins.excluded.warehouse_id,
                 'warehouse_ext_id': ins.excluded.warehouse_ext_id,
                 'brand_ext_id': ins.excluded.brand_ext_id,
                 'category_ext_id': ins.excluded.category_ext_id,
                 'group_ext_id': ins.excluded.group_ext_id,
+                'item_id': ins.excluded.item_id,
                 'customer_id': ins.excluded.customer_id,
                 'source_connector_id': ins.excluded.source_connector_id,
                 'document_id': ins.excluded.document_id,
@@ -804,9 +814,12 @@ def _build_fact_upsert_stmt(entity: str, facts: list[dict]):
             set_={
                 'doc_date': ins.excluded.doc_date,
                 'updated_at': ins.excluded.updated_at,
+                'branch_id': ins.excluded.branch_id,
                 'branch_ext_id': ins.excluded.branch_ext_id,
                 'source_connector_id': ins.excluded.source_connector_id,
+                'warehouse_id': ins.excluded.warehouse_id,
                 'warehouse_ext_id': ins.excluded.warehouse_ext_id,
+                'supplier_id': ins.excluded.supplier_id,
                 'supplier_ext_id': ins.excluded.supplier_ext_id,
                 'brand_ext_id': ins.excluded.brand_ext_id,
                 'category_ext_id': ins.excluded.category_ext_id,
@@ -820,6 +833,7 @@ def _build_fact_upsert_stmt(entity: str, facts: list[dict]):
                 'source_entity_id': ins.excluded.source_entity_id,
                 'object_id': ins.excluded.object_id,
                 'source_payload_json': ins.excluded.source_payload_json,
+                'item_id': ins.excluded.item_id,
                 'item_code': ins.excluded.item_code,
                 'qty': ins.excluded.qty,
                 'discount1_pct': ins.excluded.discount1_pct,
@@ -2360,7 +2374,8 @@ async def process_job(job: dict[str, Any]) -> dict[str, Any]:
                 await control_db.execute(select(TenantConnection).where(TenantConnection.id == connection_id))
             ).scalar_one_or_none()
             if connection_row is not None:
-                connection_row.last_sync_at = last_ts or datetime.utcnow()
+                # UI should show when the latest successful sync finished, not the source-system watermark.
+                connection_row.last_sync_at = datetime.utcnow()
                 connection_row.sync_status = 'ok'
                 try:
                     await control_db.commit()

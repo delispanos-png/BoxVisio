@@ -2147,6 +2147,191 @@ async def _refresh_inventory_aggregates(
         ),
         {'from_date': from_date, 'to_date': to_date},
     )
+    await tenant_db.execute(
+        text(
+            """
+            DELETE FROM agg_stock_aging
+            WHERE snapshot_date BETWEEN :from_date AND :to_date
+            """
+        ),
+        {'from_date': from_date, 'to_date': to_date},
+    )
+    await tenant_db.execute(
+        text(
+            """
+            WITH snapshot_days AS (
+                SELECT DISTINCT fi.doc_date AS snapshot_date
+                FROM fact_inventory fi
+                WHERE fi.doc_date BETWEEN :from_date AND :to_date
+            ),
+            latest_inventory_rows AS (
+                SELECT
+                    sd.snapshot_date,
+                    fi.branch_ext_id,
+                    fi.warehouse_ext_id,
+                    fi.item_id,
+                    fi.item_code,
+                    fi.qty_on_hand,
+                    fi.value_amount,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY
+                            sd.snapshot_date,
+                            fi.branch_id,
+                            fi.warehouse_id,
+                            COALESCE(fi.item_id::text, fi.item_code, '')
+                        ORDER BY fi.doc_date DESC, fi.updated_at DESC, fi.id DESC
+                    ) AS rn
+                FROM fact_inventory fi
+                JOIN snapshot_days sd ON fi.doc_date <= sd.snapshot_date
+            )
+            INSERT INTO agg_inventory_snapshot_daily (
+                snapshot_date, item_external_id, qty_on_hand, value_amount, updated_at, created_at
+            )
+            SELECT
+                lir.snapshot_date,
+                COALESCE(di.external_id, lir.item_code, lir.item_id::text) AS item_external_id,
+                COALESCE(SUM(lir.qty_on_hand), 0),
+                COALESCE(SUM(lir.value_amount), 0),
+                NOW(),
+                NOW()
+            FROM latest_inventory_rows lir
+            LEFT JOIN dim_items di ON di.id = lir.item_id
+            WHERE lir.rn = 1
+              AND COALESCE(di.external_id, lir.item_code, lir.item_id::text) IS NOT NULL
+              AND COALESCE(di.external_id, lir.item_code, lir.item_id::text) <> ''
+            GROUP BY
+                lir.snapshot_date,
+                COALESCE(di.external_id, lir.item_code, lir.item_id::text)
+            ON CONFLICT (snapshot_date, item_external_id) DO UPDATE
+            SET
+                qty_on_hand = EXCLUDED.qty_on_hand,
+                value_amount = EXCLUDED.value_amount,
+                updated_at = NOW()
+            """
+        ),
+        {'from_date': from_date, 'to_date': to_date},
+    )
+    await tenant_db.execute(
+        text(
+            """
+            WITH snapshot_days AS (
+                SELECT DISTINCT fi.doc_date AS snapshot_date
+                FROM fact_inventory fi
+                WHERE fi.doc_date BETWEEN :from_date AND :to_date
+            ),
+            latest_inventory_rows AS (
+                SELECT
+                    sd.snapshot_date,
+                    fi.branch_ext_id,
+                    fi.warehouse_ext_id,
+                    fi.item_id,
+                    fi.item_code,
+                    fi.qty_on_hand,
+                    fi.value_amount,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY
+                            sd.snapshot_date,
+                            fi.branch_id,
+                            fi.warehouse_id,
+                            COALESCE(fi.item_id::text, fi.item_code, '')
+                        ORDER BY fi.doc_date DESC, fi.updated_at DESC, fi.id DESC
+                    ) AS rn
+                FROM fact_inventory fi
+                JOIN snapshot_days sd ON fi.doc_date <= sd.snapshot_date
+            ),
+            inventory_base AS (
+                SELECT
+                    lir.snapshot_date,
+                    COALESCE(di.external_id, lir.item_code, lir.item_id::text) AS item_external_id,
+                    lir.branch_ext_id,
+                    lir.item_id,
+                    lir.item_code,
+                    COALESCE(SUM(lir.qty_on_hand), 0) AS qty_on_hand,
+                    COALESCE(SUM(lir.value_amount), 0) AS stock_value
+                FROM latest_inventory_rows lir
+                LEFT JOIN dim_items di ON di.id = lir.item_id
+                WHERE lir.rn = 1
+                  AND COALESCE(di.external_id, lir.item_code, lir.item_id::text) IS NOT NULL
+                  AND COALESCE(di.external_id, lir.item_code, lir.item_id::text) <> ''
+                GROUP BY
+                    lir.snapshot_date,
+                    COALESCE(di.external_id, lir.item_code, lir.item_id::text),
+                    lir.branch_ext_id,
+                    lir.item_id,
+                    lir.item_code
+            ),
+            sales_last AS (
+                SELECT
+                    ib.snapshot_date,
+                    ib.item_external_id,
+                    ib.branch_ext_id,
+                    MAX(fs.doc_date) AS last_sale_date
+                FROM inventory_base ib
+                LEFT JOIN fact_sales fs
+                    ON fs.doc_date <= ib.snapshot_date
+                   AND (
+                        (ib.item_id IS NOT NULL AND fs.item_id = ib.item_id)
+                        OR (
+                            ib.item_id IS NULL
+                            AND ib.item_code IS NOT NULL
+                            AND fs.item_code = ib.item_code
+                        )
+                   )
+                   AND COALESCE(fs.branch_ext_id, '') = COALESCE(ib.branch_ext_id, '')
+                GROUP BY
+                    ib.snapshot_date,
+                    ib.item_external_id,
+                    ib.branch_ext_id
+            )
+            INSERT INTO agg_stock_aging (
+                snapshot_date,
+                item_external_id,
+                branch_ext_id,
+                qty_on_hand,
+                stock_value,
+                last_sale_date,
+                days_since_last_sale,
+                aging_bucket,
+                updated_at,
+                created_at
+            )
+            SELECT
+                ib.snapshot_date,
+                ib.item_external_id,
+                ib.branch_ext_id,
+                ib.qty_on_hand,
+                ib.stock_value,
+                sl.last_sale_date,
+                CASE
+                    WHEN sl.last_sale_date IS NULL THEN NULL
+                    ELSE (ib.snapshot_date - sl.last_sale_date)
+                END AS days_since_last_sale,
+                CASE
+                    WHEN sl.last_sale_date IS NULL THEN '90_plus'
+                    WHEN (ib.snapshot_date - sl.last_sale_date) <= 30 THEN '0_30'
+                    WHEN (ib.snapshot_date - sl.last_sale_date) <= 60 THEN '31_60'
+                    WHEN (ib.snapshot_date - sl.last_sale_date) <= 90 THEN '61_90'
+                    ELSE '90_plus'
+                END AS aging_bucket,
+                NOW(),
+                NOW()
+            FROM inventory_base ib
+            LEFT JOIN sales_last sl
+                ON sl.snapshot_date = ib.snapshot_date
+               AND sl.item_external_id = ib.item_external_id
+               AND COALESCE(sl.branch_ext_id, '') = COALESCE(ib.branch_ext_id, '')
+            ON CONFLICT (snapshot_date, item_external_id, branch_ext_id) DO UPDATE
+            SET
+                qty_on_hand = EXCLUDED.qty_on_hand,
+                stock_value = EXCLUDED.stock_value,
+                last_sale_date = EXCLUDED.last_sale_date,
+                days_since_last_sale = EXCLUDED.days_since_last_sale,
+                aging_bucket = EXCLUDED.aging_bucket,
+                updated_at = NOW()
+            """
+        ),
+        {'from_date': from_date, 'to_date': to_date},
+    )
 
 
 async def _refresh_cash_aggregates(
@@ -2286,30 +2471,6 @@ async def _refresh_cash_aggregates(
         ),
         {'from_date': from_date, 'to_date': to_date},
     )
-    await tenant_db.execute(
-        text(
-            """
-            INSERT INTO agg_inventory_snapshot_daily (
-                snapshot_date, item_external_id, qty_on_hand, value_amount, updated_at, created_at
-            )
-            SELECT
-                fi.doc_date AS snapshot_date,
-                COALESCE(di.external_id, fi.item_id::text) AS item_external_id,
-                COALESCE(SUM(fi.qty_on_hand), 0),
-                COALESCE(SUM(fi.value_amount), 0),
-                NOW(),
-                NOW()
-            FROM fact_inventory fi
-            LEFT JOIN dim_items di ON di.id = fi.item_id
-            WHERE fi.doc_date BETWEEN :from_date AND :to_date
-              AND (di.external_id IS NOT NULL OR fi.item_id IS NOT NULL)
-            GROUP BY fi.doc_date, COALESCE(di.external_id, fi.item_id::text)
-            """
-        ),
-        {'from_date': from_date, 'to_date': to_date},
-    )
-
-
 async def _refresh_expenses_aggregates(
     tenant_db,
     from_date: date,

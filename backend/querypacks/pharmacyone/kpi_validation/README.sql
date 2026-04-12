@@ -1,1 +1,7 @@
--- Optional legacy KPI verification queries go here.
+-- Optional KPI verification queries live in this folder.
+--
+-- Available scripts:
+-- - pharmacy295_turnover_reconciliation.sql
+--   Reconciles facts vs aggregates, YTD/month windows, branch totals,
+--   SoftOne TFPRMS behavior totals, 102-series breakdown, and duplicate checks
+--   for pharmacy295 against a reference cutoff/baseline.

@@ -42,7 +42,7 @@ from app.services.ingestion.queueing import tenant_dlq_name, tenant_queue_name
 configure_logging()
 init_sentry()
 
-app = FastAPI(title=settings.project_name, version='0.1.0')
+app = FastAPI(title=settings.project_name, version=settings.app_version)
 
 app.add_middleware(
     CORSMiddleware,

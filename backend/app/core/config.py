@@ -1,14 +1,50 @@
 from functools import lru_cache
 import base64
+import subprocess
+from pathlib import Path
 
 from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _detect_app_version() -> str:
+    repo_root = Path(__file__).resolve().parents[3]
+    git_dir = repo_root / '.git'
+    try:
+        head_raw = (git_dir / 'HEAD').read_text(encoding='utf-8').strip()
+        if head_raw.startswith('ref:'):
+            ref_path = head_raw.split(':', 1)[1].strip()
+            ref_file = git_dir / ref_path
+            if ref_file.exists():
+                commit_sha = ref_file.read_text(encoding='utf-8').strip()
+                if commit_sha:
+                    return commit_sha[:7]
+        elif head_raw:
+            return head_raw[:7]
+    except Exception:
+        pass
+    try:
+        result = subprocess.run(
+            ['git', 'rev-parse', '--short', 'HEAD'],
+            cwd=str(repo_root),
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+        short_sha = str(result.stdout or '').strip()
+        if short_sha:
+            return short_sha
+    except Exception:
+        pass
+    return 'dev'
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file='.env', env_file_encoding='utf-8', extra='ignore')
 
     project_name: str = 'CloudOn BI'
+    app_version: str = ''
     environment: str = 'dev'
     secret_key: str
     bi_secret_key: str
@@ -91,6 +127,12 @@ class Settings(BaseSettings):
         if len(raw) != 32:
             raise ValueError('BI_SECRET_KEY must decode to 32 bytes')
         return value
+
+    @field_validator('app_version')
+    @classmethod
+    def _default_app_version(cls, value: str) -> str:
+        cleaned = str(value or '').strip()
+        return cleaned or _detect_app_version()
 
     @model_validator(mode='after')
     def _fail_fast_insecure_env(self):

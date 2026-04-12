@@ -75,7 +75,7 @@
               <label class="form-label">Connector</label>
               <select class="form-select" name="connector_type">
                 <option value="sql_connector" {% if (form_values.connector_type or 'sql_connector') == 'sql_connector' %}selected{% endif %}>SQL Connector</option>
-                <option value="pharmacyone_sql" {% if form_values.connector_type == 'pharmacyone_sql' %}selected{% endif %}>SQL Connector (legacy)</option>
+                <option value="pharmacyone_sql" {% if form_values.connector_type == 'pharmacyone_sql' %}selected{% endif %}>SQL Connector (old key)</option>
                 <option value="external_api" {% if form_values.connector_type == 'external_api' %}selected{% endif %}>External API Connector</option>
                 <option value="file_import" {% if form_values.connector_type == 'file_import' %}selected{% endif %}>File Import Connector</option>
               </select>

@@ -209,6 +209,13 @@
   const form = document.getElementById('inventoryFiltersForm');
   const fmtMoney = (n)=> new Intl.NumberFormat('el-GR',{style:'currency',currency:'EUR'}).format(Number(n||0));
   const fmtNum = (n)=> new Intl.NumberFormat('el-GR',{maximumFractionDigits:0}).format(Math.round(Number(n||0)));
+  const todayLocalIso = ()=>{
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  };
   const invFieldDefs = [
     {key:'branches', selectId:'invBranches', label:'{{ tt(request, "branches") }}'},
     {key:'warehouses', selectId:'invWarehouses', label:'{{ tt(request, "warehouses") }}'},
@@ -399,9 +406,10 @@
     }
   }
 
+  const initialAsOf = todayLocalIso();
   asOfEl.value = window.bvToDmyDate
-    ? window.bvToDmyDate(new Date().toISOString().slice(0,10))
-    : new Date().toISOString().slice(0,10);
+    ? window.bvToDmyDate(initialAsOf)
+    : initialAsOf;
   invFieldDefs.forEach((f)=>initInvMulti(f.selectId, f.label));
   asOfEl.addEventListener('change', loadInvFilterOptions);
   form.addEventListener('submit', async (e)=>{

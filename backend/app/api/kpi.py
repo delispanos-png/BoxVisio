@@ -1,3 +1,4 @@
+import logging
 from datetime import date, timedelta
 from io import StringIO
 import re
@@ -78,6 +79,7 @@ from celery import Celery
 from app.core.config import settings
 
 router = APIRouter(tags=['kpi'])
+logger = logging.getLogger(__name__)
 celery_client = Celery('kpi_sender', broker=settings.celery_broker_url)
 _DASHBOARD_CACHE_TTL_SECONDS = 45
 
@@ -330,6 +332,9 @@ async def _cached_kpi_response(
         ttl_seconds=ttl_seconds,
         producer=producer,
     )
+    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
     response.headers['X-KPI-Cache'] = 'HIT' if hit else 'MISS'
     return data
 
@@ -414,6 +419,24 @@ async def get_dashboard_executive_summary(
             groups=groups,
         ),
     )
+    try:
+        cards = (data or {}).get('cards') or {}
+        logger.info(
+            'executive_summary_cards_debug',
+            extra={
+                'tenant_cache_key': _tenant_cache_key(request),
+                'date_from': str(date_from),
+                'date_to': str(date_to),
+                'week_net_value': cards.get('week', {}).get('net_value'),
+                'month_net_value': cards.get('month', {}).get('net_value'),
+                'year_net_value': cards.get('year', {}).get('net_value'),
+                'period_sales_net_value': cards.get('period_sales', {}).get('net_value'),
+                'purchases_period_net_value': cards.get('purchases_period', {}).get('net_value'),
+                'cache_status': response.headers.get('X-KPI-Cache'),
+            },
+        )
+    except Exception:
+        logger.exception('executive_summary_cards_debug_failed')
     out = dict(data or {})
     out['kpi_emphasis'] = _kpi_emphasis_payload(request, 'executive')
     return out
@@ -556,6 +579,7 @@ async def get_stream_inventory_summary(
     response: Response,
     as_of: date = Query(default_factory=_default_to),
     branches: list[str] | None = Query(default=None),
+    warehouses: list[str] | None = Query(default=None),
     brands: list[str] | None = Query(default=None),
     categories: list[str] | None = Query(default=None),
     groups: list[str] | None = Query(default=None),
@@ -564,6 +588,7 @@ async def get_stream_inventory_summary(
     params = {
         'as_of': str(as_of),
         'branches': _normalize_list(branches),
+        'warehouses': _normalize_list(warehouses),
         'brands': _normalize_list(brands),
         'categories': _normalize_list(categories),
         'groups': _normalize_list(groups),
@@ -577,6 +602,7 @@ async def get_stream_inventory_summary(
             tenant_db,
             as_of=as_of,
             branches=branches,
+            warehouses=warehouses,
             brands=brands,
             categories=categories,
             groups=groups,

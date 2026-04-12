@@ -9,7 +9,9 @@ This manual documents the production-ready setup of the BoxVisio BI platform:
 - Docker Compose deployment on a single Ubuntu server
 
 ## 2. High-Level Architecture
-- `control DB`: `bi_control`
+- `control DB`:
+  - primary historical name: `bi_control`
+  - active runtime database in current production deployment: `bi_control_recovery`
 - `tenant DBs`: `bi_tenant_<slug>`
 - `api`: FastAPI (UI + API)
 - `worker`: Celery tasks (ingestion, insights, backfills)
@@ -20,6 +22,18 @@ This manual documents the production-ready setup of the BoxVisio BI platform:
 Host routing:
 - `bi.boxvisio.com` -> tenant UI + tenant API (`/api/*`)
 - `adminpanel.boxvisio.com` -> admin UI + admin API (`/api/*`)
+
+Versioning:
+- application version source: `backend/app/core/config.py -> settings.app_version`
+- resolution order:
+  - `APP_VERSION` env var if set
+  - otherwise `git rev-parse --short HEAD`
+  - fallback: `dev`
+- FastAPI runtime version is bound to the same source in `backend/app/main.py`
+- UI version badge is rendered in:
+  - `backend/app/templates/base_admin.html`
+  - `backend/app/templates/base_tenant.html`
+  - `backend/app/templates/auth/login.html`
 
 ## 3. Repository Layout
 - `backend/`: FastAPI app, templates, models, services
@@ -105,6 +119,13 @@ docker compose up -d
 docker compose logs -f api
 ```
 
+Recommended release discipline:
+- every deployed code change must have:
+  - updated app version (env or git-based resolved version)
+  - updated technical manual if architecture/behavior changed
+  - updated user manual if user-facing behavior changed
+- the visible footer version in UI is the operator-facing confirmation of what release is actually deployed
+
 Restart services:
 ```bash
 docker compose restart api
@@ -116,6 +137,12 @@ Control DB migration:
 ```bash
 make migrate-control
 ```
+
+Important note:
+- current `Makefile` target is pinned to an older explicit control revision (`20260308_0007_control`)
+- current control head in repository is `20260408_0013_control`
+- before future production schema changes, migration operational scripts must be kept aligned with actual repository heads
+- the production environment currently runs against `bi_control_recovery`, so control checks/migrations must target that active DB
 
 Tenant DB migration:
 ```bash
@@ -269,6 +296,7 @@ Regenerate insights:
   - `pharmacy295` external API path was disabled and protected at worker level
 - Reconciliation and certification tooling added:
   - `scripts/verify_sales_ingest_period.py`
+  - `backend/querypacks/pharmacyone/kpi_validation/pharmacy295_turnover_reconciliation.sql`
   - period-level comparison can validate:
     - source row count vs tenant row count
     - source net value vs tenant net value
@@ -276,6 +304,12 @@ Regenerate insights:
     - extra rows
     - duplicate `external_id`
     - duplicate `event_id`
+  - turnover reconciliation against a reference baseline can validate:
+    - facts vs `agg_sales_daily`
+    - exact YTD/month/week cutoffs
+    - branch-level totals
+    - SoftOne TFPRMS behavior totals
+    - TFPRMS `102` series breakdown
 - Querypack alignment for sales/cashflow/purchases/inventory/customer/supplier streams continued under:
   - `backend/querypacks/pharmacyone/`
   - `backend/querypacks/pharmacyone/facts/`
@@ -310,8 +344,16 @@ Regenerate insights:
 
 ### 18.2 Operational Note
 - Tenant dashboards still read only from PostgreSQL tenant facts/aggregates.
-- The displayed `SoftOne Sync` timestamp in tenant UI is informational and comes from control DB connector state (`tenant_connections.last_sync_at`).
-- It indicates the last successful sync recorded by the active connector, not live direct querying from SoftOne at dashboard runtime.
+- The displayed `Τελευταίος συγχρονισμός` timestamp in tenant UI is informational and comes from control DB connector state (`tenant_connections.last_sync_at`).
+- It indicates the last successful sync recorded by the active connector, not live direct querying from the ERP at dashboard runtime.
+- In the current runtime environment this value is resolved from the active control DB used by API/worker (`bi_control_recovery`).
+
+### 18.3 Documentation Maintenance Rule
+- From this release onward, the following are mandatory for every architectural or functional change:
+  - update `TECHNICAL_MANUAL.md`
+  - update `USER_MANUAL.md` and/or in-app user manual when the change is user-facing
+  - keep visible UI version aligned with deployed code
+- This is now part of release hygiene, not optional follow-up work.
 
 ## 19. Observability
 - Structured JSON logging
@@ -743,3 +785,59 @@ These specs are the reference for:
 - Ingestion remains idempotent using source keys (`external_id`) and connector context.
 - Validation failures must be routed to DLQ with explicit reason and source payload reference.
 - CloudOn customer onboarding should start from `INTEGRATION_GUIDE.md` and then apply stream-level specs.
+
+## 22. KPI Participation Rules by Document Series (2026-04-12)
+
+Purpose:
+- keep the new BI warehouse-based and source-agnostic
+- avoid reintroducing old live-SoftOne-only dashboard logic
+- allow tenant-specific KPI compatibility when an old BI used special document-series handling
+
+Implementation:
+- control DB rule domain: `kpi_participation_rules`
+- stream: `sales_documents`
+- rule key: `turnover`
+- request scope loads the resolved payload from `tenant_rule_overrides` / `global_rule_entries`
+- KPI runtime exposes the payload through `app/services/kpi_participation_scope.py`
+- sales KPI queries switch from aggregate tables to fact-based calculations only when series rules are present
+
+Supported payload shape:
+
+```json
+{
+  "series_rules": [
+    {
+      "series": "4106",
+      "include_turnover": false,
+      "date_from": "2026-04-01",
+      "date_to": "2026-04-11",
+      "branch_ext_ids": ["1001:1000"]
+    }
+  ]
+}
+```
+
+Behavior:
+- canonical facts remain untouched
+- local tenant warehouse remains the source for KPI computation
+- only turnover-facing sales KPI calculations are adjusted
+- when no rules exist, KPI queries continue to use aggregate tables
+- when rules exist, turnover calculations use `fact_sales` so document-series windows can be applied exactly
+
+Current production use:
+- tenant `pharmacy295`
+- temporary compatibility rule added for old BI reconciliation on series:
+  - `4106`
+  - `3106`
+  - `8106`
+  - `8063`
+- active only for `2026-04-01` through `2026-04-11`
+
+Affected KPI paths:
+- executive dashboard summary
+- sales stream summary
+- sales summary
+- sales by branch
+- sales monthly trend
+- company monthly sales totals
+- sales decision pack

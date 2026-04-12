@@ -366,6 +366,21 @@
       border-radius: 999px;
       border: 1px solid #e5e7eb;
     }
+    .app-version-badge {
+      position: fixed;
+      left: 16px;
+      bottom: 44px;
+      z-index: 1100;
+      pointer-events: none;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .6px;
+      color: #4b5563;
+      background: rgba(255, 255, 255, 0.92);
+      padding: 4px 8px;
+      border-radius: 999px;
+      border: 1px solid #e5e7eb;
+    }
     .kpi-card-modern .delta {
       font-size: 12px;
       font-weight: 600;
@@ -504,6 +519,11 @@
       border-color: #334155 !important;
     }
     body[data-theme='dark'] .powered-by-cloudon {
+      background: rgba(15, 23, 42, 0.92);
+      border-color: #334155;
+      color: #cbd5e1;
+    }
+    body[data-theme='dark'] .app-version-badge {
       background: rgba(15, 23, 42, 0.92);
       border-color: #334155;
       color: #cbd5e1;
@@ -850,11 +870,16 @@
           <button class="icon-btn" id="fullscreenToggleBtn" type="button" title="{{ tt(request, 'full_screen') }}"><i class="fe fe-maximize"></i></button>
           <a class="btn btn-outline-secondary btn-sm" href="/set-language/{{ 'en' if _lang != 'en' else 'el' }}?next={{ request.url.path }}">{{ tt(request, 'lang_en') if _lang == 'en' else tt(request, 'lang_el') }}</a>
           <button class="btn btn-primary btn-sm" id="globalDateRangeBtn" type="button"><i class="fe fe-calendar"></i> {{ tt(request, 'search_by_date') }}</button>
-          <div class="sync-chip" title="{{ tenant_softone_last_sync_title if tenant_softone_last_sync_title is defined else 'Δεν έχει καταγραφεί ακόμη συγχρονισμός SoftOne' }}">
+          <div
+            class="sync-chip"
+            title="{{ tenant_softone_last_sync_title if tenant_softone_last_sync_title is defined else 'Δεν έχει καταγραφεί ακόμη συγχρονισμός' }}"
+            data-last-sync-chip
+            data-last-sync-iso="{{ tenant_softone_last_sync_iso if tenant_softone_last_sync_iso is defined and tenant_softone_last_sync_iso else '' }}"
+          >
             <i class="fe fe-refresh-cw"></i>
             <div>
-              <span class="sync-chip-label">SoftOne Sync</span>
-              <span class="sync-chip-value">{{ tenant_softone_last_sync_display if tenant_softone_last_sync_display is defined else 'Δεν υπάρχει ακόμη' }}</span>
+              <span class="sync-chip-label">Τελευταίος συγχρονισμός</span>
+              <span class="sync-chip-value" data-last-sync-value>{{ tenant_softone_last_sync_display if tenant_softone_last_sync_display is defined else 'Μη διαθέσιμο' }}</span>
             </div>
           </div>
           <div class="bv-profile-menu">
@@ -1614,6 +1639,36 @@
           return;
         }
       });
+
+      const lastSyncChip = document.querySelector('[data-last-sync-chip]');
+      const lastSyncValue = lastSyncChip?.querySelector('[data-last-sync-value]');
+      const lastSyncIso = (lastSyncChip?.dataset?.lastSyncIso || '').trim();
+      if (lastSyncChip && lastSyncValue && lastSyncIso) {
+        const parsed = new Date(lastSyncIso);
+        if (!Number.isNaN(parsed.getTime())) {
+          const locale = (document.documentElement.lang || 'el').toLowerCase().startsWith('en') ? 'en-GB' : 'el-GR';
+          const display = new Intl.DateTimeFormat(locale, {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false,
+          }).format(parsed);
+          const tooltip = new Intl.DateTimeFormat(locale, {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            hour12: false,
+          }).format(parsed);
+          lastSyncValue.textContent = display;
+          lastSyncChip.title = `Τελευταίος συγχρονισμός: ${tooltip}`;
+        }
+      }
+
       const observer = new MutationObserver((mutations) => {
         for (const m of mutations) {
           if (m.type === 'childList' && m.addedNodes && m.addedNodes.length) {
@@ -1629,6 +1684,7 @@
     });
   </script>
   {% block scripts %}{% endblock %}
+  <div class="app-version-badge">Version {{ app_version }}</div>
   <div class="powered-by-cloudon">{{ tt(request, 'powered_by') }}</div>
 </body>
 </html>
