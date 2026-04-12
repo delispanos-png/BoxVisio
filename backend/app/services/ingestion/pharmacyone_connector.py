@@ -12,6 +12,7 @@ from app.services.ingestion.base import (
 from app.services.sqlserver_connector import (
     DEFAULT_GENERIC_CASHFLOW_QUERY,
     DEFAULT_GENERIC_CUSTOMER_BALANCES_QUERY,
+    DEFAULT_GENERIC_EXPENSES_QUERY,
     DEFAULT_GENERIC_INVENTORY_QUERY,
     DEFAULT_GENERIC_PURCHASES_QUERY,
     DEFAULT_GENERIC_SALES_QUERY,
@@ -50,8 +51,10 @@ class PharmacyOneSqlConnector(Connector):
             query_template = mapped_query or DEFAULT_GENERIC_CASHFLOW_QUERY
         elif stream == 'supplier_balances':
             query_template = mapped_query or DEFAULT_GENERIC_SUPPLIER_BALANCES_QUERY
-        else:
+        elif stream == 'customer_balances':
             query_template = mapped_query or DEFAULT_GENERIC_CUSTOMER_BALANCES_QUERY
+        else:
+            query_template = mapped_query or DEFAULT_GENERIC_EXPENSES_QUERY
 
         rows = fetch_incremental_rows(
             connection_string=context.source_connection_string,
@@ -66,7 +69,7 @@ class PharmacyOneSqlConnector(Connector):
             retries=settings.ingest_job_max_retries,
             retry_sleep_sec=settings.sqlserver_retry_sleep_seconds,
         )
-        return list(rows)
+        return rows
 
 
 class GenericSqlConnector(PharmacyOneSqlConnector):

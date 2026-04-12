@@ -84,6 +84,10 @@
           {% endfor %}
         </select>
       </div>
+      <div class="col-xl-2 col-lg-3 col-md-6">
+        <label class="form-label">Company ID Scope</label>
+        <input class="form-control" name="company_id" placeholder="1001">
+      </div>
       <div class="col-xl-3 col-lg-4 col-md-6">
         <label class="form-label">{{ tt(request, 'access_from') if tt(request, 'access_from') != 'access_from' else 'Access from' }}</label>
         <input class="form-control" type="datetime-local" name="access_starts_at">
@@ -116,6 +120,7 @@
             <th>{{ tt(request, 'role') }}</th>
             <th>Προφίλ</th>
             <th>{{ tt(request, 'tenant') }}</th>
+            <th>Company Scope</th>
             <th>{{ tt(request, 'phone') if tt(request, 'phone') != 'phone' else 'Phone' }}</th>
             <th>{{ tt(request, 'access_from') if tt(request, 'access_from') != 'access_from' else 'Access From' }}</th>
             <th>{{ tt(request, 'access_until') if tt(request, 'access_until') != 'access_until' else 'Access Until' }}</th>
@@ -142,6 +147,7 @@
               {% endif %}
             </td>
             <td>{{ u.tenant_id or '-' }}</td>
+            <td>{{ u.company_id or '-' }}</td>
             <td>{{ u.phone or '-' }}</td>
             <td>{{ u.access_starts_at or '-' }}</td>
             <td>{{ u.access_expires_at or '-' }}</td>

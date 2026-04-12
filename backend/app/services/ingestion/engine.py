@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import date as date_cls, datetime
 from typing import Any
 
@@ -18,6 +19,7 @@ from app.models.tenant import (
     DimCategory,
     DimCustomer,
     DimDocumentType,
+    DimExpenseCategory,
     DimGroup,
     DimItem,
     DimPaymentMethod,
@@ -25,6 +27,7 @@ from app.models.tenant import (
     DimWarehouse,
     FactCashflow,
     FactCustomerBalance,
+    FactExpense,
     FactInventory,
     FactPurchases,
     FactSales,
@@ -32,6 +35,7 @@ from app.models.tenant import (
     IngestDeadLetter,
     StgCashTransaction,
     StgCustomerBalance,
+    StgExpenseDocument,
     StgInventoryDocument,
     StgPurchaseDocument,
     StgSalesDocument,
@@ -54,7 +58,10 @@ from app.services.ingestion.base import (
 from app.services.ingestion.external_api_connector import ExternalApiIngestConnector
 from app.services.ingestion.file_import_connector import FileImportConnector
 from app.services.ingestion.pharmacyone_connector import GenericSqlConnector, PharmacyOneSqlConnector
+from app.services.ingestion.progress import update_ingest_progress
 from app.services.rule_config import resolve_source_query_template
+
+logger = logging.getLogger(__name__)
 
 CONNECTORS = {
     'sql_connector': GenericSqlConnector(),
@@ -79,6 +86,7 @@ async def _load_connection_for_connector(
                 select(TenantConnection).where(
                     TenantConnection.tenant_id == tenant_id,
                     TenantConnection.connector_type.in_(SQL_CONNECTOR_ALIASES),
+                    TenantConnection.is_active.is_(True),
                 )
             )
         ).scalars().all()
@@ -90,6 +98,7 @@ async def _load_connection_for_connector(
             select(TenantConnection).where(
                 TenantConnection.tenant_id == tenant_id,
                 TenantConnection.connector_type == connector_type,
+                TenantConnection.is_active.is_(True),
             )
         )
     ).scalar_one_or_none()
@@ -115,7 +124,7 @@ def _default_supported_streams_for_connector(connector, connector_type: str) -> 
     if normalized:
         return normalized
     if connector_type == 'external_api':
-        return ['sales_documents', 'purchase_documents']
+        return list(ALL_OPERATIONAL_STREAMS)
     return list(ALL_OPERATIONAL_STREAMS)
 
 
@@ -317,6 +326,25 @@ def _sanitize_payload_json(payload: dict[str, Any]) -> dict[str, Any]:
     return {str(k): _json_primitive(v) for k, v in payload.items()}
 
 
+def _normalized_text_for_match(raw: Any) -> str:
+    return str(raw or '').strip().lower()
+
+
+def _inventory_financial_hint(document_type: str | None, document_series: str | None) -> bool | None:
+    txt = _normalized_text_for_match(f'{document_type or ""} {document_series or ""}')
+    if not txt:
+        return None
+
+    has_invoice = any(token in txt for token in ('τιμολ', 'τιμολογ', 'invoice'))
+    has_delivery = any(token in txt for token in ('δελτι', 'delivery', 'dispatch'))
+
+    if has_invoice and has_delivery:
+        return True
+    if has_delivery and not has_invoice:
+        return False
+    return None
+
+
 def _row_getter(row: dict[str, Any], field_mapping: dict[str, str] | None = None):
     lowered = {str(k).lower(): v for k, v in row.items()}
     compact = {str(k).lower().replace('_', ''): v for k, v in row.items()}
@@ -430,8 +458,25 @@ def _upsert_purchases_stmt(fact: dict):
             'brand_ext_id': ins.excluded.brand_ext_id,
             'category_ext_id': ins.excluded.category_ext_id,
             'group_ext_id': ins.excluded.group_ext_id,
+            'document_id': ins.excluded.document_id,
+            'document_no': ins.excluded.document_no,
+            'document_series': ins.excluded.document_series,
+            'document_type': ins.excluded.document_type,
+            'source_module_id': ins.excluded.source_module_id,
+            'redirect_module_id': ins.excluded.redirect_module_id,
+            'source_entity_id': ins.excluded.source_entity_id,
+            'object_id': ins.excluded.object_id,
+            'source_payload_json': ins.excluded.source_payload_json,
             'item_code': ins.excluded.item_code,
             'qty': ins.excluded.qty,
+            'discount1_pct': ins.excluded.discount1_pct,
+            'discount2_pct': ins.excluded.discount2_pct,
+            'discount3_pct': ins.excluded.discount3_pct,
+            'discount1_amount': ins.excluded.discount1_amount,
+            'discount2_amount': ins.excluded.discount2_amount,
+            'discount3_amount': ins.excluded.discount3_amount,
+            'discount_pct': ins.excluded.discount_pct,
+            'discount_amount': ins.excluded.discount_amount,
             'net_value': ins.excluded.net_value,
             'cost_amount': ins.excluded.cost_amount,
         },
@@ -442,9 +487,23 @@ def _upsert_inventory_stmt(fact: dict):
     payload = {
         'external_id': fact.get('external_id'),
         'doc_date': fact.get('doc_date'),
+        'event_id': fact.get('event_id'),
         'branch_id': fact.get('branch_id'),
+        'branch_ext_id': fact.get('branch_ext_id'),
         'item_id': fact.get('item_id'),
+        'item_code': fact.get('item_code'),
         'warehouse_id': fact.get('warehouse_id'),
+        'warehouse_ext_id': fact.get('warehouse_ext_id'),
+        'document_id': fact.get('document_id'),
+        'document_no': fact.get('document_no'),
+        'document_series': fact.get('document_series'),
+        'document_type': fact.get('document_type'),
+        'movement_type': fact.get('movement_type'),
+        'source_module_id': fact.get('source_module_id'),
+        'redirect_module_id': fact.get('redirect_module_id'),
+        'source_entity_id': fact.get('source_entity_id'),
+        'object_id': fact.get('object_id'),
+        'source_payload_json': fact.get('source_payload_json'),
         'source_connector_id': fact.get('source_connector_id'),
         'qty_on_hand': fact.get('qty_on_hand') or 0,
         'qty_reserved': fact.get('qty_reserved') or 0,
@@ -457,9 +516,23 @@ def _upsert_inventory_stmt(fact: dict):
         index_elements=['external_id'],
         set_={
             'doc_date': ins.excluded.doc_date,
+            'event_id': ins.excluded.event_id,
             'branch_id': ins.excluded.branch_id,
+            'branch_ext_id': ins.excluded.branch_ext_id,
             'item_id': ins.excluded.item_id,
+            'item_code': ins.excluded.item_code,
             'warehouse_id': ins.excluded.warehouse_id,
+            'warehouse_ext_id': ins.excluded.warehouse_ext_id,
+            'document_id': ins.excluded.document_id,
+            'document_no': ins.excluded.document_no,
+            'document_series': ins.excluded.document_series,
+            'document_type': ins.excluded.document_type,
+            'movement_type': ins.excluded.movement_type,
+            'source_module_id': ins.excluded.source_module_id,
+            'redirect_module_id': ins.excluded.redirect_module_id,
+            'source_entity_id': ins.excluded.source_entity_id,
+            'object_id': ins.excluded.object_id,
+            'source_payload_json': ins.excluded.source_payload_json,
             'source_connector_id': ins.excluded.source_connector_id,
             'qty_on_hand': ins.excluded.qty_on_hand,
             'qty_reserved': ins.excluded.qty_reserved,
@@ -604,6 +677,299 @@ def _upsert_customer_balance_stmt(fact: dict):
     )
 
 
+def _upsert_expense_stmt(fact: dict):
+    payload = {
+        'external_id': fact.get('external_id'),
+        'expense_date': fact.get('expense_date'),
+        'posting_date': fact.get('posting_date'),
+        'branch_id': fact.get('branch_id'),
+        'branch_ext_id': fact.get('branch_ext_id'),
+        'location_id': fact.get('location_id'),
+        'category_id': fact.get('category_id'),
+        'expense_category_code': fact.get('expense_category_code'),
+        'supplier_id': fact.get('supplier_id'),
+        'supplier_ext_id': fact.get('supplier_ext_id'),
+        'account_id': fact.get('account_id'),
+        'account_ext_id': fact.get('account_ext_id'),
+        'document_type': fact.get('document_type'),
+        'document_no': fact.get('document_no'),
+        'cost_center': fact.get('cost_center'),
+        'payment_status': fact.get('payment_status'),
+        'due_date': fact.get('due_date'),
+        'currency_code': fact.get('currency_code') or 'EUR',
+        'amount_net': fact.get('amount_net') or 0,
+        'amount_tax': fact.get('amount_tax') or 0,
+        'amount_gross': fact.get('amount_gross') or 0,
+        'source_connector_id': fact.get('source_connector_id'),
+        'updated_at': fact.get('updated_at'),
+    }
+    ins = insert(FactExpense).values(**payload)
+    return ins.on_conflict_do_update(
+        index_elements=['external_id'],
+        set_={
+            'expense_date': ins.excluded.expense_date,
+            'posting_date': ins.excluded.posting_date,
+            'branch_id': ins.excluded.branch_id,
+            'branch_ext_id': ins.excluded.branch_ext_id,
+            'location_id': ins.excluded.location_id,
+            'category_id': ins.excluded.category_id,
+            'expense_category_code': ins.excluded.expense_category_code,
+            'supplier_id': ins.excluded.supplier_id,
+            'supplier_ext_id': ins.excluded.supplier_ext_id,
+            'account_id': ins.excluded.account_id,
+            'account_ext_id': ins.excluded.account_ext_id,
+            'document_type': ins.excluded.document_type,
+            'document_no': ins.excluded.document_no,
+            'cost_center': ins.excluded.cost_center,
+            'payment_status': ins.excluded.payment_status,
+            'due_date': ins.excluded.due_date,
+            'currency_code': ins.excluded.currency_code,
+            'amount_net': ins.excluded.amount_net,
+            'amount_tax': ins.excluded.amount_tax,
+            'amount_gross': ins.excluded.amount_gross,
+            'source_connector_id': ins.excluded.source_connector_id,
+            'updated_at': ins.excluded.updated_at,
+        },
+    )
+
+
+def _build_fact_upsert_stmt(entity: str, facts: list[dict]):
+    if not facts:
+        return None
+
+    if entity == 'sales':
+        ins = insert(FactSales).values(facts)
+        return ins.on_conflict_do_update(
+            index_elements=['external_id'],
+            set_={
+                'doc_date': ins.excluded.doc_date,
+                'updated_at': ins.excluded.updated_at,
+                'branch_ext_id': ins.excluded.branch_ext_id,
+                'warehouse_ext_id': ins.excluded.warehouse_ext_id,
+                'brand_ext_id': ins.excluded.brand_ext_id,
+                'category_ext_id': ins.excluded.category_ext_id,
+                'group_ext_id': ins.excluded.group_ext_id,
+                'customer_id': ins.excluded.customer_id,
+                'source_connector_id': ins.excluded.source_connector_id,
+                'document_id': ins.excluded.document_id,
+                'document_no': ins.excluded.document_no,
+                'document_series': ins.excluded.document_series,
+                'document_type': ins.excluded.document_type,
+                'document_status': ins.excluded.document_status,
+                'eshop_code': ins.excluded.eshop_code,
+                'customer_code': ins.excluded.customer_code,
+                'customer_name': ins.excluded.customer_name,
+                'payment_method': ins.excluded.payment_method,
+                'shipping_method': ins.excluded.shipping_method,
+                'reason': ins.excluded.reason,
+                'origin_ref': ins.excluded.origin_ref,
+                'destination_ref': ins.excluded.destination_ref,
+                'delivery_address': ins.excluded.delivery_address,
+                'delivery_zip': ins.excluded.delivery_zip,
+                'delivery_city': ins.excluded.delivery_city,
+                'delivery_area': ins.excluded.delivery_area,
+                'movement_type': ins.excluded.movement_type,
+                'carrier_name': ins.excluded.carrier_name,
+                'transport_medium': ins.excluded.transport_medium,
+                'transport_no': ins.excluded.transport_no,
+                'route_name': ins.excluded.route_name,
+                'loading_date': ins.excluded.loading_date,
+                'delivery_date': ins.excluded.delivery_date,
+                'notes': ins.excluded.notes,
+                'notes_2': ins.excluded.notes_2,
+                'source_created_at': ins.excluded.source_created_at,
+                'source_created_by': ins.excluded.source_created_by,
+                'source_updated_at': ins.excluded.source_updated_at,
+                'source_updated_by': ins.excluded.source_updated_by,
+                'line_no': ins.excluded.line_no,
+                'qty_executed': ins.excluded.qty_executed,
+                'unit_price': ins.excluded.unit_price,
+                'discount_pct': ins.excluded.discount_pct,
+                'discount_amount': ins.excluded.discount_amount,
+                'vat_amount': ins.excluded.vat_amount,
+                'source_payload_json': ins.excluded.source_payload_json,
+                'item_code': ins.excluded.item_code,
+                'qty': ins.excluded.qty,
+                'net_value': ins.excluded.net_value,
+                'gross_value': ins.excluded.gross_value,
+                'cost_amount': ins.excluded.cost_amount,
+                'profit_amount': ins.excluded.profit_amount,
+            },
+        )
+
+    if entity == 'purchases':
+        ins = insert(FactPurchases).values(facts)
+        return ins.on_conflict_do_update(
+            index_elements=['external_id'],
+            set_={
+                'doc_date': ins.excluded.doc_date,
+                'updated_at': ins.excluded.updated_at,
+                'branch_ext_id': ins.excluded.branch_ext_id,
+                'source_connector_id': ins.excluded.source_connector_id,
+                'warehouse_ext_id': ins.excluded.warehouse_ext_id,
+                'supplier_ext_id': ins.excluded.supplier_ext_id,
+                'brand_ext_id': ins.excluded.brand_ext_id,
+                'category_ext_id': ins.excluded.category_ext_id,
+                'group_ext_id': ins.excluded.group_ext_id,
+                'document_id': ins.excluded.document_id,
+                'document_no': ins.excluded.document_no,
+                'document_series': ins.excluded.document_series,
+                'document_type': ins.excluded.document_type,
+                'source_module_id': ins.excluded.source_module_id,
+                'redirect_module_id': ins.excluded.redirect_module_id,
+                'source_entity_id': ins.excluded.source_entity_id,
+                'object_id': ins.excluded.object_id,
+                'source_payload_json': ins.excluded.source_payload_json,
+                'item_code': ins.excluded.item_code,
+                'qty': ins.excluded.qty,
+                'discount1_pct': ins.excluded.discount1_pct,
+                'discount2_pct': ins.excluded.discount2_pct,
+                'discount3_pct': ins.excluded.discount3_pct,
+                'discount1_amount': ins.excluded.discount1_amount,
+                'discount2_amount': ins.excluded.discount2_amount,
+                'discount3_amount': ins.excluded.discount3_amount,
+                'discount_pct': ins.excluded.discount_pct,
+                'discount_amount': ins.excluded.discount_amount,
+                'net_value': ins.excluded.net_value,
+                'cost_amount': ins.excluded.cost_amount,
+            },
+        )
+
+    if entity == 'inventory':
+        ins = insert(FactInventory).values(facts)
+        return ins.on_conflict_do_update(
+            index_elements=['external_id'],
+            set_={
+                'doc_date': ins.excluded.doc_date,
+                'event_id': ins.excluded.event_id,
+                'branch_id': ins.excluded.branch_id,
+                'branch_ext_id': ins.excluded.branch_ext_id,
+                'item_id': ins.excluded.item_id,
+                'item_code': ins.excluded.item_code,
+                'warehouse_id': ins.excluded.warehouse_id,
+                'warehouse_ext_id': ins.excluded.warehouse_ext_id,
+                'document_id': ins.excluded.document_id,
+                'document_no': ins.excluded.document_no,
+                'document_series': ins.excluded.document_series,
+                'document_type': ins.excluded.document_type,
+                'movement_type': ins.excluded.movement_type,
+                'source_module_id': ins.excluded.source_module_id,
+                'redirect_module_id': ins.excluded.redirect_module_id,
+                'source_entity_id': ins.excluded.source_entity_id,
+                'object_id': ins.excluded.object_id,
+                'source_payload_json': ins.excluded.source_payload_json,
+                'source_connector_id': ins.excluded.source_connector_id,
+                'qty_on_hand': ins.excluded.qty_on_hand,
+                'qty_reserved': ins.excluded.qty_reserved,
+                'cost_amount': ins.excluded.cost_amount,
+                'value_amount': ins.excluded.value_amount,
+                'updated_at': ins.excluded.updated_at,
+            },
+        )
+
+    if entity == 'cashflows':
+        ins = insert(FactCashflow).values(facts)
+        return ins.on_conflict_do_update(
+            index_elements=['external_id'],
+            set_={
+                'doc_date': ins.excluded.doc_date,
+                'transaction_id': ins.excluded.transaction_id,
+                'transaction_date': ins.excluded.transaction_date,
+                'branch_id': ins.excluded.branch_id,
+                'entry_type': ins.excluded.entry_type,
+                'transaction_type': ins.excluded.transaction_type,
+                'subcategory': ins.excluded.subcategory,
+                'account_id': ins.excluded.account_id,
+                'source_connector_id': ins.excluded.source_connector_id,
+                'counterparty_type': ins.excluded.counterparty_type,
+                'counterparty_id': ins.excluded.counterparty_id,
+                'amount': ins.excluded.amount,
+                'currency': ins.excluded.currency,
+                'reference_no': ins.excluded.reference_no,
+                'notes': ins.excluded.notes,
+                'updated_at': ins.excluded.updated_at,
+            },
+        )
+
+    if entity == 'supplier_balances':
+        ins = insert(FactSupplierBalance).values(facts)
+        return ins.on_conflict_do_update(
+            index_elements=['external_id'],
+            set_={
+                'supplier_id': ins.excluded.supplier_id,
+                'supplier_ext_id': ins.excluded.supplier_ext_id,
+                'balance_date': ins.excluded.balance_date,
+                'branch_id': ins.excluded.branch_id,
+                'branch_ext_id': ins.excluded.branch_ext_id,
+                'source_connector_id': ins.excluded.source_connector_id,
+                'open_balance': ins.excluded.open_balance,
+                'overdue_balance': ins.excluded.overdue_balance,
+                'aging_bucket_0_30': ins.excluded.aging_bucket_0_30,
+                'aging_bucket_31_60': ins.excluded.aging_bucket_31_60,
+                'aging_bucket_61_90': ins.excluded.aging_bucket_61_90,
+                'aging_bucket_90_plus': ins.excluded.aging_bucket_90_plus,
+                'last_payment_date': ins.excluded.last_payment_date,
+                'trend_vs_previous': ins.excluded.trend_vs_previous,
+                'currency': ins.excluded.currency,
+                'updated_at': ins.excluded.updated_at,
+            },
+        )
+
+    if entity == 'expenses':
+        ins = insert(FactExpense).values(facts)
+        return ins.on_conflict_do_update(
+            index_elements=['external_id'],
+            set_={
+                'expense_date': ins.excluded.expense_date,
+                'posting_date': ins.excluded.posting_date,
+                'branch_id': ins.excluded.branch_id,
+                'branch_ext_id': ins.excluded.branch_ext_id,
+                'location_id': ins.excluded.location_id,
+                'category_id': ins.excluded.category_id,
+                'expense_category_code': ins.excluded.expense_category_code,
+                'supplier_id': ins.excluded.supplier_id,
+                'supplier_ext_id': ins.excluded.supplier_ext_id,
+                'account_id': ins.excluded.account_id,
+                'account_ext_id': ins.excluded.account_ext_id,
+                'document_type': ins.excluded.document_type,
+                'document_no': ins.excluded.document_no,
+                'cost_center': ins.excluded.cost_center,
+                'payment_status': ins.excluded.payment_status,
+                'due_date': ins.excluded.due_date,
+                'currency_code': ins.excluded.currency_code,
+                'amount_net': ins.excluded.amount_net,
+                'amount_tax': ins.excluded.amount_tax,
+                'amount_gross': ins.excluded.amount_gross,
+                'source_connector_id': ins.excluded.source_connector_id,
+                'updated_at': ins.excluded.updated_at,
+            },
+        )
+
+    ins = insert(FactCustomerBalance).values(facts)
+    return ins.on_conflict_do_update(
+        index_elements=['external_id'],
+        set_={
+            'customer_ext_id': ins.excluded.customer_ext_id,
+            'customer_name': ins.excluded.customer_name,
+            'customer_id': ins.excluded.customer_id,
+            'balance_date': ins.excluded.balance_date,
+            'branch_id': ins.excluded.branch_id,
+            'branch_ext_id': ins.excluded.branch_ext_id,
+            'source_connector_id': ins.excluded.source_connector_id,
+            'open_balance': ins.excluded.open_balance,
+            'overdue_balance': ins.excluded.overdue_balance,
+            'aging_bucket_0_30': ins.excluded.aging_bucket_0_30,
+            'aging_bucket_31_60': ins.excluded.aging_bucket_31_60,
+            'aging_bucket_61_90': ins.excluded.aging_bucket_61_90,
+            'aging_bucket_90_plus': ins.excluded.aging_bucket_90_plus,
+            'last_collection_date': ins.excluded.last_collection_date,
+            'trend_vs_previous': ins.excluded.trend_vs_previous,
+            'currency': ins.excluded.currency,
+            'updated_at': ins.excluded.updated_at,
+        },
+    )
+
+
 STAGING_MODEL_BY_STREAM = {
     'sales_documents': StgSalesDocument,
     'purchase_documents': StgPurchaseDocument,
@@ -611,6 +977,7 @@ STAGING_MODEL_BY_STREAM = {
     'cash_transactions': StgCashTransaction,
     'supplier_balances': StgSupplierBalance,
     'customer_balances': StgCustomerBalance,
+    'operating_expenses': StgExpenseDocument,
 }
 
 
@@ -627,7 +994,9 @@ async def _stage_ingest_row(
     payload_json = _sanitize_payload_json(row)
     event_id = _as_optional_text(row.get('event_id'), 128)
     external_id = _as_optional_text(row.get('external_id'), 128) or event_id
-    doc_date = _as_optional_doc_date(row.get('doc_date') or row.get('document_date') or row.get('balance_date'))
+    doc_date = _as_optional_doc_date(
+        row.get('doc_date') or row.get('document_date') or row.get('balance_date') or row.get('expense_date')
+    )
 
     stmt = insert(model).values(
         connector_type=connector_type,
@@ -752,39 +1121,107 @@ def _upsert_document_type_dim_stmt(external_id: str, name: str, stream: str | No
     )
 
 
-async def _upsert_dims_from_row(tenant_db: AsyncSession, entity: str, row: dict[str, Any], fact: dict) -> None:
+def _seen_once(cache: dict[str, set[str]] | None, bucket: str, value: str | None) -> bool:
+    if cache is None:
+        return True
+    key = str(value or '').strip()
+    if not key:
+        return False
+    values = cache.setdefault(bucket, set())
+    if key in values:
+        return False
+    values.add(key)
+    return True
+
+
+async def _upsert_dims_from_row(
+    tenant_db: AsyncSession,
+    entity: str,
+    row: dict[str, Any],
+    fact: dict,
+    *,
+    dim_seen_cache: dict[str, set[str]] | None = None,
+) -> None:
     get = _row_getter(row)
 
     branch = fact.get('branch_ext_id')
-    if branch:
+    if branch and _seen_once(dim_seen_cache, 'branch', str(branch)):
         branch_name = str(get('branch_name') or branch)[:255]
         company_id = _as_optional_text(get('company_id', 'company_code', 'legal_entity_id', 'organization_id'), 64)
         await tenant_db.execute(_upsert_branch_dim_stmt(str(branch)[:64], branch_name, company_id=company_id))
     warehouse = fact.get('warehouse_ext_id')
-    if warehouse:
+    if warehouse and _seen_once(dim_seen_cache, 'warehouse', str(warehouse)):
         await tenant_db.execute(
             _upsert_dim_stmt(DimWarehouse, str(warehouse)[:64], str(get('warehouse_name') or warehouse)[:255])
         )
     brand = fact.get('brand_ext_id')
-    if brand:
+    if brand and _seen_once(dim_seen_cache, 'brand', str(brand)):
         await tenant_db.execute(_upsert_dim_stmt(DimBrand, str(brand)[:64], str(get('brand_name') or brand)[:255]))
     category = fact.get('category_ext_id')
-    if category:
+    if category and _seen_once(dim_seen_cache, 'category', str(category)):
         await tenant_db.execute(
             _upsert_dim_stmt(DimCategory, str(category)[:64], str(get('category_name') or category)[:255])
         )
+    expense_category = _as_optional_text(
+        get('expense_category_code', 'category_code', 'opex_category_code', 'expense_category_id'),
+        128,
+    ) or _as_optional_text(fact.get('expense_category_code'), 128)
+    if expense_category and _seen_once(dim_seen_cache, 'expense_category', str(expense_category)):
+        category_name = _as_optional_text(
+            get('expense_category_name', 'category_name', 'opex_category_name'),
+            255,
+        ) or expense_category
+        ins = insert(DimExpenseCategory).values(
+            external_id=_as_optional_text(get('expense_category_external_id', 'expense_category_id'), 128),
+            category_code=expense_category,
+            category_name=category_name,
+            level_no=_as_optional_int(get('expense_category_level', 'category_level', 'level_no')) or 1,
+            classification=_as_optional_text(get('classification', 'category_classification'), 32) or 'opex',
+            gl_account_code=_as_optional_text(get('gl_account_code', 'ledger_account_code', 'account_code'), 128),
+            is_active=_as_optional_bool(get('is_active', 'category_active', 'active')) is not False,
+        )
+        await tenant_db.execute(
+            ins.on_conflict_do_update(
+                index_elements=['category_code'],
+                set_={
+                    'updated_at': datetime.utcnow(),
+                    'category_name': func.coalesce(ins.excluded.category_name, DimExpenseCategory.category_name),
+                    'classification': func.coalesce(ins.excluded.classification, DimExpenseCategory.classification),
+                    'gl_account_code': func.coalesce(ins.excluded.gl_account_code, DimExpenseCategory.gl_account_code),
+                    'is_active': func.coalesce(ins.excluded.is_active, DimExpenseCategory.is_active),
+                },
+            )
+        )
     group = fact.get('group_ext_id')
-    if group:
+    if group and _seen_once(dim_seen_cache, 'group', str(group)):
         await tenant_db.execute(_upsert_dim_stmt(DimGroup, str(group)[:64], str(get('group_name') or group)[:255]))
     item = fact.get('item_code')
-    if item:
+    if item and _seen_once(dim_seen_cache, 'item', str(item)):
         item_external_id = str(item)[:128]
         item_barcode = _as_optional_text(
             get('barcode', 'item_barcode', 'barcode_code', 'ean', 'ean13'),
             128,
         )
         item_sku = _as_optional_text(get('sku', 'item_sku', 'stock_code', 'item_sku_code'), 128)
-        item_name = _as_optional_text(get('item_name', 'name', 'item_description', 'description'), 255) or str(item)[:255]
+        item_name = _as_optional_text(
+            get(
+                'item_name',
+                'name',
+                'item_description',
+                'description',
+                'item_desc',
+                'item_descr',
+                'item_title',
+                'product_name',
+                'product_description',
+                'mtrl_name',
+                'mtrl_descr',
+                'mtrl_description',
+                'title',
+                'descr',
+            ),
+            255,
+        )
 
         item_values = {
             'external_id': item_external_id,
@@ -851,7 +1288,13 @@ async def _upsert_dims_from_row(tenant_db: AsyncSession, entity: str, row: dict[
                     'updated_at': datetime.utcnow(),
                     'sku': func.coalesce(ins.excluded.sku, DimItem.sku),
                     'barcode': func.coalesce(ins.excluded.barcode, DimItem.barcode),
-                    'name': func.coalesce(ins.excluded.name, DimItem.name),
+                    'name': func.coalesce(
+                        func.nullif(
+                            func.nullif(func.btrim(ins.excluded.name), ''),
+                            ins.excluded.external_id,
+                        ),
+                        DimItem.name,
+                    ),
                     'main_unit': func.coalesce(ins.excluded.main_unit, DimItem.main_unit),
                     'vat_rate': func.coalesce(ins.excluded.vat_rate, DimItem.vat_rate),
                     'vat_label': func.coalesce(ins.excluded.vat_label, DimItem.vat_label),
@@ -878,9 +1321,9 @@ async def _upsert_dims_from_row(tenant_db: AsyncSession, entity: str, row: dict[
                 },
             )
         )
-    if entity in {'purchases', 'supplier_balances'}:
+    if entity in {'purchases', 'supplier_balances', 'expenses'}:
         supplier = fact.get('supplier_ext_id')
-        if supplier:
+        if supplier and _seen_once(dim_seen_cache, 'supplier', str(supplier)):
             await tenant_db.execute(
                 _upsert_dim_stmt(DimSupplier, str(supplier)[:64], str(get('supplier_name') or supplier)[:255])
             )
@@ -892,28 +1335,29 @@ async def _upsert_dims_from_row(tenant_db: AsyncSession, entity: str, row: dict[
     customer_name = _as_optional_text(get('customer_name', 'customer', 'customer_title'), 255)
     if customer_external or customer_name:
         customer_id = str(customer_external or customer_name)[:128]
-        customer_label = str(customer_name or customer_external)[:255]
-        ins = insert(DimCustomer).values(
-            external_id=customer_id,
-            customer_code=_as_optional_text(get('customer_code', 'customer_id'), 128) or customer_external,
-            name=customer_label,
-        )
-        await tenant_db.execute(
-            ins.on_conflict_do_update(
-                index_elements=['external_id'],
-                set_={
-                    'updated_at': datetime.utcnow(),
-                    'name': func.coalesce(ins.excluded.name, DimCustomer.name),
-                    'customer_code': func.coalesce(ins.excluded.customer_code, DimCustomer.customer_code),
-                },
+        if _seen_once(dim_seen_cache, 'customer', customer_id):
+            customer_label = str(customer_name or customer_external)[:255]
+            ins = insert(DimCustomer).values(
+                external_id=customer_id,
+                customer_code=_as_optional_text(get('customer_code', 'customer_id'), 128) or customer_external,
+                name=customer_label,
             )
-        )
+            await tenant_db.execute(
+                ins.on_conflict_do_update(
+                    index_elements=['external_id'],
+                    set_={
+                        'updated_at': datetime.utcnow(),
+                        'name': func.coalesce(ins.excluded.name, DimCustomer.name),
+                        'customer_code': func.coalesce(ins.excluded.customer_code, DimCustomer.customer_code),
+                    },
+                )
+            )
 
     document_type = _as_optional_text(
         get('document_type', 'doc_type', 'doctype', 'series', 'series_label'),
         128,
     ) or _as_optional_text(fact.get('document_type'), 128)
-    if document_type:
+    if document_type and _seen_once(dim_seen_cache, 'document_type', document_type):
         document_stream = _as_optional_text(get('stream', 'module', 'entity'), 64) or entity
         await tenant_db.execute(
             _upsert_document_type_dim_stmt(
@@ -927,7 +1371,7 @@ async def _upsert_dims_from_row(tenant_db: AsyncSession, entity: str, row: dict[
         get('payment_method', 'payment_method_name', 'payment_mode', 'pay_method'),
         128,
     ) or _as_optional_text(fact.get('payment_method'), 128)
-    if payment_method:
+    if payment_method and _seen_once(dim_seen_cache, 'payment_method', payment_method):
         await tenant_db.execute(
             _upsert_dim_stmt(DimPaymentMethod, payment_method[:128], payment_method[:255])
         )
@@ -937,7 +1381,7 @@ async def _upsert_dims_from_row(tenant_db: AsyncSession, entity: str, row: dict[
         128,
     ) or _as_optional_text(fact.get('account_id'), 128)
     account_name = _as_optional_text(get('account_name', 'cash_account_name', 'account_title'), 255)
-    if account_external:
+    if account_external and _seen_once(dim_seen_cache, 'account', account_external):
         await tenant_db.execute(
             _upsert_account_dim_stmt(
                 external_id=account_external[:128],
@@ -975,6 +1419,21 @@ async def _resolve_dim_id(tenant_db: AsyncSession, model, external_id: str | Non
         return None
     return (
         await tenant_db.execute(select(model.id).where(model.external_id == str(external_id)))
+    ).scalar_one_or_none()
+
+
+async def _resolve_expense_category_id(tenant_db: AsyncSession, category_code: str | None):
+    if not category_code:
+        return None
+    key = str(category_code).strip()
+    if not key:
+        return None
+    return (
+        await tenant_db.execute(
+            select(DimExpenseCategory.id).where(
+                (DimExpenseCategory.category_code == key) | (DimExpenseCategory.external_id == key)
+            )
+        )
     ).scalar_one_or_none()
 
 
@@ -1040,6 +1499,11 @@ async def _build_context(
         cashflow_query=(connection.cashflow_query_template if connection else None),
         supplier_balances_query=(connection.supplier_balances_query_template if connection else None),
         customer_balances_query=(connection.customer_balances_query_template if connection else None),
+        expenses_query=(
+            str(configured_query_mapping.get('operating_expenses') or '').strip()
+            if isinstance(configured_query_mapping, dict)
+            else None
+        ) or None,
     )
 
     fallback_query_by_stream: dict[OperationalIngestStream, str] = {
@@ -1049,6 +1513,7 @@ async def _build_context(
         'cash_transactions': context.stream_query_mapping.get('cash_transactions') or context.cashflow_query or '',
         'supplier_balances': context.stream_query_mapping.get('supplier_balances') or context.supplier_balances_query or '',
         'customer_balances': context.stream_query_mapping.get('customer_balances') or context.customer_balances_query or '',
+        'operating_expenses': context.stream_query_mapping.get('operating_expenses') or context.expenses_query or '',
     }
     stream_enum_lookup: dict[OperationalIngestStream, OperationalStream] = {
         'sales_documents': OperationalStream.sales_documents,
@@ -1059,12 +1524,16 @@ async def _build_context(
         'customer_balances': OperationalStream.customer_balances,
     }
     for stream in ALL_OPERATIONAL_STREAMS:
-        resolved = await resolve_source_query_template(
-            control_db,
-            tenant_id=tenant_id,
-            stream=stream_enum_lookup[stream],
-            fallback_query_template=fallback_query_by_stream.get(stream, ''),
-        )
+        stream_enum = stream_enum_lookup.get(stream)
+        if stream_enum is None:
+            resolved = fallback_query_by_stream.get(stream, '') or ''
+        else:
+            resolved = await resolve_source_query_template(
+                control_db,
+                tenant_id=tenant_id,
+                stream=stream_enum,
+                fallback_query_template=fallback_query_by_stream.get(stream, ''),
+            )
         if resolved.strip():
             context.stream_query_mapping[stream] = resolved
 
@@ -1078,6 +1547,7 @@ async def _build_context(
     context.customer_balances_query = (
         context.stream_query_mapping.get('customer_balances') or context.customer_balances_query
     )
+    context.expenses_query = context.stream_query_mapping.get('operating_expenses') or context.expenses_query
     return context
 
 
@@ -1115,6 +1585,13 @@ def _build_fact(
         qty = _as_float(get(context.qty_column, 'qty', 'quantity'))
         net = _as_float(get(context.amount_column, 'net_value', 'net_amount', 'amount'))
         cost = _as_float(get(context.cost_column, 'cost_amount', 'cost_value'))
+        source_module_id = _as_optional_int(get('source_module_id', 'sosource', 'module_id', 'source_module'))
+        redirect_module_id = _as_optional_int(get('redirect_module_id', 'soredir', 'redirect_module'))
+        source_entity_id = _as_optional_int(get('source_entity_id', 'sodtype', 'entity_type_id'))
+        object_id = _as_optional_int(get('object_id', 'refobjid', 'objectid'))
+        if object_id is None and source_module_id is not None:
+            object_id = int(source_module_id) + int(redirect_module_id or 0)
+
         base = {
             'external_id': external_id,
             'event_id': str(get('event_id') or external_id)[:128],
@@ -1260,17 +1737,125 @@ def _build_fact(
             base['gross_value'] = gross
             base['profit_amount'] = gross - cost
         else:
-            base['supplier_ext_id'] = str(supplier_ext)[:64] if supplier_ext is not None else None
+            purchase_document_id = _as_optional_text(
+                get(
+                    'document_id',
+                    'doc_id',
+                    'purchase_document_id',
+                    'invoice_id',
+                    'voucher_id',
+                    'header_id',
+                    'document_external_id',
+                    'document_no',
+                    'document_number',
+                ),
+                128,
+            )
+            purchase_document_no = _as_optional_text(
+                get('document_no', 'document_number', 'doc_no', 'voucher_no', 'invoice_no', 'reference_no'),
+                128,
+            )
+            purchase_document_id = purchase_document_id or purchase_document_no or external_id
+            discount_pct = _as_optional_float(
+                get('discount_pct', 'discount_percent', 'disc_pct', 'line_discount_pct')
+            )
+            discount_amount = _as_optional_float(
+                get('discount_amount', 'discount_value', 'disc_amount', 'line_discount', 'line_discount_amount')
+            )
+            discount1_pct = _as_optional_float(get('discount1_pct', 'disc1prc', 'discount_1_pct'))
+            discount2_pct = _as_optional_float(get('discount2_pct', 'disc2prc', 'discount_2_pct'))
+            discount3_pct = _as_optional_float(get('discount3_pct', 'disc3prc', 'discount_3_pct'))
+            discount1_amount = _as_optional_float(get('discount1_amount', 'disc1val', 'discount_1_amount'))
+            discount2_amount = _as_optional_float(get('discount2_amount', 'disc2val', 'discount_2_amount'))
+            discount3_amount = _as_optional_float(get('discount3_amount', 'disc3val', 'discount_3_amount'))
+            base.update(
+                {
+                    'supplier_ext_id': str(supplier_ext)[:64] if supplier_ext is not None else None,
+                    'document_id': purchase_document_id,
+                    'document_no': purchase_document_no or purchase_document_id,
+                    'document_series': _as_optional_text(
+                        get('series', 'document_series', 'doc_series', 'document_series_name'),
+                        128,
+                    ),
+                    'document_type': _as_optional_text(
+                        get('document_type', 'doc_type', 'type_name', 'voucher_type', 'document_series_name'),
+                        128,
+                    ),
+                    'source_module_id': source_module_id,
+                    'redirect_module_id': redirect_module_id,
+                    'source_entity_id': source_entity_id,
+                    'object_id': object_id,
+                    'discount1_pct': discount1_pct,
+                    'discount2_pct': discount2_pct,
+                    'discount3_pct': discount3_pct,
+                    'discount1_amount': discount1_amount,
+                    'discount2_amount': discount2_amount,
+                    'discount3_amount': discount3_amount,
+                    'discount_pct': discount_pct,
+                    'discount_amount': discount_amount,
+                    'source_payload_json': _sanitize_payload_json(row),
+                }
+            )
         return base, incremental_val
 
     if entity == 'inventory':
+        source_module_id = _as_optional_int(get('source_module_id', 'sosource', 'module_id', 'source_module'))
+        redirect_module_id = _as_optional_int(get('redirect_module_id', 'soredir', 'redirect_module'))
+        source_entity_id = _as_optional_int(get('source_entity_id', 'sodtype', 'entity_type_id'))
+        object_id = _as_optional_int(get('object_id', 'refobjid', 'objectid'))
+        if object_id is None and source_module_id is not None:
+            object_id = int(source_module_id) + int(redirect_module_id or 0)
+
+        document_id = _as_optional_text(
+            get(
+                'document_id',
+                'doc_id',
+                'movement_id',
+                'header_id',
+                'document_external_id',
+                'document_no',
+                'document_number',
+            ),
+            128,
+        )
+        document_no = _as_optional_text(
+            get('document_no', 'document_number', 'doc_no', 'voucher_no', 'invoice_no', 'reference_no'),
+            128,
+        )
+        document_series = _as_optional_text(
+            get('series', 'document_series', 'doc_series', 'document_series_name'),
+            128,
+        )
+        document_type = _as_optional_text(
+            get('document_type', 'doc_type', 'type_name', 'voucher_type', 'document_series_name'),
+            128,
+        )
+        movement_type = _as_optional_text(get('movement_type', 'movement', 'movement_kind', 'transaction_type'), 64)
+        event_id = _as_optional_text(get('event_id', 'movement_id', 'line_id'), 128) or external_id
+        document_id = document_id or document_no or event_id
+
+        is_financial_doc = _as_optional_bool(get('is_financial_doc', 'financial_doc', 'affects_financials'))
+        if is_financial_doc is None:
+            is_financial_doc = _inventory_financial_hint(document_type, document_series)
+
         qty_on_hand = _as_float(get('qty_on_hand', context.qty_column, 'qty', 'quantity'))
         qty_reserved = _as_float(get('qty_reserved', 'reserved_qty'))
         cost_amount = _as_float(get('cost_amount', context.cost_column, 'cost_value'))
         value_amount = _as_float(get('value_amount', context.amount_column, 'net_value', 'net_amount'))
+        financial_value_amount = _as_optional_float(
+            get('financial_value_amount', 'value_financial', 'financial_impact_value', 'expense_value')
+        )
+
+        if financial_value_amount is not None:
+            value_amount = financial_value_amount
+        if is_financial_doc is False:
+            value_amount = 0.0
+            cost_amount = 0.0
+
         return (
             {
                 'external_id': external_id,
+                'event_id': event_id,
                 'doc_date': doc_date,
                 'updated_at': updated_at,
                 'branch_ext_id': str(branch_ext)[:64] if branch_ext is not None else None,
@@ -1279,6 +1864,16 @@ def _build_fact(
                 'branch_id': None,
                 'warehouse_id': None,
                 'item_id': None,
+                'document_id': document_id,
+                'document_no': document_no or document_id,
+                'document_series': document_series,
+                'document_type': document_type,
+                'movement_type': movement_type,
+                'source_module_id': source_module_id,
+                'redirect_module_id': redirect_module_id,
+                'source_entity_id': source_entity_id,
+                'object_id': object_id,
+                'source_payload_json': _sanitize_payload_json(row),
                 'qty_on_hand': qty_on_hand,
                 'qty_reserved': qty_reserved,
                 'cost_amount': cost_amount,
@@ -1365,6 +1960,57 @@ def _build_fact(
             incremental_val,
         )
 
+    if entity == 'expenses':
+        expense_date = _as_doc_date(
+            get('expense_date', 'doc_date', 'document_date', context.date_column, 'updated_at') or incremental_val
+        )
+        posting_date = _as_optional_doc_date(get('posting_date', 'posted_date', 'accounting_date'))
+        due_date = _as_optional_doc_date(get('due_date', 'payment_due_date'))
+        amount_net = _as_float(get(context.amount_column, 'amount_net', 'net_amount', 'amount'))
+        amount_gross = _as_float(get('amount_gross', 'gross_amount'))
+        amount_tax = _as_optional_float(get('amount_tax', 'tax_amount', 'vat_amount'))
+        if amount_tax is None:
+            amount_tax = max(0.0, amount_gross - amount_net)
+        supplier_ext = _as_optional_text(
+            get('supplier_ext_id', 'supplier_external_id', 'supplier_code', 'supplier_id'),
+            64,
+        )
+        account_ext = _as_optional_text(
+            get('account_id', 'account_external_id', 'account_code', 'ledger_account'),
+            128,
+        )
+        expense_category_code = _as_optional_text(
+            get('expense_category_code', 'category_code', 'opex_category_code', 'expense_category_id'),
+            128,
+        )
+        return (
+            {
+                'external_id': external_id,
+                'expense_date': expense_date,
+                'posting_date': posting_date,
+                'updated_at': updated_at,
+                'branch_id': None,
+                'branch_ext_id': str(branch_ext)[:64] if branch_ext is not None else None,
+                'location_id': None,
+                'category_id': None,
+                'expense_category_code': expense_category_code,
+                'supplier_id': None,
+                'supplier_ext_id': supplier_ext,
+                'account_id': None,
+                'account_ext_id': account_ext,
+                'document_type': _as_optional_text(get('document_type', 'doc_type', 'type_name'), 128),
+                'document_no': _as_optional_text(get('document_no', 'document_number', 'doc_no'), 128),
+                'cost_center': _as_optional_text(get('cost_center', 'cost_center_code', 'department_code'), 128),
+                'payment_status': _as_optional_text(get('payment_status', 'status'), 32),
+                'due_date': due_date,
+                'currency_code': str(get('currency', 'currency_code') or 'EUR').upper()[:3],
+                'amount_net': amount_net,
+                'amount_tax': amount_tax or 0.0,
+                'amount_gross': amount_gross,
+            },
+            incremental_val,
+        )
+
     amount = _as_float(get('amount', context.amount_column, 'net_amount', 'net_value'))
     entry_type = str(get('entry_type', 'cash_subcategory', 'transaction_type') or 'unknown').strip().lower()[:32]
     transaction_type = _as_optional_text(get('transaction_type', 'type', 'entry_type', 'cashflow_type'), 64)
@@ -1423,11 +2069,27 @@ async def process_job(job: dict[str, Any]) -> dict[str, Any]:
         raise RuntimeError(f"Unsupported ingest stream/entity: stream={job.get('stream')} entity={job.get('entity')}")
     entity = STREAM_TO_ENTITY[stream]
     payload = job.get('payload') or {}
+    fast_backfill_mode = bool(payload.get('backfill'))
+    bulk_fact_mode = (
+        fast_backfill_mode
+        and connector_type in SQL_CONNECTOR_ALIASES
+        and entity in {'sales', 'purchases', 'inventory'}
+    )
 
     connector = CONNECTORS.get(connector_type)
     if connector is None:
         raise RuntimeError(f'Unknown connector: {connector_type}')
 
+    tenant_id: int | None = None
+    tenant_key: str | None = None
+    tenant_db_name: str | None = None
+    tenant_db_user: str | None = None
+    tenant_db_password: str | None = None
+    connection_id: int | None = None
+    context: ConnectorContext | None = None
+
+    # Load control metadata in a short-lived session so long-running fetch/ingest
+    # does not keep the control DB connection open.
     async with ControlSessionLocal() as control_db:
         tenant = (await control_db.execute(select(Tenant).where(Tenant.slug == tenant_slug))).scalar_one_or_none()
         if not tenant:
@@ -1443,66 +2105,144 @@ async def process_job(job: dict[str, Any]) -> dict[str, Any]:
         if source_type == 'sql' and connector_type in SQL_CONNECTOR_ALIASES and not connection:
             raise RuntimeError(f'No SQL Server mapping found for tenant {tenant_slug}')
 
-        async for tenant_db in get_tenant_db_session(
-            tenant_key=str(tenant.id),
-            db_name=tenant.db_name,
-            db_user=tenant.db_user,
-            db_password=tenant.db_password,
-        ):
-            context = await _build_context(
-                control_db,
-                tenant_id=tenant.id,
-                connector_type=connector_type,
-                connector=connector,
-                connection=connection,
-            )
-            context.tenant_slug = tenant_slug
-            if not context.stream_enabled(stream):
-                return {
-                    'status': 'skipped',
-                    'tenant': tenant_slug,
-                    'connector': connector_type,
-                    'stream': stream,
-                    'entity': entity,
-                    'reason': 'stream_disabled',
-                }
+        context = await _build_context(
+            control_db,
+            tenant_id=tenant.id,
+            connector_type=connector_type,
+            connector=connector,
+            connection=connection,
+        )
+        context.tenant_slug = tenant_slug
 
-            sync_key = f'{connector_type}_{stream}'
-            legacy_sync_key = f'{connector_type}_{entity}'
-            sync_state = await _load_sync_state(
+        tenant_id = int(tenant.id)
+        tenant_key = str(tenant.id)
+        tenant_db_name = str(tenant.db_name)
+        tenant_db_user = str(tenant.db_user)
+        tenant_db_password = str(tenant.db_password)
+        if connection is not None and getattr(connection, 'id', None) is not None:
+            connection_id = int(connection.id)
+
+    if context is None or tenant_key is None or tenant_db_name is None or tenant_db_user is None or tenant_db_password is None:
+        raise RuntimeError(f'Invalid ingest context for tenant: {tenant_slug}')
+
+    if not context.stream_enabled(stream):
+        return {
+            'status': 'skipped',
+            'tenant': tenant_slug,
+            'connector': connector_type,
+            'stream': stream,
+            'entity': entity,
+            'reason': 'stream_disabled',
+        }
+
+    sync_key = f'{connector_type}_{stream}'
+    legacy_sync_key = f'{connector_type}_{entity}'
+    ignore_sync_state = bool(payload.get('ignore_sync_state'))
+
+    # Read sync cursor in a short-lived tenant DB session, then call the external
+    # endpoint without holding an asyncpg connection open.
+    initial_last_ts = None
+    initial_last_id = None
+    if not ignore_sync_state:
+        async for tenant_db in get_tenant_db_session(
+            tenant_key=tenant_key,
+            db_name=tenant_db_name,
+            db_user=tenant_db_user,
+            db_password=tenant_db_password,
+        ):
+            seed_state = await _load_sync_state(
                 tenant_db,
                 connector_key=sync_key,
                 legacy_connector_key=legacy_sync_key if legacy_sync_key != sync_key else None,
             )
-            ignore_sync_state = bool(payload.get('ignore_sync_state'))
-            inc_state = IncrementalState(
-                last_sync_timestamp=None if ignore_sync_state else sync_state.last_sync_timestamp,
-                last_sync_id=None if ignore_sync_state else sync_state.last_sync_id,
-            )
+            initial_last_ts = seed_state.last_sync_timestamp
+            initial_last_id = seed_state.last_sync_id
+            await tenant_db.commit()
 
-            rows = connector.fetch_rows(stream=stream, entity=entity, context=context, state=inc_state, payload=payload)
+    inc_state = IncrementalState(
+        last_sync_timestamp=None if ignore_sync_state else initial_last_ts,
+        last_sync_id=None if ignore_sync_state else initial_last_id,
+    )
+    rows = connector.fetch_rows(stream=stream, entity=entity, context=context, state=inc_state, payload=payload)
 
-            processed = 0
+    processed = 0
+    heartbeat_every_rows = 250
+    commit_every_rows = 1000
+    fact_batch_size = 500 if bulk_fact_mode else 1
+    last_ts = None if ignore_sync_state else initial_last_ts
+    last_id = None if ignore_sync_state else initial_last_id
+    min_doc_date = None
+    max_doc_date = None
+    dim_id_cache: dict[tuple[str, str], Any] = {}
+    expense_category_cache: dict[str, Any] = {}
+
+    async def _resolve_dim_id_cached(model, external_id: str | None):
+        if not external_id:
+            return None
+        key = (str(getattr(model, '__name__', 'dim')), str(external_id))
+        if key in dim_id_cache:
+            return dim_id_cache[key]
+        value = await _resolve_dim_id(tenant_db, model, external_id)
+        dim_id_cache[key] = value
+        return value
+
+    async def _resolve_expense_category_id_cached(category_code: str | None):
+        if not category_code:
+            return None
+        key = str(category_code).strip()
+        if not key:
+            return None
+        if key in expense_category_cache:
+            return expense_category_cache[key]
+        value = await _resolve_expense_category_id(tenant_db, key)
+        expense_category_cache[key] = value
+        return value
+
+    async for tenant_db in get_tenant_db_session(
+        tenant_key=tenant_key,
+        db_name=tenant_db_name,
+        db_user=tenant_db_user,
+        db_password=tenant_db_password,
+    ):
+        sync_state = await _load_sync_state(
+            tenant_db,
+            connector_key=sync_key,
+            legacy_connector_key=legacy_sync_key if legacy_sync_key != sync_key else None,
+        )
+        if not ignore_sync_state and last_ts is None and last_id is None:
             last_ts = sync_state.last_sync_timestamp
             last_id = sync_state.last_sync_id
-            min_doc_date = None
-            max_doc_date = None
 
-            for row in rows:
-                if connector_type == 'external_api':
-                    raw_event_id = str(row.get('event_id') or row.get('external_id') or '')[:128]
-                    if raw_event_id:
-                        staging_stmt = (
-                            insert(StagingIngestEvent)
-                            .values(
-                                entity=entity,
-                                event_id=raw_event_id,
-                                payload_json=json.dumps(row, default=str),
-                            )
-                            .on_conflict_do_nothing(index_elements=['event_id', 'entity'])
+        fact_batch: list[dict[str, Any]] = []
+        dim_seen_cache: dict[str, set[str]] | None = {} if bulk_fact_mode else None
+        rows_since_commit = 0
+
+        async def _flush_fact_batch() -> None:
+            nonlocal fact_batch
+            if not fact_batch:
+                return
+            stmt = _build_fact_upsert_stmt(entity, fact_batch)
+            if stmt is not None:
+                await tenant_db.execute(stmt)
+            fact_batch = []
+
+        for row in rows:
+            if connector_type == 'external_api':
+                raw_event_id = str(row.get('event_id') or row.get('external_id') or '')[:128]
+                if raw_event_id:
+                    staging_stmt = (
+                        insert(StagingIngestEvent)
+                        .values(
+                            entity=entity,
+                            event_id=raw_event_id,
+                            payload_json=json.dumps(row, default=str),
                         )
-                        await tenant_db.execute(staging_stmt)
+                        .on_conflict_do_nothing(index_elements=['event_id', 'entity'])
+                    )
+                    await tenant_db.execute(staging_stmt)
 
+            stage_id = None
+            if not bulk_fact_mode:
                 stage_id = await _stage_ingest_row(
                     tenant_db,
                     connector_type=connector_type,
@@ -1511,76 +2251,128 @@ async def process_job(job: dict[str, Any]) -> dict[str, Any]:
                 )
                 if stage_id is None:
                     raise RuntimeError(f'Row rejected: stream={stream} has no persisted staging id')
-                try:
-                    fact, incremental_val = _build_fact(
-                        entity,
-                        row,
-                        context,
-                        default_prefix=entity[:1].upper(),
-                        stream=stream,
-                    )
-                    fact['source_connector_id'] = str(connector_type)[:64]
-                    await _upsert_dims_from_row(tenant_db, entity, row, fact)
-                    if entity == 'sales':
-                        fact['branch_id'] = await _resolve_dim_id(tenant_db, DimBranch, fact.get('branch_ext_id'))
-                        fact['warehouse_id'] = await _resolve_dim_id(tenant_db, DimWarehouse, fact.get('warehouse_ext_id'))
-                        fact['item_id'] = await _resolve_dim_id(tenant_db, DimItem, fact.get('item_code'))
-                        fact['customer_id'] = await _resolve_dim_id(tenant_db, DimCustomer, fact.get('customer_code'))
-                        stmt = _upsert_sales_stmt(fact)
-                    elif entity == 'purchases':
-                        fact['branch_id'] = await _resolve_dim_id(tenant_db, DimBranch, fact.get('branch_ext_id'))
-                        fact['warehouse_id'] = await _resolve_dim_id(tenant_db, DimWarehouse, fact.get('warehouse_ext_id'))
-                        fact['supplier_id'] = await _resolve_dim_id(tenant_db, DimSupplier, fact.get('supplier_ext_id'))
-                        fact['item_id'] = await _resolve_dim_id(tenant_db, DimItem, fact.get('item_code'))
-                        stmt = _upsert_purchases_stmt(fact)
-                    elif entity == 'inventory':
-                        fact['branch_id'] = await _resolve_dim_id(tenant_db, DimBranch, fact.get('branch_ext_id'))
-                        fact['warehouse_id'] = await _resolve_dim_id(tenant_db, DimWarehouse, fact.get('warehouse_ext_id'))
-                        fact['item_id'] = await _resolve_dim_id(tenant_db, DimItem, fact.get('item_code'))
-                        stmt = _upsert_inventory_stmt(fact)
-                    elif entity == 'cashflows':
-                        fact['branch_id'] = await _resolve_dim_id(tenant_db, DimBranch, fact.get('branch_ext_id'))
-                        stmt = _upsert_cashflow_stmt(fact)
-                    elif entity == 'supplier_balances':
-                        fact['supplier_id'] = await _resolve_dim_id(tenant_db, DimSupplier, fact.get('supplier_ext_id'))
-                        fact['branch_id'] = await _resolve_dim_id(tenant_db, DimBranch, fact.get('branch_ext_id'))
-                        stmt = _upsert_supplier_balance_stmt(fact)
-                    else:
-                        fact['branch_id'] = await _resolve_dim_id(tenant_db, DimBranch, fact.get('branch_ext_id'))
-                        fact['customer_id'] = await _resolve_dim_id(tenant_db, DimCustomer, fact.get('customer_ext_id'))
-                        stmt = _upsert_customer_balance_stmt(fact)
+            try:
+                fact, incremental_val = _build_fact(
+                    entity,
+                    row,
+                    context,
+                    default_prefix=entity[:1].upper(),
+                    stream=stream,
+                )
+                fact['source_connector_id'] = str(connector_type)[:64]
+                await _upsert_dims_from_row(tenant_db, entity, row, fact, dim_seen_cache=dim_seen_cache)
+                if entity == 'sales':
+                    if not fast_backfill_mode:
+                        fact['branch_id'] = await _resolve_dim_id_cached(DimBranch, fact.get('branch_ext_id'))
+                        fact['warehouse_id'] = await _resolve_dim_id_cached(DimWarehouse, fact.get('warehouse_ext_id'))
+                        fact['item_id'] = await _resolve_dim_id_cached(DimItem, fact.get('item_code'))
+                        fact['customer_id'] = await _resolve_dim_id_cached(DimCustomer, fact.get('customer_code'))
+                    stmt = _upsert_sales_stmt(fact)
+                elif entity == 'purchases':
+                    if not fast_backfill_mode:
+                        fact['branch_id'] = await _resolve_dim_id_cached(DimBranch, fact.get('branch_ext_id'))
+                        fact['warehouse_id'] = await _resolve_dim_id_cached(DimWarehouse, fact.get('warehouse_ext_id'))
+                        fact['supplier_id'] = await _resolve_dim_id_cached(DimSupplier, fact.get('supplier_ext_id'))
+                        fact['item_id'] = await _resolve_dim_id_cached(DimItem, fact.get('item_code'))
+                    stmt = _upsert_purchases_stmt(fact)
+                elif entity == 'inventory':
+                    if not fast_backfill_mode:
+                        fact['branch_id'] = await _resolve_dim_id_cached(DimBranch, fact.get('branch_ext_id'))
+                        fact['warehouse_id'] = await _resolve_dim_id_cached(DimWarehouse, fact.get('warehouse_ext_id'))
+                        fact['item_id'] = await _resolve_dim_id_cached(DimItem, fact.get('item_code'))
+                    stmt = _upsert_inventory_stmt(fact)
+                elif entity == 'cashflows':
+                    if not fast_backfill_mode:
+                        fact['branch_id'] = await _resolve_dim_id_cached(DimBranch, fact.get('branch_ext_id'))
+                    stmt = _upsert_cashflow_stmt(fact)
+                elif entity == 'supplier_balances':
+                    if not fast_backfill_mode:
+                        fact['supplier_id'] = await _resolve_dim_id_cached(DimSupplier, fact.get('supplier_ext_id'))
+                        fact['branch_id'] = await _resolve_dim_id_cached(DimBranch, fact.get('branch_ext_id'))
+                    stmt = _upsert_supplier_balance_stmt(fact)
+                elif entity == 'expenses':
+                    if not fast_backfill_mode:
+                        fact['branch_id'] = await _resolve_dim_id_cached(DimBranch, fact.get('branch_ext_id'))
+                        fact['category_id'] = await _resolve_expense_category_id_cached(fact.get('expense_category_code'))
+                        fact['supplier_id'] = await _resolve_dim_id_cached(DimSupplier, fact.get('supplier_ext_id'))
+                        fact['account_id'] = await _resolve_dim_id_cached(DimAccount, fact.get('account_ext_id'))
+                    stmt = _upsert_expense_stmt(fact)
+                else:
+                    if not fast_backfill_mode:
+                        fact['branch_id'] = await _resolve_dim_id_cached(DimBranch, fact.get('branch_ext_id'))
+                        fact['customer_id'] = await _resolve_dim_id_cached(DimCustomer, fact.get('customer_ext_id'))
+                    stmt = _upsert_customer_balance_stmt(fact)
+
+                if bulk_fact_mode:
+                    fact_batch.append(fact)
+                    if len(fact_batch) >= fact_batch_size:
+                        await _flush_fact_batch()
+                else:
                     await tenant_db.execute(stmt)
                     await _mark_staging_row_processed(tenant_db, stream=stream, stage_id=stage_id)
-                except Exception as row_exc:
+            except Exception as row_exc:
+                if not bulk_fact_mode:
                     await _mark_staging_row_failed(
                         tenant_db,
                         stream=stream,
                         stage_id=stage_id,
                         error_message=str(row_exc),
                     )
-                    raise
+                raise
 
-                last_ts, last_id = _update_incremental_state(last_ts, last_id, incremental_val)
-                doc_date = fact.get('doc_date')
-                if doc_date is not None:
-                    if min_doc_date is None or doc_date < min_doc_date:
-                        min_doc_date = doc_date
-                    if max_doc_date is None or doc_date > max_doc_date:
-                        max_doc_date = doc_date
-                processed += 1
+            last_ts, last_id = _update_incremental_state(last_ts, last_id, incremental_val)
+            doc_date = fact.get('doc_date')
+            if doc_date is not None:
+                if min_doc_date is None or doc_date < min_doc_date:
+                    min_doc_date = doc_date
+                if max_doc_date is None or doc_date > max_doc_date:
+                    max_doc_date = doc_date
+            processed += 1
+            rows_since_commit += 1
 
-            sync_state.last_sync_timestamp = last_ts
-            sync_state.last_sync_id = last_id
-            if hasattr(sync_state, 'stream_code'):
-                sync_state.stream_code = str(stream)
-            if hasattr(sync_state, 'source_connector_id'):
-                sync_state.source_connector_id = str(connector_type)[:64]
-            if connection is not None:
-                connection.last_sync_at = last_ts or datetime.utcnow()
-                connection.sync_status = 'ok'
+            if rows_since_commit >= commit_every_rows:
+                await _flush_fact_batch()
+                sync_state.last_sync_timestamp = last_ts
+                sync_state.last_sync_id = last_id
+                if hasattr(sync_state, 'stream_code'):
+                    sync_state.stream_code = str(stream)
+                if hasattr(sync_state, 'source_connector_id'):
+                    sync_state.source_connector_id = str(connector_type)[:64]
+                await tenant_db.commit()
+                update_ingest_progress(tenant_slug, status='running')
+                rows_since_commit = 0
+            elif processed % heartbeat_every_rows == 0:
+                update_ingest_progress(tenant_slug, status='running')
 
-            await tenant_db.commit()
-        await control_db.commit()
+        await _flush_fact_batch()
+        sync_state.last_sync_timestamp = last_ts
+        sync_state.last_sync_id = last_id
+        if hasattr(sync_state, 'stream_code'):
+            sync_state.stream_code = str(stream)
+        if hasattr(sync_state, 'source_connector_id'):
+            sync_state.source_connector_id = str(connector_type)[:64]
+
+        await tenant_db.commit()
+
+    if connection_id is not None:
+        async with ControlSessionLocal() as control_db:
+            connection_row = (
+                await control_db.execute(select(TenantConnection).where(TenantConnection.id == connection_id))
+            ).scalar_one_or_none()
+            if connection_row is not None:
+                connection_row.last_sync_at = last_ts or datetime.utcnow()
+                connection_row.sync_status = 'ok'
+                try:
+                    await control_db.commit()
+                except Exception as control_commit_exc:
+                    await control_db.rollback()
+                    logger.warning(
+                        'ingestion_control_commit_failed tenant=%s connector=%s stream=%s',
+                        tenant_slug,
+                        connector_type,
+                        stream,
+                        exc_info=control_commit_exc,
+                    )
 
     return {
         'status': 'ok',

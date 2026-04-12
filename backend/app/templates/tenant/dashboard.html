@@ -767,7 +767,8 @@ function renderTrend(monthly){
   const labels=['Ιαν', 'Φεβ', 'Μαρ', 'Απρ', 'Μαϊ', 'Ιουν', 'Ιουλ', 'Αυγ', 'Σεπ', 'Οκτ', 'Νοε', 'Δεκ'];
   const datasets = [];
   (monthly||[]).forEach((entry, idx) => {
-    const values = new Array(12).fill(0);
+    // Keep missing months as null so the chart does not draw false zero values.
+    const values = new Array(12).fill(null);
     (entry.rows || []).forEach((row) => {
       const d = new Date(row.month_start);
       const monthIdx = Number.isFinite(d.getMonth()) ? d.getMonth() : null;

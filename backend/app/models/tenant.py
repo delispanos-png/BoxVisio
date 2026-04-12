@@ -54,6 +54,38 @@ class DimCategory(TenantBase):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
 
+class DimExpenseCategory(TenantBase):
+    __tablename__ = 'dim_expense_categories'
+    __table_args__ = (
+        UniqueConstraint('category_code', name='uq_dim_expense_categories_category_code'),
+        Index('ix_dim_expense_categories_external_id', 'external_id'),
+        Index('ix_dim_expense_categories_category_name', 'category_name'),
+        Index('ix_dim_expense_categories_parent_category_id', 'parent_category_id'),
+    )
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, server_default=text('gen_random_uuid()'))
+    external_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    category_code: Mapped[str] = mapped_column(String(128), nullable=False)
+    category_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    parent_category_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey('dim_expense_categories.id'),
+        nullable=True,
+    )
+    level_no: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    classification: Mapped[str] = mapped_column(String(32), nullable=False, default='opex', index=True)
+    gl_account_code: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False,
+        index=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
 class DimGroup(TenantBase):
     __tablename__ = 'dim_groups'
 
@@ -261,6 +293,8 @@ class FactPurchases(TenantBase):
         Index('ix_fact_purchases_doc_date_branch_id', 'doc_date', 'branch_id'),
         Index('ix_fact_purchases_doc_date_supplier_id', 'doc_date', 'supplier_id'),
         Index('ix_fact_purchases_branch_supplier_doc_date', 'branch_id', 'supplier_id', 'doc_date'),
+        Index('ix_fact_purchases_document_id_doc_date', 'document_id', 'doc_date'),
+        Index('ix_fact_purchases_document_no', 'document_no'),
     )
 
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, server_default=text('gen_random_uuid()'))
@@ -282,10 +316,27 @@ class FactPurchases(TenantBase):
     brand_ext_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     category_ext_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     group_ext_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    document_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    document_no: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    document_series: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    document_type: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    source_module_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    redirect_module_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    source_entity_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    object_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    source_payload_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     item_code: Mapped[str | None] = mapped_column(String(128), nullable=True)
     source_connector_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     qty: Mapped[float] = mapped_column(Numeric(18, 4), default=0)
+    discount1_pct: Mapped[float | None] = mapped_column(Numeric(10, 4), nullable=True)
+    discount2_pct: Mapped[float | None] = mapped_column(Numeric(10, 4), nullable=True)
+    discount3_pct: Mapped[float | None] = mapped_column(Numeric(10, 4), nullable=True)
+    discount1_amount: Mapped[float | None] = mapped_column(Numeric(14, 2), nullable=True)
+    discount2_amount: Mapped[float | None] = mapped_column(Numeric(14, 2), nullable=True)
+    discount3_amount: Mapped[float | None] = mapped_column(Numeric(14, 2), nullable=True)
+    discount_pct: Mapped[float | None] = mapped_column(Numeric(10, 4), nullable=True)
+    discount_amount: Mapped[float | None] = mapped_column(Numeric(14, 2), nullable=True)
     net_value: Mapped[float] = mapped_column(Numeric(14, 2), default=0)
     cost_amount: Mapped[float] = mapped_column(Numeric(14, 2), default=0)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
@@ -299,6 +350,7 @@ class FactInventory(TenantBase):
         Index('ix_fact_inventory_doc_date_branch_id', 'doc_date', 'branch_id'),
         Index('ix_fact_inventory_item_id_doc_date', 'item_id', 'doc_date'),
         Index('ix_fact_inventory_warehouse_id_doc_date', 'warehouse_id', 'doc_date'),
+        Index('ix_fact_inventory_document_id_doc_date', 'document_id', 'doc_date'),
     )
 
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, server_default=text('gen_random_uuid()'))
@@ -307,6 +359,20 @@ class FactInventory(TenantBase):
     branch_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey('dim_branches.id'), nullable=True, index=True)
     item_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey('dim_items.id'), nullable=True)
     warehouse_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey('dim_warehouses.id'), nullable=True)
+    event_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    branch_ext_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    warehouse_ext_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    item_code: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    document_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    document_no: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    document_series: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    document_type: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    movement_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    source_module_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    redirect_module_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    source_entity_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    object_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    source_payload_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     source_connector_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     qty_on_hand: Mapped[float] = mapped_column(Numeric(18, 4), default=0)
     qty_reserved: Mapped[float] = mapped_column(Numeric(18, 4), default=0)
@@ -416,6 +482,52 @@ class FactCustomerBalance(TenantBase):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
 
+class FactExpense(TenantBase):
+    __tablename__ = 'fact_expenses'
+    __table_args__ = (
+        UniqueConstraint('external_id', name='uq_fact_expenses_external_id'),
+        Index('ix_fact_expenses_expense_date', 'expense_date'),
+        Index('ix_fact_expenses_expense_date_branch_id', 'expense_date', 'branch_id'),
+        Index('ix_fact_expenses_expense_date_category_id', 'expense_date', 'category_id'),
+        Index('ix_fact_expenses_expense_date_supplier_id', 'expense_date', 'supplier_id'),
+        Index('ix_fact_expenses_expense_date_account_id', 'expense_date', 'account_id'),
+        Index('ix_fact_expenses_branch_category_expense_date', 'branch_id', 'category_id', 'expense_date'),
+        Index('ix_fact_expenses_source_connector_id', 'source_connector_id'),
+        Index('ix_fact_expenses_updated_at', 'updated_at'),
+    )
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, server_default=text('gen_random_uuid()'))
+    external_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    expense_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    posting_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    branch_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey('dim_branches.id'), nullable=True, index=True)
+    branch_ext_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    location_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
+    category_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey('dim_expense_categories.id'),
+        nullable=True,
+        index=True,
+    )
+    expense_category_code: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    supplier_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey('dim_suppliers.id'), nullable=True, index=True)
+    supplier_ext_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    account_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey('dim_accounts.id'), nullable=True, index=True)
+    account_ext_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    document_type: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    document_no: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    cost_center: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    payment_status: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    due_date: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
+    currency_code: Mapped[str] = mapped_column(String(3), nullable=False, default='EUR')
+    amount_net: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False, default=0)
+    amount_tax: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False, default=0)
+    amount_gross: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False, default=0)
+    source_connector_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
 class AggCashDaily(TenantBase):
     __tablename__ = 'agg_cash_daily'
     __table_args__ = (
@@ -510,6 +622,100 @@ class AggCustomerBalancesDaily(TenantBase):
     aging_bucket_90_plus: Mapped[float] = mapped_column(Numeric(14, 2), default=0)
     trend_vs_previous: Mapped[float] = mapped_column(Numeric(14, 2), default=0)
     customers: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class AggExpensesDaily(TenantBase):
+    __tablename__ = 'agg_expenses_daily'
+    __table_args__ = (
+        UniqueConstraint(
+            'expense_date',
+            'branch_ext_id',
+            'expense_category_code',
+            'supplier_ext_id',
+            'account_ext_id',
+            name='uq_agg_expenses_daily_dims',
+        ),
+        Index('ix_agg_expenses_daily_date_branch', 'expense_date', 'branch_ext_id'),
+        Index('ix_agg_expenses_daily_date_category', 'expense_date', 'expense_category_code'),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    expense_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    branch_ext_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    expense_category_code: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    supplier_ext_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    account_ext_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    amount_net: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False, default=0)
+    amount_tax: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False, default=0)
+    amount_gross: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False, default=0)
+    entries: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class AggExpensesMonthly(TenantBase):
+    __tablename__ = 'agg_expenses_monthly'
+    __table_args__ = (
+        UniqueConstraint(
+            'month_start',
+            'branch_ext_id',
+            'expense_category_code',
+            'supplier_ext_id',
+            'account_ext_id',
+            name='uq_agg_expenses_monthly_dims',
+        ),
+        Index('ix_agg_expenses_monthly_month_branch', 'month_start', 'branch_ext_id'),
+        Index('ix_agg_expenses_monthly_month_category', 'month_start', 'expense_category_code'),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    month_start: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    branch_ext_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    expense_category_code: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    supplier_ext_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    account_ext_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    amount_net: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False, default=0)
+    amount_tax: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False, default=0)
+    amount_gross: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False, default=0)
+    entries: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class AggExpensesByCategoryDaily(TenantBase):
+    __tablename__ = 'agg_expenses_by_category_daily'
+    __table_args__ = (
+        UniqueConstraint('expense_date', 'expense_category_code', name='uq_agg_expenses_by_category_daily_dims'),
+        Index('ix_agg_expenses_by_category_daily_date', 'expense_date'),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    expense_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    expense_category_code: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    amount_net: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False, default=0)
+    amount_tax: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False, default=0)
+    amount_gross: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False, default=0)
+    entries: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class AggExpensesByBranchDaily(TenantBase):
+    __tablename__ = 'agg_expenses_by_branch_daily'
+    __table_args__ = (
+        UniqueConstraint('expense_date', 'branch_ext_id', name='uq_agg_expenses_by_branch_daily_dims'),
+        Index('ix_agg_expenses_by_branch_daily_date_branch', 'expense_date', 'branch_ext_id'),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    expense_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    branch_ext_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    amount_net: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False, default=0)
+    amount_tax: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False, default=0)
+    amount_gross: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False, default=0)
+    entries: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
@@ -641,6 +847,27 @@ class StgCustomerBalance(TenantBase):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     connector_type: Mapped[str] = mapped_column(String(64), nullable=False)
     stream: Mapped[str] = mapped_column(String(64), nullable=False, default='customer_balances')
+    event_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    external_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    doc_date: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
+    transform_status: Mapped[str] = mapped_column(String(16), nullable=False, default='loaded')
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_payload_json: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    ingested_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class StgExpenseDocument(TenantBase):
+    __tablename__ = 'stg_expense_documents'
+    __table_args__ = (
+        Index('ix_stg_expense_documents_ingested_at', 'ingested_at'),
+        Index('ix_stg_expense_documents_connector_external', 'connector_type', 'external_id'),
+        Index('ix_stg_expense_documents_status', 'transform_status'),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    connector_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    stream: Mapped[str] = mapped_column(String(64), nullable=False, default='operating_expenses')
     event_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     external_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     doc_date: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)

@@ -51,6 +51,19 @@
 </div>
 
 <div class="card content-card mb-3">
+  <div class="card-header"><h6 class="mb-0">Νέο: SoftOne Sync</h6></div>
+  <div class="card-body">
+    <p class="mb-2">
+      Επάνω δεξιά στο tenant portal θα βλέπεις πλέον την ένδειξη <strong>SoftOne Sync</strong>.
+      Αυτή δείχνει την τελευταία ημερομηνία και ώρα που το BI συγχρονίστηκε με το SoftOne του tenant.
+    </p>
+    <div class="um-check">
+      Αν βλέπεις δεδομένα που μοιάζουν παλιά, έλεγξε πρώτα αυτή την ένδειξη πριν προχωρήσεις σε έλεγχο KPI.
+    </div>
+  </div>
+</div>
+
+<div class="card content-card mb-3">
   <div class="card-header"><h6 class="mb-0">Γρήγορη Πλοήγηση Μαθημάτων</h6></div>
   <div class="card-body">
     <div class="row g-2 um-nav-grid">
@@ -65,6 +78,7 @@
       <div class="col-md-6 col-xl-4"><a class="btn btn-outline-secondary w-100" href="#purchases-analytics">Μάθημα 9: Αναλύσεις Αγορών</a></div>
       <div class="col-md-6 col-xl-4"><a class="btn btn-outline-secondary w-100" href="#inventory-analytics">Μάθημα 10: Αναλύσεις Αποθέματος</a></div>
       <div class="col-md-6 col-xl-4"><a class="btn btn-outline-secondary w-100" href="#warehouse-items">Μάθημα 11: Είδη Αποθήκης</a></div>
+      <div class="col-md-6 col-xl-4"><a class="btn btn-outline-secondary w-100" href="#operating-expenses">Μάθημα 12: Λειτουργικά Έξοδα</a></div>
     </div>
   </div>
 </div>
@@ -237,7 +251,28 @@
 <div class="card content-card" id="warehouse-items">
   <div class="card-header"><h6 class="mb-0">Μάθημα 11: Είδη Αποθήκης</h6></div>
   <div class="card-body">
-    <p class="mb-0">Σελίδα: <code>/tenant/items</code>. Χρησιμοποίησε αναζήτηση και φίλτρα για να εντοπίσεις γρήγορα κρίσιμα είδη.</p>
+    <p>Σελίδα: <code>/tenant/items</code>. Χρησιμοποίησε αναζήτηση και φίλτρα για να εντοπίσεις γρήγορα κρίσιμα είδη.</p>
+    <div class="um-check">
+      Τα status ειδών χωρίζονται σε <strong>Ταχυκίνητο</strong>, <strong>Κανονική κινητικότητα</strong> και
+      <strong>Αργοκίνητο</strong>. Το <strong>Ενεργό/Ανενεργό</strong> μπορεί να έρχεται είτε από SoftOne είτε
+      από τη λογική του BI ανά tenant.
+    </div>
+  </div>
+</div>
+
+<div class="card content-card mt-3" id="operating-expenses">
+  <div class="card-header"><h6 class="mb-0">Μάθημα 12: Λειτουργικά Έξοδα</h6></div>
+  <div class="card-body">
+    <p class="mb-2">Σελίδα: <code>/tenant/operating-expenses</code>.</p>
+    <ol class="mb-2">
+      <li>Όρισε περίοδο αναζήτησης.</li>
+      <li>Έλεγξε τα βασικά KPI εξόδων.</li>
+      <li>Κατέβα στον πίνακα για να δεις τα παραστατικά που επηρεάζουν το αποτέλεσμα.</li>
+      <li>Σύγκρινε περιόδους για να βρεις από πού αυξήθηκαν τα λειτουργικά κόστη.</li>
+    </ol>
+    <div class="alert alert-info mb-0">
+      Χρησιμοποίησε αυτή τη σελίδα για έξοδα που δεν ανήκουν στον κύριο κύκλο αγορών εμπορευμάτων.
+    </div>
   </div>
 </div>
 {% endblock %}

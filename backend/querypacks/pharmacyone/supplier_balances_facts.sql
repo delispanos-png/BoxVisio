@@ -1,25 +1,58 @@
 SELECT
-  CAST(sb.SupplierCode AS nvarchar(64)) AS supplier_id,
-  CAST(sb.BalanceDate AS date) AS balance_date,
-  CAST(sb.BranchCode AS nvarchar(64)) AS branch_external_id,
-  CAST(sb.OpenBalance AS decimal(14,2)) AS open_balance,
-  CAST(sb.OverdueBalance AS decimal(14,2)) AS overdue_balance,
-  CAST(sb.AgingBucket0_30 AS decimal(14,2)) AS aging_bucket_0_30,
-  CAST(sb.AgingBucket31_60 AS decimal(14,2)) AS aging_bucket_31_60,
-  CAST(sb.AgingBucket61_90 AS decimal(14,2)) AS aging_bucket_61_90,
-  CAST(sb.AgingBucket90Plus AS decimal(14,2)) AS aging_bucket_90_plus,
-  CAST(sb.LastPaymentDate AS date) AS last_payment_date,
-  CAST(sb.TrendVsPrevious AS decimal(14,2)) AS trend_vs_previous,
-  CAST(sb.Currency AS nvarchar(3)) AS currency,
-  CAST(sb.SnapshotId AS nvarchar(128)) AS external_id,
-  CAST(sb.UpdatedAt AS datetime2) AS updated_at
-FROM dbo.SupplierBalances sb
+  CAST(ISNULL(T.CODE, F.TRDR) AS nvarchar(64)) AS supplier_id,
+  CAST(COALESCE(CAST(@to_date AS date), CAST(GETDATE() AS date)) AS date) AS balance_date,
+  CAST(COALESCE(CAST(@to_date AS date), CAST(GETDATE() AS date)) AS date) AS doc_date,
+  CAST(CAST(ISNULL(F.COMPANY, 0) AS nvarchar(32)) + ':' + CAST(ISNULL(F.BRANCH, 0) AS nvarchar(32)) AS nvarchar(64)) AS branch_external_id,
+  CAST(SUM(
+    CASE
+      WHEN F.SOSOURCE IN (1251, 1253, 1261, 1653) THEN ABS(ISNULL(F.SUMAMNT, 0))
+      WHEN F.SOSOURCE IN (1281, 1412, 1416) THEN -ABS(ISNULL(F.SUMAMNT, 0))
+      ELSE ISNULL(F.SUMAMNT, 0)
+    END
+  ) AS decimal(18,4)) AS open_balance,
+  CAST(SUM(
+    CASE
+      WHEN DATEDIFF(day, ISNULL(F.DUEDATE, F.TRNDATE), GETDATE()) > 0
+       AND (
+        CASE
+          WHEN F.SOSOURCE IN (1251, 1253, 1261, 1653) THEN ABS(ISNULL(F.SUMAMNT, 0))
+          WHEN F.SOSOURCE IN (1281, 1412, 1416) THEN -ABS(ISNULL(F.SUMAMNT, 0))
+          ELSE ISNULL(F.SUMAMNT, 0)
+        END
+       ) > 0
+      THEN
+        CASE
+          WHEN F.SOSOURCE IN (1251, 1253, 1261, 1653) THEN ABS(ISNULL(F.SUMAMNT, 0))
+          WHEN F.SOSOURCE IN (1281, 1412, 1416) THEN -ABS(ISNULL(F.SUMAMNT, 0))
+          ELSE ISNULL(F.SUMAMNT, 0)
+        END
+      ELSE 0
+    END
+  ) AS decimal(18,4)) AS overdue_balance,
+  CAST(SUM(CASE WHEN DATEDIFF(day, ISNULL(F.DUEDATE, F.TRNDATE), GETDATE()) BETWEEN 0 AND 30 THEN CASE WHEN F.SOSOURCE IN (1251, 1253, 1261, 1653) THEN ABS(ISNULL(F.SUMAMNT, 0)) ELSE 0 END ELSE 0 END) AS decimal(18,4)) AS aging_bucket_0_30,
+  CAST(SUM(CASE WHEN DATEDIFF(day, ISNULL(F.DUEDATE, F.TRNDATE), GETDATE()) BETWEEN 31 AND 60 THEN CASE WHEN F.SOSOURCE IN (1251, 1253, 1261, 1653) THEN ABS(ISNULL(F.SUMAMNT, 0)) ELSE 0 END ELSE 0 END) AS decimal(18,4)) AS aging_bucket_31_60,
+  CAST(SUM(CASE WHEN DATEDIFF(day, ISNULL(F.DUEDATE, F.TRNDATE), GETDATE()) BETWEEN 61 AND 90 THEN CASE WHEN F.SOSOURCE IN (1251, 1253, 1261, 1653) THEN ABS(ISNULL(F.SUMAMNT, 0)) ELSE 0 END ELSE 0 END) AS decimal(18,4)) AS aging_bucket_61_90,
+  CAST(SUM(CASE WHEN DATEDIFF(day, ISNULL(F.DUEDATE, F.TRNDATE), GETDATE()) > 90 THEN CASE WHEN F.SOSOURCE IN (1251, 1253, 1261, 1653) THEN ABS(ISNULL(F.SUMAMNT, 0)) ELSE 0 END ELSE 0 END) AS decimal(18,4)) AS aging_bucket_90_plus,
+  CAST(MAX(CASE WHEN F.SOSOURCE IN (1281, 1412, 1416) THEN F.TRNDATE ELSE NULL END) AS date) AS last_payment_date,
+  CAST(0 AS decimal(18,4)) AS trend_vs_previous,
+  CAST('EUR' AS nvarchar(3)) AS currency,
+  CAST('SB|' + CAST(ISNULL(T.CODE, F.TRDR) AS nvarchar(64)) + '|' + CAST(ISNULL(F.COMPANY, 0) AS nvarchar(32)) + ':' + CAST(ISNULL(F.BRANCH, 0) AS nvarchar(32)) + '|' + CONVERT(varchar(10), COALESCE(CAST(@to_date AS date), CAST(GETDATE() AS date)), 23) AS nvarchar(128)) AS external_id,
+  CAST(MAX(ISNULL(F.UPDDATE, F.TRNDATE)) AS datetime2) AS updated_at,
+
+  CAST(ISNULL(T.CODE, F.TRDR) AS nvarchar(64)) AS supplier_ext_id,
+  CAST(ISNULL(T.NAME, '') AS nvarchar(255)) AS supplier_name,
+  CAST(MAX(ISNULL(BR.NAME, CAST(F.BRANCH AS nvarchar(255)))) AS nvarchar(255)) AS branch_name,
+  CAST(MAX(F.BRANCH) AS nvarchar(64)) AS branch_code,
+  CAST(MAX(F.COMPANY) AS nvarchar(64)) AS company_id
+FROM FINDOC F
+LEFT JOIN TRDR T ON T.TRDR = F.TRDR AND T.COMPANY = F.COMPANY
+LEFT JOIN BRANCH BR ON BR.BRANCH = F.BRANCH AND BR.COMPANY = F.COMPANY
 WHERE
-  (@from_date IS NULL OR sb.BalanceDate >= @from_date)
-  AND (@to_date IS NULL OR sb.BalanceDate <= @to_date)
-  AND (
-    @last_sync_ts IS NULL
-    OR sb.UpdatedAt > @last_sync_ts
-    OR (sb.UpdatedAt = @last_sync_ts AND CAST(sb.SnapshotId AS nvarchar(128)) > @last_sync_id)
-  )
-ORDER BY sb.UpdatedAt ASC, CAST(sb.SnapshotId AS nvarchar(128)) ASC;
+  F.SODTYPE = 12
+  AND F.SOSOURCE IN (1251, 1253, 1261, 1281, 1412, 1416)
+  AND (@to_date IS NULL OR F.TRNDATE < DATEADD(day, 1, @to_date))
+GROUP BY
+  ISNULL(T.CODE, F.TRDR),
+  ISNULL(T.NAME, ''),
+  ISNULL(F.COMPANY, 0),
+  ISNULL(F.BRANCH, 0)

@@ -32,6 +32,9 @@ Detailed field specs:
 - [DATA_STRUCTURE_CUSTOMER_BALANCES.md](/opt/cloudon-bi/DATA_STRUCTURE_CUSTOMER_BALANCES.md)
 - [INTEGRATION_EXAMPLES.md](/opt/cloudon-bi/INTEGRATION_EXAMPLES.md)
 
+SoftOne custom bridge (no browser-list dependency):
+- [SOFTONE_BI_BRIDGE_TECHNICAL_MANUAL.md](/opt/cloudon-bi/integrations/softone/SOFTONE_BI_BRIDGE_TECHNICAL_MANUAL.md)
+
 ## 5) Sales Minimal Required Payload
 ```json
 {

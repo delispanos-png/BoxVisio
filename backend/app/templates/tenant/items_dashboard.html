@@ -22,7 +22,7 @@
     <select class="form-select" id="itMovement">
       <option value="all">{{ tt(request, 'all') }}</option>
       <option value="fast">{{ tt(request, 'fast_items') }}</option>
-      <option value="normal">{{ tt(request, 'normal') }}</option>
+      <option value="normal">Κανονική Κίνηση</option>
       <option value="slow">{{ tt(request, 'slow_items') }}</option>
     </select>
   </div>
@@ -99,6 +99,7 @@
 
 {% block content %}
 <div id="itemsError" class="alert alert-danger d-none mb-3"></div>
+<div id="itemsScopeInfo" class="alert alert-warning d-none mb-3"></div>
 <style>
   .items-footer {
     border-top: 1px solid #e5e7eb;
@@ -761,6 +762,20 @@
     document.getElementById('itStockValue').textContent = fmtMoney(s.stock_value || 0);
   }
 
+  function renderScopeInfo(scope){
+    const el = document.getElementById('itemsScopeInfo');
+    if(!el) return;
+    const branches = Array.isArray(scope?.allowed_branches) ? scope.allowed_branches.filter(Boolean) : [];
+    if(!branches.length){
+      el.classList.add('d-none');
+      el.textContent = '';
+      return;
+    }
+    const companyTxt = scope?.company_id ? ` εταιρείας ${scope.company_id}` : '';
+    el.textContent = `Εφαρμόζεται περιορισμός${companyTxt}: ${branches.length} branch(es) στο scope (${branches.join(', ')}).`;
+    el.classList.remove('d-none');
+  }
+
   function renderRows(rows){
     const tbody = document.querySelector('#itemsTable tbody');
     tbody.innerHTML='';
@@ -772,7 +787,7 @@
       const statusBadge = r.status === 'active'
         ? '<span class="badge bg-success">{{ tt(request, "active") }}</span>'
         : '<span class="badge bg-secondary">{{ tt(request, "inactive") }}</span>';
-      let movementBadge = '<span class="badge bg-info">{{ tt(request, "normal") }}</span>';
+      let movementBadge = '<span class="badge bg-info">Κανονική Κίνηση</span>';
       if(r.movement === 'fast') movementBadge = '<span class="badge bg-primary">{{ tt(request, "fast_items") }}</span>';
       if(r.movement === 'slow') movementBadge = '<span class="badge bg-warning text-dark">{{ tt(request, "slow_items") }}</span>';
       const tr = document.createElement('tr');
@@ -808,7 +823,7 @@
   function movementLabel(code){
     if(code === 'fast') return '{{ tt(request, "fast_items") }}';
     if(code === 'slow') return '{{ tt(request, "slow_items") }}';
-    return '{{ tt(request, "normal") }}';
+    return 'Κανονική Κίνηση';
   }
 
   function statusLabel(code){
@@ -1300,12 +1315,14 @@
         itemsOffset = Math.max(0, (Math.ceil(itemsTotal / itemsLimit) - 1) * itemsLimit);
         return await load();
       }
+      renderScopeInfo(data.scope || null);
       renderSummary(data.summary || {});
       renderRows(rows);
       renderFastChart(rows);
       updatePagination(rows.length);
     }catch(e){
       setError(e.message || '{{ tt(request, "load_failed") }}');
+      renderScopeInfo(null);
       itemsTotal = 0;
       renderRows([]);
       updatePagination(0);

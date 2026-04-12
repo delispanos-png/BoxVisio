@@ -44,8 +44,9 @@ from app.services.sqlserver_connector import (
 )
 from app.services.connection_secrets import build_odbc_connection_string, encrypt_sqlserver_secret, SqlServerSecret
 from app.services.ingestion import enqueue_tenant_job
-from app.services.ingestion.base import ALL_OPERATIONAL_STREAMS, STREAM_TO_ENTITY, normalize_stream_values
+from app.services.ingestion.base import ALL_OPERATIONAL_STREAMS, STREAM_TO_ENTITY, normalize_stream_name, normalize_stream_values
 from app.services.ingestion.engine import CONNECTORS
+from app.services.ingestion.sync_planner import plan_tenant_sync_jobs
 from app.services.subscriptions import get_or_create_subscription, infer_default_features_for_plan, sync_tenant_from_subscription
 from app.services.provisioning_wizard import run_tenant_provisioning_wizard
 from app.services.querypacks import apply_querypack_to_connection, load_querypack
@@ -72,6 +73,7 @@ class TenantWizardRequest(BaseModel):
 class ConnectionCreateRequest(BaseModel):
     tenant_id: int
     connector_type: str = DEFAULT_SQL_CONNECTOR
+    is_active: bool = True
     source_type: str | None = None
     host: str
     port: int = 1433
@@ -127,6 +129,7 @@ class SqlServerMappingRequest(BaseModel):
     amount_column: str = ''
     cost_column: str = 'CostValue'
     qty_column: str = 'Qty'
+    is_active: bool | None = None
     source_type: str | None = None
     supported_streams: list[str] | None = None
     enabled_streams: list[str] | None = None
@@ -177,6 +180,7 @@ class BackfillRequest(BaseModel):
     from_date: datetime
     to_date: datetime
     chunk_days: int = 7
+    chunk_records: int = 1000
     include_purchases: bool = True
     include_inventory: bool = True
     include_cashflows: bool = True
@@ -516,6 +520,7 @@ async def create_connection(
         )
         db.add(conn)
 
+    conn.is_active = bool(payload.is_active)
     conn.enc_payload = encrypt_sqlserver_secret(
         host=payload.host,
         port=payload.port,
@@ -581,6 +586,7 @@ async def get_sqlserver_mapping(
 
     return {
         'tenant_id': tenant_id,
+        'is_active': bool(conn.is_active),
         'has_credentials': bool(conn.enc_payload),
         'sales_query_template': conn.sales_query_template or DEFAULT_GENERIC_SALES_QUERY,
         'purchases_query_template': conn.purchases_query_template or DEFAULT_GENERIC_PURCHASES_QUERY,
@@ -623,6 +629,8 @@ async def upsert_sqlserver_mapping(
         )
         db.add(conn)
 
+    if payload.is_active is not None:
+        conn.is_active = bool(payload.is_active)
     conn.enc_payload = encrypt_sqlserver_secret(
         host=payload.host,
         port=payload.port,
@@ -794,26 +802,30 @@ async def trigger_sync(
     if not tenant:
         raise HTTPException(status_code=404, detail='Tenant not found')
 
-    jobs = list(ALL_OPERATIONAL_STREAMS)
-    for stream in jobs:
-        enqueue_tenant_job(
-            tenant.slug,
-            {
-                'connector': DEFAULT_SQL_CONNECTOR,
-                'stream': stream,
-                'entity': STREAM_TO_ENTITY[stream],
-                'tenant_slug': tenant.slug,
-                'payload': {},
-                'attempt': 0,
-                'max_retries': settings.ingest_job_max_retries,
-            },
-        )
+    planned_jobs = await plan_tenant_sync_jobs(
+        db,
+        tenant_id=tenant.id,
+        tenant_slug=tenant.slug,
+    )
+    if not planned_jobs:
+        raise HTTPException(status_code=400, detail='No active connectors configured for tenant')
+    for job in planned_jobs:
+        payload = dict(job)
+        payload.setdefault('payload', {})
+        payload.setdefault('attempt', 0)
+        payload.setdefault('max_retries', settings.ingest_job_max_retries)
+        enqueue_tenant_job(tenant.slug, payload)
     celery_client.send_task(
         'worker.tasks.drain_tenant_ingest_queue',
         kwargs={'tenant_slug': tenant.slug},
         queue='ingest',
     )
-    return {'status': 'queued', 'tenant': tenant.slug, 'jobs': jobs, 'queue': f'ingest:{tenant.slug}'}
+    return {
+        'status': 'queued',
+        'tenant': tenant.slug,
+        'jobs': [f"{job['connector']}:{job['stream']}" for job in planned_jobs],
+        'queue': f'ingest:{tenant.slug}',
+    }
 
 
 @router.post('/tenants/{tenant_id}/querypack/apply')
@@ -855,6 +867,67 @@ async def run_initial_backfill(
     tenant = (await db.execute(select(Tenant).where(Tenant.id == tenant_id))).scalar_one_or_none()
     if not tenant:
         raise HTTPException(status_code=404, detail='Tenant not found')
+
+    planned_jobs = await plan_tenant_sync_jobs(
+        db,
+        tenant_id=tenant.id,
+        tenant_slug=tenant.slug,
+    )
+    if not planned_jobs:
+        raise HTTPException(status_code=400, detail='No active connectors configured for tenant')
+    all_external = bool(planned_jobs) and all(
+        str(job.get('connector') or '').strip().lower() == 'external_api'
+        for job in planned_jobs
+    )
+    if all_external:
+        chunk_records = max(100, min(10000, int(payload.chunk_records)))
+        include_by_stream = {
+            'sales_documents': True,
+            'purchase_documents': bool(payload.include_purchases),
+            'inventory_documents': bool(payload.include_inventory),
+            'cash_transactions': bool(payload.include_cashflows),
+            'supplier_balances': bool(payload.include_supplier_balances),
+            'customer_balances': bool(payload.include_customer_balances),
+        }
+        queued = 0
+        for job in planned_jobs:
+            stream = normalize_stream_name(job.get('stream'))
+            if stream and not include_by_stream.get(stream, True):
+                continue
+            queued_job = dict(job)
+            merged_payload = dict(queued_job.get('payload') or {})
+            merged_payload.update(
+                {
+                    'from_date': payload.from_date.date().isoformat(),
+                    'to_date': payload.to_date.date().isoformat(),
+                    'ignore_sync_state': True,
+                    'backfill': True,
+                    'limit': chunk_records,
+                }
+            )
+            queued_job['payload'] = merged_payload
+            queued_job.setdefault('attempt', 0)
+            queued_job.setdefault('max_retries', settings.ingest_job_max_retries)
+            enqueue_tenant_job(tenant.slug, queued_job)
+            queued += 1
+
+        if queued == 0:
+            raise HTTPException(status_code=400, detail='No eligible streams selected for external API backfill')
+
+        result = celery_client.send_task(
+            'worker.tasks.drain_tenant_ingest_queue',
+            kwargs={'tenant_slug': tenant.slug},
+            queue='ingest',
+        )
+        return {
+            'status': 'queued',
+            'tenant': tenant.slug,
+            'task_id': result.id,
+            'connector': 'external_api',
+            'jobs': queued,
+            'chunk_records': chunk_records,
+        }
+
     result = celery_client.send_task(
         'worker.tasks.enqueue_sql_backfill',
         kwargs={

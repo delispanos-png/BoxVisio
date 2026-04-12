@@ -14,6 +14,7 @@ DEFAULT_GENERIC_INVENTORY_QUERY = "SELECT TOP 5000 * FROM dbo.InventorySnapshots
 DEFAULT_GENERIC_CASHFLOW_QUERY = "SELECT TOP 5000 * FROM dbo.CashflowEntries"
 DEFAULT_GENERIC_SUPPLIER_BALANCES_QUERY = "SELECT TOP 5000 * FROM dbo.SupplierBalances"
 DEFAULT_GENERIC_CUSTOMER_BALANCES_QUERY = "SELECT TOP 5000 * FROM dbo.CustomerBalances"
+DEFAULT_GENERIC_EXPENSES_QUERY = "SELECT TOP 5000 * FROM dbo.OperatingExpenses"
 
 TABLE_KEYWORDS = ['sale', 'sales', 'invoice', 'inv', 'receipt', 'purchase', 'buy', 'mov', 'movement', 'doc', 'document']
 COLUMN_HINTS = {
@@ -248,14 +249,20 @@ def fetch_incremental_rows(
     ]
     params = template_params + filter_params
 
+    fetch_batch_size = max(100, int(getattr(settings, 'sqlserver_fetch_batch_size', 1000) or 1000))
+
     for attempt in range(1, retries + 1):
         try:
             with _connect(connection_string) as conn:
                 cur = conn.cursor()
                 cur.execute(effective_query, *params)
                 columns = [col[0] for col in cur.description]
-                for row in cur.fetchall():
-                    yield dict(zip(columns, row))
+                while True:
+                    rows = cur.fetchmany(fetch_batch_size)
+                    if not rows:
+                        break
+                    for row in rows:
+                        yield dict(zip(columns, row))
             break
         except Exception:
             if attempt >= retries:

@@ -632,3 +632,16 @@ async def clone_supplier_target(
         agreement_notes=(source.agreement_notes or source.notes or '').strip() or None,
         notes=(source.notes or source.agreement_notes or '').strip() or None,
     )
+
+
+async def delete_supplier_target(
+    db: AsyncSession,
+    *,
+    target_id: UUID,
+) -> bool:
+    target = (await db.execute(select(SupplierTarget).where(SupplierTarget.id == target_id))).scalar_one_or_none()
+    if target is None:
+        return False
+    await db.delete(target)
+    await db.commit()
+    return True

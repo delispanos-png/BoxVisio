@@ -714,13 +714,15 @@
           <th>Κωδ. παραστ.</th>
           <th>Κωδ. eshop</th>
           <th>Πελάτης</th>
+          <th>Παράδοση</th>
+          <th>Σχόλια</th>
           <th class="text-end">Συν.Αξία</th>
           <th>Από</th>
           <th>Σε</th>
         </tr>
       </thead>
       <tbody id="salesDocsBody">
-        <tr><td colspan="11" class="text-center text-muted py-3">Φόρτωση παραστατικών...</td></tr>
+        <tr><td colspan="13" class="text-center text-muted py-3">Φόρτωση παραστατικών...</td></tr>
       </tbody>
     </table>
   </div>
@@ -1488,7 +1490,7 @@ function renderSalesDocumentsTable(rows){
   if(!body) return;
   body.innerHTML = '';
   if(!(rows || []).length){
-    body.innerHTML = '<tr><td colspan="11" class="text-center text-muted py-3">Δεν βρέθηκαν παραστατικά.</td></tr>';
+    body.innerHTML = '<tr><td colspan="13" class="text-center text-muted py-3">Δεν βρέθηκαν παραστατικά.</td></tr>';
     return;
   }
   (rows || []).forEach((r)=>{
@@ -1507,6 +1509,8 @@ function renderSalesDocumentsTable(rows){
       <td>${escapeHtml(textOrDash(r.document_no))}</td>
       <td>${escapeHtml(textOrDash(r.eshop_code, ''))}</td>
       <td>${escapeHtml(textOrDash(r.customer, 'ΠΕΛΑΤΗΣ ΛΙΑΝΙΚΗΣ'))}</td>
+      <td>${escapeHtml(textOrDash(r.delivery_info, ''))}</td>
+      <td title="${escapeHtml(textOrDash(r.comments_info, ''))}">${escapeHtml(textOrDash(r.comments_info, ''))}</td>
       <td class="text-end">${money(r.total_gross_value)}</td>
       <td>${escapeHtml(textOrDash(r.from_ref, ''))}</td>
       <td>${escapeHtml(textOrDash(r.to_ref, ''))}</td>
@@ -1632,7 +1636,7 @@ function fillSalesDocumentModal(data){
 async function reloadSalesDocuments(){
   const body = document.getElementById('salesDocsBody');
   if(body){
-    body.innerHTML = '<tr><td colspan="11" class="text-center text-muted py-3">Φόρτωση παραστατικών...</td></tr>';
+    body.innerHTML = '<tr><td colspan="13" class="text-center text-muted py-3">Φόρτωση παραστατικών...</td></tr>';
   }
   try {
     const p = salesDocumentsParams();
@@ -1647,7 +1651,7 @@ async function reloadSalesDocuments(){
     });
   } catch (_err){
     if(body){
-      body.innerHTML = '<tr><td colspan="11" class="text-center text-danger py-3">Αποτυχία φόρτωσης παραστατικών.</td></tr>';
+      body.innerHTML = '<tr><td colspan="13" class="text-center text-danger py-3">Αποτυχία φόρτωσης παραστατικών.</td></tr>';
     }
     renderSalesDocumentsSummary(
       { documents: 0, gross_value: 0, net_value: 0, vat_value: 0 },

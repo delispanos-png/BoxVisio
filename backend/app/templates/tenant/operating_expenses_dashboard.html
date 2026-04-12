@@ -1,0 +1,293 @@
+{% extends "base_tenant.html" %}
+
+{% block filters %}
+<form id="expenseFilters" class="row g-2">
+  <div class="col-12 col-md-3">
+    <label class="form-label mb-1">{{ tt(request, 'from') }}</label>
+    <input
+      class="form-control"
+      type="text"
+      name="from"
+      value="{{ default_from.strftime('%d/%m/%Y') if default_from else '' }}"
+      data-date-format="dmy"
+      placeholder="ηη/μμ/εεεε"
+      inputmode="numeric"
+    >
+  </div>
+  <div class="col-12 col-md-3">
+    <label class="form-label mb-1">{{ tt(request, 'to') }}</label>
+    <input
+      class="form-control"
+      type="text"
+      name="to"
+      value="{{ default_to.strftime('%d/%m/%Y') if default_to else '' }}"
+      data-date-format="dmy"
+      placeholder="ηη/μμ/εεεε"
+      inputmode="numeric"
+    >
+  </div>
+  <div class="col-12 col-md-3">
+    <label class="form-label mb-1">Υποκαταστήματα</label>
+    <input class="form-control" type="text" name="branches" placeholder="π.χ. BRX1,BRX2">
+  </div>
+  <div class="col-12 col-md-3">
+    <label class="form-label mb-1">Κατηγορίες εξόδων</label>
+    <input class="form-control" type="text" name="categories" placeholder="π.χ. RENT,UTILITIES">
+  </div>
+  <div class="col-12 col-md-3 d-grid gap-2 align-content-end">
+    <button class="btn btn-primary" type="submit"><i class="fe fe-filter"></i> {{ tt(request, 'apply') }}</button>
+    <button class="btn btn-outline-secondary" type="button" id="expenseReset"><i class="fe fe-rotate-ccw"></i> Καθαρισμός</button>
+  </div>
+</form>
+{% endblock %}
+
+{% block content %}
+<div id="expensesError" class="alert alert-danger d-none"></div>
+
+<div class="row g-3 mb-3">
+  <div class="col-xl-3 col-md-6">
+    <div class="bv-kpi-box bv-kpi-orange">
+      <div class="kpi-title">Σύνολο Εξόδων</div>
+      <div class="kpi-value" id="expTotal">0,00 €</div>
+      <div class="kpi-meta">Καθαρές δαπάνες περιόδου</div>
+      <div class="kpi-icon"><i class="fe fe-credit-card"></i></div>
+    </div>
+  </div>
+  <div class="col-xl-3 col-md-6">
+    <div class="bv-kpi-box bv-kpi-blue">
+      <div class="kpi-title">Έξοδα / Έσοδα</div>
+      <div class="kpi-value" id="expRatio">0,00%</div>
+      <div class="kpi-meta">Expense ratio to revenue</div>
+      <div class="kpi-icon"><i class="fe fe-percent"></i></div>
+    </div>
+  </div>
+  <div class="col-xl-3 col-md-6">
+    <div class="bv-kpi-box bv-kpi-green">
+      <div class="kpi-title">Πλήθος Εγγραφών</div>
+      <div class="kpi-value" id="expEntries">0</div>
+      <div class="kpi-meta">Expense entries</div>
+      <div class="kpi-icon"><i class="fe fe-list"></i></div>
+    </div>
+  </div>
+  <div class="col-xl-3 col-md-6">
+    <div class="bv-kpi-box bv-kpi-purple">
+      <div class="kpi-title">Κατηγορίες</div>
+      <div class="kpi-value" id="expCategories">0</div>
+      <div class="kpi-meta">Ενεργές κατηγορίες εξόδων</div>
+      <div class="kpi-icon"><i class="fe fe-grid"></i></div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3">
+  <div class="col-xl-6">
+    <div class="card border-0 shadow-sm h-100 content-card">
+      <div class="card-header"><h5 class="mb-0">Έξοδα ανά κατηγορία</h5></div>
+      <div class="card-body p-0">
+        <div class="table-responsive" style="max-height:min(44vh,420px); overflow:auto;">
+          <table class="table table-sm table-hover mb-0 bv-unified-table" id="expCategoryTable">
+            <thead class="table-light sticky-top">
+              <tr>
+                <th>Κατηγορία</th>
+                <th class="text-end">Έξοδα</th>
+                <th class="text-end">Share</th>
+              </tr>
+            </thead>
+            <tbody><tr><td colspan="3" class="text-center text-muted py-3">Φόρτωση...</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-xl-6">
+    <div class="card border-0 shadow-sm h-100 content-card">
+      <div class="card-header"><h5 class="mb-0">Έξοδα ανά υποκατάστημα</h5></div>
+      <div class="card-body p-0">
+        <div class="table-responsive" style="max-height:min(44vh,420px); overflow:auto;">
+          <table class="table table-sm table-hover mb-0 bv-unified-table" id="expBranchTable">
+            <thead class="table-light sticky-top">
+              <tr>
+                <th>Υποκατάστημα</th>
+                <th class="text-end">Έξοδα</th>
+                <th class="text-end">Entries</th>
+              </tr>
+            </thead>
+            <tbody><tr><td colspan="3" class="text-center text-muted py-3">Φόρτωση...</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card border-0 shadow-sm mt-3 content-card">
+  <div class="card-header"><h5 class="mb-0">Τάση Εξόδων</h5></div>
+  <div class="card-body p-0">
+    <div class="table-responsive" style="max-height:min(36vh,360px); overflow:auto;">
+      <table class="table table-sm table-hover mb-0 bv-unified-table" id="expTrendTable">
+        <thead class="table-light sticky-top">
+          <tr>
+            <th>Ημερομηνία</th>
+            <th class="text-end">Καθαρά</th>
+            <th class="text-end">Μικτά</th>
+            <th class="text-end">Entries</th>
+          </tr>
+        </thead>
+        <tbody><tr><td colspan="4" class="text-center text-muted py-3">Φόρτωση...</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const form = document.getElementById('expenseFilters');
+  const resetBtn = document.getElementById('expenseReset');
+
+  const defaultFrom = '{{ default_from.strftime('%d/%m/%Y') if default_from else '' }}';
+  const defaultTo = '{{ default_to.strftime('%d/%m/%Y') if default_to else '' }}';
+
+  function money(v){
+    return new Intl.NumberFormat('el-GR', { style: 'currency', currency: 'EUR' }).format(Number(v || 0));
+  }
+  function pct(v){
+    return `${Number(v || 0).toLocaleString('el-GR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`;
+  }
+  function num(v){
+    return Number(v || 0).toLocaleString('el-GR');
+  }
+  function parseCsv(raw){
+    return String(raw || '').split(',').map((x)=>x.trim()).filter(Boolean);
+  }
+  function asIso(raw){
+    const v = String(raw || '').trim();
+    if(!v) return '';
+    if(window.bvToIsoDate){
+      const out = String(window.bvToIsoDate(v) || '').trim();
+      if(/^\d{4}-\d{2}-\d{2}$/.test(out)) return out;
+    }
+    return v;
+  }
+  function setError(msg){
+    const el = document.getElementById('expensesError');
+    if(!msg){ el.classList.add('d-none'); el.textContent=''; return; }
+    el.classList.remove('d-none');
+    el.textContent = msg;
+  }
+
+  function buildParams(){
+    const p = new URLSearchParams();
+    const fromIso = asIso(form.elements.from?.value);
+    const toIso = asIso(form.elements.to?.value);
+    if(fromIso) p.set('from', fromIso);
+    if(toIso) p.set('to', toIso);
+    parseCsv(form.elements.branches?.value).forEach((v)=>p.append('branches', v));
+    parseCsv(form.elements.categories?.value).forEach((v)=>p.append('categories', v));
+    return p;
+  }
+
+  async function fetchJsonStrict(url){
+    const res = await fetch(url);
+    const body = await res.json().catch(()=>({}));
+    if(!res.ok){
+      const detail = typeof body?.detail === 'string' ? body.detail : '';
+      throw new Error(detail || `HTTP ${res.status}`);
+    }
+    return body || {};
+  }
+
+  function renderCategory(rows){
+    const body = document.querySelector('#expCategoryTable tbody');
+    if(!rows?.length){
+      body.innerHTML = '<tr><td colspan="3" class="text-center text-muted py-3">Δεν υπάρχουν δεδομένα.</td></tr>';
+      return;
+    }
+    body.innerHTML = rows.map((r)=>`
+      <tr>
+        <td>${r.category_name || r.category_code || '-'}</td>
+        <td class="text-end">${money(r.amount_net)}</td>
+        <td class="text-end">${pct(r.share_pct)}</td>
+      </tr>
+    `).join('');
+  }
+
+  function renderBranch(rows){
+    const body = document.querySelector('#expBranchTable tbody');
+    if(!rows?.length){
+      body.innerHTML = '<tr><td colspan="3" class="text-center text-muted py-3">Δεν υπάρχουν δεδομένα.</td></tr>';
+      return;
+    }
+    body.innerHTML = rows.map((r)=>`
+      <tr>
+        <td>${r.branch_name || r.branch_ext_id || '-'}</td>
+        <td class="text-end">${money(r.amount_net)}</td>
+        <td class="text-end">${num(r.entries)}</td>
+      </tr>
+    `).join('');
+  }
+
+  function renderTrend(rows){
+    const body = document.querySelector('#expTrendTable tbody');
+    if(!rows?.length){
+      body.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-3">Δεν υπάρχουν δεδομένα.</td></tr>';
+      return;
+    }
+    body.innerHTML = rows.map((r)=>`
+      <tr>
+        <td>${r.date || '-'}</td>
+        <td class="text-end">${money(r.amount_net)}</td>
+        <td class="text-end">${money(r.amount_gross)}</td>
+        <td class="text-end">${num(r.entries)}</td>
+      </tr>
+    `).join('');
+  }
+
+  function renderSummary(summary, byCategory){
+    document.getElementById('expTotal').textContent = money(summary?.total_expenses || 0);
+    document.getElementById('expRatio').textContent = pct(summary?.expense_ratio_to_revenue_pct || 0);
+    document.getElementById('expEntries').textContent = num(summary?.entries || 0);
+    document.getElementById('expCategories').textContent = num((byCategory || []).length);
+  }
+
+  async function load(){
+    setError('');
+    try {
+      const p = buildParams();
+      const data = await fetchJsonStrict(`/v1/streams/expenses/summary?${p.toString()}`);
+      const summary = data.summary || {};
+      const byCategory = data.by_category || [];
+      const byBranch = data.by_branch || [];
+      const trend = Array.isArray(data.trend) ? data.trend : [];
+      renderSummary(summary, byCategory);
+      renderCategory(byCategory);
+      renderBranch(byBranch);
+      renderTrend(trend);
+    } catch(err){
+      setError(err?.message || 'Σφάλμα φόρτωσης λειτουργικών εξόδων');
+      renderSummary({}, []);
+      renderCategory([]);
+      renderBranch([]);
+      renderTrend([]);
+    }
+  }
+
+  form?.addEventListener('submit', (e)=>{
+    e.preventDefault();
+    load();
+  });
+
+  resetBtn?.addEventListener('click', ()=>{
+    form.elements.from.value = defaultFrom;
+    form.elements.to.value = defaultTo;
+    form.elements.branches.value = '';
+    form.elements.categories.value = '';
+    if(window.bvInitDmyDateInputs){
+      window.bvInitDmyDateInputs(form);
+    }
+    load();
+  });
+
+  load();
+})();
+</script>
+{% endblock %}

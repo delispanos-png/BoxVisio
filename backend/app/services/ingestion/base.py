@@ -5,7 +5,15 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Literal
 
-IngestEntity = Literal['sales', 'purchases', 'inventory', 'cashflows', 'supplier_balances', 'customer_balances']
+IngestEntity = Literal[
+    'sales',
+    'purchases',
+    'inventory',
+    'cashflows',
+    'supplier_balances',
+    'customer_balances',
+    'expenses',
+]
 OperationalIngestStream = Literal[
     'sales_documents',
     'purchase_documents',
@@ -13,6 +21,7 @@ OperationalIngestStream = Literal[
     'cash_transactions',
     'supplier_balances',
     'customer_balances',
+    'operating_expenses',
 ]
 ConnectorSourceType = Literal['sql', 'api', 'file']
 
@@ -23,6 +32,7 @@ ALL_OPERATIONAL_STREAMS: tuple[OperationalIngestStream, ...] = (
     'cash_transactions',
     'supplier_balances',
     'customer_balances',
+    'operating_expenses',
 )
 
 STREAM_TO_ENTITY: dict[OperationalIngestStream, IngestEntity] = {
@@ -32,6 +42,7 @@ STREAM_TO_ENTITY: dict[OperationalIngestStream, IngestEntity] = {
     'cash_transactions': 'cashflows',
     'supplier_balances': 'supplier_balances',
     'customer_balances': 'customer_balances',
+    'operating_expenses': 'expenses',
 }
 ENTITY_TO_STREAM: dict[IngestEntity, OperationalIngestStream] = {
     entity: stream for stream, entity in STREAM_TO_ENTITY.items()
@@ -55,6 +66,11 @@ def normalize_stream_name(value: str | None) -> OperationalIngestStream | None:
         'cash': 'cash_transactions',
         'supplier_balance': 'supplier_balances',
         'customer_balance': 'customer_balances',
+        'expenses': 'operating_expenses',
+        'expense': 'operating_expenses',
+        'opex': 'operating_expenses',
+        'operating_expense': 'operating_expenses',
+        'operatingexpenses': 'operating_expenses',
     }
     candidate = aliases.get(raw, raw)
     if candidate in ALL_OPERATIONAL_STREAMS:
@@ -107,6 +123,7 @@ class ConnectorContext:
     cashflow_query: str | None = None
     supplier_balances_query: str | None = None
     customer_balances_query: str | None = None
+    expenses_query: str | None = None
 
     def stream_enabled(self, stream: OperationalIngestStream) -> bool:
         if self.enabled_streams:
@@ -129,7 +146,9 @@ class ConnectorContext:
             return self.cashflow_query
         if stream == 'supplier_balances':
             return self.supplier_balances_query
-        return self.customer_balances_query
+        if stream == 'customer_balances':
+            return self.customer_balances_query
+        return self.expenses_query
 
 
 class Connector(ABC):

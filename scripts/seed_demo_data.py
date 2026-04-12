@@ -236,10 +236,7 @@ def upsert_dimensions(conn, items):
                 VALUES (
                     :e,
                     :n,
-                    CASE
-                      WHEN :p IS NULL THEN NULL
-                      ELSE (SELECT id FROM dim_categories WHERE external_id = :p)
-                    END,
+                    (SELECT id FROM dim_categories WHERE external_id = :p),
                     :lvl,
                     now(),
                     now()

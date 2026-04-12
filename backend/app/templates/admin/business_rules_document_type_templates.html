@@ -1,0 +1,168 @@
+{% extends "base_admin.html" %}
+{% block content %}
+<style>
+  .bv-softone-preview .table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: #f8f9fc;
+    border-bottom: 2px solid #dfe3ef;
+    white-space: nowrap;
+    font-size: .78rem;
+    letter-spacing: .02em;
+    text-transform: uppercase;
+    color: #5b6780;
+  }
+  .bv-softone-preview .table tbody td {
+    vertical-align: middle;
+  }
+  .bv-softone-preview .bv-stream-chip {
+    display: inline-block;
+    padding: .2rem .55rem;
+    border-radius: 999px;
+    background: #eef2ff;
+    color: #3349d6;
+    font-size: .75rem;
+    font-weight: 600;
+    line-height: 1.2;
+  }
+  .bv-softone-preview .bv-sign-chip {
+    display: inline-block;
+    padding: .2rem .55rem;
+    border-radius: 999px;
+    font-size: .75rem;
+    font-weight: 700;
+    line-height: 1.2;
+  }
+  .bv-softone-preview .bv-sign-pos { background: #eaf8ee; color: #1f8a4c; }
+  .bv-softone-preview .bv-sign-neg { background: #fdecef; color: #b4233b; }
+  .bv-softone-preview .bv-sign-none { background: #f0f2f6; color: #5f6b82; }
+</style>
+
+<div class="card mt-3 shadow-sm">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <div>
+      <h5 class="mb-1">Πρότυπα SoftOne</h5>
+      <small class="text-muted">Εφαρμογή προτεινόμενων κανόνων SoftOne σε Global ή Tenant επίπεδο.</small>
+    </div>
+    <a class="btn btn-outline-secondary btn-sm" href="/admin/business-rules/document-type-rules">
+      <i class="fe fe-arrow-left me-1"></i>Επιστροφή στους κανόνες
+    </a>
+  </div>
+  <div class="card-body">
+    {% if template_saved %}
+      <div class="alert alert-success">Το template εφαρμόστηκε επιτυχώς.</div>
+    {% endif %}
+    {% if wizard_applied %}
+      <div class="alert alert-info">Η εφαρμογή ολοκληρώθηκε και οι κανόνες είναι διαθέσιμοι στη λίστα.</div>
+    {% endif %}
+    {% if error_message %}
+      <div class="alert alert-danger">{{ error_message }}</div>
+    {% endif %}
+
+    <div class="row g-3">
+      <div class="col-xl-4">
+        <div class="border rounded p-3 h-100">
+          <h6 class="mb-2">Εφαρμογή Προτύπου SoftOne</h6>
+          <p class="text-muted small mb-3">Το κουμπί δημιουργεί/ενημερώνει αυτόματα όλους τους προτεινόμενους κανόνες του template.</p>
+          <form method="post" action="/admin/business-rules/document-type-rules/apply-softone-template" class="row g-2">
+            <input type="hidden" name="redirect_to" value="{{ request.url.path }}">
+            <div class="col-12">
+              <label class="form-label">Επίπεδο</label>
+              <select class="form-select" name="scope" id="templateScopeSelect">
+                <option value="global">Καθολικό (Global)</option>
+                <option value="tenant">Ανά Tenant (Override)</option>
+              </select>
+            </div>
+            <div class="col-12">
+              <label class="form-label">Tenant</label>
+              <select class="form-select" name="tenant_id" id="templateTenantSelect">
+                <option value="">Επιλογή</option>
+                {% for t in tenants %}
+                  <option value="{{ t.id }}">{{ t.name }} ({{ t.slug }})</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-12">
+              <label class="form-label">Σύνολο Κανόνων (Ruleset)</label>
+              <input class="form-control" name="ruleset_code" value="{{ initial_ruleset_code }}">
+            </div>
+            <div class="col-12">
+              <label class="form-label">Αντικατάσταση υπαρχόντων</label>
+              <select class="form-select" name="replace_existing">
+                <option value="1">Ναι</option>
+                <option value="0">Όχι (μόνο νέα)</option>
+              </select>
+            </div>
+            <div class="col-12">
+              <button class="btn bv-action-btn bv-action-edit w-100" type="submit">
+                <i class="fe fe-download-cloud me-1"></i>ΕΦΑΡΜΟΓΗ SOFTONE TEMPLATE
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <div class="col-xl-8">
+        <div class="border rounded p-3 bv-softone-preview h-100">
+          <h6 class="mb-1">Προεπισκόπηση Προτεινόμενων Κανόνων</h6>
+          <p class="text-muted small mb-2">Γρήγορη εικόνα για συμπεριφορά, τύπο παραστατικού, κύκλωμα και πρόσημο.</p>
+          <div class="table-responsive" style="max-height: 520px;">
+            <table class="table table-sm align-middle mb-0">
+              <thead>
+                <tr>
+                  <th style="width:48px;">#</th>
+                  <th>Συμπεριφορά</th>
+                  <th>Τύπος Παραστατικού</th>
+                  <th>Κύκλωμα</th>
+                  <th>Πρόσημο Αξίας</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in softone_templates %}
+                <tr>
+                  <td class="text-muted">{{ loop.index }}</td>
+                  <td>
+                    {% if row.behavior_code %}
+                      <code class="fw-semibold">{{ row.behavior_code }}</code>
+                      {% if row.behavior_label %}<div class="small text-muted">{{ row.behavior_label }}</div>{% endif %}
+                    {% else %}
+                      <span class="text-muted">Δεν ορίστηκε</span>
+                    {% endif %}
+                  </td>
+                  <td class="fw-semibold">{{ row.document_type }}</td>
+                  <td><span class="bv-stream-chip">{{ row.stream_label }}</span></td>
+                  <td>
+                    {% set sign_cls = 'bv-sign-none' %}
+                    {% if row.amount_sign == 'positive' %}{% set sign_cls = 'bv-sign-pos' %}{% endif %}
+                    {% if row.amount_sign == 'negative' %}{% set sign_cls = 'bv-sign-neg' %}{% endif %}
+                    <span class="bv-sign-chip {{ sign_cls }}">{{ row.amount_sign_label }}</span>
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(() => {
+  const templateScopeSelect = document.getElementById('templateScopeSelect');
+  const templateTenantSelect = document.getElementById('templateTenantSelect');
+
+  const toggleTemplateScopeState = () => {
+    if (!templateScopeSelect || !templateTenantSelect) return;
+    templateTenantSelect.required = templateScopeSelect.value === 'tenant';
+  };
+
+  templateScopeSelect?.addEventListener('change', toggleTemplateScopeState);
+  toggleTemplateScopeState();
+})();
+</script>
+{% endblock %}

@@ -605,6 +605,38 @@
     }
   }
 
+  async function deleteTargetAgreement(target){
+    if(!target?.id){
+      setError('Δεν βρέθηκε συμφωνία για διαγραφή.');
+      return;
+    }
+    const targetLabel = `${target.name || 'Συμφωνία'} | ${target.supplier_name || target.supplier_ext_id || '-'} | ${target.target_year || '-'}`;
+    const confirmed = window.confirm(`Θέλεις σίγουρα διαγραφή;\n\n${targetLabel}\n\nΗ ενέργεια δεν αναιρείται.`);
+    if(!confirmed) return;
+
+    const res = await fetch(`/v1/kpi/supplier-targets/${target.id}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    if(!res.ok){
+      let msg = '';
+      try {
+        const err = await res.json();
+        msg = err?.detail || '';
+      } catch(_) {
+        msg = await res.text();
+      }
+      setError(`Αποτυχία διαγραφής συμφωνίας. ${msg || ''}`);
+      return;
+    }
+    setError('');
+    if(String(idEl.value || '') === String(target.id || '')){
+      clearForm();
+      hideEditor();
+    }
+    await loadTargets();
+  }
+
   document.getElementById('stClearForm').addEventListener('click', clearForm);
   document.getElementById('stResetEdit').addEventListener('click', clearForm);
   openNewBtn.addEventListener('click', () => { clearForm(); showEditor(); });
@@ -991,6 +1023,7 @@
             <button type="button" class="btn btn-sm btn-outline-secondary" data-action="view" data-id="${t.id}">Λεπτομέρειες</button>
             <button type="button" class="btn btn-sm btn-outline-primary" data-action="clone" data-id="${t.id}">Αντιγραφή</button>
             ${canEdit ? `<button type="button" class="btn btn-sm btn-primary" data-action="edit" data-id="${t.id}">Επεξεργασία</button>` : ''}
+            ${canEdit ? `<button type="button" class="btn btn-sm btn-outline-danger" data-action="delete" data-id="${t.id}">Διαγραφή</button>` : ''}
           </div>
         </td>
       `;
@@ -1204,6 +1237,10 @@
     }
     if(action === 'clone'){
       await cloneTargetAgreement(target);
+      return;
+    }
+    if(action === 'delete'){
+      await deleteTargetAgreement(target);
     }
   });
 

@@ -47,6 +47,10 @@
           {% endfor %}
         </select>
       </div>
+      <div class="col-xl-2 col-md-6">
+        <label class="form-label">Company ID Scope</label>
+        <input class="form-control" name="company_id" value="{{ user.company_id or '' }}" placeholder="1001">
+      </div>
       <div class="col-xl-4 col-md-6">
         <label class="form-label">{{ tt(request, 'access_from') if tt(request, 'access_from') != 'access_from' else 'Access From' }}</label>
         <input class="form-control" type="datetime-local" name="access_starts_at" value="{{ user.access_starts_at.strftime('%Y-%m-%dT%H:%M') if user.access_starts_at else '' }}">

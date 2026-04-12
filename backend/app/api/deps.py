@@ -7,9 +7,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import expected_audience_for_host, safe_decode
-from app.db.control_session import get_control_db
 from app.db.tenant_manager import get_tenant_db_session
 from app.models.control import ProfessionalProfile, RoleName, Tenant, TenantStatus, User
+from app.models.tenant import DimBranch
+from app.services.request_scope import reset_allowed_branch_scope, set_allowed_branch_scope
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl='/v1/auth/login', auto_error=False)
 
@@ -46,6 +47,7 @@ def resolve_menu_visibility(user: User, professional_profile_code: str | None = 
         'stream_purchase_documents': True,
         'stream_inventory_documents': True,
         'stream_cash_transactions': True,
+        'stream_operating_expenses': True,
         'stream_supplier_balances': True,
         'stream_customer_balances': True,
         'analytics_sales': True,
@@ -70,6 +72,7 @@ def resolve_menu_visibility(user: User, professional_profile_code: str | None = 
             'stream_purchase_documents': False,
             'stream_inventory_documents': False,
             'stream_cash_transactions': True,
+            'stream_operating_expenses': True,
             'stream_supplier_balances': True,
             'stream_customer_balances': True,
             'analytics_sales': False,
@@ -91,6 +94,7 @@ def resolve_menu_visibility(user: User, professional_profile_code: str | None = 
             'stream_purchase_documents': False,
             'stream_inventory_documents': True,
             'stream_cash_transactions': False,
+            'stream_operating_expenses': False,
             'stream_supplier_balances': False,
             'stream_customer_balances': False,
             'analytics_sales': False,
@@ -112,6 +116,7 @@ def resolve_menu_visibility(user: User, professional_profile_code: str | None = 
             'stream_purchase_documents': False,
             'stream_inventory_documents': False,
             'stream_cash_transactions': False,
+            'stream_operating_expenses': False,
             'stream_supplier_balances': False,
             'stream_customer_balances': False,
             'analytics_sales': True,
@@ -175,17 +180,18 @@ async def get_token_payload(
 async def get_current_user(
     request: Request,
     payload: dict = Depends(get_token_payload),
-    db: AsyncSession = Depends(get_control_db),
 ) -> User:
-    result = await db.execute(
-        select(User, ProfessionalProfile.profile_code, ProfessionalProfile.profile_name).outerjoin(
-            ProfessionalProfile, User.professional_profile_id == ProfessionalProfile.id
-        ).where(
-            User.id == int(payload['sub']),
-            User.is_active.is_(True),
+    session_maker = request.app.state.control_sessionmaker
+    async with session_maker() as db:
+        result = await db.execute(
+            select(User, ProfessionalProfile.profile_code, ProfessionalProfile.profile_name).outerjoin(
+                ProfessionalProfile, User.professional_profile_id == ProfessionalProfile.id
+            ).where(
+                User.id == int(payload['sub']),
+                User.is_active.is_(True),
+            )
         )
-    )
-    row = result.first()
+        row = result.first()
     if not row:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='User not found')
     user, profile_code, profile_name = row
@@ -234,7 +240,6 @@ async def get_request_tenant(
     request: Request,
     payload: dict = Depends(get_token_payload),
     user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_control_db),
 ) -> Tenant:
     tenant_id = payload.get('tenant_id')
     if tenant_id is None:
@@ -242,8 +247,10 @@ async def get_request_tenant(
     if user.tenant_id != tenant_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='JWT tenant mismatch')
 
-    result = await db.execute(select(Tenant).where(Tenant.id == tenant_id))
-    tenant = result.scalar_one_or_none()
+    session_maker = request.app.state.control_sessionmaker
+    async with session_maker() as db:
+        result = await db.execute(select(Tenant).where(Tenant.id == tenant_id))
+        tenant = result.scalar_one_or_none()
 
     if not tenant:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Tenant not resolved')
@@ -256,6 +263,7 @@ async def get_request_tenant(
 
 async def get_tenant_db(
     request: Request,
+    user: User = Depends(get_current_user),
     tenant: Tenant = Depends(get_request_tenant),
 ) -> AsyncGenerator[AsyncSession, None]:
     async for session in get_tenant_db_session(
@@ -264,7 +272,33 @@ async def get_tenant_db(
         db_user=tenant.db_user,
         db_password=tenant.db_password,
     ):
-        if isinstance(getattr(request.state, 'kpi_perf', None), dict):
-            yield _InstrumentedAsyncSession(session, request)
-        else:
-            yield session
+        scoped_company_id = str(user.company_id or '').strip() if user.role != RoleName.cloudon_admin else ''
+        scoped_branches: list[str] | None = None
+        if scoped_company_id:
+            branch_rows = (
+                await session.execute(
+                    select(DimBranch.external_id).where(
+                        DimBranch.company_id == scoped_company_id,
+                        DimBranch.external_id.is_not(None),
+                    )
+                )
+            ).scalars().all()
+            scoped_branches = []
+            seen: set[str] = set()
+            for branch_code in branch_rows:
+                code = str(branch_code or '').strip()
+                if not code or code in seen:
+                    continue
+                seen.add(code)
+                scoped_branches.append(code)
+
+        request.state.scoped_company_id = scoped_company_id or None
+        request.state.allowed_branch_scope = tuple(scoped_branches or []) if scoped_company_id else None
+        scope_token = set_allowed_branch_scope(scoped_branches if scoped_company_id else None)
+        try:
+            if isinstance(getattr(request.state, 'kpi_perf', None), dict):
+                yield _InstrumentedAsyncSession(session, request)
+            else:
+                yield session
+        finally:
+            reset_allowed_branch_scope(scope_token)

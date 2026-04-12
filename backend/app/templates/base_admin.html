@@ -9,7 +9,7 @@
   <link href="/static/azea/plugins/iconfonts/icons.css" rel="stylesheet">
   <link href="/static/azea/css/main.css" rel="stylesheet">
   <link href="/static/azea/css/themes/all-themes.css" rel="stylesheet">
-  <link href="/static/css/boxvisio-ui.css?v=20260305a" rel="stylesheet">
+  <link href="/static/css/boxvisio-ui.css?v=20260407a" rel="stylesheet">
   <link href="/static/css/bv-unified-ui.css?v=20260308a" rel="stylesheet">
   <style>
     :root {
@@ -316,7 +316,7 @@
         {% set _business_rules_pages = ['business_rules', 'business_rules_document_types', 'business_rules_stream_mapping', 'business_rules_kpi_participation', 'business_rules_intelligence', 'business_rules_query_mapping', 'business_rules_tenant_overrides'] %}
         {% set _overview_pages = ['dashboard', 'tenant_health', 'sync'] %}
         {% set _data_source_pages = ['data_sources', 'connections', 'data_sources_stream_mapping', 'data_sources_query_mapping', 'data_sources_file_imports'] %}
-        {% set _operational_stream_admin_pages = ['admin_stream_sales_documents', 'admin_stream_purchase_documents', 'admin_stream_warehouse_documents', 'admin_stream_cash_transactions', 'admin_stream_supplier_balances', 'admin_stream_customer_balances'] %}
+        {% set _operational_stream_admin_pages = ['admin_stream_sales_documents', 'admin_stream_purchase_documents', 'admin_stream_warehouse_documents', 'admin_stream_cash_transactions', 'admin_stream_operating_expenses', 'admin_stream_supplier_balances', 'admin_stream_customer_balances'] %}
         {% set _monitoring_pages = ['monitoring_jobs', 'monitoring_dead_letter_queue', 'monitoring_metrics', 'monitoring_logs'] %}
         {% set _settings_pages = ['plans', 'settings_feature_flags', 'settings_system_defaults'] %}
         {% set _overview_open = active_page in _overview_pages %}
@@ -367,12 +367,12 @@
               <i class="fe fe-shield sidemenu-icon"></i><span class="sidemenu-label">{{ tt(request, 'sidebar_group_rules') }}</span><i class="fe fe-chevron-down bv-group-arrow"></i>
             </button>
             <ul class="bv-submenu" data-menu-group="admin-rules">
-              <li class="{% if active_page == 'business_rules_document_types' %}is-active{% endif %}"><a class="bv-submenu-link" href="/admin/business-rules/document-type-rules"><i class="fe fe-file-text"></i><span>{{ tt(request, 'sidebar_rules_types_short') }}</span></a></li>
-              <li class="{% if active_page == 'business_rules_stream_mapping' %}is-active{% endif %}"><a class="bv-submenu-link" href="/admin/business-rules/stream-mapping-rules"><i class="fe fe-git-merge"></i><span>{{ tt(request, 'sidebar_rules_streams_short') }}</span></a></li>
-              <li class="{% if active_page == 'business_rules_kpi_participation' %}is-active{% endif %}"><a class="bv-submenu-link" href="/admin/business-rules/kpi-participation-rules"><i class="fe fe-bar-chart-2"></i><span>{{ tt(request, 'sidebar_rules_kpi_short') }}</span></a></li>
-              <li class="{% if active_page == 'business_rules_intelligence' %}is-active{% endif %}"><a class="bv-submenu-link" href="/admin/business-rules/intelligence-rules"><i class="fe fe-zap"></i><span>{{ tt(request, 'sidebar_rules_insights_short') }}</span></a></li>
-              <li class="{% if active_page == 'business_rules_query_mapping' %}is-active{% endif %}"><a class="bv-submenu-link" href="/admin/business-rules/query-mapping"><i class="fe fe-code"></i><span>{{ tt(request, 'sidebar_rules_query_short') }}</span></a></li>
-              <li class="{% if active_page == 'business_rules_tenant_overrides' %}is-active{% endif %}"><a class="bv-submenu-link" href="/admin/business-rules/tenant-overrides"><i class="fe fe-users"></i><span>{{ tt(request, 'sidebar_rules_overrides_short') }}</span></a></li>
+              <li class="{% if active_page == 'business_rules_document_types' %}is-active{% endif %}"><a class="bv-submenu-link" href="/admin/business-rules/document-type-rules"><i class="fe fe-file-text"></i><span>{{ tt(request, 'sidebar_rules_doc_types') }}</span></a></li>
+              <li class="{% if active_page == 'business_rules_stream_mapping' %}is-active{% endif %}"><a class="bv-submenu-link" href="/admin/business-rules/stream-mapping-rules"><i class="fe fe-git-merge"></i><span>{{ tt(request, 'sidebar_rules_streams') }}</span></a></li>
+              <li class="{% if active_page == 'business_rules_kpi_participation' %}is-active{% endif %}"><a class="bv-submenu-link" href="/admin/business-rules/kpi-participation-rules"><i class="fe fe-bar-chart-2"></i><span>{{ tt(request, 'sidebar_rules_kpi') }}</span></a></li>
+              <li class="{% if active_page == 'business_rules_intelligence' %}is-active{% endif %}"><a class="bv-submenu-link" href="/admin/business-rules/intelligence-rules"><i class="fe fe-zap"></i><span>{{ tt(request, 'sidebar_rules_insights') }}</span></a></li>
+              <li class="{% if active_page == 'business_rules_query_mapping' %}is-active{% endif %}"><a class="bv-submenu-link" href="/admin/business-rules/query-mapping"><i class="fe fe-code"></i><span>{{ tt(request, 'sidebar_rules_queries') }}</span></a></li>
+              <li class="{% if active_page == 'business_rules_tenant_overrides' %}is-active{% endif %}"><a class="bv-submenu-link" href="/admin/business-rules/tenant-overrides"><i class="fe fe-users"></i><span>{{ tt(request, 'sidebar_rules_overrides') }}</span></a></li>
             </ul>
           </li>
 
@@ -385,6 +385,7 @@
               <li class="{% if active_page == 'admin_stream_purchase_documents' %}is-active{% endif %}"><a class="bv-submenu-link" href="/admin/operational-streams/purchase-documents"><i class="fe fe-file"></i><span>{{ tt(request, 'purchases_documents_short') }}</span></a></li>
               <li class="{% if active_page == 'admin_stream_warehouse_documents' %}is-active{% endif %}"><a class="bv-submenu-link" href="/admin/operational-streams/warehouse-documents"><i class="fe fe-repeat"></i><span>{{ tt(request, 'warehouse_documents_short') }}</span></a></li>
               <li class="{% if active_page == 'admin_stream_cash_transactions' %}is-active{% endif %}"><a class="bv-submenu-link" href="/admin/operational-streams/cash-transactions"><i class="fe fe-credit-card"></i><span>{{ tt(request, 'cash_transactions_short') }}</span></a></li>
+              <li class="{% if active_page == 'admin_stream_operating_expenses' %}is-active{% endif %}"><a class="bv-submenu-link" href="/admin/operational-streams/operating-expenses"><i class="fe fe-credit-card"></i><span>{{ tt(request, 'operating_expenses_short') }}</span></a></li>
               <li class="{% if active_page == 'admin_stream_supplier_balances' %}is-active{% endif %}"><a class="bv-submenu-link" href="/admin/operational-streams/supplier-balances"><i class="fe fe-truck"></i><span>{{ tt(request, 'supplier_open_balances_short') }}</span></a></li>
               <li class="{% if active_page == 'admin_stream_customer_balances' %}is-active{% endif %}"><a class="bv-submenu-link" href="/admin/operational-streams/customer-balances"><i class="fe fe-users"></i><span>{{ tt(request, 'customer_open_balances_short') }}</span></a></li>
             </ul>

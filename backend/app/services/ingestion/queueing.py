@@ -26,6 +26,10 @@ def tenant_throttle_key(tenant_slug: str) -> str:
     return f'throttle:ingest:{tenant_slug}'
 
 
+def tenant_stop_key(tenant_slug: str) -> str:
+    return f'stop:ingest:{tenant_slug}'
+
+
 @lru_cache
 def _redis() -> Redis:
     return Redis.from_url(settings.redis_url, decode_responses=True)
@@ -67,6 +71,19 @@ def release_tenant_lock(tenant_slug: str, token: str) -> bool:
     end
     """
     return bool(_redis().eval(script, 1, key, token))
+
+
+def extend_tenant_lock(tenant_slug: str, token: str, ttl_seconds: int | None = None) -> bool:
+    key = tenant_lock_name(tenant_slug)
+    ttl = int(ttl_seconds or settings.ingest_tenant_lock_ttl_seconds)
+    script = """
+    if redis.call('get', KEYS[1]) == ARGV[1] then
+        return redis.call('expire', KEYS[1], ARGV[2])
+    else
+        return 0
+    end
+    """
+    return bool(_redis().eval(script, 1, key, token, ttl))
 
 
 def allow_tenant_ingestion(tenant_slug: str, jobs_per_window: int | None = None, window_seconds: int | None = None) -> bool:

@@ -5,6 +5,7 @@ import subprocess
 import os
 import sys
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import psycopg
 from psycopg import sql
@@ -30,7 +31,7 @@ from app.models.control import (
 )
 from app.services.subscriptions import infer_default_features_for_plan
 
-TENANT_MIGRATION_HEAD = '20260307_0002_tenant'
+TENANT_MIGRATION_HEAD = '20260308_0010_tenant'
 
 
 def _rand_secret(size: int = 40) -> str:
@@ -101,17 +102,20 @@ def _run_tenant_migrations(db_name: str, db_user: str, db_password: str) -> None
         password=db_password,
         db_name=db_name,
     )
+    backend_root = Path(__file__).resolve().parents[2]
+    alembic_ini = backend_root / 'alembic.ini'
     env = {
         **dict(os.environ),
         'MIGRATION_TARGET': 'tenant',
         'TENANT_MIGRATION_URL': tenant_url,
     }
     subprocess.run(
-        [sys.executable, '-m', 'alembic', '-c', '/app/alembic.ini', 'upgrade', TENANT_MIGRATION_HEAD],
+        [sys.executable, '-m', 'alembic', '-c', str(alembic_ini), 'upgrade', TENANT_MIGRATION_HEAD],
         env=env,
         check=True,
         capture_output=True,
         text=True,
+        cwd=str(backend_root),
     )
 
 

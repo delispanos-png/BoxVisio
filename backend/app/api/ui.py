@@ -6,13 +6,15 @@ import shutil
 import time
 from datetime import date, datetime, timedelta
 from pathlib import Path
+from urllib.parse import urlencode
 from uuid import UUID
 
 from celery import Celery
 from fastapi import APIRouter, Depends, Form, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import func, select
+from redis import Redis
+from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -29,7 +31,7 @@ from app.core.security import (
     verify_password,
 )
 from app.models.control import RefreshToken
-from app.db.control_session import get_control_db
+from app.db.control_session import ControlSessionLocal, get_control_db
 from app.db.tenant_manager import get_tenant_db_session
 from app.models.control import (
     AuditLog,
@@ -59,7 +61,12 @@ from app.services.intelligence_service import (
     list_rules as list_tenant_rules,
     update_rule as update_tenant_rule,
 )
-from app.services.connection_secrets import SqlServerSecret, build_odbc_connection_string, encrypt_sqlserver_secret
+from app.services.connection_secrets import (
+    SqlServerSecret,
+    build_odbc_connection_string,
+    decrypt_sqlserver_secret,
+    encrypt_sqlserver_secret,
+)
 from app.services.sqlserver_connector import (
     DEFAULT_GENERIC_CASHFLOW_QUERY,
     DEFAULT_GENERIC_CUSTOMER_BALANCES_QUERY,
@@ -73,7 +80,11 @@ from app.services.sqlserver_connector import (
     test_connection,
 )
 from app.services.provisioning_wizard import run_tenant_provisioning_wizard
+from app.services.ingestion import enqueue_tenant_job
 from app.services.ingestion.base import ALL_OPERATIONAL_STREAMS, STREAM_TO_ENTITY, normalize_stream_name, normalize_stream_values
+from app.services.ingestion.progress import begin_ingest_progress, get_ingest_progress, queue_depth, update_ingest_progress
+from app.services.ingestion.queueing import tenant_lock_name, tenant_queue_name, tenant_stop_key, tenant_throttle_key
+from app.services.ingestion.sync_planner import plan_tenant_sync_jobs
 from app.services.querypacks import apply_querypack_to_connection, load_querypack
 from app.services.subscriptions import get_or_create_subscription, sync_tenant_from_subscription
 
@@ -102,11 +113,18 @@ def _dashboard_redirect_for_profile_code(profile_code: str | None, role: RoleNam
     return '/tenant/dashboard'
 
 
+def _admin_dashboard_redirect(host: str | None = None) -> str:
+    admin_path = '/admin/dashboard'
+    if host and host.lower() != settings.admin_portal_host.lower():
+        return f'https://{settings.admin_portal_host}{admin_path}'
+    return admin_path
+
+
 def _login_redirect_for(user: User, host: str | None = None, profile_code: str | None = None) -> str:
     if user.role == RoleName.cloudon_admin:
-        return '/admin/dashboard'
-    if host and host.lower() == 'adminpanel.boxvisio.com':
-        return '/admin/dashboard'
+        return _admin_dashboard_redirect(host)
+    if host and host.lower() == settings.admin_portal_host.lower():
+        return _admin_dashboard_redirect(host)
     return _dashboard_redirect_for_profile_code(profile_code, user.role)
 
 
@@ -146,6 +164,59 @@ def _normalize_source(raw: str) -> str:
         'file': 'files',
     }
     return mapping.get(val, val)
+
+
+_DEFAULT_INVENTORY_ITEM_CLASSIFICATION_SETTINGS = {
+    'status_source': 'sales_window',
+    'active_last_sale_days': 60,
+    'fast_sales_qty_30d_min': 50,
+    'slow_sales_qty_30d_max': 5,
+}
+
+
+def _parse_int_in_range(raw: object, *, default: int, min_value: int, max_value: int) -> int:
+    try:
+        parsed = int(str(raw).strip())
+    except Exception:
+        parsed = int(default)
+    return max(min_value, min(max_value, parsed))
+
+
+def _tenant_inventory_item_classification_settings(tenant: Tenant | None) -> dict[str, object]:
+    flags = tenant.feature_flags if tenant is not None else None
+    source = {}
+    if isinstance(flags, dict):
+        cfg = flags.get('inventory_item_classification')
+        if isinstance(cfg, dict):
+            source = cfg
+    status_source_raw = str(source.get('status_source') or '').strip().lower()
+    status_source = 'softone' if status_source_raw in {'softone', 'source', 'source_flag'} else 'sales_window'
+    active_days = _parse_int_in_range(
+        source.get('active_last_sale_days'),
+        default=_DEFAULT_INVENTORY_ITEM_CLASSIFICATION_SETTINGS['active_last_sale_days'],
+        min_value=1,
+        max_value=3650,
+    )
+    fast_min = _parse_int_in_range(
+        source.get('fast_sales_qty_30d_min'),
+        default=_DEFAULT_INVENTORY_ITEM_CLASSIFICATION_SETTINGS['fast_sales_qty_30d_min'],
+        min_value=1,
+        max_value=1_000_000,
+    )
+    slow_max = _parse_int_in_range(
+        source.get('slow_sales_qty_30d_max'),
+        default=_DEFAULT_INVENTORY_ITEM_CLASSIFICATION_SETTINGS['slow_sales_qty_30d_max'],
+        min_value=0,
+        max_value=1_000_000,
+    )
+    if slow_max >= fast_min:
+        slow_max = max(0, fast_min - 1)
+    return {
+        'status_source': status_source,
+        'active_last_sale_days': active_days,
+        'fast_sales_qty_30d_min': fast_min,
+        'slow_sales_qty_30d_max': slow_max,
+    }
 
 
 _CASHFLOW_CATEGORY_ALIAS_MAP: dict[str, str] = {
@@ -279,8 +350,9 @@ def _tenant_feature_flags(tenant: Tenant) -> dict[str, bool]:
     }
 
 
-async def _tenant_navigation_context(tenant: Tenant) -> dict[str, bool | int]:
+async def _tenant_navigation_context(tenant: Tenant) -> dict[str, bool | int | str | None]:
     branch_count = 0
+    last_sync_at: datetime | None = None
     try:
         async for tenant_db in get_tenant_db_session(
             tenant_key=str(tenant.id),
@@ -293,10 +365,49 @@ async def _tenant_navigation_context(tenant: Tenant) -> dict[str, bool | int]:
     except Exception:
         logger.exception('tenant_navigation_context_failed', extra={'tenant_id': tenant.id})
         branch_count = 0
+    try:
+        async with ControlSessionLocal() as control_db:
+            connection = (
+                await control_db.execute(
+                    select(TenantConnection)
+                    .where(
+                        TenantConnection.tenant_id == tenant.id,
+                        TenantConnection.is_active.is_(True),
+                        TenantConnection.source_type == 'sql',
+                    )
+                    .order_by(TenantConnection.last_sync_at.desc().nullslast(), TenantConnection.updated_at.desc())
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
+            if connection is None:
+                connection = (
+                    await control_db.execute(
+                        select(TenantConnection)
+                        .where(
+                            TenantConnection.tenant_id == tenant.id,
+                            TenantConnection.is_active.is_(True),
+                        )
+                        .order_by(TenantConnection.last_sync_at.desc().nullslast(), TenantConnection.updated_at.desc())
+                        .limit(1)
+                    )
+                ).scalar_one_or_none()
+            last_sync_at = connection.last_sync_at if connection is not None else None
+    except Exception:
+        logger.exception('tenant_navigation_sync_context_failed', extra={'tenant_id': tenant.id})
+        last_sync_at = None
+    last_sync_display = last_sync_at.strftime('%d/%m/%Y %H:%M') if last_sync_at else 'Δεν υπάρχει ακόμη'
+    last_sync_title = (
+        f'Τελευταίος συγχρονισμός SoftOne: {last_sync_at.strftime("%d/%m/%Y %H:%M:%S")}'
+        if last_sync_at
+        else 'Δεν έχει καταγραφεί ακόμη συγχρονισμός SoftOne'
+    )
     return {
         **_tenant_feature_flags(tenant),
         'tenant_branch_count': branch_count,
         'tenant_has_multiple_branches': branch_count > 1,
+        'tenant_softone_last_sync_at': last_sync_at,
+        'tenant_softone_last_sync_display': last_sync_display,
+        'tenant_softone_last_sync_title': last_sync_title,
     }
 
 
@@ -509,11 +620,85 @@ def _parse_options_map(options: str) -> dict[str, str]:
     return options_map
 
 
+def _stringify_options_map(options: dict | None) -> str:
+    if not isinstance(options, dict) or not options:
+        return 'Encrypt=yes;TrustServerCertificate=yes'
+    chunks: list[str] = []
+    for key, value in options.items():
+        k = str(key or '').strip()
+        v = str(value or '').strip()
+        if k:
+            chunks.append(f'{k}={v}')
+    return ';'.join(chunks) if chunks else 'Encrypt=yes;TrustServerCertificate=yes'
+
+
+async def _find_tenant_connection(
+    db: AsyncSession,
+    *,
+    tenant_id: int,
+    connector_type: str,
+) -> TenantConnection | None:
+    selected_connector = str(connector_type or '').strip().lower() or 'sql_connector'
+    conn = (
+        await db.execute(
+            select(TenantConnection).where(
+                TenantConnection.tenant_id == tenant_id,
+                TenantConnection.connector_type == selected_connector,
+            )
+        )
+    ).scalar_one_or_none()
+    if conn is None and selected_connector == 'sql_connector':
+        conn = (
+            await db.execute(
+                select(TenantConnection).where(
+                    TenantConnection.tenant_id == tenant_id,
+                    TenantConnection.connector_type == 'pharmacyone_sql',
+                )
+            )
+        ).scalar_one_or_none()
+    elif conn is None and selected_connector == 'pharmacyone_sql':
+        conn = (
+            await db.execute(
+                select(TenantConnection).where(
+                    TenantConnection.tenant_id == tenant_id,
+                    TenantConnection.connector_type == 'sql_connector',
+                )
+            )
+        ).scalar_one_or_none()
+    return conn
+
+
+def _resolve_secret_password(password_input: str | None, conn: TenantConnection | None) -> str:
+    provided = str(password_input or '')
+    if provided.strip():
+        return provided
+    if not conn or not conn.enc_payload:
+        return ''
+    try:
+        secret = decrypt_sqlserver_secret(conn.enc_payload)
+    except Exception:
+        return ''
+    return str(secret.password or '')
+
+
+def _to_int_or_none(raw: object) -> int | None:
+    if raw is None:
+        return None
+    text = str(raw).strip()
+    if not text:
+        return None
+    try:
+        return int(text)
+    except Exception:
+        return None
+
+
 _STREAM_LABEL_KEYS: list[tuple[str, str]] = [
     ('sales_documents', 'sales_documents_menu'),
     ('purchase_documents', 'purchases_documents_menu'),
     ('inventory_documents', 'warehouse_documents_menu'),
     ('cash_transactions', 'cash_transactions_menu'),
+    ('operating_expenses', 'operating_expenses_menu'),
     ('supplier_balances', 'supplier_open_balances_menu'),
     ('customer_balances', 'customer_open_balances_menu'),
 ]
@@ -546,6 +731,8 @@ _DOCUMENT_SIGN_LABEL: dict[str, str] = {item['value']: item['label'] for item in
 
 _SOFTONE_DOCUMENT_RULE_TEMPLATES: list[dict[str, object]] = [
     {
+        'behavior_code': '102',
+        'behavior_label': 'Τιμολόγιο πώλησης',
         'document_type': 'Τιμολόγιο Πώλησης',
         'stream': OperationalStream.sales_documents.value,
         'include_revenue': True,
@@ -557,6 +744,8 @@ _SOFTONE_DOCUMENT_RULE_TEMPLATES: list[dict[str, object]] = [
         'quantity_sign': 'positive',
     },
     {
+        'behavior_code': '131',
+        'behavior_label': 'Απόδειξη λιανικής',
         'document_type': 'Απόδειξη Λιανικής',
         'stream': OperationalStream.sales_documents.value,
         'include_revenue': True,
@@ -568,6 +757,8 @@ _SOFTONE_DOCUMENT_RULE_TEMPLATES: list[dict[str, object]] = [
         'quantity_sign': 'positive',
     },
     {
+        'behavior_code': '151',
+        'behavior_label': 'Πιστωτικό τιμολόγιο επιστροφής',
         'document_type': 'Πιστωτικό Πώλησης',
         'stream': OperationalStream.sales_documents.value,
         'include_revenue': True,
@@ -579,6 +770,8 @@ _SOFTONE_DOCUMENT_RULE_TEMPLATES: list[dict[str, object]] = [
         'quantity_sign': 'negative',
     },
     {
+        'behavior_code': '1251',
+        'behavior_label': 'Αγορές προμηθευτών',
         'document_type': 'Τιμολόγιο Αγοράς',
         'stream': OperationalStream.purchase_documents.value,
         'include_revenue': False,
@@ -590,6 +783,8 @@ _SOFTONE_DOCUMENT_RULE_TEMPLATES: list[dict[str, object]] = [
         'quantity_sign': 'positive',
     },
     {
+        'behavior_code': '1281',
+        'behavior_label': 'Πιστωτικό αγοράς / επιστροφή',
         'document_type': 'Πιστωτικό Αγοράς',
         'stream': OperationalStream.purchase_documents.value,
         'include_revenue': False,
@@ -601,6 +796,8 @@ _SOFTONE_DOCUMENT_RULE_TEMPLATES: list[dict[str, object]] = [
         'quantity_sign': 'negative',
     },
     {
+        'behavior_code': '101',
+        'behavior_label': 'Δελτίο αποστολής',
         'document_type': 'Δελτίο Εισαγωγής Αποθήκης',
         'stream': OperationalStream.inventory_documents.value,
         'include_revenue': False,
@@ -612,6 +809,8 @@ _SOFTONE_DOCUMENT_RULE_TEMPLATES: list[dict[str, object]] = [
         'quantity_sign': 'positive',
     },
     {
+        'behavior_code': '154',
+        'behavior_label': 'Δελτίο επιστροφής',
         'document_type': 'Δελτίο Εξαγωγής Αποθήκης',
         'stream': OperationalStream.inventory_documents.value,
         'include_revenue': False,
@@ -623,6 +822,8 @@ _SOFTONE_DOCUMENT_RULE_TEMPLATES: list[dict[str, object]] = [
         'quantity_sign': 'negative',
     },
     {
+        'behavior_code': '1381',
+        'behavior_label': 'Είσπραξη πελάτη',
         'document_type': 'Είσπραξη Πελάτη',
         'stream': OperationalStream.cash_transactions.value,
         'include_revenue': False,
@@ -634,6 +835,8 @@ _SOFTONE_DOCUMENT_RULE_TEMPLATES: list[dict[str, object]] = [
         'quantity_sign': 'none',
     },
     {
+        'behavior_code': '1281',
+        'behavior_label': 'Πληρωμή προμηθευτή',
         'document_type': 'Πληρωμή Προμηθευτή',
         'stream': OperationalStream.cash_transactions.value,
         'include_revenue': False,
@@ -647,9 +850,101 @@ _SOFTONE_DOCUMENT_RULE_TEMPLATES: list[dict[str, object]] = [
 ]
 
 
+def _softone_behavior_catalog() -> dict[tuple[str, str], dict[str, str]]:
+    out: dict[tuple[str, str], dict[str, str]] = {}
+    for item in _SOFTONE_DOCUMENT_RULE_TEMPLATES:
+        stream = str(item.get('stream') or '').strip()
+        behavior_code_raw = str(item.get('behavior_code') or '').strip()
+        behavior_code = re.sub(r'[^A-Za-z0-9_-]+', '', behavior_code_raw)[:32]
+        if not stream or not behavior_code:
+            continue
+        out[(stream, behavior_code)] = {
+            'document_type': str(item.get('document_type') or '').strip(),
+            'behavior_label': str(item.get('behavior_label') or '').strip(),
+        }
+    return out
+
+
+_SOFTONE_BEHAVIOR_CATALOG: dict[tuple[str, str], dict[str, str]] = _softone_behavior_catalog()
+
+
+def _softone_document_type_options() -> list[str]:
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for item in _SOFTONE_DOCUMENT_RULE_TEMPLATES:
+        name = str(item.get('document_type') or '').strip()
+        if not name:
+            continue
+        key = name.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        ordered.append(name)
+    return ordered
+
+
+def _softone_document_options() -> list[dict[str, str]]:
+    seen: set[tuple[str, str, str]] = set()
+    out: list[dict[str, str]] = []
+    for item in _SOFTONE_DOCUMENT_RULE_TEMPLATES:
+        document_type = str(item.get('document_type') or '').strip()
+        behavior_code = _normalize_behavior_code(item.get('behavior_code'))
+        behavior_label = str(item.get('behavior_label') or '').strip()
+        stream_value = str(item.get('stream') or '').strip()
+        if not document_type:
+            continue
+        key = (document_type.casefold(), behavior_code, stream_value)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(
+            {
+                'document_type': document_type,
+                'behavior_code': behavior_code,
+                'behavior_label': behavior_label,
+                'stream_value': stream_value,
+                'stream_label': _doc_stream_label(stream_value),
+            }
+        )
+    out.sort(key=lambda x: (x['stream_label'], x['document_type']))
+    return out
+
+
+def _softone_canonical_names(
+    *,
+    stream_value: str,
+    behavior_code: str,
+    document_type: str,
+    behavior_label: str,
+) -> tuple[str, str]:
+    catalog_row = _SOFTONE_BEHAVIOR_CATALOG.get((stream_value, behavior_code))
+    if catalog_row is None:
+        return document_type, behavior_label
+    canonical_doc_type = str(catalog_row.get('document_type') or '').strip() or document_type
+    canonical_behavior_label = str(catalog_row.get('behavior_label') or '').strip() or behavior_label
+    return canonical_doc_type, canonical_behavior_label
+
+
+def _tenant_document_ruleset_code(tenant: Tenant | None) -> str:
+    if tenant is None:
+        return ''
+    raw = tenant.feature_flags
+    if not isinstance(raw, dict):
+        return ''
+    return str(raw.get('document_type_ruleset_code') or '').strip()
+
+
 def _to_bool_flag(raw: object) -> bool:
     txt = str(raw or '').strip().lower()
     return txt in {'1', 'true', 'yes', 'on', 'ναι'}
+
+
+def _normalize_behavior_code(raw: object) -> str:
+    txt = str(raw or '').strip()
+    if not txt:
+        return ''
+    cleaned = re.sub(r'[^A-Za-z0-9_-]+', '', txt)
+    return cleaned[:32]
 
 
 def _normalize_sign(raw: object, *, default: str = 'none') -> str:
@@ -661,6 +956,24 @@ def _normalize_sign(raw: object, *, default: str = 'none') -> str:
     if txt in {'none', '0', '', 'neutral'}:
         return 'none'
     return default
+
+
+def _infer_behavior_code_from_payload_or_key(payload: dict[str, object], rule_key: str) -> str:
+    candidates = [
+        str(payload.get('source_document_type_code') or '').strip(),
+        str(payload.get('document_type') or '').strip(),
+        str(rule_key or '').strip(),
+    ]
+    for txt in candidates:
+        if not txt:
+            continue
+        m = re.search(r'(?i)(?:sales|purchase|inventory)[^0-9]*_([0-9]{2,6})', txt)
+        if m:
+            return _normalize_behavior_code(m.group(1))
+        m2 = re.search(r'(?i)BHV[_-]?([A-Za-z0-9-]{1,32})', txt)
+        if m2:
+            return _normalize_behavior_code(m2.group(1))
+    return ''
 
 
 def _sign_to_int(sign: str) -> int:
@@ -700,14 +1013,18 @@ def _payload_sign(payload: dict, keys: list[str], *, default: str = 'none') -> s
     return default
 
 
-def _document_rule_key(document_type: str, stream: str) -> str:
+def _document_rule_key(document_type: str, stream: str, behavior_code: str | None = None) -> str:
     stream_code = re.sub(r'[^A-Za-z0-9]+', '_', str(stream or '').upper()).strip('_') or 'STREAM'
+    behavior = _normalize_behavior_code(behavior_code)
+    behavior_part = f'_BHV_{behavior}' if behavior else ''
     doc_code = re.sub(r'\W+', '_', str(document_type or '').strip().upper(), flags=re.UNICODE).strip('_') or 'DOC'
-    return f'DOC_RULE_{stream_code}_{doc_code}'[:128]
+    return f'DOC_RULE_{stream_code}{behavior_part}_{doc_code}'[:128]
 
 
 def _build_document_rule_payload(
     *,
+    behavior_code: str,
+    behavior_label: str | None,
     document_type: str,
     include_revenue: bool,
     include_quantity: bool,
@@ -719,7 +1036,11 @@ def _build_document_rule_payload(
 ) -> dict[str, object]:
     amount_sign_norm = _normalize_sign(amount_sign)
     quantity_sign_norm = _normalize_sign(quantity_sign)
+    behavior_code_norm = _normalize_behavior_code(behavior_code)
+    behavior_label_norm = str(behavior_label or '').strip()
     return {
+        'behavior_code': behavior_code_norm,
+        'behavior_label': behavior_label_norm or None,
         'document_type': document_type,
         'include_revenue': include_revenue,
         'include_quantity': include_quantity,
@@ -736,9 +1057,16 @@ def _build_document_rule_payload(
 
 def _read_document_rule_form(payload: dict[str, object], rule_key: str) -> dict[str, object]:
     document_type = str(payload.get('document_type') or '').strip() or str(rule_key or '').strip()
+    behavior_code = _normalize_behavior_code(
+        payload.get('behavior_code') or payload.get('softone_behavior') or payload.get('source_transaction_type_id')
+    )
+    if not behavior_code:
+        behavior_code = _infer_behavior_code_from_payload_or_key(payload, rule_key)
     amount_sign = _payload_sign(payload, ['amount_sign_label', 'amount_sign', 'sign'], default='none')
     quantity_sign = _payload_sign(payload, ['quantity_sign_label', 'quantity_sign', 'qty_sign'], default='none')
     return {
+        'behavior_code': behavior_code,
+        'behavior_label': str(payload.get('behavior_label') or '').strip(),
         'document_type': document_type,
         'include_revenue': _payload_bool(payload, ['include_revenue'], default=False),
         'include_quantity': _payload_bool(payload, ['include_quantity'], default=False),
@@ -777,6 +1105,11 @@ def _document_rule_row(
     override_mode: str | None = None,
 ) -> dict[str, object]:
     parsed = _read_document_rule_form(payload, rule_key)
+    behavior_code = str(parsed['behavior_code'] or '')
+    behavior_label = str(parsed['behavior_label'] or '')
+    if behavior_code and not behavior_label:
+        behavior_meta = _SOFTONE_BEHAVIOR_CATALOG.get((stream, behavior_code), {})
+        behavior_label = str(behavior_meta.get('behavior_label') or '').strip()
     return {
         'scope': scope,
         'scope_label': scope_label,
@@ -784,6 +1117,8 @@ def _document_rule_row(
         'stream': stream,
         'stream_label': stream_label,
         'rule_key': rule_key,
+        'behavior_code': behavior_code,
+        'behavior_label': behavior_label,
         'document_type': parsed['document_type'],
         'include_revenue': bool(parsed['include_revenue']),
         'include_quantity': bool(parsed['include_quantity']),
@@ -1071,6 +1406,228 @@ def _softone_document_templates_preview() -> list[dict[str, object]]:
     return rows
 
 
+def _sum_sign_to_label(value: object) -> str:
+    try:
+        num = float(value or 0)
+    except Exception:
+        return 'none'
+    if num > 0:
+        return 'positive'
+    if num < 0:
+        return 'negative'
+    return 'none'
+
+
+def _cash_type_to_softone_label(value: object) -> str:
+    txt = str(value or '').strip()
+    lookup = {
+        'customer_collections': 'Εισπράξεις Πελατών',
+        'customer_transfers': 'Μεταφορές Πελατών',
+        'supplier_payments': 'Πληρωμές Προμηθευτών',
+        'supplier_transfers': 'Μεταφορές Προμηθευτών',
+        'financial_accounts': 'Εσωτερικές Μεταφορές',
+    }
+    return lookup.get(txt, txt or 'Κίνηση Ταμείου')
+
+
+async def _discover_tenant_softone_rules(
+    tenant_slug: str,
+    *,
+    db_name: str,
+    db_user: str,
+    db_password: str,
+) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    async for tenant_db in get_tenant_db_session(tenant_slug, db_name, db_user, db_password):
+        sales_rows = (
+            await tenant_db.execute(
+                text(
+                    """
+                    SELECT
+                        NULLIF(BTRIM(COALESCE(f.source_payload_json->>'source_transaction_type_id', '')), '') AS behavior_code,
+                        COALESCE(NULLIF(BTRIM(COALESCE(f.source_payload_json->>'document_series_name', '')), ''), '') AS softone_name,
+                        COALESCE(
+                            NULLIF(BTRIM(f.document_type), ''),
+                            NULLIF(BTRIM(COALESCE(f.source_payload_json->>'document_type', '')), ''),
+                            'sales_documents'
+                        ) AS document_type_code,
+                        COUNT(*)::int AS row_count,
+                        COALESCE(SUM(f.net_value), 0)::numeric AS total_amount,
+                        COALESCE(SUM(f.qty), 0)::numeric AS total_qty,
+                        COALESCE(SUM(f.cost_amount), 0)::numeric AS total_cost,
+                        SUM(CASE WHEN NULLIF(BTRIM(COALESCE(f.customer_code, '')), '') IS NOT NULL THEN 1 ELSE 0 END)::int AS customer_hits
+                    FROM fact_sales f
+                    GROUP BY 1, 2, 3
+                    ORDER BY COUNT(*) DESC
+                    LIMIT 500
+                    """
+                )
+            )
+        ).mappings().all()
+        for row in sales_rows:
+            behavior_code = str(row.get('behavior_code') or '').strip()
+            behavior_meta = _SOFTONE_BEHAVIOR_CATALOG.get((OperationalStream.sales_documents.value, behavior_code), {})
+            softone_name = str(row.get('softone_name') or '').strip()
+            code_name = str(row.get('document_type_code') or '').strip()
+            rows.append(
+                {
+                    'stream': OperationalStream.sales_documents.value,
+                    'stream_label': _doc_stream_label(OperationalStream.sales_documents.value),
+                    'behavior_code': behavior_code,
+                    'behavior_label': str(behavior_meta.get('behavior_label') or '').strip(),
+                    'document_type': softone_name or code_name,
+                    'source_document_type_code': code_name,
+                    'include_revenue': True,
+                    'include_quantity': True,
+                    'include_cost': True,
+                    'affects_customer_balance': bool((row.get('customer_hits') or 0) > 0),
+                    'affects_supplier_balance': False,
+                    'amount_sign': _sum_sign_to_label(row.get('total_amount')),
+                    'quantity_sign': _sum_sign_to_label(row.get('total_qty')),
+                    'row_count': int(row.get('row_count') or 0),
+                }
+            )
+
+        purchases_rows = (
+            await tenant_db.execute(
+                text(
+                    """
+                    SELECT
+                        COALESCE(NULLIF(BTRIM(COALESCE(f.source_payload_json->>'document_series_name', '')), ''), '') AS softone_name,
+                        COALESCE(
+                            NULLIF(BTRIM(f.document_type), ''),
+                            NULLIF(BTRIM(COALESCE(f.source_payload_json->>'document_type', '')), ''),
+                            'purchase_documents'
+                        ) AS document_type_code,
+                        COUNT(*)::int AS row_count,
+                        COALESCE(SUM(f.net_value), 0)::numeric AS total_amount,
+                        COALESCE(SUM(f.qty), 0)::numeric AS total_qty,
+                        COALESCE(SUM(f.cost_amount), 0)::numeric AS total_cost,
+                        SUM(CASE WHEN NULLIF(BTRIM(COALESCE(f.supplier_ext_id, '')), '') IS NOT NULL THEN 1 ELSE 0 END)::int AS supplier_hits
+                    FROM fact_purchases f
+                    GROUP BY 1, 2
+                    ORDER BY COUNT(*) DESC
+                    LIMIT 500
+                    """
+                )
+            )
+        ).mappings().all()
+        for row in purchases_rows:
+            softone_name = str(row.get('softone_name') or '').strip()
+            code_name = str(row.get('document_type_code') or '').strip()
+            rows.append(
+                {
+                    'stream': OperationalStream.purchase_documents.value,
+                    'stream_label': _doc_stream_label(OperationalStream.purchase_documents.value),
+                    'behavior_code': '',
+                    'behavior_label': '',
+                    'document_type': softone_name or code_name,
+                    'source_document_type_code': code_name,
+                    'include_revenue': False,
+                    'include_quantity': True,
+                    'include_cost': True,
+                    'affects_customer_balance': False,
+                    'affects_supplier_balance': bool((row.get('supplier_hits') or 0) > 0),
+                    'amount_sign': _sum_sign_to_label(row.get('total_amount')),
+                    'quantity_sign': _sum_sign_to_label(row.get('total_qty')),
+                    'row_count': int(row.get('row_count') or 0),
+                }
+            )
+
+        inventory_rows = (
+            await tenant_db.execute(
+                text(
+                    """
+                    SELECT
+                        COALESCE(NULLIF(BTRIM(COALESCE(f.source_payload_json->>'document_series_name', '')), ''), '') AS softone_name,
+                        COALESCE(
+                            NULLIF(BTRIM(f.document_type), ''),
+                            NULLIF(BTRIM(COALESCE(f.source_payload_json->>'document_type', '')), ''),
+                            'inventory_documents'
+                        ) AS document_type_code,
+                        COUNT(*)::int AS row_count,
+                        COALESCE(SUM(f.value_amount), 0)::numeric AS total_amount
+                    FROM fact_inventory f
+                    GROUP BY 1, 2
+                    ORDER BY COUNT(*) DESC
+                    LIMIT 500
+                    """
+                )
+            )
+        ).mappings().all()
+        for row in inventory_rows:
+            softone_name = str(row.get('softone_name') or '').strip()
+            code_name = str(row.get('document_type_code') or '').strip()
+            rows.append(
+                {
+                    'stream': OperationalStream.inventory_documents.value,
+                    'stream_label': _doc_stream_label(OperationalStream.inventory_documents.value),
+                    'behavior_code': '',
+                    'behavior_label': '',
+                    'document_type': softone_name or code_name,
+                    'source_document_type_code': code_name,
+                    'include_revenue': False,
+                    'include_quantity': True,
+                    'include_cost': True,
+                    'affects_customer_balance': False,
+                    'affects_supplier_balance': False,
+                    'amount_sign': _sum_sign_to_label(row.get('total_amount')),
+                    'quantity_sign': 'none',
+                    'row_count': int(row.get('row_count') or 0),
+                }
+            )
+
+        cash_rows = (
+            await tenant_db.execute(
+                text(
+                    """
+                    SELECT
+                        COALESCE(NULLIF(BTRIM(f.transaction_type), ''), NULLIF(BTRIM(f.entry_type), ''), 'cash_transaction') AS document_type,
+                        COUNT(*)::int AS row_count,
+                        COALESCE(SUM(f.amount), 0)::numeric AS total_amount,
+                        SUM(CASE WHEN LOWER(COALESCE(f.counterparty_type, '')) = 'customer' THEN 1 ELSE 0 END)::int AS customer_hits,
+                        SUM(CASE WHEN LOWER(COALESCE(f.counterparty_type, '')) = 'supplier' THEN 1 ELSE 0 END)::int AS supplier_hits
+                    FROM fact_cashflows f
+                    GROUP BY 1
+                    ORDER BY COUNT(*) DESC
+                    LIMIT 500
+                    """
+                )
+            )
+        ).mappings().all()
+        for row in cash_rows:
+            raw_type = str(row.get('document_type') or '').strip()
+            rows.append(
+                {
+                    'stream': OperationalStream.cash_transactions.value,
+                    'stream_label': _doc_stream_label(OperationalStream.cash_transactions.value),
+                    'behavior_code': '',
+                    'behavior_label': '',
+                    'document_type': _cash_type_to_softone_label(raw_type),
+                    'source_document_type_code': raw_type,
+                    'include_revenue': False,
+                    'include_quantity': False,
+                    'include_cost': False,
+                    'affects_customer_balance': bool((row.get('customer_hits') or 0) > 0),
+                    'affects_supplier_balance': bool((row.get('supplier_hits') or 0) > 0),
+                    'amount_sign': _sum_sign_to_label(row.get('total_amount')),
+                    'quantity_sign': 'none',
+                    'row_count': int(row.get('row_count') or 0),
+                }
+            )
+
+    for row in rows:
+        amount_sign = _normalize_sign(row.get('amount_sign'))
+        qty_sign = _normalize_sign(row.get('quantity_sign'))
+        row['amount_sign'] = amount_sign
+        row['quantity_sign'] = qty_sign
+        row['amount_sign_label'] = _DOCUMENT_SIGN_LABEL.get(amount_sign, amount_sign)
+        row['quantity_sign_label'] = _DOCUMENT_SIGN_LABEL.get(qty_sign, qty_sign)
+
+    rows.sort(key=lambda x: (str(x.get('stream') or ''), -int(x.get('row_count') or 0), str(x.get('document_type') or '')))
+    return rows
+
+
 async def _render_document_type_rules_page(
     *,
     request: Request,
@@ -1087,6 +1644,16 @@ async def _render_document_type_rules_page(
     ).scalars().all()
     tenants = (await db.execute(select(Tenant).order_by(Tenant.name.asc()))).scalars().all()
     tenants_map = {int(t.id): t for t in tenants}
+    tenant_override_counts = {
+        int(row[0]): int(row[1])
+        for row in (
+            await db.execute(
+                select(TenantRuleOverride.tenant_id, func.count(TenantRuleOverride.id))
+                .where(TenantRuleOverride.domain == RuleDomain.document_type_rules)
+                .group_by(TenantRuleOverride.tenant_id)
+            )
+        ).all()
+    }
 
     tenant_id_raw = str(request.query_params.get('tenant_id') or '').strip()
     selected_tenant_id: int | None = None
@@ -1123,10 +1690,15 @@ async def _render_document_type_rules_page(
     tenant_rows_models = (await db.execute(tenant_stmt)).scalars().all()
 
     global_rows: list[dict[str, object]] = []
-    global_map: dict[tuple[str, str], tuple[GlobalRuleEntry, GlobalRuleSet]] = {}
+    global_map_all: dict[tuple[str, str], tuple[GlobalRuleEntry, GlobalRuleSet]] = {}
+    global_map_by_ruleset: dict[str, dict[tuple[str, str], tuple[GlobalRuleEntry, GlobalRuleSet]]] = {}
     for entry, ruleset in global_pairs:
         key = (entry.stream.value, entry.rule_key)
-        global_map[key] = (entry, ruleset)
+        if key not in global_map_all:
+            global_map_all[key] = (entry, ruleset)
+        by_set = global_map_by_ruleset.setdefault(str(ruleset.code), {})
+        if key not in by_set:
+            by_set[key] = (entry, ruleset)
         global_rows.append(
             _document_rule_row(
                 scope='global',
@@ -1165,12 +1737,50 @@ async def _render_document_type_rules_page(
             )
         )
 
+    tenants_with_custom_rules: list[dict[str, object]] = []
+    for tenant_obj in tenants:
+        tenant_id_int = int(tenant_obj.id)
+        overrides_count = int(tenant_override_counts.get(tenant_id_int, 0))
+        tenant_ruleset_code = _tenant_document_ruleset_code(tenant_obj)
+        if overrides_count <= 0 and not tenant_ruleset_code:
+            continue
+        tenants_with_custom_rules.append(
+            {
+                'tenant_id': tenant_id_int,
+                'tenant_name': tenant_obj.name,
+                'tenant_slug': tenant_obj.slug,
+                'overrides_count': overrides_count,
+                'ruleset_code': tenant_ruleset_code,
+            }
+        )
+
     effective_rows: list[dict[str, object]] = []
+    tenant_observed_softone_rows: list[dict[str, object]] = []
+    tenant_observed_error = ''
+    selected_tenant_ruleset_code = ''
     if selected_tenant_id is not None:
-        all_keys = sorted(set(global_map.keys()) | set(override_map.keys()))
+        selected_tenant_obj = tenants_map.get(selected_tenant_id)
+        if selected_tenant_obj is not None:
+            selected_tenant_ruleset_code = _tenant_document_ruleset_code(selected_tenant_obj)
+            try:
+                tenant_observed_softone_rows = await _discover_tenant_softone_rules(
+                    selected_tenant_obj.slug,
+                    db_name=selected_tenant_obj.db_name,
+                    db_user=selected_tenant_obj.db_user,
+                    db_password=selected_tenant_obj.db_password,
+                )
+            except Exception as exc:
+                logger.warning('tenant_softone_discovery_failed tenant=%s error=%s', selected_tenant_obj.slug, exc)
+                tenant_observed_error = 'Αδυναμία ανάγνωσης κανόνων SoftOne από τον tenant.'
+        effective_global_map = (
+            global_map_by_ruleset.get(selected_tenant_ruleset_code, {})
+            if selected_tenant_ruleset_code
+            else global_map_all
+        )
+        all_keys = sorted(set(effective_global_map.keys()) | set(override_map.keys()))
         for key in all_keys:
             stream_value, rule_key = key
-            global_pair = global_map.get(key)
+            global_pair = effective_global_map.get(key)
             override_row = override_map.get(key)
             global_entry = global_pair[0] if global_pair else None
             ruleset_code = global_pair[1].code if global_pair else 'tenant_only'
@@ -1211,6 +1821,8 @@ async def _render_document_type_rules_page(
             )
 
     default_form_values = {
+        'behavior_code': '',
+        'behavior_label': '',
         'document_type': '',
         'stream': OperationalStream.sales_documents.value,
         'include_revenue': '1',
@@ -1239,14 +1851,23 @@ async def _render_document_type_rules_page(
             'stream_options': _DOCUMENT_RULE_STREAMS,
             'sign_options': _DOCUMENT_SIGN_OPTIONS,
             'softone_templates': _softone_document_templates_preview(),
+            'softone_doc_type_options': _softone_document_type_options(),
+            'softone_doc_options': _softone_document_options(),
             'tenants': tenants,
             'selected_tenant_id': selected_tenant_id,
             'selected_tenant_name': tenants_map.get(selected_tenant_id).name if selected_tenant_id in tenants_map else None,
+            'selected_tenant_ruleset_code': selected_tenant_ruleset_code,
+            'tenant_observed_softone_rows': tenant_observed_softone_rows,
+            'tenant_observed_error': tenant_observed_error,
+            'tenants_with_custom_rules': tenants_with_custom_rules,
             'global_rows': global_rows,
             'tenant_override_rows': tenant_override_rows,
             'effective_rows': effective_rows,
             'default_form_values': default_form_values,
             'saved': request.query_params.get('saved') == '1',
+            'deleted': request.query_params.get('deleted') == '1',
+            'ruleset_saved': request.query_params.get('ruleset_saved') == '1',
+            'tenant_overrides_cleared': request.query_params.get('tenant_overrides_cleared') == '1',
             'template_saved': request.query_params.get('template_saved') == '1',
             'wizard_applied': request.query_params.get('wizard_applied') == '1',
             'error_message': request.query_params.get('error') or '',
@@ -1267,7 +1888,15 @@ async def _connections_template_context(
     rows = (await db.execute(select(TenantConnection).order_by(TenantConnection.id.desc()))).scalars().all()
     tenants = (await db.execute(select(Tenant).order_by(Tenant.name.asc()))).scalars().all()
     resolved_form = dict(form_values or {})
-    connector_type = str(resolved_form.get('connector_type') or 'sql_connector')
+    selected_tenant_id = _to_int_or_none(resolved_form.get('tenant_id'))
+    if selected_tenant_id is None:
+        selected_tenant_id = _to_int_or_none(request.query_params.get('tenant_id'))
+    if selected_tenant_id is None and tenants:
+        selected_tenant_id = int(tenants[0].id)
+
+    query_connector = str(request.query_params.get('connector_type') or '').strip()
+    connector_type = str(resolved_form.get('connector_type') or query_connector or 'sql_connector')
+    resolved_form['tenant_id'] = selected_tenant_id
     default_supported = _stream_defaults_for_connector(connector_type)
     resolved_form.setdefault('connector_type', connector_type)
     resolved_form.setdefault('source_type', _normalize_source_type(connector_type, str(resolved_form.get('source_type') or '')))
@@ -1278,7 +1907,86 @@ async def _connections_template_context(
     resolved_form.setdefault('supplier_balances_query_template', DEFAULT_GENERIC_SUPPLIER_BALANCES_QUERY)
     resolved_form.setdefault('customer_balances_query_template', DEFAULT_GENERIC_CUSTOMER_BALANCES_QUERY)
     resolved_form.setdefault('stream_field_mapping_json', '{}')
+    resolved_form.setdefault('is_active', True)
     resolved_form.setdefault('supported_streams', default_supported)
+    resolved_form.setdefault('has_saved_password', False)
+
+    # On initial page load (no explicit posted form), hydrate fields from the
+    # selected tenant+connector record so settings stay tenant-specific in UI.
+    if not form_values and selected_tenant_id is not None:
+        selected_connector = str(resolved_form.get('connector_type') or 'sql_connector').strip().lower()
+        conn = (
+            await db.execute(
+                select(TenantConnection).where(
+                    TenantConnection.tenant_id == selected_tenant_id,
+                    TenantConnection.connector_type == selected_connector,
+                )
+            )
+        ).scalar_one_or_none()
+        if conn is None and selected_connector == 'sql_connector':
+            conn = (
+                await db.execute(
+                    select(TenantConnection).where(
+                        TenantConnection.tenant_id == selected_tenant_id,
+                        TenantConnection.connector_type == 'pharmacyone_sql',
+                    )
+                )
+            ).scalar_one_or_none()
+        elif conn is None and selected_connector == 'pharmacyone_sql':
+            conn = (
+                await db.execute(
+                    select(TenantConnection).where(
+                        TenantConnection.tenant_id == selected_tenant_id,
+                        TenantConnection.connector_type == 'sql_connector',
+                    )
+                )
+            ).scalar_one_or_none()
+
+        if conn is not None:
+            params = conn.connection_parameters if isinstance(conn.connection_parameters, dict) else {}
+            options_map = params.get('options') if isinstance(params.get('options'), dict) else {}
+            resolved_form.update(
+                {
+                    'connector_type': conn.connector_type or selected_connector,
+                    'source_type': _normalize_source_type(
+                        str(conn.connector_type or selected_connector),
+                        str(conn.source_type or ''),
+                    ),
+                    'is_active': bool(getattr(conn, 'is_active', True)),
+                    'host': str(params.get('host') or ''),
+                    'port': str(params.get('port') or '1433'),
+                    'database': str(params.get('database') or ''),
+                    'username': str(params.get('username') or ''),
+                    'options': _stringify_options_map(options_map),
+                    'sales_query_template': conn.sales_query_template or DEFAULT_GENERIC_SALES_QUERY,
+                    'purchases_query_template': conn.purchases_query_template or DEFAULT_GENERIC_PURCHASES_QUERY,
+                    'inventory_query_template': conn.inventory_query_template or DEFAULT_GENERIC_INVENTORY_QUERY,
+                    'cashflow_query_template': conn.cashflow_query_template or DEFAULT_GENERIC_CASHFLOW_QUERY,
+                    'supplier_balances_query_template': conn.supplier_balances_query_template or DEFAULT_GENERIC_SUPPLIER_BALANCES_QUERY,
+                    'customer_balances_query_template': conn.customer_balances_query_template or DEFAULT_GENERIC_CUSTOMER_BALANCES_QUERY,
+                    'updated_at_column': conn.incremental_column or 'UpdatedAt',
+                    'incremental_column': conn.incremental_column or 'UpdatedAt',
+                    'id_column': conn.id_column or 'LineId',
+                    'date_column': conn.date_column or 'DocDate',
+                    'branch_column': conn.branch_column or 'BranchCode',
+                    'item_column': conn.item_column or 'ItemCode',
+                    'net_amount_column': conn.amount_column or 'NetValue',
+                    'amount_column': conn.amount_column or 'NetValue',
+                    'cost_column': conn.cost_column or 'CostValue',
+                    'qty_column': conn.qty_column or 'Qty',
+                    'stream_field_mapping_json': json.dumps(conn.stream_field_mapping or {}, ensure_ascii=False, indent=2),
+                    'has_saved_password': bool(conn.enc_payload),
+                    'supported_streams': _normalize_stream_selection(
+                        conn.supported_streams if isinstance(conn.supported_streams, list) else None,
+                        fallback=_stream_defaults_for_connector(str(conn.connector_type or selected_connector)),
+                    ),
+                    'enabled_streams': _normalize_stream_selection(
+                        conn.enabled_streams if isinstance(conn.enabled_streams, list) else None,
+                        fallback=_stream_defaults_for_connector(str(conn.connector_type or selected_connector)),
+                    ),
+                }
+            )
+
     enabled_default = resolved_form.get('enabled_streams')
     resolved_form['enabled_streams'] = _normalize_stream_selection(
         enabled_default if isinstance(enabled_default, list) else None,
@@ -1308,6 +2016,83 @@ def _parse_date_or_none(raw: str | None):
         return date.fromisoformat(raw)
     except ValueError:
         return None
+
+
+def _connections_redirect_url(
+    base_path: str,
+    *,
+    tenant_id: int | None = None,
+    connector_type: str | None = None,
+    **flags: object,
+) -> str:
+    params: dict[str, str] = {}
+    if tenant_id is not None:
+        params['tenant_id'] = str(int(tenant_id))
+    if connector_type and str(connector_type).strip():
+        params['connector_type'] = str(connector_type).strip()
+    for key, value in flags.items():
+        if value is None:
+            continue
+        params[str(key)] = str(value)
+    if not params:
+        return base_path
+    return f'{base_path}?{urlencode(params)}'
+
+
+def _sanitize_chunk_records(raw_value: int) -> int:
+    return max(100, min(10000, int(raw_value)))
+
+
+def _enqueue_external_backfill_jobs(
+    *,
+    tenant_slug: str,
+    planned_jobs: list[dict[str, object]],
+    from_dt: date,
+    to_dt: date,
+    chunk_records: int,
+    chunk_days: int,
+    include_purchases: bool,
+) -> tuple[int, int]:
+    record_limit = _sanitize_chunk_records(chunk_records)
+    default_chunk_days = max(1, int(chunk_days))
+    queued = 0
+    batches = 0
+
+    def _iter_chunks(start_date: date, end_date: date, step_days: int):
+        current = start_date
+        step = max(1, int(step_days))
+        while current <= end_date:
+            chunk_end = min(current + timedelta(days=step - 1), end_date)
+            yield current, chunk_end
+            current = chunk_end + timedelta(days=1)
+
+    for job in planned_jobs:
+        stream = normalize_stream_name(job.get('stream'))
+        if stream == 'purchase_documents' and not include_purchases:
+            continue
+
+        # SoftOne document streams are much more stable with daily windows.
+        stream_chunk_days = 1 if stream in {'sales_documents', 'purchase_documents', 'inventory_documents'} else default_chunk_days
+        for chunk_from, chunk_to in _iter_chunks(from_dt, to_dt, stream_chunk_days):
+            queued_job = dict(job)
+            merged_payload = dict(queued_job.get('payload') or {})
+            merged_payload.update(
+                {
+                    'from_date': chunk_from.isoformat(),
+                    'to_date': chunk_to.isoformat(),
+                    'ignore_sync_state': True,
+                    'backfill': True,
+                    'limit': record_limit,
+                }
+            )
+            queued_job['payload'] = merged_payload
+            queued_job.setdefault('attempt', 0)
+            queued_job.setdefault('max_retries', settings.ingest_job_max_retries)
+            enqueue_tenant_job(tenant_slug, queued_job)
+            queued += 1
+            batches += 1
+
+    return queued, batches
 
 
 async def _tenant_insight_counts(tenant: Tenant) -> dict[str, int]:
@@ -1388,7 +2173,7 @@ async def portal_root(request: Request, db: AsyncSession = Depends(get_control_d
         role_raw = str(payload.get('role') or '').strip()
         role = RoleName(role_raw) if role_raw in {r.value for r in RoleName} else RoleName.tenant_admin
         if role == RoleName.cloudon_admin or host == settings.admin_portal_host.lower():
-            resp = RedirectResponse(url='/admin/dashboard', status_code=302)
+            resp = RedirectResponse(url=_admin_dashboard_redirect(host), status_code=302)
             resp.headers['Cache-Control'] = 'no-store'
             return resp
 
@@ -1463,6 +2248,7 @@ async def login_submit(
         subject=str(user.id),
         tenant_id=user.tenant_id,
         role=user.role.value,
+        company_id=user.company_id,
         audience=access_audience,
     )
     refresh_token, refresh_jti, refresh_exp = create_refresh_token(subject=str(user.id))
@@ -1698,6 +2484,7 @@ async def admin_tenant_edit_get_redirect(
         {
             'request': request,
             'tenant': tenant,
+            'inventory_item_classification': _tenant_inventory_item_classification_settings(tenant),
             'active_page': 'tenants',
             'title': 'title_tenants',
             'next_url': request.query_params.get('next') or '/admin/tenants',
@@ -1714,6 +2501,10 @@ async def admin_tenant_edit(
     source: str = Form(default=''),
     tenant_status: str = Form(default=''),
     subscription_status: str = Form(default=''),
+    status_source: str = Form(default='sales_window'),
+    active_last_sale_days: str = Form(default='60'),
+    fast_sales_qty_30d_min: str = Form(default='50'),
+    slow_sales_qty_30d_max: str = Form(default='5'),
     next_url: str = Form(default='/admin/tenants'),
     _: object = Depends(require_roles(RoleName.cloudon_admin)),
     db: AsyncSession = Depends(get_control_db),
@@ -1764,6 +2555,7 @@ async def admin_tenant_edit(
         'source': tenant.source,
         'tenant_status': tenant.status.value,
         'subscription_status': tenant.subscription_status.value,
+        'inventory_item_classification': _tenant_inventory_item_classification_settings(tenant),
     }
 
     tenant.name = name or tenant.name
@@ -1783,6 +2575,34 @@ async def admin_tenant_edit(
     # Keep explicit tenant status selected from UI (do not let sync override it).
     tenant.status = selected_tenant_status
 
+    settings_payload = _tenant_inventory_item_classification_settings(tenant)
+    status_source_clean = str(status_source or '').strip().lower()
+    settings_payload['status_source'] = 'softone' if status_source_clean in {'softone', 'source', 'source_flag'} else 'sales_window'
+    settings_payload['active_last_sale_days'] = _parse_int_in_range(
+        active_last_sale_days,
+        default=settings_payload['active_last_sale_days'],
+        min_value=1,
+        max_value=3650,
+    )
+    settings_payload['fast_sales_qty_30d_min'] = _parse_int_in_range(
+        fast_sales_qty_30d_min,
+        default=settings_payload['fast_sales_qty_30d_min'],
+        min_value=1,
+        max_value=1_000_000,
+    )
+    settings_payload['slow_sales_qty_30d_max'] = _parse_int_in_range(
+        slow_sales_qty_30d_max,
+        default=settings_payload['slow_sales_qty_30d_max'],
+        min_value=0,
+        max_value=1_000_000,
+    )
+    if settings_payload['slow_sales_qty_30d_max'] >= settings_payload['fast_sales_qty_30d_min']:
+        settings_payload['slow_sales_qty_30d_max'] = max(0, settings_payload['fast_sales_qty_30d_min'] - 1)
+
+    flags = dict(tenant.feature_flags or {})
+    flags['inventory_item_classification'] = settings_payload
+    tenant.feature_flags = flags
+
     db.add(
         AuditLog(
             tenant_id=tenant.id,
@@ -1798,6 +2618,7 @@ async def admin_tenant_edit(
                     'source': tenant.source,
                     'tenant_status': tenant.status.value,
                     'subscription_status': sub.status.value,
+                    'inventory_item_classification': settings_payload,
                 },
             },
         )
@@ -2044,13 +2865,14 @@ async def admin_connections_test(
     request: Request,
     tenant_id: int = Form(...),
     connector_type: str = Form(default='sql_connector'),
+    is_active: bool = Form(default=False),
     source_type: str = Form(default='sql'),
     source_page: str = Form(default='connections'),
     host: str = Form(...),
     port: int = Form(default=1433),
     database: str = Form(...),
     username: str = Form(...),
-    password: str = Form(...),
+    password: str = Form(default=''),
     options: str = Form(default='Encrypt=yes;TrustServerCertificate=yes'),
     selected_schema: str = Form(default=''),
     selected_object: str = Form(default=''),
@@ -2074,22 +2896,61 @@ async def admin_connections_test(
     db: AsyncSession = Depends(get_control_db),
 ):
     options_map = _parse_options_map(options)
+    conn = await _find_tenant_connection(db, tenant_id=tenant_id, connector_type=connector_type)
+    resolved_password = _resolve_secret_password(password, conn)
+    if not resolved_password:
+        result = {'status': 'error', 'message': 'Missing password. Fill password or save connection with credentials first.'}
+        context = await _connections_template_context(
+            db,
+            request=request,
+            result=result,
+            discovery=None,
+            form_values={
+                'tenant_id': tenant_id,
+                'host': host,
+                'connector_type': connector_type,
+                'is_active': bool(is_active),
+                'source_type': _normalize_source_type(connector_type, source_type),
+                'port': port,
+                'database': database,
+                'username': username,
+                'options': options,
+                'selected_schema': selected_schema,
+                'selected_object': selected_object,
+                'sales_query_template': sales_query_template,
+                'purchases_query_template': purchases_query_template,
+                'inventory_query_template': inventory_query_template,
+                'cashflow_query_template': cashflow_query_template,
+                'supplier_balances_query_template': supplier_balances_query_template,
+                'customer_balances_query_template': customer_balances_query_template,
+                'stream_field_mapping_json': stream_field_mapping_json,
+                'enabled_streams': _normalize_stream_selection(
+                    enabled_streams,
+                    fallback=_stream_defaults_for_connector(connector_type),
+                ),
+                'updated_at_column': updated_at_column,
+                'id_column': id_column,
+                'date_column': date_column,
+                'branch_column': branch_column,
+                'item_column': item_column,
+                'net_amount_column': net_amount_column,
+                'cost_column': cost_column,
+                'qty_column': qty_column,
+                'has_saved_password': bool(conn and conn.enc_payload),
+            },
+            active_page=('data_sources' if source_page == 'data_sources' else 'connections'),
+            title=('title_data_sources' if source_page == 'data_sources' else 'connections'),
+        )
+        return templates.TemplateResponse('admin/connections.html', context)
+
     secret = SqlServerSecret(
         host=host,
         port=port,
         database=database,
         username=username,
-        password=password,
+        password=resolved_password,
         options=options_map,
     )
-    conn = (
-        await db.execute(
-            select(TenantConnection).where(
-                TenantConnection.tenant_id == tenant_id,
-                TenantConnection.connector_type == connector_type,
-            )
-        )
-    ).scalar_one_or_none()
 
     result: dict[str, str] = {'status': 'ok', 'message': 'Connection test successful (SELECT 1).'}
     try:
@@ -2113,6 +2974,7 @@ async def admin_connections_test(
             'tenant_id': tenant_id,
             'host': host,
             'connector_type': connector_type,
+            'is_active': bool(is_active),
             'source_type': _normalize_source_type(connector_type, source_type),
             'port': port,
             'database': database,
@@ -2139,6 +3001,7 @@ async def admin_connections_test(
             'net_amount_column': net_amount_column,
             'cost_column': cost_column,
             'qty_column': qty_column,
+            'has_saved_password': bool(conn and conn.enc_payload),
         },
         active_page=('data_sources' if source_page == 'data_sources' else 'connections'),
         title=('title_data_sources' if source_page == 'data_sources' else 'connections'),
@@ -2151,13 +3014,14 @@ async def admin_connections_discovery(
     request: Request,
     tenant_id: int = Form(...),
     connector_type: str = Form(default='sql_connector'),
+    is_active: bool = Form(default=False),
     source_type: str = Form(default='sql'),
     source_page: str = Form(default='connections'),
     host: str = Form(...),
     port: int = Form(default=1433),
     database: str = Form(...),
     username: str = Form(...),
-    password: str = Form(...),
+    password: str = Form(default=''),
     options: str = Form(default='Encrypt=yes;TrustServerCertificate=yes'),
     selected_schema: str = Form(default=''),
     selected_object: str = Form(default=''),
@@ -2181,12 +3045,59 @@ async def admin_connections_discovery(
     db: AsyncSession = Depends(get_control_db),
 ):
     options_map = _parse_options_map(options)
+    conn = await _find_tenant_connection(db, tenant_id=tenant_id, connector_type=connector_type)
+    resolved_password = _resolve_secret_password(password, conn)
+    if not resolved_password:
+        result = {'status': 'error', 'message': 'Missing password. Fill password or save connection with credentials first.'}
+        context = await _connections_template_context(
+            db,
+            request=request,
+            result=result,
+            discovery=discovery,
+            form_values={
+                'tenant_id': tenant_id,
+                'host': host,
+                'connector_type': connector_type,
+                'is_active': bool(is_active),
+                'source_type': _normalize_source_type(connector_type, source_type),
+                'port': port,
+                'database': database,
+                'username': username,
+                'options': options,
+                'selected_schema': selected_schema,
+                'selected_object': selected_object,
+                'sales_query_template': sales_query_template,
+                'purchases_query_template': purchases_query_template,
+                'inventory_query_template': inventory_query_template,
+                'cashflow_query_template': cashflow_query_template,
+                'supplier_balances_query_template': supplier_balances_query_template,
+                'customer_balances_query_template': customer_balances_query_template,
+                'stream_field_mapping_json': stream_field_mapping_json,
+                'enabled_streams': _normalize_stream_selection(
+                    enabled_streams,
+                    fallback=_stream_defaults_for_connector(connector_type),
+                ),
+                'updated_at_column': updated_at_column,
+                'id_column': id_column,
+                'date_column': date_column,
+                'branch_column': branch_column,
+                'item_column': item_column,
+                'net_amount_column': net_amount_column,
+                'cost_column': cost_column,
+                'qty_column': qty_column,
+                'has_saved_password': bool(conn and conn.enc_payload),
+            },
+            active_page=('data_sources' if source_page == 'data_sources' else 'connections'),
+            title=('title_data_sources' if source_page == 'data_sources' else 'connections'),
+        )
+        return templates.TemplateResponse('admin/connections.html', context)
+
     secret = SqlServerSecret(
         host=host,
         port=port,
         database=database,
         username=username,
-        password=password,
+        password=resolved_password,
         options=options_map,
     )
     discovery: dict = {'objects': [], 'selected_schema': selected_schema, 'selected_object': selected_object}
@@ -2210,6 +3121,7 @@ async def admin_connections_discovery(
             'tenant_id': tenant_id,
             'host': host,
             'connector_type': connector_type,
+            'is_active': bool(is_active),
             'source_type': _normalize_source_type(connector_type, source_type),
             'port': port,
             'database': database,
@@ -2236,6 +3148,7 @@ async def admin_connections_discovery(
             'net_amount_column': net_amount_column,
             'cost_column': cost_column,
             'qty_column': qty_column,
+            'has_saved_password': bool(conn and conn.enc_payload),
         },
         active_page=('data_sources' if source_page == 'data_sources' else 'connections'),
         title=('title_data_sources' if source_page == 'data_sources' else 'connections'),
@@ -2247,13 +3160,14 @@ async def admin_connections_discovery(
 async def admin_connections_save(
     tenant_id: int = Form(...),
     connector_type: str = Form(default='sql_connector'),
+    is_active: bool = Form(default=False),
     source_type: str = Form(default='sql'),
     source_page: str = Form(default='connections'),
     host: str = Form(...),
     port: int = Form(default=1433),
     database: str = Form(...),
     username: str = Form(...),
-    password: str = Form(...),
+    password: str = Form(default=''),
     options: str = Form(default='Encrypt=yes;TrustServerCertificate=yes'),
     sales_query_template: str = Form(default=DEFAULT_GENERIC_SALES_QUERY),
     purchases_query_template: str = Form(default=DEFAULT_GENERIC_PURCHASES_QUERY),
@@ -2281,18 +3195,19 @@ async def admin_connections_save(
     redirect_base = '/admin/data-sources' if source_page == 'data_sources' else '/admin/connections'
     tenant = (await db.execute(select(Tenant).where(Tenant.id == tenant_id))).scalar_one_or_none()
     if not tenant:
-        return RedirectResponse(url=f'{redirect_base}?saved=0', status_code=303)
+        return RedirectResponse(
+            url=_connections_redirect_url(
+                redirect_base,
+                tenant_id=tenant_id,
+                connector_type=connector_type,
+                saved=0,
+            ),
+            status_code=303,
+        )
 
     options_map = _parse_options_map(options)
 
-    conn = (
-        await db.execute(
-            select(TenantConnection).where(
-                TenantConnection.tenant_id == tenant_id,
-                TenantConnection.connector_type == connector_type,
-            )
-        )
-    ).scalar_one_or_none()
+    conn = await _find_tenant_connection(db, tenant_id=tenant_id, connector_type=connector_type)
     if conn is None:
         conn = TenantConnection(
             tenant_id=tenant_id,
@@ -2301,12 +3216,25 @@ async def admin_connections_save(
         )
         db.add(conn)
 
+    resolved_password = _resolve_secret_password(password, conn)
+    if not resolved_password:
+        return RedirectResponse(
+            url=_connections_redirect_url(
+                redirect_base,
+                tenant_id=tenant_id,
+                connector_type=connector_type,
+                saved=0,
+            ),
+            status_code=303,
+        )
+
+    conn.is_active = bool(is_active)
     conn.enc_payload = encrypt_sqlserver_secret(
         host=host,
         port=port,
         database=database,
         username=username,
-        password=password,
+        password=resolved_password,
         options=options_map,
     )
     if selected_schema and selected_object:
@@ -2371,6 +3299,7 @@ async def admin_connections_save(
             entity_id=str(conn.id or ''),
             payload={
                 'connector_type': connector_type,
+                'is_active': conn.is_active,
                 'source_type': conn.source_type,
                 'enabled_streams': conn.enabled_streams,
                 'selected_schema': selected_schema or None,
@@ -2389,12 +3318,21 @@ async def admin_connections_save(
         )
     )
     await db.commit()
-    return RedirectResponse(url=f'{redirect_base}?saved=1', status_code=303)
+    return RedirectResponse(
+        url=_connections_redirect_url(
+            redirect_base,
+            tenant_id=tenant_id,
+            connector_type=connector_type,
+            saved=1,
+        ),
+        status_code=303,
+    )
 
 
 @router.post('/admin/connections/apply-pack')
 async def admin_connections_apply_pack(
     tenant_id: int = Form(...),
+    connector_type: str = Form(default='sql_connector'),
     source_page: str = Form(default='connections'),
     _: object = Depends(require_roles(RoleName.cloudon_admin)),
     db: AsyncSession = Depends(get_control_db),
@@ -2402,7 +3340,15 @@ async def admin_connections_apply_pack(
     redirect_base = '/admin/data-sources' if source_page == 'data_sources' else '/admin/connections'
     tenant = (await db.execute(select(Tenant).where(Tenant.id == tenant_id))).scalar_one_or_none()
     if tenant is None:
-        return RedirectResponse(url=f'{redirect_base}?pack=0', status_code=303)
+        return RedirectResponse(
+            url=_connections_redirect_url(
+                redirect_base,
+                tenant_id=tenant_id,
+                connector_type=connector_type,
+                pack=0,
+            ),
+            status_code=303,
+        )
     conn = (
         await db.execute(
             select(TenantConnection).where(
@@ -2430,15 +3376,25 @@ async def admin_connections_apply_pack(
         )
     )
     await db.commit()
-    return RedirectResponse(url=f'{redirect_base}?pack=1', status_code=303)
+    return RedirectResponse(
+        url=_connections_redirect_url(
+            redirect_base,
+            tenant_id=tenant_id,
+            connector_type=connector_type,
+            pack=1,
+        ),
+        status_code=303,
+    )
 
 
 @router.post('/admin/connections/backfill')
 async def admin_connections_backfill(
     tenant_id: int = Form(...),
+    connector_type: str = Form(default='sql_connector'),
     source_page: str = Form(default='connections'),
     from_date: str = Form(...),
     to_date: str = Form(...),
+    chunk_records: int = Form(default=1000),
     chunk_days: int = Form(default=7),
     include_purchases: bool = Form(default=True),
     _: object = Depends(require_roles(RoleName.cloudon_admin)),
@@ -2449,19 +3405,109 @@ async def admin_connections_backfill(
     from_dt = _parse_date_or_none(from_date)
     to_dt = _parse_date_or_none(to_date)
     if tenant is None or from_dt is None or to_dt is None or from_dt > to_dt:
-        return RedirectResponse(url=f'{redirect_base}?backfill=0', status_code=303)
+        return RedirectResponse(
+            url=_connections_redirect_url(
+                redirect_base,
+                tenant_id=tenant_id,
+                connector_type=connector_type,
+                backfill=0,
+            ),
+            status_code=303,
+        )
+    Redis.from_url(settings.redis_url, decode_responses=True).delete(tenant_stop_key(tenant.slug))
 
-    task = celery_client.send_task(
-        'worker.tasks.enqueue_sql_backfill',
-        kwargs={
-            'tenant_slug': tenant.slug,
-            'from_date_str': from_dt.isoformat(),
-            'to_date_str': to_dt.isoformat(),
-            'chunk_days': max(1, int(chunk_days)),
-            'include_purchases': bool(include_purchases),
-        },
-        queue='ingest',
+    planned_jobs = await plan_tenant_sync_jobs(
+        db,
+        tenant_id=tenant.id,
+        tenant_slug=tenant.slug,
+        preferred_connector=connector_type,
     )
+    if not planned_jobs:
+        return RedirectResponse(
+            url=_connections_redirect_url(
+                redirect_base,
+                tenant_id=tenant_id,
+                connector_type=connector_type,
+                backfill=0,
+            ),
+            status_code=303,
+        )
+    all_external = bool(planned_jobs) and all(
+        str(job.get('connector') or '').strip().lower() == 'external_api'
+        for job in planned_jobs
+    )
+    selected_chunk_records = _sanitize_chunk_records(chunk_records)
+    selected_chunk_days = max(1, int(chunk_days))
+    task_name = 'worker.tasks.enqueue_sql_backfill'
+    queued_jobs = None
+    queued_batches = None
+
+    if all_external:
+        queue_before = queue_depth(tenant.slug)
+        queued, batches = _enqueue_external_backfill_jobs(
+            tenant_slug=tenant.slug,
+            planned_jobs=planned_jobs,
+            from_dt=from_dt,
+            to_dt=to_dt,
+            chunk_records=selected_chunk_records,
+            chunk_days=selected_chunk_days,
+            include_purchases=bool(include_purchases),
+        )
+        if queued == 0:
+            return RedirectResponse(
+                url=_connections_redirect_url(
+                    redirect_base,
+                    tenant_id=tenant_id,
+                    connector_type=connector_type,
+                    backfill=0,
+                ),
+                status_code=303,
+            )
+        task_name = 'worker.tasks.drain_tenant_ingest_queue'
+        task = celery_client.send_task(
+            task_name,
+            kwargs={'tenant_slug': tenant.slug},
+            queue='ingest',
+        )
+        queued_jobs = queued
+        queued_batches = batches
+        begin_ingest_progress(
+            tenant_slug=tenant.slug,
+            operation='backfill',
+            status='running',
+            total_jobs=int(queued),
+            start_queue_depth=queue_before + int(queued),
+            target_queue_depth=queue_before,
+            from_date=from_dt.isoformat(),
+            to_date=to_dt.isoformat(),
+            chunk_records=selected_chunk_records,
+            chunk_days=selected_chunk_days,
+        )
+    else:
+        begin_ingest_progress(
+            tenant_slug=tenant.slug,
+            operation='backfill',
+            status='queued',
+            total_jobs=0,
+            start_queue_depth=queue_depth(tenant.slug),
+            target_queue_depth=queue_depth(tenant.slug),
+            from_date=from_dt.isoformat(),
+            to_date=to_dt.isoformat(),
+            chunk_days=selected_chunk_days,
+        )
+        task = celery_client.send_task(
+            task_name,
+            kwargs={
+                'tenant_slug': tenant.slug,
+                'from_date_str': from_dt.isoformat(),
+                'to_date_str': to_dt.isoformat(),
+                'chunk_days': selected_chunk_days,
+                'include_purchases': bool(include_purchases),
+                'operation': 'backfill',
+            },
+            queue='ingest',
+        )
+
     db.add(
         AuditLog(
             tenant_id=tenant_id,
@@ -2471,14 +3517,388 @@ async def admin_connections_backfill(
             payload={
                 'from_date': from_dt.isoformat(),
                 'to_date': to_dt.isoformat(),
-                'chunk_days': max(1, int(chunk_days)),
+                'chunk_records': selected_chunk_records,
+                'chunk_days': selected_chunk_days,
                 'include_purchases': bool(include_purchases),
+                'connector_mode': 'external_api' if all_external else 'sql_connector',
+                'queued_jobs': queued_jobs,
+                'queued_batches': queued_batches,
+                'task_name': task_name,
                 'task_id': task.id,
             },
         )
     )
     await db.commit()
-    return RedirectResponse(url=f'{redirect_base}?backfill=1', status_code=303)
+    return RedirectResponse(
+        url=_connections_redirect_url(
+            redirect_base,
+            tenant_id=tenant_id,
+            connector_type=connector_type,
+            backfill=1,
+        ),
+        status_code=303,
+    )
+
+
+async def _enqueue_delete_only_task(
+    *,
+    tenant: Tenant | None,
+    tenant_id: int,
+    connector_type: str,
+    source_page: str,
+    confirm_text: str,
+    delete_from_date: str | None,
+    delete_to_date: str | None,
+    delete_all: bool,
+    include_notifications: bool,
+    db: AsyncSession,
+) -> RedirectResponse:
+    redirect_base = '/admin/data-sources' if source_page == 'data_sources' else '/admin/connections'
+    if tenant is None:
+        return RedirectResponse(
+            url=_connections_redirect_url(
+                redirect_base,
+                tenant_id=tenant_id,
+                connector_type=connector_type,
+                delete_data=0,
+            ),
+            status_code=303,
+        )
+    if str(confirm_text or '').strip().upper() != 'RESET':
+        return RedirectResponse(
+            url=_connections_redirect_url(
+                redirect_base,
+                tenant_id=tenant_id,
+                connector_type=connector_type,
+                delete_data=0,
+            ),
+            status_code=303,
+        )
+
+    from_dt = _parse_date_or_none(delete_from_date)
+    to_dt = _parse_date_or_none(delete_to_date)
+    scoped_delete = (not bool(delete_all)) and bool((delete_from_date or '').strip() and (delete_to_date or '').strip())
+    if scoped_delete and (from_dt is None or to_dt is None or from_dt > to_dt):
+        return RedirectResponse(
+            url=_connections_redirect_url(
+                redirect_base,
+                tenant_id=tenant_id,
+                connector_type=connector_type,
+                delete_data=0,
+            ),
+            status_code=303,
+        )
+    if not scoped_delete:
+        from_dt = None
+        to_dt = None
+
+    redis = Redis.from_url(settings.redis_url, decode_responses=True)
+    stop_ttl_seconds = max(300, int(getattr(settings, 'ingest_stop_ttl_seconds', 3600) or 3600))
+    redis.set(tenant_stop_key(tenant.slug), datetime.utcnow().isoformat(), ex=stop_ttl_seconds)
+    queue_before = int(redis.llen(tenant_queue_name(tenant.slug)))
+    lock_active = bool(redis.get(tenant_lock_name(tenant.slug)))
+    cleared_runtime_keys = int(
+        redis.delete(
+            tenant_queue_name(tenant.slug),
+            f'dlq:{tenant.slug}',
+            tenant_throttle_key(tenant.slug),
+        )
+    )
+
+    task_name = 'worker.tasks.delete_tenant_data_only'
+    begin_ingest_progress(
+        tenant_slug=tenant.slug,
+        operation='delete',
+        status='queued',
+        total_jobs=1,
+        start_queue_depth=1,
+        target_queue_depth=0,
+        from_date=from_dt.isoformat() if from_dt else None,
+        to_date=to_dt.isoformat() if to_dt else None,
+    )
+    task = celery_client.send_task(
+        task_name,
+        kwargs={
+            'tenant_slug': tenant.slug,
+            'from_date_str': from_dt.isoformat() if from_dt else None,
+            'to_date_str': to_dt.isoformat() if to_dt else None,
+            'include_notifications': bool(include_notifications),
+        },
+        queue='ingest',
+    )
+
+    db.add(
+        AuditLog(
+            tenant_id=tenant.id,
+            action='tenant_delete_data_queued_ui',
+            entity_type='tenant_connection',
+            entity_id=str(tenant.id),
+            payload={
+                'task_name': task_name,
+                'task_id': task.id,
+                'queue_before_delete': queue_before,
+                'lock_active_on_submit': lock_active,
+                'stop_requested_before_delete': True,
+                'stop_ttl_seconds': stop_ttl_seconds,
+                'cleared_runtime_keys': cleared_runtime_keys,
+                'delete_mode': 'date_range' if from_dt and to_dt else 'full',
+                'from_date': from_dt.isoformat() if from_dt else None,
+                'to_date': to_dt.isoformat() if to_dt else None,
+                'include_notifications': bool(include_notifications),
+            },
+        )
+    )
+    await db.commit()
+    return RedirectResponse(
+        url=_connections_redirect_url(
+            redirect_base,
+            tenant_id=tenant_id,
+            connector_type=connector_type,
+            delete_data=1,
+        ),
+        status_code=303,
+    )
+
+
+@router.post('/admin/connections/delete-data')
+async def admin_connections_delete_data(
+    tenant_id: int = Form(...),
+    connector_type: str = Form(default='sql_connector'),
+    source_page: str = Form(default='connections'),
+    confirm_text: str = Form(default=''),
+    delete_from_date: str | None = Form(default=None),
+    delete_to_date: str | None = Form(default=None),
+    delete_all: bool = Form(default=False),
+    include_notifications: bool = Form(default=False),
+    _: object = Depends(require_roles(RoleName.cloudon_admin)),
+    db: AsyncSession = Depends(get_control_db),
+):
+    tenant = (await db.execute(select(Tenant).where(Tenant.id == tenant_id))).scalar_one_or_none()
+    return await _enqueue_delete_only_task(
+        tenant=tenant,
+        tenant_id=tenant_id,
+        connector_type=connector_type,
+        source_page=source_page,
+        confirm_text=confirm_text,
+        delete_from_date=delete_from_date,
+        delete_to_date=delete_to_date,
+        delete_all=delete_all,
+        include_notifications=include_notifications,
+        db=db,
+    )
+
+
+@router.post('/admin/connections/reset-sync')
+async def admin_connections_reset_sync_alias(
+    tenant_id: int = Form(...),
+    connector_type: str = Form(default='sql_connector'),
+    source_page: str = Form(default='connections'),
+    confirm_text: str = Form(default=''),
+    delete_from_date: str | None = Form(default=None),
+    delete_to_date: str | None = Form(default=None),
+    delete_all: bool = Form(default=False),
+    include_notifications: bool = Form(default=False),
+    _: object = Depends(require_roles(RoleName.cloudon_admin)),
+    db: AsyncSession = Depends(get_control_db),
+):
+    # Backward-compatible alias: old route now performs delete-only.
+    tenant = (await db.execute(select(Tenant).where(Tenant.id == tenant_id))).scalar_one_or_none()
+    return await _enqueue_delete_only_task(
+        tenant=tenant,
+        tenant_id=tenant_id,
+        connector_type=connector_type,
+        source_page=source_page,
+        confirm_text=confirm_text,
+        delete_from_date=delete_from_date,
+        delete_to_date=delete_to_date,
+        delete_all=delete_all,
+        include_notifications=include_notifications,
+        db=db,
+    )
+
+
+@router.post('/admin/connections/recover-sync')
+async def admin_connections_recover_sync(
+    tenant_id: int = Form(...),
+    connector_type: str = Form(default='sql_connector'),
+    source_page: str = Form(default='connections'),
+    from_date: str = Form(...),
+    to_date: str = Form(...),
+    _: object = Depends(require_roles(RoleName.cloudon_admin)),
+    db: AsyncSession = Depends(get_control_db),
+):
+    redirect_base = '/admin/data-sources' if source_page == 'data_sources' else '/admin/connections'
+    tenant = (await db.execute(select(Tenant).where(Tenant.id == tenant_id))).scalar_one_or_none()
+    from_dt = _parse_date_or_none(from_date)
+    to_dt = _parse_date_or_none(to_date)
+    if tenant is None or from_dt is None or to_dt is None or from_dt > to_dt:
+        return RedirectResponse(
+            url=_connections_redirect_url(
+                redirect_base,
+                tenant_id=tenant_id,
+                connector_type=connector_type,
+                recover=0,
+            ),
+            status_code=303,
+        )
+
+    redis = Redis.from_url(settings.redis_url, decode_responses=True)
+    queue_left = int(queue_depth(tenant.slug))
+    cleared_lock = int(redis.delete(tenant_lock_name(tenant.slug)))
+    cleared_throttle = int(redis.delete(tenant_throttle_key(tenant.slug)))
+    cleared_stop = int(redis.delete(tenant_stop_key(tenant.slug)))
+
+    task_id = None
+    action = 'noop'
+    if queue_left > 0:
+        task = celery_client.send_task(
+            'worker.tasks.drain_tenant_ingest_queue',
+            kwargs={'tenant_slug': tenant.slug},
+            queue='ingest',
+        )
+        task_id = task.id
+        action = 'resume_drain'
+    else:
+        update_ingest_progress(tenant.slug, status='completed')
+
+    db.add(
+        AuditLog(
+            tenant_id=tenant.id,
+            action='tenant_sync_recovery_triggered_ui',
+            entity_type='tenant_connection',
+            entity_id=str(tenant.id),
+            payload={
+                'queue_left': queue_left,
+                'requested_from_date': from_dt.isoformat(),
+                'requested_to_date': to_dt.isoformat(),
+                'cleared_lock': cleared_lock,
+                'cleared_throttle': cleared_throttle,
+                'cleared_stop': cleared_stop,
+                'recovery_action': action,
+                'task_id': task_id,
+            },
+        )
+    )
+    await db.commit()
+    return RedirectResponse(
+        url=_connections_redirect_url(
+            redirect_base,
+            tenant_id=tenant_id,
+            connector_type=connector_type,
+            recover=1,
+        ),
+        status_code=303,
+    )
+
+
+@router.post('/admin/connections/stop-sync')
+async def admin_connections_stop_sync(
+    tenant_id: int = Form(...),
+    connector_type: str = Form(default='sql_connector'),
+    source_page: str = Form(default='connections'),
+    _: object = Depends(require_roles(RoleName.cloudon_admin)),
+    db: AsyncSession = Depends(get_control_db),
+):
+    redirect_base = '/admin/data-sources' if source_page == 'data_sources' else '/admin/connections'
+    tenant = (await db.execute(select(Tenant).where(Tenant.id == tenant_id))).scalar_one_or_none()
+    if tenant is None:
+        return RedirectResponse(
+            url=_connections_redirect_url(
+                redirect_base,
+                tenant_id=tenant_id,
+                connector_type=connector_type,
+                stop_sync=0,
+            ),
+            status_code=303,
+        )
+
+    redis = Redis.from_url(settings.redis_url, decode_responses=True)
+    stop_ttl_seconds = max(300, int(getattr(settings, 'ingest_stop_ttl_seconds', 3600) or 3600))
+    queue_before = int(redis.llen(tenant_queue_name(tenant.slug)))
+    redis.set(tenant_stop_key(tenant.slug), datetime.utcnow().isoformat(), ex=stop_ttl_seconds)
+    cleared_queue = int(redis.delete(tenant_queue_name(tenant.slug)))
+    cleared_throttle = int(redis.delete(tenant_throttle_key(tenant.slug)))
+    cleared_lock = int(redis.delete(tenant_lock_name(tenant.slug)))
+    queue_after = int(redis.llen(tenant_queue_name(tenant.slug)))
+    update_ingest_progress(tenant.slug, status='stopped', error='stopped_by_user')
+
+    db.add(
+        AuditLog(
+            tenant_id=tenant.id,
+            action='tenant_sync_stop_requested_ui',
+            entity_type='tenant_connection',
+            entity_id=str(tenant.id),
+            payload={
+                'queue_before': queue_before,
+                'queue_after': queue_after,
+                'cleared_queue': cleared_queue,
+                'cleared_throttle': cleared_throttle,
+                'cleared_lock': cleared_lock,
+                'stop_ttl_seconds': stop_ttl_seconds,
+            },
+        )
+    )
+    await db.commit()
+    return RedirectResponse(
+        url=_connections_redirect_url(
+            redirect_base,
+            tenant_id=tenant_id,
+            connector_type=connector_type,
+            stop_sync=1,
+        ),
+        status_code=303,
+    )
+
+
+@router.get('/admin/connections/progress')
+async def admin_connections_progress(
+    tenant_id: int = Query(...),
+    _: object = Depends(require_roles(RoleName.cloudon_admin)),
+    db: AsyncSession = Depends(get_control_db),
+):
+    tenant = (await db.execute(select(Tenant).where(Tenant.id == tenant_id))).scalar_one_or_none()
+    if tenant is None:
+        return JSONResponse({'status': 'not_found', 'tenant_id': tenant_id}, status_code=404)
+    payload = get_ingest_progress(tenant.slug)
+    now = datetime.utcnow()
+    updated_raw = payload.get('updated_at')
+    heartbeat_age_seconds = None
+    if isinstance(updated_raw, str) and updated_raw.strip():
+        try:
+            updated_dt = datetime.fromisoformat(updated_raw.strip())
+            heartbeat_age_seconds = max(0, int((now - updated_dt).total_seconds()))
+        except Exception:
+            heartbeat_age_seconds = None
+    status = str(payload.get('status') or '')
+    queue_left = int(payload.get('current_queue_depth') or 0)
+    lock_active = bool(payload.get('lock_active'))
+    stuck_threshold_seconds = max(60, int(getattr(settings, 'ingest_stuck_heartbeat_seconds', 180) or 180))
+    is_stuck = bool(
+        status == 'running'
+        and queue_left > 0
+        and heartbeat_age_seconds is not None
+        and heartbeat_age_seconds >= stuck_threshold_seconds
+    )
+    payload['heartbeat_age_seconds'] = heartbeat_age_seconds
+    payload['is_stuck'] = is_stuck
+    payload['auto_recovery_enabled'] = bool(getattr(settings, 'ingest_auto_recover_enabled', True))
+    payload['stuck_threshold_seconds'] = stuck_threshold_seconds
+    payload['stuck_hint'] = (
+        (
+            f'Η διαδικασία δεν έχει heartbeat πάνω από {stuck_threshold_seconds}s. '
+            'Θα επιχειρηθεί αυτόματο recovery.'
+        )
+        if is_stuck and bool(getattr(settings, 'ingest_auto_recover_enabled', True))
+        else (
+            f'Η διαδικασία δεν έχει heartbeat πάνω από {stuck_threshold_seconds}s. '
+            'Χρησιμοποίησε Recovery.'
+            if is_stuck
+            else None
+        )
+    )
+    payload['lock_active'] = lock_active
+    payload['tenant_id'] = tenant.id
+    return JSONResponse(payload)
 
 
 @router.get('/admin/sync-status', response_class=HTMLResponse)
@@ -2508,6 +3928,17 @@ async def admin_sync_trigger(
 ):
     tenant = (await db.execute(select(Tenant).where(Tenant.id == tenant_id))).scalar_one_or_none()
     if tenant:
+        planned_jobs = await plan_tenant_sync_jobs(
+            db,
+            tenant_id=tenant.id,
+            tenant_slug=tenant.slug,
+        )
+        for job in planned_jobs:
+            payload = dict(job)
+            payload.setdefault('payload', {})
+            payload.setdefault('attempt', 0)
+            payload.setdefault('max_retries', settings.ingest_job_max_retries)
+            enqueue_tenant_job(tenant.slug, payload)
         celery_client.send_task(
             'worker.tasks.drain_tenant_ingest_queue',
             kwargs={'tenant_slug': tenant.slug},
@@ -2755,7 +4186,37 @@ async def admin_business_rules_document_types(
         active_page='business_rules_document_types',
         title='title_business_rules_document_types',
         page_label_key='business_rules_document_type_rules',
-        page_description='Διαχείριση classification τύπων παραστατικών, πρόσημου και impact σε έσοδα/ποσότητες/υπόλοιπα.',
+        page_description='Διαχείριση τύπων παραστατικών και συμπεριφορών SoftOne, με επίδραση σε έσοδα, κόστος, ποσότητες και υπόλοιπα.',
+    )
+
+
+@router.get('/admin/business-rules/document-type-rules/templates', response_class=HTMLResponse)
+async def admin_business_rules_document_types_templates(
+    request: Request,
+    _: object = Depends(require_roles(RoleName.cloudon_admin)),
+    db: AsyncSession = Depends(get_control_db),
+):
+    tenants = (await db.execute(select(Tenant).order_by(Tenant.name.asc()))).scalars().all()
+    rulesets = (
+        await db.execute(
+            select(GlobalRuleSet).order_by(GlobalRuleSet.priority.desc(), GlobalRuleSet.code.asc())
+        )
+    ).scalars().all()
+    return templates.TemplateResponse(
+        'admin/business_rules_document_type_templates.html',
+        {
+            'request': request,
+            'active_page': 'business_rules_document_types',
+            'title': 'title_business_rules_document_types',
+            'tenants': tenants,
+            'softone_templates': _softone_document_templates_preview(),
+            'softone_doc_type_options': _softone_document_type_options(),
+            'softone_doc_options': _softone_document_options(),
+            'initial_ruleset_code': (rulesets[0].code if rulesets else 'softone_default_v1'),
+            'template_saved': request.query_params.get('template_saved') == '1',
+            'wizard_applied': request.query_params.get('wizard_applied') == '1',
+            'error_message': request.query_params.get('error') or '',
+        },
     )
 
 
@@ -2805,6 +4266,8 @@ async def admin_business_rules_document_types_upsert_form(
     tenant_id: str | None = Form(default=None),
     ruleset_code: str = Form(default='softone_default_v1'),
     stream_value: str = Form(default=OperationalStream.sales_documents.value),
+    behavior_code: str = Form(default=''),
+    behavior_label: str = Form(default=''),
     document_type: str = Form(default=''),
     include_revenue: str = Form(default='0'),
     include_quantity: str = Form(default='0'),
@@ -2834,8 +4297,20 @@ async def admin_business_rules_document_types_upsert_form(
     if not doc_type:
         return RedirectResponse(url=f'{redirect_base}?saved=0&error=Το+πεδίο+Τύπος+Παραστατικού+είναι+υποχρεωτικό', status_code=303)
 
-    resolved_rule_key = str(rule_key or '').strip() or _document_rule_key(doc_type, stream.value)
+    behavior_code_norm = _normalize_behavior_code(behavior_code)
+    if stream in {OperationalStream.sales_documents, OperationalStream.purchase_documents, OperationalStream.inventory_documents} and not behavior_code_norm:
+        return RedirectResponse(url=f'{redirect_base}?saved=0&error=Ο+κωδικός+συμπεριφοράς+είναι+υποχρεωτικός+για+το+επιλεγμένο+κύκλωμα', status_code=303)
+    behavior_label_norm = str(behavior_label or '').strip()
+    doc_type, behavior_label_norm = _softone_canonical_names(
+        stream_value=stream.value,
+        behavior_code=behavior_code_norm,
+        document_type=doc_type,
+        behavior_label=behavior_label_norm,
+    )
+    resolved_rule_key = str(rule_key or '').strip() or _document_rule_key(doc_type, stream.value, behavior_code_norm)
     payload = _build_document_rule_payload(
+        behavior_code=behavior_code_norm,
+        behavior_label=behavior_label_norm,
         document_type=doc_type,
         include_revenue=_to_bool_flag(include_revenue),
         include_quantity=_to_bool_flag(include_quantity),
@@ -2910,6 +4385,183 @@ async def admin_business_rules_document_types_upsert_form(
     return RedirectResponse(url=f'{redirect_base}?saved=1', status_code=303)
 
 
+@router.post('/admin/business-rules/document-type-rules/delete-global')
+async def admin_business_rules_document_types_delete_global(
+    ruleset_code: str = Form(default='softone_default_v1'),
+    stream_value: str = Form(default=OperationalStream.sales_documents.value),
+    rule_key: str = Form(default=''),
+    redirect_to: str = Form(default='/admin/business-rules/document-type-rules'),
+    _: object = Depends(require_roles(RoleName.cloudon_admin)),
+    db: AsyncSession = Depends(get_control_db),
+):
+    redirect_base = redirect_to if str(redirect_to or '').startswith('/admin/') else '/admin/business-rules/document-type-rules'
+    cleaned_rule_key = str(rule_key or '').strip()
+    if not cleaned_rule_key:
+        return RedirectResponse(url=f'{redirect_base}?deleted=0&error=Λείπει+rule_key+για+διαγραφή', status_code=303)
+    stream = _safe_operational_stream(stream_value)
+    ruleset = (await db.execute(select(GlobalRuleSet).where(GlobalRuleSet.code == str(ruleset_code or '').strip()))).scalar_one_or_none()
+    if ruleset is None:
+        return RedirectResponse(url=f'{redirect_base}?deleted=0&error=Το+ruleset+δεν+βρέθηκε', status_code=303)
+    entry = (
+        await db.execute(
+            select(GlobalRuleEntry).where(
+                GlobalRuleEntry.ruleset_id == ruleset.id,
+                GlobalRuleEntry.domain == RuleDomain.document_type_rules,
+                GlobalRuleEntry.stream == stream,
+                GlobalRuleEntry.rule_key == cleaned_rule_key,
+            )
+        )
+    ).scalar_one_or_none()
+    if entry is None:
+        return RedirectResponse(url=f'{redirect_base}?deleted=0&error=Ο+κανόνας+δεν+βρέθηκε', status_code=303)
+    await db.delete(entry)
+    db.add(
+        AuditLog(
+            tenant_id=None,
+            action='document_rule_delete_global_form',
+            entity_type='global_rule_entry',
+            entity_id=cleaned_rule_key,
+            payload={'stream': stream.value, 'ruleset_code': ruleset.code},
+        )
+    )
+    await db.commit()
+    return RedirectResponse(url=f'{redirect_base}?deleted=1', status_code=303)
+
+
+@router.post('/admin/business-rules/document-type-rules/delete-tenant-override')
+async def admin_business_rules_document_types_delete_tenant_override(
+    tenant_id: str = Form(default=''),
+    stream_value: str = Form(default=OperationalStream.sales_documents.value),
+    rule_key: str = Form(default=''),
+    redirect_to: str = Form(default='/admin/business-rules/document-type-rules'),
+    _: object = Depends(require_roles(RoleName.cloudon_admin)),
+    db: AsyncSession = Depends(get_control_db),
+):
+    redirect_base = redirect_to if str(redirect_to or '').startswith('/admin/') else '/admin/business-rules/document-type-rules'
+    tenant_id_text = str(tenant_id or '').strip()
+    cleaned_rule_key = str(rule_key or '').strip()
+    if not tenant_id_text.isdigit():
+        return RedirectResponse(url=f'{redirect_base}?deleted=0&error=Μη+έγκυρο+tenant+για+διαγραφή', status_code=303)
+    if not cleaned_rule_key:
+        return RedirectResponse(url=f'{redirect_base}?deleted=0&error=Λείπει+rule_key+για+διαγραφή', status_code=303)
+    tenant_id_int = int(tenant_id_text)
+    stream = _safe_operational_stream(stream_value)
+    entry = (
+        await db.execute(
+            select(TenantRuleOverride).where(
+                TenantRuleOverride.tenant_id == tenant_id_int,
+                TenantRuleOverride.domain == RuleDomain.document_type_rules,
+                TenantRuleOverride.stream == stream,
+                TenantRuleOverride.rule_key == cleaned_rule_key,
+            )
+        )
+    ).scalar_one_or_none()
+    if entry is None:
+        return RedirectResponse(url=f'{redirect_base}?deleted=0&error=Το+tenant+override+δεν+βρέθηκε', status_code=303)
+    await db.delete(entry)
+    db.add(
+        AuditLog(
+            tenant_id=tenant_id_int,
+            action='document_rule_delete_tenant_override_form',
+            entity_type='tenant_rule_override',
+            entity_id=cleaned_rule_key,
+            payload={'stream': stream.value, 'tenant_id': tenant_id_int},
+        )
+    )
+    await db.commit()
+    return RedirectResponse(url=f'{redirect_base}?deleted=1&tenant_id={tenant_id_int}', status_code=303)
+
+
+@router.post('/admin/business-rules/document-type-rules/set-tenant-ruleset')
+async def admin_business_rules_document_types_set_tenant_ruleset(
+    tenant_id: str = Form(default=''),
+    ruleset_code: str = Form(default=''),
+    redirect_to: str = Form(default='/admin/business-rules/document-type-rules'),
+    _: object = Depends(require_roles(RoleName.cloudon_admin)),
+    db: AsyncSession = Depends(get_control_db),
+):
+    redirect_base = redirect_to if str(redirect_to or '').startswith('/admin/') else '/admin/business-rules/document-type-rules'
+    tenant_id_text = str(tenant_id or '').strip()
+    if not tenant_id_text.isdigit():
+        return RedirectResponse(url=f'{redirect_base}?ruleset_saved=0&error=Μη+έγκυρο+tenant', status_code=303)
+    tenant_id_int = int(tenant_id_text)
+    tenant = (await db.execute(select(Tenant).where(Tenant.id == tenant_id_int))).scalar_one_or_none()
+    if tenant is None:
+        return RedirectResponse(url=f'{redirect_base}?ruleset_saved=0&error=Tenant+δεν+βρέθηκε', status_code=303)
+
+    ruleset_code_clean = str(ruleset_code or '').strip()
+    if ruleset_code_clean:
+        ruleset = (await db.execute(select(GlobalRuleSet).where(GlobalRuleSet.code == ruleset_code_clean))).scalar_one_or_none()
+        if ruleset is None:
+            return RedirectResponse(url=f'{redirect_base}?tenant_id={tenant_id_int}&ruleset_saved=0&error=Μη+έγκυρο+ruleset', status_code=303)
+
+    flags = dict(tenant.feature_flags or {})
+    if ruleset_code_clean:
+        flags['document_type_ruleset_code'] = ruleset_code_clean
+    else:
+        flags.pop('document_type_ruleset_code', None)
+    tenant.feature_flags = flags
+    db.add(
+        AuditLog(
+            tenant_id=tenant_id_int,
+            action='document_rules_tenant_ruleset_set',
+            entity_type='tenant',
+            entity_id=str(tenant_id_int),
+            payload={'ruleset_code': ruleset_code_clean},
+        )
+    )
+    await db.commit()
+    return RedirectResponse(url=f'{redirect_base}?tenant_id={tenant_id_int}&ruleset_saved=1', status_code=303)
+
+
+@router.post('/admin/business-rules/document-type-rules/clear-tenant-overrides')
+async def admin_business_rules_document_types_clear_tenant_overrides(
+    tenant_id: str = Form(default=''),
+    redirect_to: str = Form(default='/admin/business-rules/document-type-rules'),
+    _: object = Depends(require_roles(RoleName.cloudon_admin)),
+    db: AsyncSession = Depends(get_control_db),
+):
+    redirect_base = redirect_to if str(redirect_to or '').startswith('/admin/') else '/admin/business-rules/document-type-rules'
+    tenant_id_text = str(tenant_id or '').strip()
+    if not tenant_id_text.isdigit():
+        return RedirectResponse(url=f'{redirect_base}?tenant_overrides_cleared=0&error=Μη+έγκυρο+tenant', status_code=303)
+    tenant_id_int = int(tenant_id_text)
+    tenant = (await db.execute(select(Tenant).where(Tenant.id == tenant_id_int))).scalar_one_or_none()
+    if tenant is None:
+        return RedirectResponse(url=f'{redirect_base}?tenant_overrides_cleared=0&error=Tenant+δεν+βρέθηκε', status_code=303)
+    previous_ruleset_code = _tenant_document_ruleset_code(tenant)
+
+    rows = (
+        await db.execute(
+            select(TenantRuleOverride).where(
+                TenantRuleOverride.tenant_id == tenant_id_int,
+                TenantRuleOverride.domain == RuleDomain.document_type_rules,
+            )
+        )
+    ).scalars().all()
+    deleted_count = 0
+    for row in rows:
+        await db.delete(row)
+        deleted_count += 1
+
+    flags = dict(tenant.feature_flags or {})
+    if 'document_type_ruleset_code' in flags:
+        flags.pop('document_type_ruleset_code', None)
+        tenant.feature_flags = flags
+
+    db.add(
+        AuditLog(
+            tenant_id=tenant_id_int,
+            action='document_rules_tenant_overrides_clear',
+            entity_type='tenant',
+            entity_id=str(tenant_id_int),
+            payload={'deleted_count': deleted_count, 'cleared_ruleset_code': previous_ruleset_code},
+        )
+    )
+    await db.commit()
+    return RedirectResponse(url=f'{redirect_base}?tenant_id={tenant_id_int}&tenant_overrides_cleared=1', status_code=303)
+
+
 @router.post('/admin/business-rules/document-type-rules/apply-softone-template')
 async def admin_business_rules_document_types_apply_softone_template(
     scope: str = Form(default='global'),
@@ -2935,8 +4587,11 @@ async def admin_business_rules_document_types_apply_softone_template(
         for item in _SOFTONE_DOCUMENT_RULE_TEMPLATES:
             stream = _safe_operational_stream(str(item.get('stream') or OperationalStream.sales_documents.value))
             doc_type = str(item.get('document_type') or '').strip()
-            key = _document_rule_key(doc_type, stream.value)
+            behavior_code = _normalize_behavior_code(item.get('behavior_code'))
+            key = _document_rule_key(doc_type, stream.value, behavior_code)
             payload = _build_document_rule_payload(
+                behavior_code=behavior_code,
+                behavior_label=str(item.get('behavior_label') or '').strip(),
                 document_type=doc_type,
                 include_revenue=bool(item.get('include_revenue')),
                 include_quantity=bool(item.get('include_quantity')),
@@ -2973,8 +4628,11 @@ async def admin_business_rules_document_types_apply_softone_template(
     for item in _SOFTONE_DOCUMENT_RULE_TEMPLATES:
         stream = _safe_operational_stream(str(item.get('stream') or OperationalStream.sales_documents.value))
         doc_type = str(item.get('document_type') or '').strip()
-        key = _document_rule_key(doc_type, stream.value)
+        behavior_code = _normalize_behavior_code(item.get('behavior_code'))
+        key = _document_rule_key(doc_type, stream.value, behavior_code)
         payload = _build_document_rule_payload(
+            behavior_code=behavior_code,
+            behavior_label=str(item.get('behavior_label') or '').strip(),
             document_type=doc_type,
             include_revenue=bool(item.get('include_revenue')),
             include_quantity=bool(item.get('include_quantity')),
@@ -3227,6 +4885,20 @@ async def admin_operational_stream_cash_transactions(
     )
 
 
+@router.get('/admin/operational-streams/operating-expenses', response_class=HTMLResponse)
+async def admin_operational_stream_operating_expenses(
+    request: Request,
+    _: object = Depends(require_roles(RoleName.cloudon_admin)),
+):
+    return _render_admin_menu_placeholder(
+        request=request,
+        active_page='admin_stream_operating_expenses',
+        title='title_operating_expenses_dashboard',
+        page_title_key='operating_expenses_menu',
+        page_description='Admin προβολή για validation λειτουργικών εξόδων (staging -> fact_expenses -> expense aggregates).',
+    )
+
+
 @router.get('/admin/operational-streams/supplier-balances', response_class=HTMLResponse)
 async def admin_operational_stream_supplier_balances(
     request: Request,
@@ -3466,6 +5138,7 @@ async def admin_user_create(
     role: str = Form(...),
     professional_profile_code: str | None = Form(default=None),
     tenant_id: str | None = Form(default=None),
+    company_id: str | None = Form(default=None),
     access_starts_at: str | None = Form(default=None),
     access_expires_at: str | None = Form(default=None),
     _: object = Depends(require_roles(RoleName.cloudon_admin)),
@@ -3479,6 +5152,9 @@ async def admin_user_create(
     tenant_id_int: int | None = None
     if selected_role != RoleName.cloudon_admin and tenant_id:
         tenant_id_int = int(tenant_id)
+    company_id_value = str(company_id or '').strip() or None
+    if selected_role == RoleName.cloudon_admin:
+        company_id_value = None
     try:
         professional_profile_id = await _resolve_professional_profile_id(
             db,
@@ -3506,6 +5182,7 @@ async def admin_user_create(
 
     user = User(
         tenant_id=tenant_id_int,
+        company_id=company_id_value,
         professional_profile_id=professional_profile_id,
         full_name=full_name.strip() or None,
         phone=phone.strip() or None,
@@ -3563,6 +5240,7 @@ async def admin_user_edit(
     role: str = Form(...),
     professional_profile_code: str | None = Form(default=None),
     tenant_id: str | None = Form(default=None),
+    company_id: str | None = Form(default=None),
     access_starts_at: str | None = Form(default=None),
     access_expires_at: str | None = Form(default=None),
     next_url: str = Form(default='/admin/users'),
@@ -3582,6 +5260,9 @@ async def admin_user_edit(
     tenant_id_int: int | None = None
     if selected_role != RoleName.cloudon_admin and tenant_id and str(tenant_id).strip():
         tenant_id_int = int(str(tenant_id).strip())
+    company_id_value = str(company_id or '').strip() or None
+    if selected_role == RoleName.cloudon_admin:
+        company_id_value = None
     try:
         professional_profile_id = await _resolve_professional_profile_id(
             db,
@@ -3613,6 +5294,7 @@ async def admin_user_edit(
     user.email = email.strip()
     user.role = selected_role
     user.tenant_id = tenant_id_int
+    user.company_id = company_id_value
     user.professional_profile_id = professional_profile_id
     user.access_starts_at = start_dt
     user.access_expires_at = expiry
@@ -3884,7 +5566,7 @@ async def tenant_sales_documents_dashboard(
     _user=Depends(get_current_user),
 ):
     to_date = date.today()
-    from_date = to_date - timedelta(days=30)
+    from_date = to_date - timedelta(days=365)
     return templates.TemplateResponse(
         'tenant/sales_dashboard.html',
         {
@@ -3929,7 +5611,7 @@ async def tenant_purchase_documents_dashboard(
     _user=Depends(get_current_user),
 ):
     to_date = date.today()
-    from_date = to_date - timedelta(days=30)
+    from_date = to_date - timedelta(days=365)
     return templates.TemplateResponse(
         'tenant/purchase_documents_dashboard.html',
         {
@@ -3951,7 +5633,7 @@ async def tenant_warehouse_documents_dashboard(
     _user=Depends(get_current_user),
 ):
     to_date = date.today()
-    from_date = to_date - timedelta(days=30)
+    from_date = to_date - timedelta(days=365)
     return templates.TemplateResponse(
         'tenant/warehouse_documents_dashboard.html',
         {
@@ -3962,6 +5644,28 @@ async def tenant_warehouse_documents_dashboard(
             'default_to': to_date,
             'active_page': 'warehouse_documents',
             'title': 'title_warehouse_documents_dashboard',
+        },
+    )
+
+
+@router.get('/tenant/operating-expenses', response_class=HTMLResponse)
+async def tenant_operating_expenses_dashboard(
+    request: Request,
+    tenant: Tenant = Depends(get_request_tenant),
+    _user=Depends(get_current_user),
+):
+    to_date = date.today()
+    from_date = to_date - timedelta(days=30)
+    return templates.TemplateResponse(
+        'tenant/operating_expenses_dashboard.html',
+        {
+            'request': request,
+            'tenant': tenant,
+            **(await _tenant_navigation_context(tenant)),
+            'default_from': from_date,
+            'default_to': to_date,
+            'active_page': 'operating_expenses',
+            'title': 'title_operating_expenses_dashboard',
         },
     )
 

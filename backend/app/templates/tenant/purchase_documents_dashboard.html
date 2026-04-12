@@ -207,14 +207,20 @@
                     <th class="text-end">Ποσ. 1</th>
                     <th class="text-end">Εκτελ.</th>
                     <th class="text-end">Τιμή</th>
-                    <th class="text-end">Εκπτ. %</th>
-                    <th class="text-end">Αξία εκπτ.</th>
+                    <th class="text-end">Εκπτ1 %</th>
+                    <th class="text-end">Εκπτ2 %</th>
+                    <th class="text-end">Εκπτ3 %</th>
+                    <th class="text-end">Αξία Εκπτ1</th>
+                    <th class="text-end">Αξία Εκπτ2</th>
+                    <th class="text-end">Αξία Εκπτ3</th>
+                    <th class="text-end">Εκπτ. % (Σύνολο)</th>
+                    <th class="text-end">Αξία εκπτ. (Σύνολο)</th>
                     <th class="text-end">Αξία ΦΠΑ</th>
                     <th class="text-end">Αξία</th>
                   </tr>
                 </thead>
                 <tbody id="purchaseDocLinesBody">
-                  <tr><td colspan="10" class="text-center text-muted py-3">Δεν υπάρχουν γραμμές.</td></tr>
+                  <tr><td colspan="16" class="text-center text-muted py-3">Δεν υπάρχουν γραμμές.</td></tr>
                 </tbody>
               </table>
             </div>
@@ -562,7 +568,7 @@ function renderPurchaseDocumentLines(lines){
   if(!linesBody) return;
   linesBody.innerHTML = '';
   if(!(lines || []).length){
-    linesBody.innerHTML = '<tr><td colspan="10" class="text-center text-muted py-3">Δεν υπάρχουν γραμμές.</td></tr>';
+    linesBody.innerHTML = '<tr><td colspan="16" class="text-center text-muted py-3">Δεν υπάρχουν γραμμές.</td></tr>';
     return;
   }
   (lines || []).forEach((line, idx) => {
@@ -574,6 +580,12 @@ function renderPurchaseDocumentLines(lines){
       <td class="text-end">${fmt2.format(toNum(line.qty))}</td>
       <td class="text-end">${fmt2.format(toNum(line.qty_executed))}</td>
       <td class="text-end">${money(line.unit_price)}</td>
+      <td class="text-end">${fmt2.format(toNum(line.discount1_pct))}</td>
+      <td class="text-end">${fmt2.format(toNum(line.discount2_pct))}</td>
+      <td class="text-end">${fmt2.format(toNum(line.discount3_pct))}</td>
+      <td class="text-end">${money(line.discount1_amount)}</td>
+      <td class="text-end">${money(line.discount2_amount)}</td>
+      <td class="text-end">${money(line.discount3_amount)}</td>
       <td class="text-end">${fmt2.format(toNum(line.discount_pct))}</td>
       <td class="text-end">${money(line.discount_amount)}</td>
       <td class="text-end">${money(line.vat_amount)}</td>

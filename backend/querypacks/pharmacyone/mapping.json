@@ -1,6 +1,6 @@
 {
   "name": "pharmacyone_default",
-  "version": 1,
+  "version": 2,
   "required_parameters": ["@from_date", "@to_date", "@last_sync_ts", "@last_sync_id"],
   "incremental_strategy": {
     "mode": "updated_at_then_external_id",
@@ -37,7 +37,11 @@
     "last_payment_date": "Last supplier payment date",
     "trend_vs_previous": "Delta vs previous snapshot",
     "customer_id": "Customer identifier (customer balances stream)",
-    "last_collection_date": "Last collection date for customer receivables"
+    "last_collection_date": "Last collection date for customer receivables",
+    "expense_date": "Expense date for operating expense stream",
+    "amount_net": "Operating expense net amount",
+    "amount_tax": "Operating expense VAT amount",
+    "amount_gross": "Operating expense gross amount"
   },
   "column_mappings": {
     "branch_column": "branch_external_id",

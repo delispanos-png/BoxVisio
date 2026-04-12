@@ -1,5 +1,5 @@
 from fastapi import Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 
 from app.core.config import settings
 from app.core.security import expected_audience_for_host, safe_decode
@@ -56,10 +56,17 @@ async def host_access_guard_middleware(request: Request, call_next):
 
     # bi.boxvisio.com must not serve cloudon_admin-only endpoints.
     if host == settings.tenant_portal_host.lower() and _is_cloudon_admin_endpoint(path):
+        if path.startswith('/admin') and request.method.upper() in {'GET', 'HEAD'}:
+            target = f'https://{settings.admin_portal_host}{path}'
+            if request.url.query:
+                target = f'{target}?{request.url.query}'
+            return RedirectResponse(url=target, status_code=307)
         return JSONResponse(status_code=403, content={'detail': 'Admin endpoints are not available on tenant host'})
 
     # cloudon_admin cannot directly use tenant endpoints on bi host.
     if host == settings.tenant_portal_host.lower() and role == RoleName.cloudon_admin and _is_tenant_endpoint(path):
+        if request.method.upper() in {'GET', 'HEAD'}:
+            return RedirectResponse(url=f'https://{settings.admin_portal_host}/admin/dashboard', status_code=307)
         return JSONResponse(status_code=403, content={'detail': 'cloudon_admin is denied on tenant endpoints'})
 
     return await call_next(request)

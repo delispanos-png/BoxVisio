@@ -122,6 +122,7 @@ class User(ControlBase):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     tenant_id: Mapped[int | None] = mapped_column(ForeignKey('tenants.id'), nullable=True, index=True)
+    company_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     professional_profile_id: Mapped[int] = mapped_column(
         ForeignKey('dim_professional_profiles.id'),
         nullable=False,
@@ -162,6 +163,7 @@ class TenantConnection(ControlBase):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     tenant_id: Mapped[int] = mapped_column(ForeignKey('tenants.id'), nullable=False, index=True)
     connector_type: Mapped[str] = mapped_column(String(64), nullable=False, default='sql_connector')
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     enc_payload: Mapped[str] = mapped_column(Text, nullable=False, default='')
     connection_parameters: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     sales_query_template: Mapped[str] = mapped_column(Text, nullable=False, default='')

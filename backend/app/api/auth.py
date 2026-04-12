@@ -19,7 +19,12 @@ async def login(payload: LoginRequest, db: AsyncSession = Depends(get_control_db
     if not user or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Invalid credentials')
 
-    access_token = create_access_token(subject=str(user.id), tenant_id=user.tenant_id, role=user.role.value)
+    access_token = create_access_token(
+        subject=str(user.id),
+        tenant_id=user.tenant_id,
+        role=user.role.value,
+        company_id=user.company_id,
+    )
     refresh_token, refresh_jti, refresh_exp = create_refresh_token(subject=str(user.id))
     db.add(
         RefreshToken(
@@ -59,7 +64,12 @@ async def refresh_access_token(payload: RefreshTokenRequest, db: AsyncSession = 
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='User not found')
 
-    new_access = create_access_token(subject=str(user.id), tenant_id=user.tenant_id, role=user.role.value)
+    new_access = create_access_token(
+        subject=str(user.id),
+        tenant_id=user.tenant_id,
+        role=user.role.value,
+        company_id=user.company_id,
+    )
     new_refresh, new_jti, new_exp = create_refresh_token(subject=str(user.id))
 
     db_token.revoked_at = datetime.utcnow()

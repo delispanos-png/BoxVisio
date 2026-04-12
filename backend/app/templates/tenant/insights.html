@@ -238,7 +238,9 @@ function renderTableRows(rows){
     tr.innerHTML = `<td>${esc(dmyDate(r.created_at||''))}</td><td>${esc(r.category||'')}</td><td>${sevBadge(r.severity)}</td><td><div><strong>${esc(r.title||'')}</strong></div><div class="text-muted small">${esc(r.message||'')}</div></td><td>${esc(entity)}</td><td>${esc(r.status||'')}</td><td><a class="btn btn-sm bv-action-btn bv-action-edit" href="${drill}"><i class="fe fe-external-link"></i>{{ tt(request, 'view_details') }}</a></td><td>${whyBtn}<button class="btn btn-sm bv-action-btn bv-action-edit me-1" data-detail="${esc(r.id)}"><i class="fe fe-eye"></i>{{ tt(request, 'detail') }}</button>${canAck?`<button class="btn btn-sm bv-action-btn bv-action-save" data-ack="${esc(r.id)}"><i class="fe fe-check-circle"></i>{{ tt(request, 'acknowledge') }}</button>`:''}</td>`;
     tbody.appendChild(tr);
   });
-  document.querySelectorAll('[data-bs-toggle="popover"]').forEach(el => new bootstrap.Popover(el));
+  if (window.bootstrap?.Popover) {
+    document.querySelectorAll('[data-bs-toggle="popover"]').forEach(el => window.bootstrap.Popover.getOrCreateInstance(el));
+  }
 }
 function rerenderInsightsTable(){
   const sorted = sortRows(_allRows || []);

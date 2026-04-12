@@ -183,7 +183,8 @@ async def create_tenant_bundle(
 
 
 def _run_local_script(script_name: str, tenant_slug: str) -> None:
-    script_path = Path('/app/scripts') / script_name
+    project_root = Path(__file__).resolve().parents[3]
+    script_path = project_root / 'scripts' / script_name
     if not script_path.exists():
         logger.warning('script_missing', extra={'script': str(script_path)})
         return

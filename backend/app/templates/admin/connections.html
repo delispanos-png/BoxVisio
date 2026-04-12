@@ -15,12 +15,53 @@
         {{ result.message }}
       </div>
     {% endif %}
+    {% if request.query_params.get('delete_data') == '1' %}
+      <div class="alert alert-success">
+        Η διαγραφή δεδομένων μπήκε στην ουρά. Όταν ολοκληρωθεί, τρέξε Initial Backfill από το πάνω πλαίσιο.
+      </div>
+    {% elif request.query_params.get('delete_data') == '0' %}
+      <div class="alert alert-danger">
+        Αποτυχία διαγραφής. Έλεγξε την επιβεβαίωση (RESET) και το διάστημα ημερομηνιών.
+      </div>
+    {% endif %}
+    {% if request.query_params.get('recover') == '1' %}
+      <div class="alert alert-warning">
+        Εκτελέστηκε recovery της διαδικασίας συγχρονισμού (unlock + resume).
+      </div>
+    {% elif request.query_params.get('recover') == '0' %}
+      <div class="alert alert-danger">
+        Αποτυχία recovery διαδικασίας.
+      </div>
+    {% endif %}
+    {% if request.query_params.get('backfill') == '1' %}
+      <div class="alert alert-success">
+        Το initial backfill μπήκε στην ουρά.
+      </div>
+    {% elif request.query_params.get('backfill') == '0' %}
+      <div class="alert alert-danger">
+        Αποτυχία εκκίνησης backfill. Έλεγξε ημερομηνίες και ότι υπάρχει τουλάχιστον μία ενεργή μέθοδος συγχρονισμού.
+      </div>
+    {% endif %}
+    {% if request.query_params.get('stop_sync') == '1' %}
+      <div class="alert alert-warning">
+        Ο συγχρονισμός σταμάτησε για το επιλεγμένο tenant.
+      </div>
+    {% elif request.query_params.get('stop_sync') == '0' %}
+      <div class="alert alert-danger">
+        Αποτυχία stop sync.
+      </div>
+    {% endif %}
     <form method="post" action="/admin/connections/test" class="row g-2">
       <input type="hidden" name="source_page" value="{{ active_page or 'connections' }}">
       <div class="col-12">
         <div class="border rounded p-3 h-100">
-          <h6 class="mb-1">Βήμα 1: Στοιχεία Σύνδεσης</h6>
-          <div class="small text-muted mb-3">Δώσε credentials του SQL Server πελάτη (readonly user προτείνεται).</div>
+          <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-1">
+            <h6 class="mb-0">Βήμα 1: Στοιχεία Σύνδεσης</h6>
+            <button class="btn btn-sm bv-action-btn bv-action-save" type="submit" formaction="/admin/connections/save">
+              <i class="fe fe-save"></i> Save Connection
+            </button>
+          </div>
+          <div class="small text-muted mb-3">Δώσε credentials του SQL Server πελάτη (readonly user προτείνεται). Οι ρυθμίσεις αποθηκεύονται ανά tenant + connector.</div>
           <div class="row g-2">
             <div class="col-md-3">
               <label class="form-label">{{ tt(request, 'tenant') }}</label>
@@ -47,11 +88,27 @@
                 <option value="file" {% if form_values.source_type == 'file' %}selected{% endif %}>file</option>
               </select>
             </div>
+            <div class="col-md-2 d-flex align-items-end">
+              <div class="form-check form-switch mb-2">
+                <input class="form-check-input" type="checkbox" role="switch" name="is_active" id="connectorIsActive" value="true" {% if form_values.is_active %}checked{% endif %}>
+                <label class="form-check-label" for="connectorIsActive">Μέθοδος ενεργή</label>
+              </div>
+            </div>
             <div class="col-md-3"><label class="form-label">{{ tt(request, 'host') }}</label><input class="form-control" name="host" value="{{ form_values.host or '' }}" placeholder="sql.customer.local ή 1.2.3.4" required></div>
             <div class="col-md-1"><label class="form-label">{{ tt(request, 'port') }}</label><input class="form-control" name="port" value="{{ form_values.port or '1433' }}" required></div>
             <div class="col-md-2"><label class="form-label">{{ tt(request, 'database') }}</label><input class="form-control" name="database" value="{{ form_values.database or '' }}" placeholder="BV_PharmacyXXX" required></div>
             <div class="col-md-1"><label class="form-label">{{ tt(request, 'username') }}</label><input class="form-control" name="username" value="{{ form_values.username or '' }}" required></div>
-            <div class="col-md-2"><label class="form-label">{{ tt(request, 'password') }}</label><input class="form-control" type="password" name="password" required></div>
+            <div class="col-md-2">
+              <label class="form-label">{{ tt(request, 'password') }}</label>
+              <input class="form-control" type="password" name="password" {% if not form_values.has_saved_password %}required{% endif %} autocomplete="new-password" placeholder="{% if form_values.has_saved_password %}********{% endif %}">
+              <div class="form-text">
+                {% if form_values.has_saved_password %}
+                  Υπάρχει αποθηκευμένο password. Άφησέ το κενό για να μην αλλάξει.
+                {% else %}
+                  Δεν υπάρχει αποθηκευμένο password. Συμπλήρωσέ το για αποθήκευση.
+                {% endif %}
+              </div>
+            </div>
             <div class="col-md-12">
               <label class="form-label">{{ tt(request, 'options') }}</label>
               <input class="form-control" name="options" value="{{ form_values.options or 'Encrypt=yes;TrustServerCertificate=yes' }}">
@@ -145,11 +202,12 @@
       <div class="col-lg-6">
         <form method="post" action="/admin/connections/apply-pack" class="row g-2">
           <input type="hidden" name="source_page" value="{{ active_page or 'connections' }}">
+          <input type="hidden" name="connector_type" value="{{ form_values.connector_type or 'sql_connector' }}">
           <div class="col-md-8">
             <label class="form-label">{{ tt(request, 'tenant') }}</label>
             <select class="form-select" name="tenant_id" required>
               {% for t in tenants %}
-                <option value="{{ t.id }}">{{ t.name }} ({{ t.slug }})</option>
+                <option value="{{ t.id }}" {% if form_values.tenant_id == t.id %}selected{% endif %}>{{ t.name }} ({{ t.slug }})</option>
               {% endfor %}
             </select>
           </div>
@@ -161,11 +219,12 @@
       <div class="col-lg-6">
         <form method="post" action="/admin/connections/backfill" class="row g-2">
           <input type="hidden" name="source_page" value="{{ active_page or 'connections' }}">
+          <input type="hidden" name="connector_type" value="{{ form_values.connector_type or 'sql_connector' }}">
           <div class="col-md-4">
             <label class="form-label">{{ tt(request, 'tenant') }}</label>
             <select class="form-select" name="tenant_id" required>
               {% for t in tenants %}
-                <option value="{{ t.id }}">{{ t.name }} ({{ t.slug }})</option>
+                <option value="{{ t.id }}" {% if form_values.tenant_id == t.id %}selected{% endif %}>{{ t.name }} ({{ t.slug }})</option>
               {% endfor %}
             </select>
           </div>
@@ -178,17 +237,99 @@
             <input class="form-control" type="text" name="to_date" data-date-format="dmy" placeholder="ηη/μμ/εεεε" inputmode="numeric" required>
           </div>
           <div class="col-md-2">
-            <label class="form-label">{{ tt(request, 'chunk_days') }}</label>
-            <input class="form-control" type="number" min="1" max="31" name="chunk_days" value="7">
+            <label class="form-label">{{ tt(request, 'chunk_records') }}</label>
+            <input class="form-control" type="number" min="100" max="10000" step="100" name="chunk_records" value="1000">
           </div>
           <div class="col-12 d-flex align-items-center gap-2">
             <input class="form-check-input" type="checkbox" name="include_purchases" id="includePurchases" checked>
             <label class="form-check-label" for="includePurchases">{{ tt(request, 'include_purchases') }}</label>
-            <button class="btn bv-action-btn bv-action-save ms-auto" type="submit"><i class="fe fe-play-circle"></i>{{ tt(request, 'initial_backfill') }}</button>
+            <button id="recoverSyncBtn" class="btn bv-action-btn bv-action-edit ms-auto" type="submit" formaction="/admin/connections/recover-sync">
+              <i class="fe fe-refresh-cw"></i> Recovery Sync
+            </button>
+            <button id="stopSyncBtn" class="btn bv-action-btn bv-action-delete" type="submit" formaction="/admin/connections/stop-sync" formnovalidate>
+              <i class="fe fe-stop-circle"></i> Stop Sync
+            </button>
+            <button class="btn bv-action-btn bv-action-save" type="submit"><i class="fe fe-play-circle"></i>{{ tt(request, 'initial_backfill') }}</button>
+          </div>
+          <div class="col-12">
+            <div class="small fw-semibold mb-1">Πρόοδος κατεβάσματος δεδομένων</div>
+            <div class="progress" style="height: 18px;">
+              <div id="backfillProgressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-primary" role="progressbar" style="width: 0%">0%</div>
+            </div>
+            <div id="backfillProgressText" class="form-text">Δεν υπάρχει ενεργή διαδικασία.</div>
           </div>
         </form>
       </div>
     </div>
+  </div>
+</div>
+
+<div class="card mt-3 bv-danger-zone">
+  <div class="card-body">
+    <h5 class="mb-2 d-flex align-items-center gap-2">
+      <span class="badge bg-danger-subtle text-danger border border-danger-subtle">Danger Zone</span>
+      <span>Delete Tenant Data (No Sync)</span>
+    </h5>
+    <p class="text-muted mb-3">
+      Διαγράφει δεδομένα tenant χωρίς sync. Με κενές ημερομηνίες κάνει πλήρη διαγραφή, με Από/Έως κάνει διαγραφή μόνο για το διάστημα.
+    </p>
+    <form method="post" action="/admin/connections/delete-data" class="row g-3 align-items-end">
+      <input type="hidden" name="source_page" value="{{ active_page or 'connections' }}">
+      <input type="hidden" name="connector_type" value="{{ form_values.connector_type or 'sql_connector' }}">
+      <div class="col-xl-3 col-md-6">
+        <label class="form-label">{{ tt(request, 'tenant') }}</label>
+        <select class="form-select" name="tenant_id" required>
+          {% for t in tenants %}
+            <option value="{{ t.id }}" {% if form_values.tenant_id == t.id %}selected{% endif %}>{{ t.name }} ({{ t.slug }})</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-xl-2 col-md-6">
+        <label class="form-label">{{ tt(request, 'from') }}</label>
+        <input class="form-control" type="text" name="delete_from_date" data-date-format="dmy" placeholder="ηη/μμ/εεεε" inputmode="numeric">
+      </div>
+      <div class="col-xl-2 col-md-6">
+        <label class="form-label">{{ tt(request, 'to') }}</label>
+        <input class="form-control" type="text" name="delete_to_date" data-date-format="dmy" placeholder="ηη/μμ/εεεε" inputmode="numeric">
+      </div>
+      <div class="col-12">
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" name="delete_all" id="deleteAllDataToggle" checked>
+          <label class="form-check-label" for="deleteAllDataToggle">
+            Πλήρης διαγραφή όλων των δεδομένων (χωρίς ημερομηνιακό διάστημα)
+          </label>
+        </div>
+      </div>
+      <div class="col-12">
+        <div class="form-text">
+          Αν το αφήσεις ενεργό, γίνεται πλήρης διαγραφή. Αν το κλείσεις, μπορείς να ορίσεις Από/Έως για διαγραφή μόνο στο διάστημα.
+        </div>
+      </div>
+      <div class="col-12">
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" name="include_notifications" id="includeNotificationsDelete" checked>
+          <label class="form-check-label" for="includeNotificationsDelete">
+            Διαγραφή ειδοποιήσεων (insights / insight runs)
+          </label>
+        </div>
+      </div>
+      <div class="col-xl-3 col-md-6">
+        <label class="form-label">Type RESET to confirm</label>
+        <input class="form-control" type="text" name="confirm_text" placeholder="RESET" required>
+      </div>
+      <div class="col-12 d-flex justify-content-end">
+        <button class="btn bv-action-btn bv-action-delete" type="submit">
+          <i class="fe fe-alert-triangle"></i> Delete Tenant Data
+        </button>
+      </div>
+      <div class="col-12">
+        <div class="small fw-semibold mb-1">Πρόοδος διαγραφής δεδομένων</div>
+        <div class="progress" style="height: 18px;">
+          <div id="resetProgressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-danger" role="progressbar" style="width: 0%">0%</div>
+        </div>
+        <div id="resetProgressText" class="form-text">Δεν υπάρχει ενεργή διαδικασία.</div>
+      </div>
+    </form>
   </div>
 </div>
 
@@ -244,7 +385,7 @@
     <h5 class="mb-3">{{ tt(request, 'connections') }}</h5>
     <div class="table-responsive">
       <table class="table table-hover bv-unified-table" data-bv-admin-table="1">
-        <thead><tr><th>ID</th><th>{{ tt(request, 'tenant_id') }}</th><th>Connector</th><th>Source Type</th><th>Enabled Streams</th><th>{{ tt(request, 'encrypted') }}</th><th>{{ tt(request, 'incremental') }}</th><th>{{ tt(request, 'last_test_ok') }}</th><th>{{ tt(request, 'last_test_error') }}</th><th>{{ tt(request, 'sync_status') }}</th><th>{{ tt(request, 'last_sync') }}</th></tr></thead>
+        <thead><tr><th>ID</th><th>{{ tt(request, 'tenant_id') }}</th><th>Connector</th><th>Source Type</th><th>Active</th><th>Enabled Streams</th><th>{{ tt(request, 'encrypted') }}</th><th>{{ tt(request, 'incremental') }}</th><th>{{ tt(request, 'last_test_ok') }}</th><th>{{ tt(request, 'last_test_error') }}</th><th>{{ tt(request, 'sync_status') }}</th><th>{{ tt(request, 'last_sync') }}</th></tr></thead>
         <tbody>
           {% for c in connections %}
           <tr>
@@ -252,6 +393,13 @@
             <td>{{ c.tenant_id }}</td>
             <td>{{ c.connector_type }}</td>
             <td>{{ c.source_type or '-' }}</td>
+            <td>
+              {% if c.is_active %}
+                <span class="badge bg-success-subtle text-success border border-success-subtle">active</span>
+              {% else %}
+                <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle">inactive</span>
+              {% endif %}
+            </td>
             <td>{{ (c.enabled_streams or []) | join(', ') if c.enabled_streams else '-' }}</td>
             <td>{% if c.enc_payload %}{{ tt(request, 'yes') }}{% else %}{{ tt(request, 'no') }}{% endif %}</td>
             <td>{{ c.incremental_column }}</td>
@@ -269,12 +417,160 @@
 
 <script>
   (function () {
+    const connectionForm = document.querySelector('form[action="/admin/connections/test"]');
+    const connectionTenantSelect = connectionForm ? connectionForm.querySelector('select[name="tenant_id"]') : null;
+    const connectionConnectorSelect = connectionForm ? connectionForm.querySelector('select[name="connector_type"]') : null;
+    const sourcePageInput = connectionForm ? connectionForm.querySelector('input[name="source_page"]') : null;
+    function reloadConnectionProfile() {
+      if (!connectionTenantSelect || !connectionConnectorSelect) return;
+      const basePath = sourcePageInput && sourcePageInput.value === 'data_sources'
+        ? '/admin/data-sources'
+        : '/admin/connections';
+      const qs = new URLSearchParams(window.location.search || '');
+      qs.set('tenant_id', connectionTenantSelect.value);
+      qs.set('connector_type', connectionConnectorSelect.value);
+      window.location.href = basePath + '?' + qs.toString();
+    }
+    if (connectionTenantSelect) {
+      connectionTenantSelect.addEventListener('change', reloadConnectionProfile);
+    }
+    if (connectionConnectorSelect) {
+      connectionConnectorSelect.addEventListener('change', reloadConnectionProfile);
+    }
+
     const toggle = document.getElementById('enableQueryEdit');
-    if (!toggle) return;
-    const targets = document.querySelectorAll('.qp-editable');
-    toggle.addEventListener('change', function () {
-      targets.forEach(function (el) { el.readOnly = !toggle.checked; });
+    if (toggle) {
+      const targets = document.querySelectorAll('.qp-editable');
+      toggle.addEventListener('change', function () {
+        targets.forEach(function (el) { el.readOnly = !toggle.checked; });
+      });
+    }
+
+    const backfillForm = document.querySelector('form[action="/admin/connections/backfill"]');
+    const resetForm = document.querySelector('form[action="/admin/connections/delete-data"]')
+      || document.querySelector('form[action="/admin/connections/reset-sync"]');
+    if (!backfillForm || !resetForm) return;
+
+    const backfillBar = document.getElementById('backfillProgressBar');
+    const backfillText = document.getElementById('backfillProgressText');
+    const resetBar = document.getElementById('resetProgressBar');
+    const resetText = document.getElementById('resetProgressText');
+    const tenantSelect = backfillForm.querySelector('select[name="tenant_id"]');
+    const recoverBtn = document.getElementById('recoverSyncBtn');
+    const deleteAllToggle = resetForm ? resetForm.querySelector('#deleteAllDataToggle') : null;
+    const deleteFromInput = resetForm ? resetForm.querySelector('input[name="delete_from_date"]') : null;
+    const deleteToInput = resetForm ? resetForm.querySelector('input[name="delete_to_date"]') : null;
+
+    function syncDeleteScopeUi() {
+      if (!deleteAllToggle || !deleteFromInput || !deleteToInput) return;
+      const isFullDelete = !!deleteAllToggle.checked;
+      deleteFromInput.disabled = isFullDelete;
+      deleteToInput.disabled = isFullDelete;
+      if (isFullDelete) {
+        deleteFromInput.value = '';
+        deleteToInput.value = '';
+      }
+    }
+
+    function statusLabel(status) {
+      if (status === 'completed') return 'Ολοκληρώθηκε';
+      if (status === 'stopped') return 'Σταμάτησε';
+      if (status === 'running') return 'Σε εξέλιξη';
+      if (status === 'queued') return 'Σε αναμονή';
+      if (status === 'failed') return 'Αποτυχία';
+      return 'Αδράνεια';
+    }
+
+    function setIdleBar(bar, textNode) {
+      if (!bar || !textNode) return;
+      bar.style.width = '0%';
+      bar.textContent = '0%';
+      bar.classList.add('progress-bar-animated');
+      textNode.textContent = 'Δεν υπάρχει ενεργή διαδικασία.';
+    }
+
+    function updateBar(bar, textNode, payload, expectedOperation) {
+      if (!bar || !textNode) return;
+      if (!payload || payload.operation !== expectedOperation) return;
+      const pct = Math.max(0, Math.min(100, Number(payload.progress_pct || 0)));
+      const visualPct = (pct > 0 && pct < 2) ? 2 : pct;
+      const total = Number(payload.total_jobs || 0);
+      const done = Number(payload.processed_jobs || 0);
+      const left = Number(payload.current_queue_depth || 0);
+      const jobLabel = expectedOperation === 'delete' ? 'delete jobs' : 'jobs';
+      bar.style.width = visualPct + '%';
+      bar.textContent = pct.toFixed(1) + '%';
+      const status = statusLabel(String(payload.status || 'idle'));
+      if (expectedOperation === 'delete') {
+        textNode.textContent = status + ' | ' + done + '/' + Math.max(1, total) + ' ' + jobLabel;
+      } else if (total > 0) {
+        textNode.textContent = status + ' | ' + done + '/' + total + ' ' + jobLabel + ' | Υπόλοιπο ουράς: ' + left;
+      } else {
+        textNode.textContent = status + ' | Υπόλοιπο ουράς: ' + left;
+      }
+      const statusRaw = String(payload.status || '');
+      if (statusRaw === 'completed' || statusRaw === 'stopped' || statusRaw === 'failed') {
+        bar.classList.remove('progress-bar-animated');
+      } else {
+        bar.classList.add('progress-bar-animated');
+      }
+    }
+
+    async function pollProgress() {
+      if (!tenantSelect || !tenantSelect.value) return;
+      try {
+        const resp = await fetch('/admin/connections/progress?tenant_id=' + encodeURIComponent(tenantSelect.value), {
+          credentials: 'same-origin',
+          headers: {'X-Requested-With': 'XMLHttpRequest'},
+        });
+        if (!resp.ok) return;
+        const payload = await resp.json();
+        if (payload.status === 'idle') {
+          setIdleBar(backfillBar, backfillText);
+          setIdleBar(resetBar, resetText);
+          return;
+        }
+        updateBar(backfillBar, backfillText, payload, 'backfill');
+        updateBar(resetBar, resetText, payload, 'delete');
+        if (payload.operation === 'delete' && payload.status !== 'idle') {
+          backfillText.textContent = 'Τρέχει διαδικασία διαγραφής στο Danger Zone.';
+        } else if (payload.operation === 'backfill' && payload.status !== 'idle') {
+          resetText.textContent = 'Τρέχει διαδικασία initial backfill στο επάνω πλαίσιο.';
+        }
+        if (payload.is_stuck) {
+          const age = Number(payload.heartbeat_age_seconds || 0);
+          const hint = String(payload.stuck_hint || '').trim();
+          const stuckMsg = hint || ('Πιθανό κόλλημα: χωρίς heartbeat για ' + age + 's.');
+          if (payload.operation === 'backfill') {
+            backfillText.textContent = stuckMsg;
+          } else if (payload.operation === 'delete') {
+            resetText.textContent = stuckMsg;
+          }
+          if (recoverBtn) {
+            recoverBtn.classList.remove('disabled');
+            recoverBtn.title = 'Recovery suggested';
+          }
+        } else if (recoverBtn) {
+          recoverBtn.title = '';
+        }
+      } catch (_) {}
+    }
+
+    if (tenantSelect) {
+      tenantSelect.addEventListener('change', pollProgress);
+    }
+    backfillForm.addEventListener('submit', function () {
+      setTimeout(pollProgress, 600);
     });
+    resetForm.addEventListener('submit', function () {
+      setTimeout(pollProgress, 600);
+    });
+    if (deleteAllToggle) {
+      deleteAllToggle.addEventListener('change', syncDeleteScopeUi);
+      syncDeleteScopeUi();
+    }
+    setInterval(pollProgress, 4000);
+    pollProgress();
   })();
 </script>
 {% endblock %}

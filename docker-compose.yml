@@ -2,6 +2,22 @@ services:
   postgres:
     image: postgres:16
     restart: unless-stopped
+    command:
+      - postgres
+      - -c
+      - password_encryption=scram-sha-256
+      - -c
+      - authentication_timeout=15s
+      - -c
+      - idle_session_timeout=10min
+      - -c
+      - idle_in_transaction_session_timeout=5min
+      - -c
+      - hba_file=/etc/postgresql/pg_hba.conf
+      - -c
+      - log_connections=on
+      - -c
+      - log_disconnections=on
     environment:
       POSTGRES_USER: ${TENANT_DB_SUPERUSER:-postgres}
       POSTGRES_PASSWORD: ${TENANT_DB_SUPERPASS:-postgres}
@@ -13,8 +29,11 @@ services:
       retries: 10
     expose:
       - "5432"
+    ports:
+      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./infra/postgres/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
     networks:
       - bi_net
 
@@ -58,8 +77,13 @@ services:
       retries: 10
     volumes:
       - /opt/cloudon-bi:/opt/cloudon-bi
+      - /lib/x86_64-linux-gnu/libc.so.6:/lib/x86_64-linux-gnu/libc.so.6:ro
+      - /lib/x86_64-linux-gnu/ld-linux-x86-64.so.2:/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2:ro
       - /lib/x86_64-linux-gnu/libodbc.so.2:/lib/x86_64-linux-gnu/libodbc.so.2:ro
       - /lib/x86_64-linux-gnu/libodbcinst.so.2:/lib/x86_64-linux-gnu/libodbcinst.so.2:ro
+      - /lib/x86_64-linux-gnu/libltdl.so.7:/lib/x86_64-linux-gnu/libltdl.so.7:ro
+      - /opt/microsoft/msodbcsql18:/opt/microsoft/msodbcsql18:ro
+      - /etc/odbcinst.ini:/etc/odbcinst.ini:ro
     expose:
       - "8000"
     networks:
@@ -89,8 +113,13 @@ services:
       retries: 5
     volumes:
       - /opt/cloudon-bi:/opt/cloudon-bi
+      - /lib/x86_64-linux-gnu/libc.so.6:/lib/x86_64-linux-gnu/libc.so.6:ro
+      - /lib/x86_64-linux-gnu/ld-linux-x86-64.so.2:/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2:ro
       - /lib/x86_64-linux-gnu/libodbc.so.2:/lib/x86_64-linux-gnu/libodbc.so.2:ro
       - /lib/x86_64-linux-gnu/libodbcinst.so.2:/lib/x86_64-linux-gnu/libodbcinst.so.2:ro
+      - /lib/x86_64-linux-gnu/libltdl.so.7:/lib/x86_64-linux-gnu/libltdl.so.7:ro
+      - /opt/microsoft/msodbcsql18:/opt/microsoft/msodbcsql18:ro
+      - /etc/odbcinst.ini:/etc/odbcinst.ini:ro
     networks:
       - bi_net
 

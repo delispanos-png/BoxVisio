@@ -13,6 +13,7 @@ from app.models.control import PlanName, Tenant
 from app.services.supplier_targets import (
     clone_supplier_target,
     create_supplier_target,
+    delete_supplier_target,
     list_supplier_targets,
     supplier_target_filter_options,
     update_supplier_target,
@@ -51,6 +52,7 @@ from app.services.kpi_queries import (
     stream_sales_summary,
     stream_purchases_summary,
     stream_inventory_summary,
+    stream_expenses_summary,
     stream_cash_summary,
     stream_balances_summary,
     sales_entity_ranking,
@@ -62,11 +64,13 @@ from app.services.kpi_queries import (
     sales_by_category,
     sales_monthly_trend_from_monthly_agg,
     sales_summary,
+    expenses_summary,
     receivables_aging,
     receivables_collection_trend,
     receivables_summary,
     receivables_top_customers,
     stock_aging,
+    normalize_inventory_item_classification_config,
 )
 from app.services.kpi_cache import get_or_set_cache
 from app.services.intelligence_service import acknowledge_insight, list_insights
@@ -118,6 +122,17 @@ def _default_to() -> date:
     return date.today()
 
 
+def _tenant_inventory_item_classification_from_request(request: Request) -> dict[str, int]:
+    tenant = getattr(request.state, 'tenant', None)
+    flags = getattr(tenant, 'feature_flags', None)
+    raw = {}
+    if isinstance(flags, dict):
+        cfg = flags.get('inventory_item_classification')
+        if isinstance(cfg, dict):
+            raw = cfg
+    return normalize_inventory_item_classification_config(raw)
+
+
 _PROFILE_INSIGHT_PRIORITY: dict[str, list[str]] = {
     'FINANCE': ['receivables', 'cashflow', 'purchases'],
     'INVENTORY': ['inventory'],
@@ -151,6 +166,7 @@ _STREAM_DEFAULT_KPI_EMPHASIS: dict[str, list[str]] = {
     'sales': ['turnover', 'qty', 'margin_pct', 'top_products'],
     'purchases': ['purchases_total', 'supplier_dependency', 'cost_trend'],
     'inventory': ['stock_on_hand', 'stock_value', 'stock_aging'],
+    'expenses': ['total_expenses', 'expense_ratio_to_revenue_pct', 'by_category'],
     'cash': ['cash_in', 'cash_out', 'net_cash', 'by_type'],
     'balances': ['supplier_open_balance', 'customer_open_balance', 'aging'],
 }
@@ -343,6 +359,7 @@ class FinanceSummaryOut(BaseModel):
 class StreamSummaryOut(BaseModel):
     summary: dict | None = None
     by_branch: list[dict] | None = None
+    by_category: list[dict] | None = None
     by_supplier: list[dict] | None = None
     trend: list[dict] | dict | None = None
     snapshot: dict | None = None
@@ -570,6 +587,54 @@ async def get_stream_inventory_summary(
     return out
 
 
+@router.get('/v1/streams/expenses/summary', response_model=StreamSummaryOut)
+@router.get('/api/streams/expenses/summary', response_model=StreamSummaryOut)
+@router.get('/streams/expenses/summary', response_model=StreamSummaryOut)
+async def get_stream_expenses_summary(
+    request: Request,
+    response: Response,
+    date_from_raw: str | None = Query(default=None, alias='from'),
+    date_to_raw: str | None = Query(default=None, alias='to'),
+    branches: list[str] | None = Query(default=None),
+    categories: list[str] | None = Query(default=None),
+    tenant_db: AsyncSession = Depends(get_tenant_db),
+):
+    date_from = _parse_flexible_date(
+        date_from_raw,
+        fallback=_default_from(),
+        field_name='from',
+        strict=False,
+    )
+    date_to = _parse_flexible_date(
+        date_to_raw,
+        fallback=_default_to(),
+        field_name='to',
+        strict=False,
+    )
+    params = {
+        'from': str(date_from),
+        'to': str(date_to),
+        'branches': _normalize_list(branches),
+        'categories': _normalize_list(categories),
+    }
+    data = await _cached_kpi_response(
+        request=request,
+        response=response,
+        namespace='stream:expenses_summary',
+        params=params,
+        producer=lambda: stream_expenses_summary(
+            tenant_db,
+            date_from=date_from,
+            date_to=date_to,
+            branches=branches,
+            categories=categories,
+        ),
+    )
+    out = dict(data or {})
+    out['kpi_emphasis'] = _kpi_emphasis_payload(request, 'expenses')
+    return out
+
+
 @router.get('/v1/streams/cash/summary', response_model=StreamSummaryOut)
 @router.get('/api/streams/cash/summary', response_model=StreamSummaryOut)
 @router.get('/streams/cash/summary', response_model=StreamSummaryOut)
@@ -626,6 +691,38 @@ async def get_stream_balances_summary(
     out = dict(data or {})
     out['kpi_emphasis'] = _kpi_emphasis_payload(request, 'balances')
     return out
+
+
+@router.get('/v1/kpi/expenses/summary')
+@router.get('/kpi/expenses/summary')
+async def get_expenses_summary(
+    request: Request,
+    response: Response,
+    date_from: date = Query(default_factory=_default_from, alias='from'),
+    date_to: date = Query(default_factory=_default_to, alias='to'),
+    branches: list[str] | None = Query(default=None),
+    categories: list[str] | None = Query(default=None),
+    tenant_db: AsyncSession = Depends(get_tenant_db),
+):
+    params = {
+        'from': str(date_from),
+        'to': str(date_to),
+        'branches': _normalize_list(branches),
+        'categories': _normalize_list(categories),
+    }
+    return await _cached_kpi_response(
+        request=request,
+        response=response,
+        namespace='dashboard:expenses_summary',
+        params=params,
+        producer=lambda: expenses_summary(
+            tenant_db,
+            date_from=date_from,
+            date_to=date_to,
+            branches=branches,
+            categories=categories,
+        ),
+    )
 
 
 @router.get('/v1/kpi/sales/summary')
@@ -922,7 +1019,7 @@ async def get_purchase_document_detail(
 @router.get('/v1/intelligence/insights')
 async def get_recent_intelligence_insights(
     request: Request,
-    limit: int = Query(default=20, ge=1, le=100),
+    limit: int = Query(default=20, ge=1, le=500),
     category: str | None = Query(default=None),
     severity: str | None = Query(default=None),
     status: str | None = Query(default=None),
@@ -1500,6 +1597,7 @@ async def get_inventory_filter_options(
 @router.get('/v1/kpi/inventory/items')
 @router.get('/kpi/inventory/items')
 async def get_inventory_items(
+    request: Request,
     as_of: date = Query(default_factory=_default_to),
     branches: list[str] | None = Query(default=None),
     warehouses: list[str] | None = Query(default=None),
@@ -1513,7 +1611,8 @@ async def get_inventory_items(
     offset: int = Query(default=0, ge=0),
     tenant_db: AsyncSession = Depends(get_tenant_db),
 ):
-    return await inventory_items_overview(
+    classification_config = _tenant_inventory_item_classification_from_request(request)
+    result = await inventory_items_overview(
         tenant_db,
         as_of=as_of,
         branches=branches,
@@ -1526,12 +1625,20 @@ async def get_inventory_items(
         q=q,
         limit=limit,
         offset=offset,
+        classification_config=classification_config,
     )
+    allowed_scope = getattr(request.state, 'allowed_branch_scope', None)
+    result['scope'] = {
+        'company_id': getattr(request.state, 'scoped_company_id', None),
+        'allowed_branches': list(allowed_scope or []),
+    }
+    return result
 
 
 @router.get('/v1/kpi/inventory/items/{item_code}/detail')
 @router.get('/kpi/inventory/items/{item_code}/detail')
 async def get_inventory_item_detail(
+    request: Request,
     item_code: str,
     as_of: date = Query(default_factory=_default_to),
     branches: list[str] | None = Query(default=None),
@@ -1541,6 +1648,7 @@ async def get_inventory_item_detail(
     groups: list[str] | None = Query(default=None),
     tenant_db: AsyncSession = Depends(get_tenant_db),
 ):
+    classification_config = _tenant_inventory_item_classification_from_request(request)
     try:
         return await inventory_item_detail(
             tenant_db,
@@ -1551,6 +1659,7 @@ async def get_inventory_item_detail(
             brands=brands,
             categories=categories,
             groups=groups,
+            classification_config=classification_config,
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -2026,6 +2135,21 @@ async def post_supplier_target_clone(
     if not cloned:
         raise HTTPException(status_code=404, detail='Supplier target not found')
     return {'status': 'cloned', **cloned}
+
+
+@router.delete('/v1/kpi/supplier-targets/{target_id}')
+async def delete_supplier_target_endpoint(
+    target_id: UUID,
+    _user=Depends(get_current_user),
+    tenant_db: AsyncSession = Depends(get_tenant_db),
+):
+    ok = await delete_supplier_target(
+        tenant_db,
+        target_id=target_id,
+    )
+    if not ok:
+        raise HTTPException(status_code=404, detail='Supplier target not found')
+    return {'status': 'deleted', 'id': str(target_id)}
 
 
 @router.get('/v1/kpi/price-control/filter-options')

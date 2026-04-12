@@ -50,6 +50,35 @@
           <option value="canceled" {% if tenant.subscription_status.value == 'canceled' %}selected{% endif %}>ακυρωμένη</option>
         </select>
       </div>
+
+      <div class="col-12 mt-3">
+        <hr>
+        <h6 class="mb-2">Χαρακτηρισμός Ειδών Αποθήκης (ανά tenant)</h6>
+        <p class="text-muted mb-2">Ορίζει πότε ένα είδος είναι Ταχυκίνητο, Κανονικής Κινητικότητας ή Αργοκίνητο.</p>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Πηγή Κατάστασης Είδους</label>
+        <select class="form-select" name="status_source">
+          <option value="sales_window" {% if inventory_item_classification.status_source != 'softone' %}selected{% endif %}>BI (βάσει τελευταίας πώλησης)</option>
+          <option value="softone" {% if inventory_item_classification.status_source == 'softone' %}selected{% endif %}>SoftOne (is_active_source)</option>
+        </select>
+        <small class="text-muted">Αν επιλέξεις SoftOne, το Ενεργό/Ανενεργό έρχεται από την καρτέλα είδους του SoftOne.</small>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Ημέρες για "Ενεργό Είδος"</label>
+        <input class="form-control" type="number" min="1" max="3650" name="active_last_sale_days" value="{{ inventory_item_classification.active_last_sale_days }}">
+        <small class="text-muted">Ενεργό αν η τελευταία πώληση είναι εντός αυτών των ημερών.</small>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Όριο Ταχυκίνητου (πωλήσεις 30ημ.)</label>
+        <input class="form-control" type="number" min="1" max="1000000" name="fast_sales_qty_30d_min" value="{{ inventory_item_classification.fast_sales_qty_30d_min }}">
+        <small class="text-muted">Ταχυκίνητο όταν οι πωλήσεις 30ημ. είναι >= από αυτό το όριο.</small>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Όριο Αργοκίνητου (πωλήσεις 30ημ.)</label>
+        <input class="form-control" type="number" min="0" max="1000000" name="slow_sales_qty_30d_max" value="{{ inventory_item_classification.slow_sales_qty_30d_max }}">
+        <small class="text-muted">Αργοκίνητο όταν οι πωλήσεις 30ημ. είναι <= από αυτό το όριο. Ενδιάμεσα: Κανονική Κινητικότητα.</small>
+      </div>
       <div class="col-12 d-flex gap-2 mt-3">
         <button type="submit" class="btn bv-action-btn bv-action-save"><i class="fe fe-save"></i>Αποθήκευση Αλλαγών</button>
         <a href="{{ next_url }}" class="btn bv-action-btn bv-action-edit"><i class="fe fe-arrow-left"></i>Ακύρωση</a>

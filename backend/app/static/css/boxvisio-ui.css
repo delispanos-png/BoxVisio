@@ -420,6 +420,15 @@ body.azea-shell .bv-action-save {
   background: #eff6ff !important;
 }
 
+body.azea-shell .bv-danger-zone {
+  border: 1px solid #fecaca;
+  background: linear-gradient(180deg, #fff7f7 0%, #ffffff 100%);
+}
+
+body.azea-shell .bv-danger-zone .form-label {
+  font-weight: 700;
+}
+
 body.azea-shell[data-theme='dark'] .bv-action-edit {
   color: #c7d2fe !important;
   border-color: #6366f1 !important;
@@ -442,6 +451,11 @@ body.azea-shell[data-theme='dark'] .bv-action-save {
   color: #bfdbfe !important;
   border-color: #3b82f6 !important;
   background: #172554 !important;
+}
+
+body.azea-shell[data-theme='dark'] .bv-danger-zone {
+  border-color: #7f1d1d;
+  background: linear-gradient(180deg, #1f1116 0%, #111827 100%);
 }
 
 body.azea-shell[data-theme='dark'] .btn-outline-secondary {

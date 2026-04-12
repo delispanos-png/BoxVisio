@@ -1,10 +1,45 @@
 {% extends "base_admin.html" %}
 {% block content %}
+<style>
+  .bv-softone-wizard-preview .table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: #f8f9fc;
+    border-bottom: 2px solid #dfe3ef;
+    white-space: nowrap;
+    font-size: .78rem;
+    letter-spacing: .02em;
+    text-transform: uppercase;
+    color: #5b6780;
+  }
+  .bv-softone-wizard-preview .bv-stream-chip {
+    display: inline-block;
+    padding: .2rem .55rem;
+    border-radius: 999px;
+    background: #eef2ff;
+    color: #3349d6;
+    font-size: .75rem;
+    font-weight: 600;
+    line-height: 1.2;
+  }
+  .bv-softone-wizard-preview .bv-sign-chip {
+    display: inline-block;
+    padding: .2rem .55rem;
+    border-radius: 999px;
+    font-size: .75rem;
+    font-weight: 700;
+    line-height: 1.2;
+  }
+  .bv-softone-wizard-preview .bv-sign-pos { background: #eaf8ee; color: #1f8a4c; }
+  .bv-softone-wizard-preview .bv-sign-neg { background: #fdecef; color: #b4233b; }
+  .bv-softone-wizard-preview .bv-sign-none { background: #f0f2f6; color: #5f6b82; }
+</style>
 <div class="card mt-3 shadow-sm">
   <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
     <div>
       <h5 class="mb-1">Wizard Αρχικής Ρύθμισης Κανόνων</h5>
-      <small class="text-muted">Γρήγορη παραμετροποίηση χωρίς JSON για finance και operations ομάδες.</small>
+      <small class="text-muted">Γρήγορη παραμετροποίηση χωρίς JSON για οικονομική και επιχειρησιακή ομάδα.</small>
     </div>
     <a class="btn btn-outline-secondary btn-sm" href="/admin/business-rules/document-type-rules">
       <i class="fe fe-arrow-left me-1"></i>Επιστροφή στους κανόνες
@@ -15,7 +50,7 @@
       <div class="alert alert-success">Ο custom κανόνας αποθηκεύτηκε.</div>
     {% endif %}
     {% if template_saved %}
-      <div class="alert alert-success">Το SoftOne template εφαρμόστηκε επιτυχώς.</div>
+      <div class="alert alert-success">Το προτεινόμενο template SoftOne εφαρμόστηκε επιτυχώς.</div>
     {% endif %}
     {% if wizard_applied %}
       <div class="alert alert-info">Ο οδηγός αρχικοποίησης εκτελέστηκε επιτυχώς.</div>
@@ -29,15 +64,15 @@
         <div class="border rounded p-3 h-100">
           <h6 class="mb-3">Βήμα 1: Εφαρμογή SoftOne Defaults</h6>
           <p class="small text-muted">
-            Ξεκίνα με έτοιμο template και μετά κάνε μικρές προσαρμογές με tenant overrides.
+            Ξεκίνα με έτοιμο template και μετά κάνε μικρές προσαρμογές ανά tenant.
           </p>
           <form method="post" action="/admin/business-rules/document-type-rules/apply-softone-template" class="row g-2">
             <input type="hidden" name="redirect_to" value="/admin/business-rules/document-type-rules/wizard">
             <div class="col-md-6">
-              <label class="form-label">Scope</label>
+              <label class="form-label">Επίπεδο</label>
               <select class="form-select" name="scope" id="wizardTemplateScope">
-                <option value="global">Global Default</option>
-                <option value="tenant">Tenant Override</option>
+                <option value="global">Καθολικό (Global)</option>
+                <option value="tenant">Ανά Tenant (Override)</option>
               </select>
             </div>
             <div class="col-md-6">
@@ -50,11 +85,11 @@
               </select>
             </div>
             <div class="col-md-8">
-              <label class="form-label">Ruleset</label>
+              <label class="form-label">Σύνολο Κανόνων (Ruleset)</label>
               <input class="form-control" name="ruleset_code" value="softone_default_v1">
             </div>
             <div class="col-md-4">
-              <label class="form-label">Replace</label>
+              <label class="form-label">Αντικατάσταση</label>
               <select class="form-select" name="replace_existing">
                 <option value="1">Ναι</option>
                 <option value="0">Όχι</option>
@@ -62,7 +97,7 @@
             </div>
             <div class="col-12">
               <button class="btn bv-action-btn bv-action-edit w-100" type="submit">
-                <i class="fe fe-download-cloud me-1"></i>Εφαρμογή Template
+                <i class="fe fe-download-cloud me-1"></i>Εφαρμογή Προτεινόμενου Template
               </button>
             </div>
           </form>
@@ -73,14 +108,14 @@
         <div class="border rounded p-3 h-100">
           <h6 class="mb-3">Βήμα 2: Δημιουργία 1ου Custom Κανόνα</h6>
           <p class="small text-muted">
-            Πρόσθεσε εξαίρεση για συγκεκριμένο tenant ή νέο τύπο παραστατικού.
+            Πρόσθεσε εξαίρεση για συγκεκριμένο tenant ή για νέο τύπο/συμπεριφορά παραστατικού.
           </p>
           <form method="post" action="/admin/business-rules/document-type-rules/upsert-form" class="row g-2">
             <input type="hidden" name="redirect_to" value="/admin/business-rules/document-type-rules/wizard">
             <div class="col-md-6">
-              <label class="form-label">Scope</label>
+              <label class="form-label">Επίπεδο</label>
               <select class="form-select" name="scope" id="wizardRuleScope">
-                <option value="global">Global</option>
+                <option value="global">Καθολικό</option>
                 <option value="tenant">Tenant</option>
               </select>
             </div>
@@ -94,15 +129,23 @@
               </select>
             </div>
             <div class="col-md-6">
-              <label class="form-label">Ruleset</label>
+              <label class="form-label">Σύνολο Κανόνων (Ruleset)</label>
               <input class="form-control" name="ruleset_code" value="softone_default_v1">
             </div>
             <div class="col-md-6">
-              <label class="form-label">Document Type</label>
+              <label class="form-label">Κωδικός Συμπεριφοράς</label>
+              <input class="form-control" name="behavior_code" placeholder="π.χ. 131">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Περιγραφή Συμπεριφοράς</label>
+              <input class="form-control" name="behavior_label" placeholder="π.χ. Απόδειξη λιανικής">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Τύπος Παραστατικού</label>
               <input class="form-control" name="document_type" placeholder="π.χ. Ειδικό Πιστωτικό" required>
             </div>
             <div class="col-md-6">
-              <label class="form-label">Stream</label>
+              <label class="form-label">Κύκλωμα</label>
               <select class="form-select" name="stream_value">
                 {% for stream in stream_options %}
                   <option value="{{ stream.value }}">{{ stream.label }}</option>
@@ -110,56 +153,56 @@
               </select>
             </div>
             <div class="col-md-6">
-              <label class="form-label">Override Mode</label>
+              <label class="form-label">Τρόπος Υπερκάλυψης</label>
               <select class="form-select" name="override_mode">
-                <option value="replace">replace</option>
-                <option value="merge">merge</option>
+                <option value="replace">Αντικατάσταση (replace)</option>
+                <option value="merge">Συγχώνευση (merge)</option>
               </select>
             </div>
             <div class="col-md-4">
-              <label class="form-label">Revenue</label>
+              <label class="form-label">Συμμετοχή σε Έσοδα</label>
               <select class="form-select" name="include_revenue">
                 <option value="1">Ναι</option>
                 <option value="0">Όχι</option>
               </select>
             </div>
             <div class="col-md-4">
-              <label class="form-label">Quantity</label>
+              <label class="form-label">Συμμετοχή σε Ποσότητες</label>
               <select class="form-select" name="include_quantity">
                 <option value="1">Ναι</option>
                 <option value="0">Όχι</option>
               </select>
             </div>
             <div class="col-md-4">
-              <label class="form-label">Cost</label>
+              <label class="form-label">Συμμετοχή σε Κόστος</label>
               <select class="form-select" name="include_cost">
                 <option value="1">Ναι</option>
                 <option value="0">Όχι</option>
               </select>
             </div>
             <div class="col-md-4">
-              <label class="form-label">Cust Balance</label>
+              <label class="form-label">Υπόλοιπο Πελάτη</label>
               <select class="form-select" name="affects_customer_balance">
                 <option value="1">Ναι</option>
                 <option value="0" selected>Όχι</option>
               </select>
             </div>
             <div class="col-md-4">
-              <label class="form-label">Supp Balance</label>
+              <label class="form-label">Υπόλοιπο Προμηθευτή</label>
               <select class="form-select" name="affects_supplier_balance">
                 <option value="1">Ναι</option>
                 <option value="0" selected>Όχι</option>
               </select>
             </div>
             <div class="col-md-4">
-              <label class="form-label">Active</label>
+              <label class="form-label">Ενεργός</label>
               <select class="form-select" name="is_active">
                 <option value="1">Ναι</option>
                 <option value="0">Όχι</option>
               </select>
             </div>
             <div class="col-md-6">
-              <label class="form-label">Amount Sign</label>
+              <label class="form-label">Πρόσημο Αξίας</label>
               <select class="form-select" name="amount_sign">
                 {% for sign in sign_options %}
                   <option value="{{ sign.value }}">{{ sign.label }}</option>
@@ -167,7 +210,7 @@
               </select>
             </div>
             <div class="col-md-6">
-              <label class="form-label">Quantity Sign</label>
+              <label class="form-label">Πρόσημο Ποσότητας</label>
               <select class="form-select" name="quantity_sign">
                 {% for sign in sign_options %}
                   <option value="{{ sign.value }}">{{ sign.label }}</option>
@@ -176,7 +219,7 @@
             </div>
             <div class="col-12">
               <button class="btn bv-action-btn bv-action-save w-100" type="submit">
-                <i class="fe fe-save me-1"></i>Αποθήκευση Custom Κανόνα
+                <i class="fe fe-save me-1"></i>Αποθήκευση Κανόνα
               </button>
             </div>
           </form>
@@ -184,26 +227,48 @@
       </div>
     </div>
 
-    <div class="card mt-3 border-0 bg-light-subtle">
+    <div class="card mt-3 border-0 bg-light-subtle bv-softone-wizard-preview">
       <div class="card-body">
-        <h6 class="mb-2">SoftOne Templates που θα εφαρμοστούν</h6>
-        <div class="table-responsive">
-          <table class="table table-sm mb-0">
+        <h6 class="mb-1">Κανόνες SoftOne που θα εφαρμοστούν</h6>
+        <p class="text-muted small mb-2">Επιβεβαίωσε γρήγορα τα πρόσημα και τα κυκλώματα πριν την εφαρμογή.</p>
+        <div class="table-responsive" style="max-height: 420px;">
+          <table class="table table-sm mb-0 align-middle">
             <thead>
               <tr>
-                <th>Document Type</th>
-                <th>Stream</th>
-                <th>Amount Sign</th>
-                <th>Qty Sign</th>
+                <th style="width:48px;">#</th>
+                <th>Τύπος Παραστατικού</th>
+                <th>Συμπεριφορά</th>
+                <th>Κύκλωμα</th>
+                <th>Πρόσημο Αξίας</th>
+                <th>Πρόσημο Ποσότητας</th>
               </tr>
             </thead>
             <tbody>
               {% for row in softone_templates %}
               <tr>
-                <td>{{ row.document_type }}</td>
-                <td>{{ row.stream_label }}</td>
-                <td>{{ row.amount_sign_label }}</td>
-                <td>{{ row.quantity_sign_label }}</td>
+                <td class="text-muted">{{ loop.index }}</td>
+                <td class="fw-semibold">{{ row.document_type }}</td>
+                <td>
+                  {% if row.behavior_code %}
+                    <code class="fw-semibold">{{ row.behavior_code }}</code>
+                    {% if row.behavior_label %}<div class="small text-muted">{{ row.behavior_label }}</div>{% endif %}
+                  {% else %}
+                    <span class="text-muted">Δεν ορίστηκε</span>
+                  {% endif %}
+                </td>
+                <td><span class="bv-stream-chip">{{ row.stream_label }}</span></td>
+                <td>
+                  {% set sign_cls = 'bv-sign-none' %}
+                  {% if row.amount_sign == 'positive' %}{% set sign_cls = 'bv-sign-pos' %}{% endif %}
+                  {% if row.amount_sign == 'negative' %}{% set sign_cls = 'bv-sign-neg' %}{% endif %}
+                  <span class="bv-sign-chip {{ sign_cls }}">{{ row.amount_sign_label }}</span>
+                </td>
+                <td>
+                  {% set qty_cls = 'bv-sign-none' %}
+                  {% if row.quantity_sign == 'positive' %}{% set qty_cls = 'bv-sign-pos' %}{% endif %}
+                  {% if row.quantity_sign == 'negative' %}{% set qty_cls = 'bv-sign-neg' %}{% endif %}
+                  <span class="bv-sign-chip {{ qty_cls }}">{{ row.quantity_sign_label }}</span>
+                </td>
               </tr>
               {% endfor %}
             </tbody>

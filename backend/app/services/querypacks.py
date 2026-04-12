@@ -26,6 +26,7 @@ class QueryPack:
     cashflow_sql: str | None = None
     supplier_balances_sql: str | None = None
     customer_balances_sql: str | None = None
+    expenses_sql: str | None = None
 
 
 def _querypack_dir(provider: str) -> Path:
@@ -65,6 +66,11 @@ def load_querypack(provider: str = 'erp_sql', pack_name: str = 'default') -> Que
         ['facts/customer_balances_facts.sql', 'customer_balances_facts.sql'],
         required=False,
     )
+    expenses_sql = _read_sql(
+        root,
+        ['facts/expenses_facts.sql', 'expenses_facts.sql'],
+        required=False,
+    )
 
     return QueryPack(
         name=str(mapping.get('name') or 'unknown'),
@@ -76,6 +82,7 @@ def load_querypack(provider: str = 'erp_sql', pack_name: str = 'default') -> Que
         cashflow_sql=cashflow_sql,
         supplier_balances_sql=supplier_balances_sql,
         customer_balances_sql=customer_balances_sql,
+        expenses_sql=expenses_sql,
     )
 
 
@@ -91,6 +98,9 @@ def apply_querypack_to_connection(conn: TenantConnection, pack: QueryPack) -> No
         conn.supplier_balances_query_template = pack.supplier_balances_sql
     if pack.customer_balances_sql:
         conn.customer_balances_query_template = pack.customer_balances_sql
+    if pack.expenses_sql:
+        conn.stream_query_mapping = conn.stream_query_mapping or {}
+        conn.stream_query_mapping['operating_expenses'] = pack.expenses_sql
     conn.incremental_column = str(colmap.get('incremental_column') or 'updated_at')
     conn.id_column = str(colmap.get('id_column') or 'external_id')
     conn.date_column = str(colmap.get('date_column') or 'doc_date')
@@ -107,8 +117,22 @@ def apply_querypack_to_connection(conn: TenantConnection, pack: QueryPack) -> No
         'cash_transactions',
         'supplier_balances',
         'customer_balances',
+        'operating_expenses',
     ]
-    conn.enabled_streams = list(conn.supported_streams)
+    # Keep operating expenses supported but disabled by default to avoid
+    # breaking ingest on SQL sources that do not expose this object/table.
+    default_enabled_streams = [
+        'sales_documents',
+        'purchase_documents',
+        'inventory_documents',
+        'cash_transactions',
+        'supplier_balances',
+        'customer_balances',
+    ]
+    params = conn.connection_parameters if isinstance(conn.connection_parameters, dict) else {}
+    if bool(params.get('enable_operating_expenses')):
+        default_enabled_streams.append('operating_expenses')
+    conn.enabled_streams = list(default_enabled_streams)
     conn.stream_query_mapping = {
         'sales_documents': conn.sales_query_template,
         'purchase_documents': conn.purchases_query_template,
@@ -116,6 +140,7 @@ def apply_querypack_to_connection(conn: TenantConnection, pack: QueryPack) -> No
         'cash_transactions': conn.cashflow_query_template or '',
         'supplier_balances': conn.supplier_balances_query_template or '',
         'customer_balances': conn.customer_balances_query_template or '',
+        'operating_expenses': (pack.expenses_sql or ''),
     }
     conn.stream_field_mapping = conn.stream_field_mapping or {}
     conn.stream_file_mapping = conn.stream_file_mapping or {}

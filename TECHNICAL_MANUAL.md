@@ -225,19 +225,107 @@ Regenerate insights:
   - cash stream summary: `~16ms`
 - Smoke tests confirmed authenticated `200` responses for key tenant/admin pages and KPI APIs.
 
-## 18. Observability
+## 18. Latest SoftOne Alignment Update (2026-04-12)
+- SoftOne document-type rules were redesigned to follow SoftOne logic more closely:
+  - rules now carry explicit `behavior_code` and `behavior_label`
+  - document matching uses exact SoftOne behavior identity, not only free-text document names
+  - canonical SoftOne names are preserved to avoid BI/ERP naming drift
+- Admin rule management was expanded from a single raw-JSON screen to operational pages:
+  - global rules editor
+  - tenant override preview/editor
+  - SoftOne template preview/apply flow
+  - edit/delete actions for both global rules and tenant overrides
+- Global vs tenant precedence is now explicit:
+  - tenant override wins over global rule for the same stream/rule key
+  - tenant can be reset back to global-only mode by clearing tenant overrides
+  - selected tenant ruleset is persisted in tenant feature flags (`document_type_ruleset_code`)
+- SoftOne-safe selection UX was added:
+  - document type selection can be driven from available SoftOne options
+  - selecting a known SoftOne document autofills behavior code and canonical description
+  - this reduces manual entry errors in rule setup
+- Tenant UI/translation cleanup:
+  - Greek copy improved across business-rules and tenant-facing rule screens
+  - rule preview and tenant final rules tables were made more readable
+  - top tenant header now shows last SoftOne sync timestamp via active tenant connection `last_sync_at`
+- New tenant operational stream:
+  - `operating_expenses` added across navigation/template/manual wiring
+  - dedicated dashboard template: `backend/app/templates/tenant/operating_expenses_dashboard.html`
+- Item movement/status logic was expanded for tenant-level configuration:
+  - tenant feature flag block `inventory_item_classification`
+  - status source can be `softone` or BI-derived `sales_window`
+  - configurable thresholds:
+    - `active_last_sale_days`
+    - `fast_sales_qty_30d_min`
+    - `slow_sales_qty_30d_max`
+  - target statuses currently supported in BI:
+    - `ταχυκίνητο`
+    - `κανονική κινητικότητα`
+    - `αργοκίνητο`
+    - `ενεργό/ανενεργό` can be derived either from SoftOne or BI last-sale window, per tenant setting
+- Ingestion stability and reconciliation hardening:
+  - worker backfill timeouts were increased to prevent mid-run cancellation
+  - sales backfill chunking became configurable to reduce queue fragmentation
+  - inactive connectors are now guarded so `external_api` jobs are not enqueued accidentally
+  - `pharmacy295` external API path was disabled and protected at worker level
+- Reconciliation and certification tooling added:
+  - `scripts/verify_sales_ingest_period.py`
+  - period-level comparison can validate:
+    - source row count vs tenant row count
+    - source net value vs tenant net value
+    - missing rows
+    - extra rows
+    - duplicate `external_id`
+    - duplicate `event_id`
+- Querypack alignment for sales/cashflow/purchases/inventory/customer/supplier streams continued under:
+  - `backend/querypacks/pharmacyone/`
+  - `backend/querypacks/pharmacyone/facts/`
+- Control/tenant schema changes added in April 2026:
+  - `20260308_0010_tenant_operating_expenses_stream.py`
+  - `20260407_0011_tenant_softone_doc_metadata.py`
+  - `20260407_0012_control_user_company_scope.py`
+  - `20260408_0013_control_connector_is_active.py`
+  - `20260409_0014_tenant_purchase_discounts.py`
+  - `20260409_0015_tenant_purchase_discount_breakdown.py`
+
+### 18.1 Key Files Introduced or Extended
+- Rule/UI layer:
+  - `backend/app/api/ui.py`
+  - `backend/app/templates/admin/business_rules_document_type_rules.html`
+  - `backend/app/templates/admin/business_rules_document_type_templates.html`
+  - `backend/app/templates/admin/business_rules_document_type_rules_wizard.html`
+  - `backend/app/templates/base_admin.html`
+  - `backend/app/templates/base_tenant.html`
+- Ingestion/recovery layer:
+  - `backend/app/services/ingestion/progress.py`
+  - `backend/app/services/ingestion/sync_planner.py`
+  - `worker/tasks.py`
+- Querypacks:
+  - `backend/querypacks/pharmacyone/facts/sales_facts.sql`
+  - `backend/querypacks/pharmacyone/facts/purchases_facts.sql`
+  - `backend/querypacks/pharmacyone/facts/inventory_facts.sql`
+  - `backend/querypacks/pharmacyone/facts/cashflow_facts.sql`
+  - `backend/querypacks/pharmacyone/facts/customer_balances_facts.sql`
+  - `backend/querypacks/pharmacyone/facts/supplier_balances_facts.sql`
+  - `backend/querypacks/pharmacyone/facts/expenses_facts.sql`
+
+### 18.2 Operational Note
+- Tenant dashboards still read only from PostgreSQL tenant facts/aggregates.
+- The displayed `SoftOne Sync` timestamp in tenant UI is informational and comes from control DB connector state (`tenant_connections.last_sync_at`).
+- It indicates the last successful sync recorded by the active connector, not live direct querying from SoftOne at dashboard runtime.
+
+## 19. Observability
 - Structured JSON logging
 - `/health`, `/ready`
 - `/metrics` (restricted)
 - Pool stats metrics for control/tenant engines
 - Queue/worker health via Docker + Celery
 
-## 19. Backup & Restore Strategy
+## 20. Backup & Restore Strategy
 - Nightly backups for `bi_control` + each tenant DB
 - Retention policy and restore drill required
 - Validate restore into clean environment before production changes
 
-## 20. Troubleshooting
+## 21. Troubleshooting
 ### 20.1 Inventory/Cashflow page error
 - check plan/source gating (`enterprise` + `pharmacyone`)
 - check API logs (`docker logs cloudon_bi-api-1`)

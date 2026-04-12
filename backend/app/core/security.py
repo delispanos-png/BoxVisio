@@ -32,6 +32,7 @@ def create_access_token(
     subject: str,
     tenant_id: int | None,
     role: str,
+    company_id: str | None = None,
     expires_delta: timedelta | None = None,
     audience: str | None = None,
 ) -> str:
@@ -44,6 +45,8 @@ def create_access_token(
         'typ': 'access',
         'aud': audience or audience_for_role(role),
     }
+    if company_id:
+        payload['company_id'] = str(company_id)
     return jwt.encode(payload, settings.secret_key, algorithm=ALGORITHM)
 
 
