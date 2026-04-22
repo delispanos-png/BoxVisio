@@ -24,6 +24,57 @@
   flex: 0 0 auto;
 }
 
+.bv-modal .modal-header {
+  gap: 0.75rem;
+}
+
+.bv-modal .modal-header .btn-close {
+  position: relative;
+  width: auto;
+  min-width: 104px;
+  height: 40px;
+  margin: 0;
+  padding: 0 0.85rem;
+  border: 1px solid #bfd3f6;
+  border-radius: 10px;
+  background: #f8fbff;
+  color: #24446f;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
+  opacity: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  font-size: 0;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.bv-modal .modal-header .btn-close::before {
+  content: "×";
+  font-size: 1.25rem;
+  line-height: 1;
+}
+
+.bv-modal .modal-header .btn-close::after {
+  content: "Κλείσιμο";
+  font-size: 0.72rem;
+  line-height: 1;
+}
+
+.bv-modal .modal-header .btn-close:hover {
+  border-color: #6b8ff0;
+  background: #eef4ff;
+  color: #173763;
+  transform: translateY(-1px);
+}
+
+.bv-modal .modal-header .btn-close:focus-visible {
+  outline: 3px solid rgba(79, 70, 229, 0.25);
+  outline-offset: 2px;
+}
+
 .bv-modal .modal-body {
   flex: 1 1 auto;
   min-height: 0;

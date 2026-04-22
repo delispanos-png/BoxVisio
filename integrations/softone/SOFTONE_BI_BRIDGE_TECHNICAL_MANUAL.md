@@ -49,6 +49,14 @@ The script exposes these public functions:
 1. `GetSalesDocumentsForBI(obj)`
 2. `GetPurchaseDocumentsForBI(obj)`
 3. `GetInventoryDocumentsForBI(obj)`
+4. `GetItemMasterForBI(obj)`
+5. `GetCashTransactionsForBI(obj)`
+6. `GetSupplierBalancesForBI(obj)`
+7. `GetCustomerBalancesForBI(obj)`
+8. `GetOperatingExpensesForBI(obj)`
+9. `GetAllForBI(obj)`
+10. `HealthCheckBIBridge(obj)`
+3. `GetInventoryDocumentsForBI(obj)`
 4. `GetAllForBI(obj)`
 5. `BuildBoxVisioIngestPayload(obj)`
 6. `HealthCheckBIBridge(obj)`
@@ -63,7 +71,7 @@ The script exposes these public functions:
 - `includeSales`, `includePurchases`, `includeInventory` (for `GetAllForBI`)
 - Optional source filters:
   - `salesSourceCodes` (default `1351`)
-  - `purchaseSourceCodes` (default `1251`)
+  - `purchaseSourceCodes` (default `1251,1253`)
   - `inventorySourceCodes` (default `1151`)
 - `debug` (optional, adds SQL in response)
 
@@ -84,6 +92,14 @@ So it does not require custom browser list setup.
 - `item_code`
 - `qty`, `net_value`, `gross_value`, `cost_amount`
 
+Sales extraction follows SoftOne revenue-document logic:
+- only customer-side sales documents (`SODTYPE = 13`)
+- only `SOSOURCE = 1351`
+- only revenue behaviors (`TFPRMS IN (102,103,131,151,152,181)`)
+- `TFPRMS 151/152/181` count negative
+- therefore sales KPI totals follow:
+  - `Sales = 102 + 103 + 131 - 151 - 152 - 181`
+
 ### Purchases -> `purchase_documents`
 
 - `event_id` / `external_id`: `FINDOC-MTRLINES`
@@ -94,6 +110,13 @@ So it does not require custom browser list setup.
 - `item_code`
 - `qty`, `net_value`, `cost_amount`
 
+Purchase extraction follows SoftOne supplier-document logic:
+- only supplier-side purchase documents (`SODTYPE = 12`)
+- `SOSOURCE 1251` counts positive
+- `SOSOURCE 1253` counts negative
+- therefore purchase KPI totals follow:
+  - `Purchases = 1251 - 1253`
+
 ### Inventory -> `inventory_documents`
 
 - `event_id` / `external_id`: `FINDOC-MTRLINES`
@@ -102,11 +125,37 @@ So it does not require custom browser list setup.
 - `movement_type` (`entry` / `exit` based on quantity sign)
 - `branch_ext_id`, `warehouse_ext_id`, `item_code`
 - `qty`, `value_amount`
+- Only stock items are included: `MTRL.SODTYPE = 51`
 
 Note:
 
 - Current inventory extraction is document/movement-based.
 - If pure on-hand snapshot is required, add a dedicated snapshot query (for your specific SoftOne schema) and map to `qty_on_hand`.
+
+### Item master -> `item_master`
+
+- `item_code`
+- `item_name`
+- `barcode` (from `MTRL.CODE1`)
+- `alternate_barcodes` (from `MTRSUBSTITUTE.CODE`)
+- `softone_sotype` (from `MTRL.SODTYPE`)
+- `brand_external_id` (from `MTRL.MTRMARK`)
+- `brand_name` (from `MTRMARK.NAME`)
+- `vat_rate` (from `MTRL.VAT`)
+- `vat_label` (from `VAT.NAME`)
+- `category_1` (from `CCC88POCAT1.NAME`)
+- `category_2` (from `CCC88POCAT2.NAME`)
+- `category_3` (from `CCC88POCAT3.NAME`)
+- `commercial_category` (from `MTRPCATEGORY.NAME`)
+- `group_ext_id` (from `MTRL.MTRGROUP`)
+- `group_name` (from `MTRGROUP.NAME`)
+- `is_active` (from `ITEM.ISACTIVE` / `MTRL.ISACTIVE`)
+
+Use case:
+
+- metadata refresh of existing `dim_items`
+- classification of true stock items (`SODTYPE = 51`)
+- item barcode / brand / category enrichment from SoftOne item master
 
 ## 5) Installation In SoftOne (Advanced JavaScript)
 
@@ -190,3 +239,19 @@ Important:
    - `supplier_balances`
    - `customer_balances`
    when your SoftOne schema mapping is finalized.
+
+## 10) Balance Sign Logic
+
+Customer and supplier open-balance streams follow SoftOne document behavior, not a naive source-only sum.
+
+- `customer_balances`
+  - sales invoices / retail sales on receivable account: `SOSOURCE=1351`, `SOREDIR IN (0,10000)`, `TFPRMS IN (102,103,131)` => positive
+  - sales credit / cancellation behavior: `SOSOURCE=1351`, `SOREDIR IN (0,10000)`, `TFPRMS IN (151,152,181)` => negative
+  - collections / customer transfers: `SOSOURCE IN (1381,1413)` => negative
+
+- `supplier_balances`
+  - purchase invoices / supplier expense debt / opening supplier debt: `SOSOURCE IN (1251,1261,1653)` => positive
+  - purchase credit: `SOSOURCE=1253` => negative
+  - supplier payments / transfers: `SOSOURCE IN (1281,1412,1416)` => negative
+
+Open balance snapshots are calculated `ως ημερομηνία` (`toDate`) and should not be restricted by `fromDate`.

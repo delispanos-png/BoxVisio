@@ -176,6 +176,8 @@ async def get_token_payload(
     if not effective_token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Missing token')
     expected_aud = expected_audience_for_host(request.headers.get('host'))
+    if expected_aud == '__reject__':
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='Unrecognised portal host')
     payload = safe_decode(effective_token, audience=expected_aud, token_type='access')
     if not payload or 'sub' not in payload:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Invalid token')

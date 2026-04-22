@@ -23,6 +23,7 @@ class PlanName(str, Enum):
     standard = 'standard'
     pro = 'pro'
     enterprise = 'enterprise'
+    custom = 'custom'
 
 
 class TenantStatus(str, Enum):

@@ -257,6 +257,16 @@
               <div id="backfillProgressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-primary" role="progressbar" style="width: 0%">0%</div>
             </div>
             <div id="backfillProgressText" class="form-text">Δεν υπάρχει ενεργή διαδικασία.</div>
+            <div id="backfillRangeText" class="form-text text-muted"
+                 data-last-from="{{ last_backfill.payload.get('from_date') if last_backfill and last_backfill.payload else '' }}"
+                 data-last-to="{{ last_backfill.payload.get('to_date') if last_backfill and last_backfill.payload else '' }}"
+                 data-last-at="{{ last_backfill.created_at if last_backfill else '' }}">
+              {% if last_backfill and last_backfill.payload %}
+                Τελευταίο Backfill: {{ last_backfill.payload.get('from_date') or '-' }} → {{ last_backfill.payload.get('to_date') or '-' }}
+              {% else %}
+                Τελευταίο Backfill: - 
+              {% endif %}
+            </div>
           </div>
         </form>
       </div>
@@ -453,6 +463,7 @@
 
     const backfillBar = document.getElementById('backfillProgressBar');
     const backfillText = document.getElementById('backfillProgressText');
+    const backfillRangeText = document.getElementById('backfillRangeText');
     const resetBar = document.getElementById('resetProgressBar');
     const resetText = document.getElementById('resetProgressText');
     const tenantSelect = backfillForm.querySelector('select[name="tenant_id"]');
@@ -481,12 +492,53 @@
       return 'Αδράνεια';
     }
 
+    function formatIsoDate(value) {
+      if (!value || typeof value !== 'string') return '';
+      const parts = value.split('T')[0].split('-');
+      if (parts.length !== 3) return value;
+      return parts[2] + '/' + parts[1] + '/' + parts[0];
+    }
+
+    function updateBackfillRange(payload) {
+      if (!backfillRangeText) return;
+      const fromRaw = payload && payload.from_date ? String(payload.from_date) : '';
+      const toRaw = payload && payload.to_date ? String(payload.to_date) : '';
+      const fromVal = fromRaw ? formatIsoDate(fromRaw) : (backfillRangeText.dataset.lastFrom || '');
+      const toVal = toRaw ? formatIsoDate(toRaw) : (backfillRangeText.dataset.lastTo || '');
+      const status = payload && payload.status ? String(payload.status) : '';
+      const operation = payload && payload.operation ? String(payload.operation) : '';
+      const isRunning = operation === 'backfill' && (status === 'running' || status === 'queued');
+      if (isRunning && (fromVal || toVal)) {
+        backfillRangeText.textContent = 'Τρέχον Backfill: ' + (fromVal || '-') + ' → ' + (toVal || '-');
+        return;
+      }
+      if (fromVal || toVal) {
+        backfillRangeText.textContent = 'Τελευταίο Backfill: ' + (fromVal || '-') + ' → ' + (toVal || '-');
+      } else {
+        backfillRangeText.textContent = 'Τελευταίο Backfill: -';
+      }
+    }
+
     function setIdleBar(bar, textNode) {
       if (!bar || !textNode) return;
       bar.style.width = '0%';
       bar.textContent = '0%';
       bar.classList.add('progress-bar-animated');
       textNode.textContent = 'Δεν υπάρχει ενεργή διαδικασία.';
+    }
+
+    function isSettledDelete(payload) {
+      if (!payload || payload.operation !== 'delete') return false;
+      const status = String(payload.status || '');
+      const queueDepth = Number(payload.current_queue_depth || 0);
+      return queueDepth === 0 && (status === 'completed' || status === 'stopped' || status === 'failed');
+    }
+
+    function isSettledBackfill(payload) {
+      if (!payload || payload.operation !== 'backfill') return false;
+      const status = String(payload.status || '');
+      const queueDepth = Number(payload.current_queue_depth || 0);
+      return queueDepth === 0 && (status === 'completed' || status === 'stopped' || status === 'failed');
     }
 
     function updateBar(bar, textNode, payload, expectedOperation) {
@@ -528,10 +580,28 @@
         if (payload.status === 'idle') {
           setIdleBar(backfillBar, backfillText);
           setIdleBar(resetBar, resetText);
+          updateBackfillRange(payload);
+          return;
+        }
+        if (isSettledBackfill(payload)) {
+          setIdleBar(backfillBar, backfillText);
+          setIdleBar(resetBar, resetText);
+          updateBackfillRange(payload);
+          return;
+        }
+        if (isSettledDelete(payload)) {
+          setIdleBar(resetBar, resetText);
+          if (payload.operation !== 'backfill') {
+            setIdleBar(backfillBar, backfillText);
+          }
+          updateBackfillRange(payload);
           return;
         }
         updateBar(backfillBar, backfillText, payload, 'backfill');
         updateBar(resetBar, resetText, payload, 'delete');
+        if (payload.operation === 'backfill') {
+          updateBackfillRange(payload);
+        }
         if (payload.operation === 'delete' && payload.status !== 'idle') {
           backfillText.textContent = 'Τρέχει διαδικασία διαγραφής στο Danger Zone.';
         } else if (payload.operation === 'backfill' && payload.status !== 'idle') {

@@ -121,6 +121,14 @@
   .branch-month-delta-up { color: #16a34a; }
   .branch-month-delta-down { color: #dc2626; }
   .branch-month-delta-neutral { color: #64748b; }
+  .bv-nav-tile {
+    min-height: 90px;
+    transition: transform .12s ease, box-shadow .12s ease;
+  }
+  .bv-nav-tile:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 8px 24px rgba(15,23,42,.12) !important;
+  }
   #tblDayByBranch,
   #tblMonthByBranch,
   #tblYearByBranch {
@@ -201,12 +209,47 @@
   .decision-badge-info { background: #dbeafe; color: #1d4ed8; }
 </style>
 
-<div class="row row-cols-1 row-cols-md-2 row-cols-xl-5 g-3 mb-3">
-  <div class="col"><div class="bv-stat-strip bv-kpi-style bv-tone-cyan"><div class="kpi-icon"><i class="fe fe-sun"></i></div><div class="label">Τζίρος Ημέρας</div><div id="kpiDay" class="value">0.00</div></div></div>
-  <div class="col"><div class="bv-stat-strip bv-kpi-style bv-tone-green"><div class="kpi-icon"><i class="fe fe-calendar"></i></div><div class="label">Τζίρος Εβδομάδας</div><div id="kpiWeek" class="value">0.00</div></div></div>
-  <div class="col"><div class="bv-stat-strip bv-kpi-style bv-tone-orange"><div class="kpi-icon"><i class="fe fe-bar-chart"></i></div><div class="label">Τζίρος Μήνα</div><div id="kpiMonth" class="value">0.00</div></div></div>
-  <div class="col"><div class="bv-stat-strip bv-kpi-style bv-tone-red"><div class="kpi-icon"><i class="fe fe-clock"></i></div><div class="label">Τζίρος <span id="kpiPrevYearLabel">{{ default_to.year - 1 }}</span> (YTD)</div><div id="kpiPrevYear" class="value">0.00</div><div id="kpiPrevYearCutoff" class="small text-muted mt-1">-</div></div></div>
-  <div class="col"><div class="bv-stat-strip bv-kpi-style bv-tone-blue"><div class="kpi-icon"><i class="fe fe-trending-up"></i></div><div class="label">Τζίρος <span id="kpiYearLabel">{{ default_to.year }}</span> (YTD)</div><div id="kpiYear" class="value">0.00</div><div id="kpiYearDelta" class="small text-muted mt-1">-</div></div></div>
+<div class="row row-cols-1 row-cols-sm-2 row-cols-md-3 row-cols-xl-5 g-3 mb-3">
+  <div class="col">
+    <div class="bv-metric-card" style="--mc-color:#06b6d4" data-intraday="true" data-kpi-what="Καθαρή αξία πωλήσεων μόνο της ημέρας που έχεις ως ημερομηνία αναφοράς." data-kpi-formula="Τζίρος Ημέρας = άθροισμα net_value όλων των παραστατικών εσόδου της ίδιας ημέρας.">
+      <div class="mc-icon" title="Ενδοημερήσια ανάλυση"><i class="fe fe-sun"></i></div>
+      <div class="mc-label">Τζίρος Ημέρας</div>
+      <div id="kpiDay" class="mc-value">—</div>
+      <div class="mc-meta">Καθαρή αξία ημέρας</div>
+    </div>
+  </div>
+  <div class="col">
+    <div class="bv-metric-card" style="--mc-color:#22c55e" data-weekly="true" data-kpi-what="Καθαρή αξία πωλήσεων από την αρχή της εβδομάδας μέχρι την ημερομηνία αναφοράς." data-kpi-formula="Τζίρος Εβδομάδας = άθροισμα net_value όλων των παραστατικών εσόδου από Δευτέρα εβδομάδας έως ημερομηνία 'Έως'.">
+      <div class="mc-icon" title="Ημερήσια ανάλυση εβδομάδας"><i class="fe fe-calendar"></i></div>
+      <div class="mc-label">Τζίρος Εβδομάδας</div>
+      <div id="kpiWeek" class="mc-value">—</div>
+      <div class="mc-meta">Από Δευτέρα εβδομάδας</div>
+    </div>
+  </div>
+  <div class="col">
+    <div class="bv-metric-card" style="--mc-color:#f97316" data-monthly="true" data-kpi-what="Καθαρή αξία πωλήσεων από την 1η του μήνα μέχρι την ημερομηνία αναφοράς." data-kpi-formula="Τζίρος Μήνα = άθροισμα net_value όλων των παραστατικών εσόδου από 1η μήνα έως ημερομηνία 'Έως'.">
+      <div class="mc-icon" title="Εβδομαδιαία ανάλυση μήνα"><i class="fe fe-bar-chart"></i></div>
+      <div class="mc-label">Τζίρος Μήνα</div>
+      <div id="kpiMonth" class="mc-value">—</div>
+      <div class="mc-meta">Από 1η μήνα</div>
+    </div>
+  </div>
+  <div class="col">
+    <div class="bv-metric-card" style="--mc-color:#ef4444" data-ytd="prev" data-kpi-what="Καθαρή αξία πωλήσεων του προηγούμενου έτους, μέχρι την ίδια μέρα/μήνα με τη σημερινή επιλογή." data-kpi-formula="Τζίρος Προηγ. Έτους YTD = άθροισμα net_value όλων των παραστατικών εσόδου από 01/01/{προηγ. έτος} έως ίδια cutoff ημερομηνία.">
+      <div class="mc-icon" title="Μηνιαία ανάλυση έτους"><i class="fe fe-clock"></i></div>
+      <div class="mc-label">Τζίρος <span id="kpiPrevYearLabel">{{ default_to.year - 1 }}</span> (YTD)</div>
+      <div id="kpiPrevYear" class="mc-value">—</div>
+      <div id="kpiPrevYearCutoff" class="mc-meta">—</div>
+    </div>
+  </div>
+  <div class="col">
+    <div class="bv-metric-card" style="--mc-color:#3b82f6" data-ytd="curr" data-kpi-what="Καθαρή αξία πωλήσεων του τρέχοντος έτους μέχρι την ημερομηνία αναφοράς." data-kpi-formula="Τζίρος Τρέχοντος Έτους YTD = άθροισμα net_value όλων των παραστατικών εσόδου από 01/01/{τρέχον έτος} έως ημερομηνία 'Έως'.">
+      <div class="mc-icon" title="Μηνιαία ανάλυση έτους"><i class="fe fe-trending-up"></i></div>
+      <div class="mc-label">Τζίρος <span id="kpiYearLabel">{{ default_to.year }}</span> (YTD)</div>
+      <div id="kpiYear" class="mc-value">—</div>
+      <div id="kpiYearDelta" class="mc-meta">—</div>
+    </div>
+  </div>
 </div>
 
 <div class="card border-0 shadow-sm mb-3 content-card">
@@ -218,130 +261,159 @@
     </button>
   </div>
   <div id="companyOverviewBody" class="card-body">
-    <div class="row g-3">
-      <div class="col-xl-3 col-md-6">
-        <div class="bv-stat-strip bv-kpi-style bv-tone-blue">
-          <div class="kpi-icon"><i class="fe fe-shopping-bag"></i></div>
-          <div class="label">Πωλήσεις περιόδου</div>
-          <div id="kpiTotalSalesPeriod" class="value">0.00</div>
-          <div class="small text-muted">Από κύκλωμα Πωλήσεων</div>
+    <div class="row g-2">
+      <div class="col-6 col-sm-6 col-xl-3">
+        <div class="bv-metric-card" style="--mc-color:#3b82f6" data-kpi-what="Συνολική καθαρή αξία πωλήσεων για το επιλεγμένο διάστημα και τα φίλτρα." data-kpi-formula="Πωλήσεις Περιόδου = άθροισμα net_value όλων των παραστατικών που έχουν χαρακτηριστεί ως Έσοδα, στο [Από, Έως].">
+          <div class="mc-icon"><i class="fe fe-shopping-bag"></i></div>
+          <div class="mc-label">Πωλήσεις περιόδου</div>
+          <div id="kpiTotalSalesPeriod" class="mc-value">—</div>
+          <div class="mc-meta">Από κύκλωμα Πωλήσεων</div>
         </div>
       </div>
-      <div class="col-xl-3 col-md-6">
-        <div class="bv-stat-strip bv-kpi-style bv-tone-orange">
-          <div class="kpi-icon"><i class="fe fe-shopping-cart"></i></div>
-          <div class="label">Αγορές περιόδου</div>
-          <div id="kpiTotalPurchasesPeriod" class="value">-</div>
-          <div class="small text-muted">Από κύκλωμα Αγορών</div>
+      <div class="col-6 col-sm-6 col-xl-3">
+        <div class="bv-metric-card" style="--mc-color:#f97316" data-kpi-what="Συνολική αξία αγορών/κόστους για το επιλεγμένο διάστημα και τα φίλτρα." data-kpi-formula="Αγορές Περιόδου = άθροισμα cost_amount ή net_value όλων των παραστατικών που έχουν χαρακτηριστεί ως Αγορές, στο [Από, Έως].">
+          <div class="mc-icon"><i class="fe fe-shopping-cart"></i></div>
+          <div class="mc-label">Αγορές περιόδου</div>
+          <div id="kpiTotalPurchasesPeriod" class="mc-value">—</div>
+          <div class="mc-meta">Από κύκλωμα Αγορών</div>
         </div>
       </div>
-      <div class="col-xl-3 col-md-6">
-        <div class="bv-stat-strip bv-kpi-style bv-tone-green">
-          <div class="kpi-icon"><i class="fe fe-award"></i></div>
-          <div class="label">Μικτό Κέρδος περιόδου</div>
-          <div id="kpiGrossProfitPeriod" class="value">0.00</div>
-          <div class="small text-muted">Πωλήσεις - κόστος</div>
+      <div class="col-6 col-sm-6 col-xl-3">
+        <div class="bv-metric-card" style="--mc-color:#22c55e" data-kpi-what="Το αποτέλεσμα πωλήσεων μείον αγορές για το επιλεγμένο διάστημα." data-kpi-formula="Μικτό Κέρδος Περιόδου = Πωλήσεις Περιόδου - Αγορές Περιόδου.">
+          <div class="mc-icon"><i class="fe fe-award"></i></div>
+          <div class="mc-label">Μικτό Κέρδος περιόδου</div>
+          <div id="kpiGrossProfitPeriod" class="mc-value">—</div>
+          <div class="mc-meta">Πωλήσεις - κόστος</div>
         </div>
       </div>
-      <div class="col-xl-3 col-md-6">
-        <div class="bv-stat-strip bv-kpi-style bv-tone-purple">
-          <div class="kpi-icon"><i class="fe fe-percent"></i></div>
-          <div class="label">Μέσο Περιθώριο %</div>
-          <div id="kpiMarginPctPeriod" class="value">0.00%</div>
-          <div class="small text-muted">Κερδοφορία εταιρείας</div>
+      <div class="col-6 col-sm-6 col-xl-3">
+        <div class="bv-metric-card" style="--mc-color:#8b5cf6" data-kpi-what="Ποσοστό κερδοφορίας σε σχέση με τις πωλήσεις της ίδιας περιόδου." data-kpi-formula="Μέσο Περιθώριο % = ((Πωλήσεις Περιόδου - Αγορές Περιόδου) / Πωλήσεις Περιόδου) * 100.">
+          <div class="mc-icon"><i class="fe fe-percent"></i></div>
+          <div class="mc-label">Μέσο Περιθώριο %</div>
+          <div id="kpiMarginPctPeriod" class="mc-value">—</div>
+          <div class="mc-meta">Κερδοφορία εταιρείας</div>
         </div>
       </div>
-      <div class="col-xl-3 col-md-6">
-        <div class="bv-stat-strip bv-kpi-style bv-tone-cyan">
-          <div class="kpi-icon"><i class="fe fe-repeat"></i></div>
-          <div class="label">Ρυθμός αγορών / πωλήσεων</div>
-          <div id="kpiPurchasesToSales" class="value">-</div>
-          <div class="small text-muted">Αναλογία κόστους ανεφοδιασμού</div>
+      <div class="col-6 col-sm-6 col-xl-3">
+        <div class="bv-metric-card" style="--mc-color:#06b6d4" data-kpi-what="Δείχνει πόσο βαριές είναι οι αγορές σε σχέση με τις πωλήσεις." data-kpi-formula="Ρυθμός Αγορών / Πωλήσεων = (Αγορές Περιόδου / Πωλήσεις Περιόδου) * 100.">
+          <div class="mc-icon"><i class="fe fe-repeat"></i></div>
+          <div class="mc-label">Ρυθμός αγορών/πωλ.</div>
+          <div id="kpiPurchasesToSales" class="mc-value">—</div>
+          <div class="mc-meta">Κόστος ανεφοδιασμού</div>
         </div>
       </div>
-      <div class="col-xl-3 col-md-6">
-        <div class="bv-stat-strip bv-kpi-style bv-tone-blue">
-          <div class="kpi-icon"><i class="fe fe-home"></i></div>
-          <div class="label">Ενεργά υποκαταστήματα</div>
-          <div id="kpiActiveBranches" class="value">0</div>
-          <div class="small text-muted">Με θετικό τζίρο στο έτος</div>
+      <div class="col-6 col-sm-6 col-xl-3">
+        <div class="bv-metric-card" style="--mc-color:#3b82f6" data-kpi-what="Πόσα υποκαταστήματα έχουν θετικό τζίρο στο έτος μέχρι σήμερα." data-kpi-formula="Ενεργά Υποκαταστήματα = count(υποκατάστημα) όπου Τζίρος Έτους YTD > 0.">
+          <div class="mc-icon"><i class="fe fe-home"></i></div>
+          <div class="mc-label">Ενεργά υποκαταστήματα</div>
+          <div id="kpiActiveBranches" class="mc-value">—</div>
+          <div class="mc-meta">Με θετικό τζίρο στο έτος</div>
         </div>
       </div>
-      <div class="col-xl-3 col-md-6">
-        <div class="bv-stat-strip bv-kpi-style bv-tone-purple">
-          <div class="kpi-icon"><i class="fe fe-pie-chart"></i></div>
-          <div class="label">Συγκέντρωση κορυφαίου καταστήματος</div>
-          <div id="kpiTopBranchShare" class="value">0.00%</div>
-          <div class="small text-muted">Ποσοστό τζίρου από το #1 κατάστημα</div>
+      <div class="col-6 col-sm-6 col-xl-3">
+        <div class="bv-metric-card" style="--mc-color:#8b5cf6" data-kpi-what="Το ποσοστό που συμμετέχει το πιο δυνατό υποκατάστημα στον συνολικό ετήσιο τζίρο." data-kpi-formula="Συγκέντρωση Κορυφαίου Καταστήματος = (μεγαλύτερος τζίρος υποκαταστήματος YTD / συνολικός τζίρος YTD) * 100.">
+          <div class="mc-icon"><i class="fe fe-pie-chart"></i></div>
+          <div class="mc-label">Κορυφαίο κατάστημα</div>
+          <div id="kpiTopBranchShare" class="mc-value">—</div>
+          <div class="mc-meta">#1 κατάστημα τζίρου</div>
         </div>
       </div>
-      <div class="col-xl-3 col-md-6">
-        <div class="bv-stat-strip bv-kpi-style bv-tone-green">
-          <div class="kpi-icon"><i class="fe fe-activity"></i></div>
-          <div class="label">Μέσος ημερήσιος τζίρος</div>
-          <div id="kpiAvgDailyTurnover" class="value">0.00</div>
-          <div class="small text-muted">Για το επιλεγμένο διάστημα</div>
+      <div class="col-6 col-sm-6 col-xl-3">
+        <div class="bv-metric-card" style="--mc-color:#22c55e" data-kpi-what="Μέσος καθαρός τζίρος ανά ημέρα στο διάστημα που έχεις επιλέξει." data-kpi-formula="Μέσος Ημερήσιος Τζίρος = Πωλήσεις Περιόδου / πλήθος ημερών από το 'Από' έως το 'Έως'.">
+          <div class="mc-icon"><i class="fe fe-activity"></i></div>
+          <div class="mc-label">Μέσος ημερήσιος τζίρος</div>
+          <div id="kpiAvgDailyTurnover" class="mc-value">—</div>
+          <div class="mc-meta">Για το επιλεγμένο διάστημα</div>
         </div>
       </div>
-      <div class="col-xl-3 col-md-6">
-        <div class="bv-stat-strip bv-kpi-style bv-tone-red">
-          <div class="kpi-icon"><i class="fe fe-dollar-sign"></i></div>
-          <div class="label">Μικτό Κέρδος έτους</div>
-          <div id="kpiGrossProfitYear" class="value">0.00</div>
-          <div class="small text-muted">Από αρχή έτους έως σήμερα</div>
+      <div class="col-6 col-sm-6 col-xl-3">
+        <div class="bv-metric-card" style="--mc-color:#ef4444" data-kpi-what="Μικτό αποτέλεσμα από την αρχή του έτους μέχρι την ημερομηνία αναφοράς." data-kpi-formula="Μικτό Κέρδος Έτους = Τζίρος Τρέχοντος Έτους YTD - Αγορές Τρέχοντος Έτους YTD.">
+          <div class="mc-icon"><i class="fe fe-dollar-sign"></i></div>
+          <div class="mc-label">Μικτό Κέρδος έτους</div>
+          <div id="kpiGrossProfitYear" class="mc-value">—</div>
+          <div class="mc-meta">Από αρχή έτους έως σήμερα</div>
         </div>
       </div>
-      <div class="col-xl-3 col-md-6">
-        <div class="bv-stat-strip bv-kpi-style bv-tone-orange">
-          <div class="kpi-icon"><i class="fe fe-package"></i></div>
-          <div class="label">Ποσότητα μήνα</div>
-          <div id="kpiMonthQty" class="value">0</div>
-          <div class="small text-muted">Συνολικές μονάδες πωλήσεων</div>
+      <div class="col-6 col-sm-6 col-xl-3">
+        <div class="bv-metric-card" style="--mc-color:#f97316" data-kpi-what="Συνολικές μονάδες πώλησης που γράφτηκαν μέσα στον τρέχοντα μήνα." data-kpi-formula="Ποσότητα Μήνα = άθροισμα qty όλων των παραστατικών εσόδου από 1η μήνα έως ημερομηνία 'Έως'.">
+          <div class="mc-icon"><i class="fe fe-package"></i></div>
+          <div class="mc-label">Ποσότητα μήνα</div>
+          <div id="kpiMonthQty" class="mc-value">—</div>
+          <div class="mc-meta">Συνολικές μονάδες πωλήσεων</div>
         </div>
       </div>
-      <div class="col-xl-3 col-md-6">
-        <div class="bv-stat-strip bv-kpi-style bv-tone-red">
-          <div class="kpi-icon"><i class="fe fe-calendar"></i></div>
-          <div class="label">Τζίρος <span id="kpiPrevYearFullLabel">{{ default_to.year - 1 }}</span> (FULL YEAR)</div>
-          <div id="kpiPrevYearFull" class="value">0.00</div>
-          <div id="kpiPrevYearFullRange" class="small text-muted mt-1">-</div>
+      <div class="col-xl-3 col-sm-6">
+        <div class="bv-metric-card" style="--mc-color:#ef4444" data-kpi-what="Συνολική καθαρή αξία πωλήσεων για ολόκληρο το προηγούμενο έτος." data-kpi-formula="Τζίρος Προηγ. Έτους Full = άθροισμα net_value όλων των παραστατικών εσόδου από 01/01 έως 31/12 του προηγούμενου έτους.">
+          <div class="mc-icon"><i class="fe fe-calendar"></i></div>
+          <div class="mc-label">Τζίρος <span id="kpiPrevYearFullLabel">{{ default_to.year - 1 }}</span> (FULL YEAR)</div>
+          <div id="kpiPrevYearFull" class="mc-value">—</div>
+          <div id="kpiPrevYearFullRange" class="mc-meta">-</div>
         </div>
       </div>
-      <div class="col-xl-3 col-md-6">
-        <div class="bv-stat-strip bv-kpi-style bv-tone-blue">
-          <div class="kpi-icon"><i class="fe fe-flag"></i></div>
-          <div class="label">Τζίρος <span id="kpiYearToDateLabel">{{ default_to.year }}</span> (YTD vs FULL)</div>
-          <div id="kpiYearToDateFullCmp" class="value">0.00</div>
-          <div id="kpiYearToDateFullCmpDelta" class="small text-muted mt-1">-</div>
+      <div class="col-xl-3 col-sm-6">
+        <div class="bv-metric-card" style="--mc-color:#3b82f6" data-kpi-what="Συγκρίνει πόσο έχει φτάσει ο φετινός τζίρος μέχρι σήμερα απέναντι σε όλο το προηγούμενο έτος." data-kpi-formula="Τζίρος YTD vs Full = Τζίρος Τρέχοντος Έτους YTD. Σύγκριση = ((Τζίρος Τρέχοντος Έτους YTD - Τζίρος Προηγ. Έτους Full) / Τζίρος Προηγ. Έτους Full) * 100.">
+          <div class="mc-icon"><i class="fe fe-flag"></i></div>
+          <div class="mc-label">Τζίρος <span id="kpiYearToDateLabel">{{ default_to.year }}</span> (YTD vs FULL)</div>
+          <div id="kpiYearToDateFullCmp" class="mc-value">—</div>
+          <div id="kpiYearToDateFullCmpDelta" class="mc-meta">-</div>
         </div>
       </div>
     </div>
   </div>
 </div>
 
-<div class="card border-0 shadow-sm mb-3 content-card">
-  <div class="card-header"><h5 class="mb-0">Εξειδίκευση ανά κύκλωμα</h5></div>
-  <div class="card-body">
-    <div class="d-flex flex-wrap gap-2">
-      <a class="btn bv-action-btn bv-action-edit" href="/tenant/sales"><i class="fe fe-bar-chart-2"></i>Πωλήσεις</a>
-      <a class="btn bv-action-btn bv-action-toggle" href="/tenant/purchases"><i class="fe fe-shopping-cart"></i>Αγορές</a>
-      <a class="btn bv-action-btn bv-action-save {% if not inventory_enabled %}disabled{% endif %}" href="/tenant/inventory"><i class="fe fe-layers"></i>Απόθεμα</a>
-      <a class="btn bv-action-btn bv-action-save {% if not cashflow_enabled %}disabled{% endif %}" href="/tenant/cashflow"><i class="fe fe-dollar-sign"></i>Cashflow</a>
-      <a class="btn bv-action-btn bv-action-edit" href="/tenant/insights"><i class="fe fe-alert-circle"></i>Insights</a>
-    </div>
+<div class="row g-3 mb-3">
+  <div class="col-6 col-sm-4 col-md-2">
+    <a href="/tenant/sales" class="bv-nav-tile text-decoration-none d-flex flex-column align-items-center justify-content-center text-center gap-2 p-3 rounded-3 border h-100" style="background:#eef2ff;border-color:#c7d2fe!important;">
+      <i class="fe fe-bar-chart-2" style="font-size:1.6rem;color:#4f46e5;"></i>
+      <span style="font-weight:700;font-size:.82rem;color:#3730a3;letter-spacing:.02em;text-transform:uppercase;">Πωλήσεις</span>
+    </a>
+  </div>
+  <div class="col-6 col-sm-4 col-md-2">
+    <a href="/tenant/purchases" class="bv-nav-tile text-decoration-none d-flex flex-column align-items-center justify-content-center text-center gap-2 p-3 rounded-3 border h-100" style="background:#fffbeb;border-color:#fde68a!important;">
+      <i class="fe fe-shopping-cart" style="font-size:1.6rem;color:#d97706;"></i>
+      <span style="font-weight:700;font-size:.82rem;color:#92400e;letter-spacing:.02em;text-transform:uppercase;">Αγορές</span>
+    </a>
+  </div>
+  <div class="col-6 col-sm-4 col-md-2">
+    <a href="/tenant/inventory" class="bv-nav-tile text-decoration-none d-flex flex-column align-items-center justify-content-center text-center gap-2 p-3 rounded-3 border h-100 {% if not inventory_enabled %}opacity-50 pe-none{% endif %}" style="background:#f0fdf4;border-color:#bbf7d0!important;">
+      <i class="fe fe-layers" style="font-size:1.6rem;color:#16a34a;"></i>
+      <span style="font-weight:700;font-size:.82rem;color:#166534;letter-spacing:.02em;text-transform:uppercase;">Απόθεμα</span>
+    </a>
+  </div>
+  <div class="col-6 col-sm-4 col-md-2">
+    <a href="/tenant/cashflow" class="bv-nav-tile text-decoration-none d-flex flex-column align-items-center justify-content-center text-center gap-2 p-3 rounded-3 border h-100 {% if not cashflow_enabled %}opacity-50 pe-none{% endif %}" style="background:#eff6ff;border-color:#bfdbfe!important;">
+      <i class="fe fe-dollar-sign" style="font-size:1.6rem;color:#2563eb;"></i>
+      <span style="font-weight:700;font-size:.82rem;color:#1e40af;letter-spacing:.02em;text-transform:uppercase;">Cashflow</span>
+    </a>
+  </div>
+  <div class="col-6 col-sm-4 col-md-2">
+    <a href="/tenant/customers" class="bv-nav-tile text-decoration-none d-flex flex-column align-items-center justify-content-center text-center gap-2 p-3 rounded-3 border h-100" style="background:#fdf4ff;border-color:#e9d5ff!important;">
+      <i class="fe fe-users" style="font-size:1.6rem;color:#9333ea;"></i>
+      <span style="font-weight:700;font-size:.82rem;color:#7e22ce;letter-spacing:.02em;text-transform:uppercase;">Πελάτες</span>
+    </a>
+  </div>
+  <div class="col-6 col-sm-4 col-md-2">
+    <a href="/tenant/insights" class="bv-nav-tile text-decoration-none d-flex flex-column align-items-center justify-content-center text-center gap-2 p-3 rounded-3 border h-100" style="background:#fff1f2;border-color:#fecdd3!important;">
+      <i class="fe fe-zap" style="font-size:1.6rem;color:#e11d48;"></i>
+      <span style="font-weight:700;font-size:.82rem;color:#9f1239;letter-spacing:.02em;text-transform:uppercase;">Insights</span>
+    </a>
   </div>
 </div>
 
 <div class="card border-0 shadow-sm mb-3 content-card">
-  <div class="card-header d-flex align-items-center justify-content-between gap-2">
-    <h5 class="mb-0">Decision Engine | Κρίσιμα Insights</h5>
-    <a class="btn btn-sm bv-action-btn bv-action-edit" href="/tenant/insights"><i class="fe fe-external-link"></i>Όλα τα Insights</a>
+  <div class="card-header d-flex flex-wrap align-items-center justify-content-between gap-2">
+    <div>
+      <h5 class="mb-0 fw-bold">Decision Engine</h5>
+      <div class="text-muted small mt-1">Αυτόματη ανίχνευση κρίσιμων καταστάσεων βάσει κανόνων</div>
+    </div>
+    <a class="btn btn-sm bv-action-btn bv-action-edit" href="/tenant/insights"><i class="fe fe-external-link me-1"></i>Όλα τα Insights</a>
   </div>
   <div class="card-body">
     <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
-      <span class="decision-count decision-count-critical">Κρίσιμα <strong id="decisionCntCritical">0</strong></span>
-      <span class="decision-count decision-count-warning">Προειδοποίηση <strong id="decisionCntWarning">0</strong></span>
-      <span class="decision-count decision-count-info">Πληροφορία <strong id="decisionCntInfo">0</strong></span>
+      <span class="decision-count decision-count-critical"><i class="fe fe-alert-octagon me-1"></i>Κρίσιμα <strong id="decisionCntCritical">0</strong></span>
+      <span class="decision-count decision-count-warning"><i class="fe fe-alert-triangle me-1"></i>Προειδοποίηση <strong id="decisionCntWarning">0</strong></span>
+      <span class="decision-count decision-count-info"><i class="fe fe-info me-1"></i>Πληροφορία <strong id="decisionCntInfo">0</strong></span>
     </div>
     <div id="decisionInsightsList" class="decision-insights-wrap">
       <div class="text-muted">Φόρτωση insights...</div>
@@ -350,12 +422,17 @@
 </div>
 
 <div class="card border-0 shadow-sm mb-3 content-card">
-  <div class="card-header"><h5 class="mb-0">Τζίρος Εταιρείας / Έτος</h5></div>
+  <div class="card-header d-flex align-items-center justify-content-between gap-2">
+    <div>
+      <h5 class="mb-0 fw-bold">Τζίρος Εταιρείας / Έτος</h5>
+      <div class="text-muted small mt-1">Μηνιαία εξέλιξη τρέχοντος και προηγούμενου έτους</div>
+    </div>
+  </div>
   <div class="card-body"><canvas id="companyTrendChart" height="110"></canvas></div>
 </div>
 
-<div class="row g-3">
-  <div class="col-lg-4">
+<div class="row g-3 mb-3">
+  <div class="col-12 col-md-6 col-lg-4">
     <div class="card border-0 shadow-sm content-card branch-donut-card">
       <div class="card-header"><h5 class="mb-0">Τζίρος Ημέρας / Υποκατάστημα</h5></div>
       <div class="card-body">
@@ -373,7 +450,7 @@
       </div>
     </div>
   </div>
-  <div class="col-lg-4">
+  <div class="col-12 col-md-6 col-lg-4">
     <div class="card border-0 shadow-sm content-card branch-donut-card">
       <div class="card-header"><h5 class="mb-0">Τζίρος Μήνα / Υποκατάστημα</h5></div>
       <div class="card-body">
@@ -391,7 +468,7 @@
       </div>
     </div>
   </div>
-  <div class="col-lg-4">
+  <div class="col-12 col-md-12 col-lg-4">
     <div class="card border-0 shadow-sm content-card branch-donut-card">
       <div class="card-header"><h5 class="mb-0">Τζίρος Έτους / Υποκατάστημα</h5></div>
       <div class="card-body">
@@ -412,7 +489,10 @@
 </div>
 
 <div class="card border-0 shadow-sm mb-3 content-card branch-month-section">
-  <div class="card-header"><h5 class="mb-0">Απόδοση Καταστημάτων (Τρέχων Μήνας)</h5></div>
+  <div class="card-header">
+    <h5 class="mb-0 fw-bold">Απόδοση Καταστημάτων — Τρέχων Μήνας</h5>
+    <div class="text-muted small mt-1">Σύγκριση τζίρου μήνα ανά κατάστημα με αντίστοιχο περσινό</div>
+  </div>
   <div class="card-body">
     <div id="branchMonthPerfGrid" class="branch-month-grid"></div>
   </div>
@@ -420,6 +500,110 @@
 {% endblock %}
 
 {% block scripts %}
+<!-- Weekly Modal -->
+<div class="modal fade bv-modal bv-modal--responsive" id="weeklyModal" tabindex="-1" aria-hidden="true" data-bv-modal="true" data-bv-close-on-backdrop="true">
+  <div class="modal-dialog modal-dialog-centered modal-xl">
+    <div class="modal-content" style="border-radius:14px;border:none;box-shadow:0 24px 64px rgba(15,23,42,.18);">
+      <div class="modal-header" style="border-bottom:1px solid #f1f5f9;padding:1rem 1.5rem .75rem;">
+        <div>
+          <h6 class="modal-title fw-bold mb-0" style="font-size:1rem;color:#0f172a;">Ημερήσια Εξέλιξη Τζίρου Εβδομάδας</h6>
+          <div id="weeklySubtitle" style="font-size:.78rem;color:#64748b;"></div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" style="padding:1.25rem 1.5rem;">
+        <div id="weeklyLoading" class="text-center py-4" style="color:#64748b;font-size:.875rem;">
+          <div class="spinner-border spinner-border-sm me-2" role="status"></div>Φόρτωση δεδομένων...
+        </div>
+        <div id="weeklyChartWrap" style="display:none;position:relative;height:340px;">
+          <canvas id="weeklyChart"></canvas>
+        </div>
+        <div id="weeklyNoData" class="text-center py-4 d-none" style="color:#94a3b8;font-size:.875rem;">
+          Δεν υπάρχουν δεδομένα για αυτή την εβδομάδα.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- YTD Monthly Modal -->
+<div class="modal fade bv-modal bv-modal--responsive" id="ytdModal" tabindex="-1" aria-hidden="true" data-bv-modal="true" data-bv-close-on-backdrop="true">
+  <div class="modal-dialog modal-dialog-centered modal-xl">
+    <div class="modal-content" style="border-radius:14px;border:none;box-shadow:0 24px 64px rgba(15,23,42,.18);">
+      <div class="modal-header" style="border-bottom:1px solid #f1f5f9;padding:1rem 1.5rem .75rem;">
+        <div>
+          <h6 class="modal-title fw-bold mb-0" id="ytdModalTitle" style="font-size:1rem;color:#0f172a;">Μηνιαία Εξέλιξη Τζίρου</h6>
+          <div id="ytdSubtitle" style="font-size:.78rem;color:#64748b;"></div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" style="padding:1.25rem 1.5rem;">
+        <div id="ytdLoading" class="text-center py-4" style="color:#64748b;font-size:.875rem;">
+          <div class="spinner-border spinner-border-sm me-2" role="status"></div>Φόρτωση δεδομένων...
+        </div>
+        <div id="ytdChartWrap" style="display:none;position:relative;height:340px;">
+          <canvas id="ytdChart"></canvas>
+        </div>
+        <div id="ytdNoData" class="text-center py-4 d-none" style="color:#94a3b8;font-size:.875rem;">
+          Δεν υπάρχουν δεδομένα για αυτή την περίοδο.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Monthly (weekly breakdown) Modal -->
+<div class="modal fade bv-modal bv-modal--responsive" id="monthlyModal" tabindex="-1" aria-hidden="true" data-bv-modal="true" data-bv-close-on-backdrop="true">
+  <div class="modal-dialog modal-dialog-centered modal-xl">
+    <div class="modal-content" style="border-radius:14px;border:none;box-shadow:0 24px 64px rgba(15,23,42,.18);">
+      <div class="modal-header" style="border-bottom:1px solid #f1f5f9;padding:1rem 1.5rem .75rem;">
+        <div>
+          <h6 class="modal-title fw-bold mb-0" style="font-size:1rem;color:#0f172a;">Εβδομαδιαία Εξέλιξη Τζίρου Μήνα</h6>
+          <div id="monthlySubtitle" style="font-size:.78rem;color:#64748b;"></div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" style="padding:1.25rem 1.5rem;">
+        <div id="monthlyLoading" class="text-center py-4" style="color:#64748b;font-size:.875rem;">
+          <div class="spinner-border spinner-border-sm me-2" role="status"></div>Φόρτωση δεδομένων...
+        </div>
+        <div id="monthlyChartWrap" style="display:none;position:relative;height:340px;">
+          <canvas id="monthlyChart"></canvas>
+        </div>
+        <div id="monthlyNoData" class="text-center py-4 d-none" style="color:#94a3b8;font-size:.875rem;">
+          Δεν υπάρχουν δεδομένα για αυτό το μήνα.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Intraday Modal -->
+<div class="modal fade bv-modal bv-modal--responsive" id="intradayModal" tabindex="-1" aria-hidden="true" data-bv-modal="true" data-bv-close-on-backdrop="true">
+  <div class="modal-dialog modal-dialog-centered modal-xl">
+    <div class="modal-content" style="border-radius:14px;border:none;box-shadow:0 24px 64px rgba(15,23,42,.18);">
+      <div class="modal-header" style="border-bottom:1px solid #f1f5f9;padding:1rem 1.5rem .75rem;">
+        <div>
+          <h6 class="modal-title fw-bold mb-0" style="font-size:1rem;color:#0f172a;">Ενδοημερήσια Εξέλιξη Τζίρου</h6>
+          <div id="intradaySubtitle" style="font-size:.78rem;color:#64748b;"></div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" style="padding:1.25rem 1.5rem;">
+        <div id="intradayLoading" class="text-center py-4" style="color:#64748b;font-size:.875rem;">
+          <div class="spinner-border spinner-border-sm me-2" role="status"></div>Φόρτωση δεδομένων...
+        </div>
+        <div id="intradayChartWrap" style="display:none;position:relative;height:340px;">
+          <canvas id="intradayChart"></canvas>
+        </div>
+        <div id="intradayNoData" class="text-center py-4 d-none" style="color:#94a3b8;font-size:.875rem;">
+          Δεν υπάρχουν ωριαία δεδομένα για αυτή την ημέρα.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 let companyTrendChart, yearByBranchDonut;
 const branchDonutCharts = {};
@@ -844,6 +1028,7 @@ async function reloadCentralDashboard(e){
     const prevMonthToRaw = new Date(prevMonthDate.getFullYear(), prevMonthDate.getMonth(), anchorDate.getDate());
     const prevMonthTo = dtISO(prevMonthToRaw > prevMonthDate ? prevMonthDate : prevMonthToRaw);
     const execParams = filtersToParams();
+    execParams.set('_ts', String(Date.now()));
     const executive = await fetchJsonStrict(`/v1/dashboard/executive-summary?${execParams.toString()}`);
     const cards = executive?.cards || {};
     const branchBreakdown = executive?.branch_breakdown || {};
@@ -967,5 +1152,561 @@ window.addEventListener('load', async ()=>{
   await loadCentralFilterOptions();
   await reloadCentralDashboard();
 });
+
+// ── Intraday chart ──────────────────────────────────────────────
+let intradayChartInstance = null;
+
+const BRANCH_PALETTE = [
+  '#3b82f6','#22c55e','#f97316','#8b5cf6','#06b6d4',
+  '#ef4444','#eab308','#ec4899','#14b8a6','#a855f7',
+];
+
+let _intradayModal = null;
+function openIntradayModal() {
+  const el = document.getElementById('intradayModal');
+  if (!el) { console.error('intradayModal not found'); return; }
+  if (!_intradayModal) {
+    if (window.BVModalSystem?.create) {
+      _intradayModal = window.BVModalSystem.create(el, { closeOnBackdrop: true, keyboard: true });
+    } else if (window.bootstrap?.Modal) {
+      _intradayModal = window.bootstrap.Modal.getOrCreateInstance(el);
+    } else {
+      el.style.display = 'flex';
+      el.classList.add('show');
+      document.body.classList.add('modal-open');
+      return;
+    }
+  }
+  _intradayModal.show();
+  loadIntradayChart();
+}
+
+(function attachIntradayClick() {
+  const icon = document.querySelector('[data-intraday] .mc-icon');
+  if (!icon) { console.warn('intraday icon not found'); return; }
+  icon.addEventListener('click', function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+    openIntradayModal();
+  });
+})();
+
+async function loadIntradayChart() {
+  document.getElementById('intradayLoading').style.display = '';
+  document.getElementById('intradayChartWrap').style.display = 'none';
+  document.getElementById('intradayNoData').classList.add('d-none');
+
+  const toInput = document.querySelector('[name="to"]');
+  const dayStr = toInput?.value || '';
+  let dayIso = '';
+  if (dayStr && dayStr.includes('/')) {
+    const [d, m, y] = dayStr.split('/');
+    dayIso = `${y}-${m}-${d}`;
+  } else {
+    dayIso = new Date().toISOString().slice(0, 10);
+  }
+
+  const subtitle = document.getElementById('intradaySubtitle');
+  subtitle.textContent = `Ημέρα: ${dayStr || dayIso}`;
+
+  const branchSelects = document.querySelectorAll('[name="branches"]');
+  const selectedBranches = [];
+  branchSelects.forEach(s => {
+    for (const opt of s.selectedOptions) selectedBranches.push(encodeURIComponent(opt.value));
+  });
+
+  let url = `/v1/kpi/sales/intraday?day=${dayIso}`;
+  selectedBranches.forEach(b => { url += `&branches=${b}`; });
+
+  try {
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const json = await resp.json();
+
+    document.getElementById('intradayLoading').style.display = 'none';
+
+    const hourlyData = json.data || {};
+    const branchMap = json.branches || {};
+    const branchKeys = Object.keys(branchMap);
+
+    if (!branchKeys.length) {
+      document.getElementById('intradayNoData').classList.remove('d-none');
+      return;
+    }
+
+    const hours = Array.from({length: 24}, (_, i) => i);
+    const datasets = branchKeys.map((bext, idx) => ({
+      label: branchMap[bext] || bext,
+      data: hours.map(h => hourlyData[h]?.[bext] ?? null),
+      borderColor: BRANCH_PALETTE[idx % BRANCH_PALETTE.length],
+      backgroundColor: BRANCH_PALETTE[idx % BRANCH_PALETTE.length] + '22',
+      borderWidth: 2.5,
+      pointRadius: 3,
+      pointHoverRadius: 6,
+      tension: 0.35,
+      spanGaps: false,
+    }));
+
+    document.getElementById('intradayChartWrap').style.display = '';
+    const ctx = document.getElementById('intradayChart').getContext('2d');
+    if (intradayChartInstance) intradayChartInstance.destroy();
+    intradayChartInstance = new Chart(ctx, {
+      type: 'line',
+      data: { labels: hours.map(h => h + ':00'), datasets },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { position: 'top', labels: { boxWidth: 20, font: { size: 12 } } },
+          tooltip: {
+            callbacks: {
+              label: ctx => {
+                const v = ctx.parsed.y;
+                if (v === null) return null;
+                return ` ${ctx.dataset.label}: ${new Intl.NumberFormat('el-GR',{minimumFractionDigits:2,maximumFractionDigits:2}).format(v)}`;
+              }
+            }
+          }
+        },
+        scales: {
+          x: { grid: { color: '#f1f5f9' }, ticks: { font: { size: 11 } } },
+          y: {
+            grid: { color: '#f1f5f9' },
+            ticks: {
+              font: { size: 11 },
+              callback: v => new Intl.NumberFormat('el-GR',{notation:'compact',maximumFractionDigits:1}).format(v)
+            }
+          }
+        }
+      }
+    });
+  } catch (err) {
+    document.getElementById('intradayLoading').style.display = 'none';
+    document.getElementById('intradayNoData').classList.remove('d-none');
+    document.getElementById('intradayNoData').textContent = 'Σφάλμα φόρτωσης δεδομένων.';
+    console.error('Intraday load error:', err);
+  }
+}
+
+// ── Weekly daily chart ───────────────────────────────────────────
+let weeklyChartInstance = null;
+let _weeklyModal = null;
+
+function openWeeklyModal() {
+  const el = document.getElementById('weeklyModal');
+  if (!el) return;
+  if (!_weeklyModal) {
+    if (window.BVModalSystem?.create) {
+      _weeklyModal = window.BVModalSystem.create(el, { closeOnBackdrop: true, keyboard: true });
+    } else if (window.bootstrap?.Modal) {
+      _weeklyModal = window.bootstrap.Modal.getOrCreateInstance(el);
+    } else {
+      el.style.display = 'flex';
+      el.classList.add('show');
+      document.body.classList.add('modal-open');
+      return;
+    }
+  }
+  _weeklyModal.show();
+  loadWeeklyChart();
+}
+
+(function attachWeeklyClick() {
+  const icon = document.querySelector('[data-weekly] .mc-icon');
+  if (!icon) return;
+  icon.addEventListener('click', function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+    openWeeklyModal();
+  });
+})();
+
+const DAY_NAMES_EL = ['Κυρ', 'Δευ', 'Τρι', 'Τετ', 'Πεμ', 'Παρ', 'Σαβ'];
+
+async function loadWeeklyChart() {
+  document.getElementById('weeklyLoading').style.display = '';
+  document.getElementById('weeklyChartWrap').style.display = 'none';
+  document.getElementById('weeklyNoData').classList.add('d-none');
+
+  const toInput = document.querySelector('[name="to"]');
+  const toRaw = toInput?.value || '';
+  let anchorIso = '';
+  if (toRaw && toRaw.includes('/')) {
+    const [d, m, y] = toRaw.split('/');
+    anchorIso = `${y}-${m}-${d}`;
+  } else {
+    anchorIso = new Date().toISOString().slice(0, 10);
+  }
+  const anchor = new Date(anchorIso + 'T00:00:00');
+  const weekFromDate = startOfWeek(anchor);
+  // Use local date parts to avoid UTC shift from dtISO/toISOString
+  const weekFromIso = weekFromDate.getFullYear() + '-'
+    + String(weekFromDate.getMonth()+1).padStart(2,'0') + '-'
+    + String(weekFromDate.getDate()).padStart(2,'0');
+
+  document.getElementById('weeklySubtitle').textContent =
+    `Εβδομάδα: ${weekFromIso} → ${anchorIso}`;
+
+  const branchSelects = document.querySelectorAll('[name="branches"]');
+  const selectedBranches = [];
+  branchSelects.forEach(s => {
+    for (const opt of s.selectedOptions) selectedBranches.push(encodeURIComponent(opt.value));
+  });
+
+  let url = `/v1/kpi/sales/weekly?week_from=${weekFromIso}&week_to=${anchorIso}`;
+  selectedBranches.forEach(b => { url += `&branches=${b}`; });
+
+  try {
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const json = await resp.json();
+
+    document.getElementById('weeklyLoading').style.display = 'none';
+
+    const dailyData = json.data || {};
+    const branchMap = json.branches || {};
+    const branchKeys = Object.keys(branchMap);
+    const dates = json.dates || [];
+
+    if (!branchKeys.length || !dates.length) {
+      document.getElementById('weeklyNoData').classList.remove('d-none');
+      return;
+    }
+
+    const labels = dates.map(iso => {
+      const d = new Date(iso + 'T00:00:00');
+      const dayName = DAY_NAMES_EL[d.getDay()];
+      return `${dayName} ${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
+    });
+
+    const datasets = branchKeys.map((bext, idx) => ({
+      label: branchMap[bext] || bext,
+      data: dates.map(d => dailyData[d]?.[bext] ?? null),
+      borderColor: BRANCH_PALETTE[idx % BRANCH_PALETTE.length],
+      backgroundColor: BRANCH_PALETTE[idx % BRANCH_PALETTE.length] + '33',
+      borderWidth: 2.5,
+      pointRadius: 4,
+      pointHoverRadius: 7,
+      tension: 0.25,
+      spanGaps: false,
+    }));
+
+    document.getElementById('weeklyChartWrap').style.display = '';
+    const ctx = document.getElementById('weeklyChart').getContext('2d');
+    if (weeklyChartInstance) weeklyChartInstance.destroy();
+    weeklyChartInstance = new Chart(ctx, {
+      type: 'bar',
+      data: { labels, datasets },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { position: 'top', labels: { boxWidth: 20, font: { size: 12 } } },
+          tooltip: {
+            callbacks: {
+              label: ctx => {
+                const v = ctx.parsed.y;
+                if (v === null) return null;
+                return ` ${ctx.dataset.label}: ${new Intl.NumberFormat('el-GR',{minimumFractionDigits:2,maximumFractionDigits:2}).format(v)}`;
+              }
+            }
+          }
+        },
+        scales: {
+          x: { grid: { color: '#f1f5f9' }, ticks: { font: { size: 11 } } },
+          y: {
+            grid: { color: '#f1f5f9' },
+            ticks: {
+              font: { size: 11 },
+              callback: v => new Intl.NumberFormat('el-GR',{notation:'compact',maximumFractionDigits:1}).format(v)
+            }
+          }
+        }
+      }
+    });
+  } catch (err) {
+    document.getElementById('weeklyLoading').style.display = 'none';
+    document.getElementById('weeklyNoData').classList.remove('d-none');
+    document.getElementById('weeklyNoData').textContent = 'Σφάλμα φόρτωσης δεδομένων.';
+    console.error('Weekly load error:', err);
+  }
+}
+
+// ── Monthly weekly-breakdown chart ───────────────────────────────
+let monthlyChartInstance = null;
+let _monthlyModal = null;
+
+function openMonthlyModal() {
+  const el = document.getElementById('monthlyModal');
+  if (!el) return;
+  if (!_monthlyModal) {
+    if (window.BVModalSystem?.create) {
+      _monthlyModal = window.BVModalSystem.create(el, { closeOnBackdrop: true, keyboard: true });
+    } else if (window.bootstrap?.Modal) {
+      _monthlyModal = window.bootstrap.Modal.getOrCreateInstance(el);
+    } else {
+      el.style.display = 'flex'; el.classList.add('show');
+      document.body.classList.add('modal-open'); return;
+    }
+  }
+  _monthlyModal.show();
+  loadMonthlyChart();
+}
+
+(function attachMonthlyClick() {
+  const icon = document.querySelector('[data-monthly] .mc-icon');
+  if (!icon) return;
+  icon.addEventListener('click', function(e) {
+    e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+    openMonthlyModal();
+  });
+})();
+
+function localIso(d) {
+  return d.getFullYear() + '-'
+    + String(d.getMonth()+1).padStart(2,'0') + '-'
+    + String(d.getDate()).padStart(2,'0');
+}
+
+const MONTH_NAMES_EL = ['Ιαν','Φεβ','Μαρ','Απρ','Μαϊ','Ιουν','Ιουλ','Αυγ','Σεπ','Οκτ','Νοε','Δεκ'];
+
+async function loadMonthlyChart() {
+  document.getElementById('monthlyLoading').style.display = '';
+  document.getElementById('monthlyChartWrap').style.display = 'none';
+  document.getElementById('monthlyNoData').classList.add('d-none');
+
+  const anchor = new Date();
+  anchor.setHours(0,0,0,0);
+  const anchorIso = localIso(anchor);
+  const monthFrom = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
+  const monthFromIso = localIso(monthFrom);
+
+  document.getElementById('monthlySubtitle').textContent =
+    `${MONTH_NAMES_EL[anchor.getMonth()]} ${anchor.getFullYear()}: ${monthFromIso} → ${anchorIso}`;
+
+  const branchSelects = document.querySelectorAll('[name="branches"]');
+  const selectedBranches = [];
+  branchSelects.forEach(s => {
+    for (const opt of s.selectedOptions) selectedBranches.push(encodeURIComponent(opt.value));
+  });
+
+  let url = `/v1/kpi/sales/weekly?week_from=${monthFromIso}&week_to=${anchorIso}`;
+  selectedBranches.forEach(b => { url += `&branches=${b}`; });
+
+  try {
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const json = await resp.json();
+
+    document.getElementById('monthlyLoading').style.display = 'none';
+
+    const dailyData = json.data || {};
+    const branchMap = json.branches || {};
+    const branchKeys = Object.keys(branchMap);
+    const dates = json.dates || [];
+
+    if (!branchKeys.length || !dates.length) {
+      document.getElementById('monthlyNoData').classList.remove('d-none');
+      return;
+    }
+
+    const labels = dates.map(iso => {
+      const d = new Date(iso + 'T00:00:00');
+      return `${DAY_NAMES_EL[d.getDay()]} ${d.getDate()}/${d.getMonth()+1}`;
+    });
+
+    const datasets = branchKeys.map((bext, idx) => ({
+      label: branchMap[bext] || bext,
+      data: dates.map(w => dailyData[w]?.[bext] ?? null),
+      borderColor: BRANCH_PALETTE[idx % BRANCH_PALETTE.length],
+      backgroundColor: BRANCH_PALETTE[idx % BRANCH_PALETTE.length] + '33',
+      borderWidth: 2.5,
+      pointRadius: 4,
+      pointHoverRadius: 7,
+      tension: 0.25,
+      spanGaps: false,
+    }));
+
+    document.getElementById('monthlyChartWrap').style.display = '';
+    const ctx = document.getElementById('monthlyChart').getContext('2d');
+    if (monthlyChartInstance) monthlyChartInstance.destroy();
+    monthlyChartInstance = new Chart(ctx, {
+      type: 'bar',
+      data: { labels, datasets },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { position: 'top', labels: { boxWidth: 20, font: { size: 12 } } },
+          tooltip: {
+            callbacks: {
+              label: ctx => {
+                const v = ctx.parsed.y;
+                if (v === null) return null;
+                return ` ${ctx.dataset.label}: ${new Intl.NumberFormat('el-GR',{minimumFractionDigits:2,maximumFractionDigits:2}).format(v)}`;
+              }
+            }
+          }
+        },
+        scales: {
+          x: { grid: { color: '#f1f5f9' }, ticks: { font: { size: 11 } } },
+          y: {
+            grid: { color: '#f1f5f9' },
+            ticks: { font: { size: 11 },
+              callback: v => new Intl.NumberFormat('el-GR',{notation:'compact',maximumFractionDigits:1}).format(v)
+            }
+          }
+        }
+      }
+    });
+  } catch (err) {
+    document.getElementById('monthlyLoading').style.display = 'none';
+    document.getElementById('monthlyNoData').classList.remove('d-none');
+    document.getElementById('monthlyNoData').textContent = 'Σφάλμα φόρτωσης δεδομένων.';
+    console.error('Monthly load error:', err);
+  }
+}
+
+// ── YTD monthly breakdown chart ──────────────────────────────────
+let ytdChartInstance = null;
+let _ytdModal = null;
+
+function openYtdModal(which) {
+  const el = document.getElementById('ytdModal');
+  if (!el) return;
+  if (!_ytdModal) {
+    if (window.BVModalSystem?.create) {
+      _ytdModal = window.BVModalSystem.create(el, { closeOnBackdrop: true, keyboard: true });
+    } else if (window.bootstrap?.Modal) {
+      _ytdModal = window.bootstrap.Modal.getOrCreateInstance(el);
+    } else {
+      el.style.display = 'flex'; el.classList.add('show');
+      document.body.classList.add('modal-open'); return;
+    }
+  }
+  _ytdModal.show();
+  loadYtdChart(which);
+}
+
+(function attachYtdClicks() {
+  document.querySelectorAll('[data-ytd] .mc-icon').forEach(icon => {
+    icon.addEventListener('click', function(e) {
+      e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+      const card = icon.closest('[data-ytd]');
+      openYtdModal(card?.dataset?.ytd || 'curr');
+    });
+  });
+})();
+
+async function loadYtdChart(which) {
+  document.getElementById('ytdLoading').style.display = '';
+  document.getElementById('ytdChartWrap').style.display = 'none';
+  document.getElementById('ytdNoData').classList.add('d-none');
+
+  const toInput = document.querySelector('[name="to"]');
+  const toRaw = toInput?.value || '';
+  let anchorIso = '';
+  if (toRaw && toRaw.includes('/')) {
+    const [d, m, y] = toRaw.split('/');
+    anchorIso = `${y}-${m}-${d}`;
+  } else {
+    anchorIso = localIso(new Date());
+  }
+  const anchor = new Date(anchorIso + 'T00:00:00');
+  const year = which === 'prev' ? anchor.getFullYear() - 1 : anchor.getFullYear();
+  const ytdFrom = `${year}-01-01`;
+  const ytdTo = which === 'prev'
+    ? `${year}-${String(anchor.getMonth()+1).padStart(2,'0')}-${String(anchor.getDate()).padStart(2,'0')}`
+    : anchorIso;
+
+  document.getElementById('ytdModalTitle').textContent = `Μηνιαία Εξέλιξη Τζίρου ${year} (YTD)`;
+  document.getElementById('ytdSubtitle').textContent = `${ytdFrom} → ${ytdTo}`;
+
+  const branchSelects = document.querySelectorAll('[name="branches"]');
+  const selectedBranches = [];
+  branchSelects.forEach(s => {
+    for (const opt of s.selectedOptions) selectedBranches.push(encodeURIComponent(opt.value));
+  });
+
+  let url = `/v1/kpi/sales/ytd-monthly?ytd_from=${ytdFrom}&ytd_to=${ytdTo}`;
+  selectedBranches.forEach(b => { url += `&branches=${b}`; });
+
+  try {
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const json = await resp.json();
+
+    document.getElementById('ytdLoading').style.display = 'none';
+
+    const monthlyData = json.data || {};
+    const branchMap = json.branches || {};
+    const branchKeys = Object.keys(branchMap);
+    const months = json.months || [];
+
+    if (!branchKeys.length || !months.length) {
+      document.getElementById('ytdNoData').classList.remove('d-none');
+      return;
+    }
+
+    const labels = months.map(iso => {
+      const d = new Date(iso + 'T00:00:00');
+      return `${MONTH_NAMES_EL[d.getMonth()]} ${d.getFullYear()}`;
+    });
+
+    const datasets = branchKeys.map((bext, idx) => ({
+      label: branchMap[bext] || bext,
+      data: months.map(m => monthlyData[m]?.[bext] ?? null),
+      borderColor: BRANCH_PALETTE[idx % BRANCH_PALETTE.length],
+      backgroundColor: BRANCH_PALETTE[idx % BRANCH_PALETTE.length] + '33',
+      borderWidth: 2.5,
+      pointRadius: 4,
+      pointHoverRadius: 7,
+      tension: 0.3,
+      spanGaps: false,
+    }));
+
+    document.getElementById('ytdChartWrap').style.display = '';
+    const ctx = document.getElementById('ytdChart').getContext('2d');
+    if (ytdChartInstance) ytdChartInstance.destroy();
+    ytdChartInstance = new Chart(ctx, {
+      type: 'bar',
+      data: { labels, datasets },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { position: 'top', labels: { boxWidth: 20, font: { size: 12 } } },
+          tooltip: {
+            callbacks: {
+              label: ctx => {
+                const v = ctx.parsed.y;
+                if (v === null) return null;
+                return ` ${ctx.dataset.label}: ${new Intl.NumberFormat('el-GR',{minimumFractionDigits:2,maximumFractionDigits:2}).format(v)}`;
+              }
+            }
+          }
+        },
+        scales: {
+          x: { grid: { color: '#f1f5f9' }, ticks: { font: { size: 11 } } },
+          y: {
+            grid: { color: '#f1f5f9' },
+            ticks: { font: { size: 11 },
+              callback: v => new Intl.NumberFormat('el-GR',{notation:'compact',maximumFractionDigits:1}).format(v)
+            }
+          }
+        }
+      }
+    });
+  } catch (err) {
+    document.getElementById('ytdLoading').style.display = 'none';
+    document.getElementById('ytdNoData').classList.remove('d-none');
+    document.getElementById('ytdNoData').textContent = 'Σφάλμα φόρτωσης δεδομένων.';
+    console.error('YTD load error:', err);
+  }
+}
 </script>
 {% endblock %}

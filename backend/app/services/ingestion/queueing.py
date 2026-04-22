@@ -30,6 +30,10 @@ def tenant_stop_key(tenant_slug: str) -> str:
     return f'stop:ingest:{tenant_slug}'
 
 
+def tenant_delete_active_key(tenant_slug: str) -> str:
+    return f'delete:active:{tenant_slug}'
+
+
 @lru_cache
 def _redis() -> Redis:
     return Redis.from_url(settings.redis_url, decode_responses=True)

@@ -11,6 +11,7 @@ from app.core.config import settings
 _tenant_engines: OrderedDict[str, Any] = OrderedDict()
 _tenant_factories: OrderedDict[str, Any] = OrderedDict()
 _cache_lock = Lock()
+_pending_disposals: set[asyncio.Task] = set()
 
 
 def tenant_db_name(slug: str) -> str:
@@ -60,7 +61,9 @@ def _evict_if_needed() -> None:
         _tenant_factories.pop(old_key, None)
         try:
             loop = asyncio.get_running_loop()
-            loop.create_task(old_engine.dispose())
+            task = loop.create_task(old_engine.dispose())
+            _pending_disposals.add(task)
+            task.add_done_callback(_pending_disposals.discard)
         except RuntimeError:
             asyncio.run(old_engine.dispose())
 

@@ -32,8 +32,10 @@ celery.conf.task_routes = {
     'worker.tasks.drain_tenant_ingest_queue': {'queue': 'ingest'},
     'worker.tasks.refresh_aggregates_for_entity': {'queue': 'ingest'},
     'worker.tasks.refresh_sales_aggregates': {'queue': 'ingest'},
-    'worker.tasks.generate_insights_for_tenant': {'queue': 'ingest'},
-    'worker.tasks.generate_daily_insights_all_tenants': {'queue': 'ingest'},
+    'worker.tasks.reset_tenant_data_and_backfill': {'queue': 'delete'},
+    'worker.tasks.delete_tenant_data_only': {'queue': 'delete'},
+    'worker.tasks.generate_insights_for_tenant': {'queue': 'default'},
+    'worker.tasks.generate_daily_insights_all_tenants': {'queue': 'default'},
 }
 celery.conf.beat_schedule = {
     'daily-insights-generation': {

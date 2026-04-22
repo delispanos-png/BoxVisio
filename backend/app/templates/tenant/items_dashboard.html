@@ -109,22 +109,22 @@
 
 <div class="row g-3 mb-3">
   <div class="col-xl-2 col-md-4">
-    <div class="bv-kpi-box bv-kpi-blue"><div class="kpi-title">{{ tt(request, 'total_items') }}</div><div class="kpi-value" id="itTotalItems">0</div></div>
+    <div class="bv-metric-card" style="--mc-color:#3b82f6" data-kpi-what="Το συνολικό πλήθος ειδών που υπάρχουν στο tenant." data-kpi-formula="Σύνολο Ειδών = count(όλα τα item codes που πέρασαν τα ενεργά φίλτρα)."><div class="mc-icon"><i class="fe fe-box"></i></div><div class="mc-label">{{ tt(request, 'total_items') }}</div><div class="mc-value" id="itTotalItems">—</div></div>
   </div>
   <div class="col-xl-2 col-md-4">
-    <div class="bv-kpi-box bv-kpi-green"><div class="kpi-title">{{ tt(request, 'active_items') }}</div><div class="kpi-value" id="itActiveItems">0</div></div>
+    <div class="bv-metric-card" style="--mc-color:#22c55e" data-kpi-what="Πόσα είδη θεωρούνται ενεργά με βάση τον κανόνα ενεργότητας." data-kpi-formula="Ενεργά Είδη = count(items) όπου τελευταία πώληση <= όριο ημερών ενεργού είδους."><div class="mc-icon"><i class="fe fe-check-circle"></i></div><div class="mc-label">{{ tt(request, 'active_items') }}</div><div class="mc-value" id="itActiveItems">—</div></div>
   </div>
   <div class="col-xl-2 col-md-4">
-    <div class="bv-kpi-box bv-kpi-orange"><div class="kpi-title">{{ tt(request, 'inactive_items') }}</div><div class="kpi-value" id="itInactiveItems">0</div></div>
+    <div class="bv-metric-card" style="--mc-color:#f97316" data-kpi-what="Πόσα είδη θεωρούνται ανενεργά με βάση τον κανόνα ενεργότητας." data-kpi-formula="Ανενεργά Είδη = count(items) όπου τελευταία πώληση > όριο ημερών ενεργού είδους ή δεν υπάρχει πώληση."><div class="mc-icon"><i class="fe fe-x-circle"></i></div><div class="mc-label">{{ tt(request, 'inactive_items') }}</div><div class="mc-value" id="itInactiveItems">—</div></div>
   </div>
   <div class="col-xl-2 col-md-4">
-    <div class="bv-kpi-box bv-kpi-purple"><div class="kpi-title">{{ tt(request, 'fast_items') }}</div><div class="kpi-value" id="itFastItems">0</div></div>
+    <div class="bv-metric-card" style="--mc-color:#8b5cf6" data-kpi-what="Πόσα είδη έχουν χαρακτηριστεί ως ταχυκίνητα με βάση το ruleset του tenant." data-kpi-formula="Ταχυκίνητα Είδη = count(items) όπου status_κίνησης = 'ταχυκίνητο'."><div class="mc-icon"><i class="fe fe-zap"></i></div><div class="mc-label">{{ tt(request, 'fast_items') }}</div><div class="mc-value" id="itFastItems">—</div></div>
   </div>
   <div class="col-xl-2 col-md-4">
-    <div class="bv-kpi-box bv-kpi-red"><div class="kpi-title">{{ tt(request, 'slow_items') }}</div><div class="kpi-value" id="itSlowItems">0</div></div>
+    <div class="bv-metric-card" style="--mc-color:#ef4444" data-kpi-what="Πόσα είδη έχουν χαρακτηριστεί ως αργοκίνητα με βάση το ruleset του tenant." data-kpi-formula="Αργοκίνητα Είδη = count(items) όπου status_κίνησης = 'αργοκίνητο'."><div class="mc-icon"><i class="fe fe-clock"></i></div><div class="mc-label">{{ tt(request, 'slow_items') }}</div><div class="mc-value" id="itSlowItems">—</div></div>
   </div>
   <div class="col-xl-2 col-md-4">
-    <div class="bv-kpi-box bv-kpi-cyan"><div class="kpi-title">{{ tt(request, 'stock_value') }}</div><div class="kpi-value" id="itStockValue">0.00</div></div>
+    <div class="bv-metric-card" style="--mc-color:#06b6d4" data-kpi-what="Η συνολική αξία αποθέματος των ειδών που πέρασαν τα φίλτρα." data-kpi-formula="Αξία Αποθέματος = άθροισμα value_amount όλων των ειδών που πέρασαν τα φίλτρα."><div class="mc-icon"><i class="fe fe-package"></i></div><div class="mc-label">{{ tt(request, 'stock_value') }}</div><div class="mc-value" id="itStockValue">—</div></div>
   </div>
 </div>
 
@@ -210,10 +210,17 @@
                 <div class="col-12">
                   <div class="small text-muted">{{ tt(request, 'barcode') }}</div>
                   <div class="fw-semibold" id="itdBarcode">-</div>
+                  <div class="text-muted small mt-1 d-none" id="itdAltBarcodesWrap">
+                    Επιπλέον barcode: <span id="itdAltBarcodes">-</span>
+                  </div>
                 </div>
                 <div class="col-12">
                   <div class="small text-muted">{{ tt(request, 'brands') }}</div>
                   <div id="itdBrand">-</div>
+                </div>
+                <div class="col-12">
+                  <div class="small text-muted">Κατασκευαστής</div>
+                  <div id="itdManufacturer">-</div>
                 </div>
                 <div class="col-12">
                   <div class="small text-muted">{{ tt(request, 'categories') }}</div>
@@ -310,6 +317,10 @@
                       <input type="text" class="form-control form-control-sm" id="itdFBarcode" readonly>
                     </div>
                     <div class="col-md-6">
+                      <label class="form-label mb-1">Επιπλέον barcode</label>
+                      <input type="text" class="form-control form-control-sm" id="itdFAltBarcodes" readonly>
+                    </div>
+                    <div class="col-md-6">
                       <label class="form-label mb-1">Έκπτωση %</label>
                       <input type="text" class="form-control form-control-sm" id="itdFDiscount" readonly>
                     </div>
@@ -336,6 +347,10 @@
                     <div class="col-md-6">
                       <label class="form-label mb-1">Brand</label>
                       <input type="text" class="form-control form-control-sm" id="itdFBrand" readonly>
+                    </div>
+                    <div class="col-md-6">
+                      <label class="form-label mb-1">Κατασκευαστής</label>
+                      <input type="text" class="form-control form-control-sm" id="itdFManufacturer" readonly>
                     </div>
                     <div class="col-md-6">
                       <label class="form-label mb-1">Εμπορική κατηγ.</label>
@@ -370,11 +385,11 @@
                   <div class="fw-semibold text-warning border-bottom pb-1 mb-2">Τιμές</div>
                   <div class="row g-2 mb-3">
                     <div class="col-md-6">
-                      <label class="form-label mb-1">Τιμή χονδρικής</label>
+                      <label class="form-label mb-1">Υπολογιζόμενη τιμή κόστους</label>
                       <input type="text" class="form-control form-control-sm" id="itdFWholesalePrice" readonly>
                     </div>
                     <div class="col-md-6">
-                      <label class="form-label mb-1">Τιμή λιανικής</label>
+                      <label class="form-label mb-1">Υπολογιζόμενη τιμή κτήσης</label>
                       <input type="text" class="form-control form-control-sm" id="itdFRetailPrice" readonly>
                     </div>
                   </div>
@@ -435,9 +450,6 @@
             </div>
           </div>
         </div>
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ tt(request, 'close') if tt(request, 'close') != 'close' else 'Κλείσιμο' }}</button>
       </div>
     </div>
   </div>
@@ -790,16 +802,19 @@
       let movementBadge = '<span class="badge bg-info">Κανονική Κίνηση</span>';
       if(r.movement === 'fast') movementBadge = '<span class="badge bg-primary">{{ tt(request, "fast_items") }}</span>';
       if(r.movement === 'slow') movementBadge = '<span class="badge bg-warning text-dark">{{ tt(request, "slow_items") }}</span>';
+      const codeText = cleanSoftoneText(r.item_code) || '-';
+      const descRaw = cleanSoftoneText(r.item_name);
+      const descText = descRaw && descRaw.toLowerCase() !== String(codeText).toLowerCase() ? descRaw : '';
       const tr = document.createElement('tr');
       tr.style.cursor = 'pointer';
       tr.tabIndex = 0;
       tr.title = 'Διπλό κλικ για καρτέλα είδους';
       tr.innerHTML = `
-        <td><div class="fw-semibold">${r.item_name || '-'}</div><div class="text-muted small">${r.item_code || '-'}</div></td>
-        <td>${r.barcode || '-'}</td>
-        <td>${r.brand || '-'}</td>
-        <td>${r.category || '-'}</td>
-        <td>${r.group || '-'}</td>
+        <td><div class="fw-semibold">${codeText}</div>${descText ? `<div class="text-muted small">${descText}</div>` : ''}</td>
+        <td>${cleanSoftoneText(r.barcode) || '-'}</td>
+        <td>${cleanSoftoneText(r.brand) || '-'}</td>
+        <td>${cleanSoftoneText(r.category) || '-'}</td>
+        <td>${cleanSoftoneText(r.group) || '-'}</td>
         <td class="text-end">${fmtQty(r.qty_on_hand)}</td>
         <td class="text-end">${fmtMoney(r.stock_value)}</td>
         <td class="text-end">${fmtQty(r.sales_qty_30)}</td>
@@ -864,6 +879,14 @@
     return null;
   }
 
+  function cleanSoftoneText(value){
+    if(value === null || value === undefined) return null;
+    const txt = String(value).trim();
+    if(!txt) return null;
+    if(['0','-','null','n/a','na'].includes(txt.toLowerCase())) return null;
+    return txt;
+  }
+
   function stripCodePrefix(code, name){
     const c = (code ?? '').toString().trim();
     const n = (name ?? '').toString().trim();
@@ -887,7 +910,8 @@
   function setFormInputValue(id, value){
     const el = document.getElementById(id);
     if(!el) return;
-    el.value = (value === null || value === undefined || value === '') ? '-' : String(value);
+    const clean = typeof value === 'string' ? cleanSoftoneText(value) : value;
+    el.value = (clean === null || clean === undefined || clean === '') ? '-' : String(clean);
   }
 
   function setFormCheckbox(id, checked){
@@ -947,19 +971,42 @@
     return '-';
   }
 
+  function normalizeBarcodeList(value){
+    if(value === null || value === undefined) return [];
+    const txt = String(value).trim();
+    if(!txt) return [];
+    const seen = new Set();
+    const out = [];
+    txt.replace(/\n/g, ',').replace(/;/g, ',').split(',').forEach((part)=>{
+      const cleaned = cleanSoftoneText(part);
+      if(!cleaned) return;
+      const key = cleaned.toLowerCase();
+      if(seen.has(key)) return;
+      seen.add(key);
+      out.push(cleaned);
+    });
+    return out;
+  }
+
   function setItemFormData(r){
     const rawMap = buildRawFieldMap(r?.raw_fields || []);
 
-    const itemCode = rawValue(rawMap, 'dim_items.external_id') || r?.item_code || '-';
-    const itemDescription = rawValue(rawMap, 'dim_items.name') || r?.item_name || '-';
-    const itemBarcode = rawValue(rawMap, 'dim_items.barcode', 'dim_items.sku') || r?.barcode || '-';
-    const unitMain = rawValue(rawMap, 'dim_items.main_unit', 'dim_items.unit', 'dim_items.uom') || 'Τεμ.';
+    const itemCode = cleanSoftoneText(rawValue(rawMap, 'dim_items.external_id')) || cleanSoftoneText(r?.item_code) || '-';
+    const itemDescription = cleanSoftoneText(rawValue(rawMap, 'dim_items.name')) || cleanSoftoneText(r?.item_name) || '-';
+    const itemBarcode = cleanSoftoneText(rawValue(rawMap, 'dim_items.barcode')) || cleanSoftoneText(r?.barcode) || '-';
+    const alternateBarcodes = normalizeBarcodeList(
+      rawValue(rawMap, 'dim_items.alternate_barcodes', 'inventory.alternate_barcodes') || r?.alternate_barcodes
+    ).filter((code)=>code.toLowerCase() !== String(itemBarcode || '').toLowerCase());
+    const unitMain = cleanSoftoneText(rawValue(rawMap, 'dim_items.main_unit', 'dim_items.unit', 'dim_items.uom')) || 'Τεμ.';
 
-    const vatRaw = rawValue(rawMap, 'dim_items.vat_label', 'dim_items.vat_rate', 'dim_items.vat_percent', 'dim_items.vat');
+    const vatLabelRaw = cleanSoftoneText(rawValue(rawMap, 'dim_items.vat_label'));
+    const vatRateRaw = rawValue(rawMap, 'dim_items.vat_rate', 'dim_items.vat_percent', 'dim_items.vat');
+    const vatRate = toNumber(vatRateRaw);
     let vatText = '-';
-    if(vatRaw !== null && vatRaw !== undefined && vatRaw !== ''){
-      const n = toNumber(vatRaw);
-      vatText = n === null ? String(vatRaw) : `ΦΠΑ ${fmtDecimal2(n)}%`;
+    if(vatLabelRaw && !/^\d+([.,]\d+)?$/.test(vatLabelRaw)){
+      vatText = vatLabelRaw;
+    }else if(vatRate !== null){
+      vatText = `ΦΠΑ ${fmtDecimal2(vatRate)}%`;
     }else{
       vatText = guessVatText(rawMap);
     }
@@ -971,6 +1018,10 @@
       rawValue(rawMap, 'dim_brands.external_id'),
       rawValue(rawMap, 'dim_brands.name', 'dim_items.brand_name', r?.brand),
     );
+    const manufacturerText = composeCodeName(
+      rawValue(rawMap, 'dim_items.manufacturer_code', 'inventory.payload_manufacturer_code'),
+      rawValue(rawMap, 'dim_items.manufacturer_name', 'inventory.payload_manufacturer_name', r?.manufacturer),
+    );
     const groupText = composeCodeName(
       rawValue(rawMap, 'dim_groups.external_id'),
       rawValue(rawMap, 'dim_groups.name', 'dim_items.group_name', r?.group),
@@ -980,13 +1031,13 @@
       rawValue(rawMap, 'dim_categories.name', 'dim_items.category_name', r?.category),
     );
 
-    const category1 = rawValue(rawMap, 'dim_items.category_1', 'dim_categories.level1_name', 'dim_categories.category_1', 'dim_categories.category1') || categoryText;
-    const category2 = rawValue(rawMap, 'dim_items.category_2', 'dim_categories.level2_name', 'dim_categories.category_2', 'dim_categories.category2');
-    const category3 = rawValue(rawMap, 'dim_items.category_3', 'dim_categories.level3_name', 'dim_categories.category_3', 'dim_categories.category3');
+    const category1 = cleanSoftoneText(rawValue(rawMap, 'dim_items.category_1', 'dim_categories.level1_name', 'dim_categories.category_1', 'dim_categories.category1')) || cleanSoftoneText(categoryText);
+    const category2 = cleanSoftoneText(rawValue(rawMap, 'dim_items.category_2', 'dim_categories.level2_name', 'dim_categories.category_2', 'dim_categories.category2'));
+    const category3 = cleanSoftoneText(rawValue(rawMap, 'dim_items.category_3', 'dim_categories.level3_name', 'dim_categories.category_3', 'dim_categories.category3'));
 
-    const commercialCategory = rawValue(rawMap, 'dim_categories.commercial_category', 'dim_items.commercial_category');
-    const modelName = rawValue(rawMap, 'dim_items.model', 'dim_items.model_name');
-    const businessUnit = rawValue(rawMap, 'dim_items.business_unit', 'dim_items.business_unit_name');
+    const commercialCategory = cleanSoftoneText(rawValue(rawMap, 'dim_categories.commercial_category', 'dim_items.commercial_category'));
+    const modelName = cleanSoftoneText(rawValue(rawMap, 'dim_items.model', 'dim_items.model_name'));
+    const businessUnit = cleanSoftoneText(rawValue(rawMap, 'dim_items.business_unit', 'dim_items.business_unit_name'));
     const abcCategory = rawValue(
       rawMap,
       'dim_items.abc_category',
@@ -1033,14 +1084,16 @@
     setFormInputValue('itdFMainUnit', unitMain);
     setFormInputValue('itdFVat', vatText);
     setFormInputValue('itdFBarcode', itemBarcode || '-');
+    setFormInputValue('itdFAltBarcodes', alternateBarcodes.length ? alternateBarcodes.join(', ') : '-');
     setFormInputValue('itdFDiscount', discountPct === null ? '-' : `${fmtDecimal2(discountPct)}%`);
     setFormInputValue('itdFImageUrl', imageUrl || '-');
     setItemImagePreview(imageUrl, itemDescription);
     setFormCheckbox('itdFActive', activeSource === null ? statusRaw === 'active' : activeSource === true);
     setFormCheckbox('itdFBatch', batchFlag === true);
 
-    setFormInputValue('itdFGroupCategory', groupText);
-    setFormInputValue('itdFBrand', brandText);
+    setFormInputValue('itdFGroupCategory', cleanSoftoneText(groupText));
+    setFormInputValue('itdFBrand', cleanSoftoneText(brandText));
+    setFormInputValue('itdFManufacturer', cleanSoftoneText(manufacturerText) || '-');
     setFormInputValue('itdFCommercialCategory', commercialCategory || '-');
     setFormInputValue('itdFCategory1', category1 || '-');
     setFormInputValue('itdFCategory2', category2 || '-');
@@ -1073,6 +1126,11 @@
       vat_rate: 'Φ.Π.Α. %',
       vat_label: 'Φ.Π.Α.',
       use_batch: 'Χρήση παρτίδας',
+      manufacturer: 'Κατασκευαστής',
+      manufacturer_code: 'Κωδικός Κατασκευαστή',
+      manufacturer_name: 'Κατασκευαστής',
+      payload_manufacturer_code: 'Κωδικός Κατασκευαστή (πηγή)',
+      payload_manufacturer_name: 'Κατασκευαστής (πηγή)',
       commercial_category: 'Εμπορική κατηγ.',
       category_1: 'Κατηγορία 1',
       category_2: 'Κατηγορία 2',
@@ -1227,7 +1285,20 @@
     document.getElementById('itdName').textContent = r?.item_name || '-';
     document.getElementById('itdCode').textContent = r?.item_code || '-';
     document.getElementById('itdBarcode').textContent = r?.barcode || '-';
+    const altWrap = document.getElementById('itdAltBarcodesWrap');
+    const altEl = document.getElementById('itdAltBarcodes');
+    const altCodes = normalizeBarcodeList(r?.alternate_barcodes).filter((code)=>code.toLowerCase() !== String(r?.barcode || '').toLowerCase());
+    if(altWrap && altEl){
+      if(altCodes.length){
+        altEl.textContent = altCodes.join(', ');
+        altWrap.classList.remove('d-none');
+      }else{
+        altEl.textContent = '-';
+        altWrap.classList.add('d-none');
+      }
+    }
     document.getElementById('itdBrand').textContent = r?.brand || '-';
+    document.getElementById('itdManufacturer').textContent = r?.manufacturer || '-';
     document.getElementById('itdCategory').textContent = r?.category || '-';
     document.getElementById('itdGroup').textContent = r?.group || '-';
     document.getElementById('itdQty').textContent = fmtQty(r?.qty_on_hand);

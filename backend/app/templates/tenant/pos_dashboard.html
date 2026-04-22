@@ -1,0 +1,545 @@
+{% extends "base_tenant.html" %}
+
+{% block filters %}
+<form id="posFilters" class="row g-2">
+  <div class="col-12 col-md-6 col-xl-3">
+    <label class="form-label mb-1">{{ tt(request, 'from') }}</label>
+    <input class="form-control" type="text" name="from" value="{{ default_from.strftime('%d/%m/%Y') if default_from else '' }}" data-date-format="dmy" placeholder="ηη/μμ/εεεε" inputmode="numeric">
+  </div>
+  <div class="col-12 col-md-6 col-xl-3">
+    <label class="form-label mb-1">{{ tt(request, 'to') }}</label>
+    <input class="form-control" type="text" name="to" value="{{ default_to.strftime('%d/%m/%Y') if default_to else '' }}" data-date-format="dmy" placeholder="ηη/μμ/εεεε" inputmode="numeric">
+  </div>
+  <div class="col-12 col-md-6 col-xl-4">
+    <label class="form-label mb-1">{{ tt(request, 'branches') }}</label>
+    <div class="bv-multi" id="posBranchesMulti">
+      <button type="button" class="form-select bv-multi-toggle text-start" id="posBranchesToggle">Επιλογή</button>
+      <div class="bv-multi-menu" id="posBranchesMenu" hidden>
+        <div class="d-flex gap-2 mb-2">
+          <input type="text" class="form-control form-control-sm" id="posBranchesSearch" placeholder="Αναζήτηση...">
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="posBranchesAll">Όλα</button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="posBranchesClear">Καθαρισμός</button>
+        </div>
+        <div id="posBranchesOptions" class="bv-multi-options"></div>
+      </div>
+      <div id="posBranchesChips" class="bv-chip-wrap mt-2"></div>
+      <select name="branches" id="posBranches" multiple hidden></select>
+    </div>
+  </div>
+  <div class="col-12 col-md-6 col-xl-2 d-grid align-content-end">
+    <button class="btn btn-primary" type="submit"><i class="fe fe-filter"></i> {{ tt(request, 'apply') }}</button>
+  </div>
+</form>
+{% endblock %}
+
+{% block content %}
+<div id="posError" class="alert alert-danger d-none"></div>
+
+<style>
+  .pos-kpi-row { margin-bottom: 1rem; }
+  .pos-chart-card { height: 100%; }
+  .pos-chart-card .card-body { min-height: 320px; display: flex; flex-direction: column; }
+  .pos-chart-wrap { flex: 1; position: relative; min-height: 260px; }
+  .pos-chart-wrap canvas { width: 100% !important; height: 100% !important; }
+  .pos-table th { font-size: 12px; text-transform: uppercase; letter-spacing: .03em; color: #64748b; font-weight: 700; }
+  .pos-table td { vertical-align: middle; font-weight: 600; }
+  .pos-bar-track {
+    height: 8px; border-radius: 999px; background: #e9eef8; overflow: hidden; margin-top: 4px;
+  }
+  .pos-bar-fill {
+    height: 100%; border-radius: 999px;
+  }
+  .pos-pm-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 0; border-bottom: 1px dashed #e2e8f0; }
+  .pos-pm-row:last-child { border-bottom: none; }
+  .pos-pm-name { font-weight: 700; color: #1f2937; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pos-pm-value { font-weight: 800; color: #0f172a; white-space: nowrap; }
+  .pos-pm-pct { font-size: 12px; font-weight: 700; color: #64748b; white-space: nowrap; }
+  .pos-empty { border: 1px dashed #cbd5e1; border-radius: 12px; padding: 20px; color: #64748b; text-align: center; background: #f8fafc; font-weight: 600; }
+  .pos-today-badge { font-size: 11px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; border-radius: 999px; padding: 3px 9px; background: #dbeafe; color: #1e40af; border: 1px solid #bfdbfe; }
+</style>
+
+<!-- KPI Cards Row -->
+<div class="row row-cols-2 row-cols-xl-4 g-3 mb-3 pos-kpi-row">
+  <div class="col">
+    <div class="bv-metric-card" style="--mc-color:#3b82f6">
+      <div class="mc-icon"><i class="fe fe-file-text"></i></div>
+      <div class="mc-label">Αποδείξεις Περιόδου</div>
+      <div id="kpiReceipts" class="mc-value">—</div>
+      <div class="mc-meta d-flex align-items-center gap-2">
+        <span>Σήμερα:</span>
+        <span id="kpiReceiptsToday" class="fw-bold text-info">—</span>
+      </div>
+    </div>
+  </div>
+  <div class="col">
+    <div class="bv-metric-card" style="--mc-color:#22c55e">
+      <div class="mc-icon"><i class="fe fe-trending-up"></i></div>
+      <div class="mc-label">Σύνολο Εισπράξεων</div>
+      <div id="kpiGrossValue" class="mc-value">—</div>
+      <div class="mc-meta d-flex align-items-center gap-2">
+        <span>Σήμερα:</span>
+        <span id="kpiTodayGross" class="fw-bold text-success">—</span>
+      </div>
+    </div>
+  </div>
+  <div class="col">
+    <div class="bv-metric-card" style="--mc-color:#8b5cf6">
+      <div class="mc-icon"><i class="fe fe-bar-chart"></i></div>
+      <div class="mc-label">Μέση Αξία Απόδειξης</div>
+      <div id="kpiAvgReceiptValue" class="mc-value">—</div>
+      <div class="mc-meta">Μέσο καλάθι περιόδου</div>
+    </div>
+  </div>
+  <div class="col">
+    <div class="bv-metric-card" style="--mc-color:#ec4899">
+      <div class="mc-icon"><i class="fe fe-package"></i></div>
+      <div class="mc-label">Μέσος Αριθμός Ειδών</div>
+      <div id="kpiAvgItems" class="mc-value">—</div>
+      <div class="mc-meta">Ανά απόδειξη</div>
+    </div>
+  </div>
+</div>
+
+<!-- Row 1: Daily Trend chart -->
+<div class="row g-3 mb-3">
+  <div class="col-12">
+    <div class="card border-0 shadow-sm pos-chart-card">
+      <div class="card-header d-flex align-items-center justify-content-between gap-2">
+        <h6 class="mb-0"><i class="fe fe-activity me-1"></i> Ημερήσια Τάση Αποδείξεων</h6>
+        <div class="d-flex align-items-center gap-2">
+          <span class="pos-today-badge" id="trendTodayBadge" style="display:none!important"></span>
+          <div class="form-check form-switch mb-0">
+            <input class="form-check-input" type="checkbox" id="trendToggleReceipts" checked>
+            <label class="form-check-label small fw-bold" for="trendToggleReceipts">Αποδείξεις</label>
+          </div>
+          <div class="form-check form-switch mb-0">
+            <input class="form-check-input" type="checkbox" id="trendToggleValue" checked>
+            <label class="form-check-label small fw-bold" for="trendToggleValue">Αξία</label>
+          </div>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="pos-chart-wrap">
+          <canvas id="posTrendChart"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Row 2: Category + Payment Method -->
+<div class="row g-3 mb-3">
+  <div class="col-12 col-xl-7">
+    <div class="card border-0 shadow-sm pos-chart-card">
+      <div class="card-header">
+        <h6 class="mb-0"><i class="fe fe-grid me-1"></i> Έσοδα ανά Κατηγορία</h6>
+      </div>
+      <div class="card-body">
+        <div class="pos-chart-wrap">
+          <canvas id="posCategoryChart"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-xl-5">
+    <div class="card border-0 shadow-sm pos-chart-card">
+      <div class="card-header d-flex align-items-center justify-content-between">
+        <h6 class="mb-0"><i class="fe fe-credit-card me-1"></i> Εισπράξεις ανά Τρόπο Πληρωμής</h6>
+      </div>
+      <div class="card-body">
+        <div id="posPaymentList">
+          <div class="pos-empty">Φόρτωση...</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Row 3: Category table -->
+<div class="row g-3 mb-3">
+  <div class="col-12">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header">
+        <h6 class="mb-0"><i class="fe fe-list me-1"></i> Αναλυτικά ανά Κατηγορία</h6>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-hover mb-0 pos-table" id="posCategoryTable">
+            <thead>
+              <tr>
+                <th class="ps-3">Κατηγορία</th>
+                <th class="text-end">Αξία (€)</th>
+                <th class="text-end">Μερίδιο %</th>
+                <th class="pe-3" style="min-width:160px">Διανομή</th>
+              </tr>
+            </thead>
+            <tbody id="posCategoryTbody">
+              <tr><td colspan="4" class="text-center text-muted py-4">Φόρτωση...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+'use strict';
+
+const EUR = new Intl.NumberFormat('el-GR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 2 });
+const NUM = new Intl.NumberFormat('el-GR', { maximumFractionDigits: 1 });
+const NUM0 = new Intl.NumberFormat('el-GR', { maximumFractionDigits: 0 });
+
+function fmtEur(v){ return EUR.format(v || 0); }
+function fmtNum(v){ return NUM.format(v || 0); }
+function fmtInt(v){ return NUM0.format(v || 0); }
+
+function posFiltersToParams(){
+  const fd = new FormData(document.getElementById('posFilters'));
+  const p = new URLSearchParams();
+  const fromRaw = fd.get('from');
+  const toRaw = fd.get('to');
+  p.set('from', window.bvToIsoDate ? window.bvToIsoDate(fromRaw) : fromRaw);
+  p.set('to', window.bvToIsoDate ? window.bvToIsoDate(toRaw) : toRaw);
+  const branches = document.getElementById('posBranches');
+  Array.from(branches?.selectedOptions || []).forEach(o => p.append('branches', o.value));
+  return p;
+}
+
+function todayIso(){
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+const CATEGORY_COLORS = [
+  '#3b82f6','#22c55e','#f97316','#8b5cf6','#ec4899',
+  '#06b6d4','#ef4444','#eab308','#14b8a6','#f43f5e',
+];
+
+let trendChartInst = null;
+let categoryChartInst = null;
+
+function destroyChart(inst){ if(inst){ try{ inst.destroy(); }catch(e){} } }
+
+function renderTrendChart(data){
+  destroyChart(trendChartInst);
+  const ctx = document.getElementById('posTrendChart');
+  if(!ctx) return;
+  const labels = data.map(r => {
+    const d = new Date(r.date);
+    return d.toLocaleDateString('el-GR', { day:'2-digit', month:'2-digit' });
+  });
+  const receiptsData = data.map(r => r.receipts);
+  const valueData = data.map(r => r.gross_value);
+
+  trendChartInst = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Αποδείξεις',
+          data: receiptsData,
+          backgroundColor: 'rgba(59,130,246,0.7)',
+          borderRadius: 4,
+          yAxisID: 'y',
+          order: 2,
+        },
+        {
+          label: 'Αξία (€)',
+          data: valueData,
+          type: 'line',
+          borderColor: '#f97316',
+          backgroundColor: 'rgba(249,115,22,0.1)',
+          borderWidth: 2,
+          pointRadius: 2,
+          fill: true,
+          yAxisID: 'y1',
+          order: 1,
+          tension: 0.3,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { position: 'top', labels: { font: { weight: '700' } } },
+        tooltip: {
+          callbacks: {
+            label(ctx){
+              if(ctx.datasetIndex === 0) return ` ${fmtInt(ctx.raw)} αποδείξεις`;
+              return ` ${fmtEur(ctx.raw)}`;
+            }
+          }
+        }
+      },
+      scales: {
+        y: {
+          type: 'linear',
+          position: 'left',
+          title: { display: true, text: 'Αποδείξεις', font: { weight: '700' } },
+          ticks: { precision: 0 },
+          grid: { color: 'rgba(0,0,0,0.05)' },
+        },
+        y1: {
+          type: 'linear',
+          position: 'right',
+          title: { display: true, text: 'Αξία (€)', font: { weight: '700' } },
+          grid: { drawOnChartArea: false },
+          ticks: {
+            callback(v){ return fmtEur(v); }
+          }
+        },
+        x: { grid: { display: false } },
+      },
+    },
+  });
+
+  document.getElementById('trendToggleReceipts')?.addEventListener('change', function(){
+    if(trendChartInst){
+      trendChartInst.data.datasets[0].hidden = !this.checked;
+      trendChartInst.update();
+    }
+  });
+  document.getElementById('trendToggleValue')?.addEventListener('change', function(){
+    if(trendChartInst){
+      trendChartInst.data.datasets[1].hidden = !this.checked;
+      trendChartInst.update();
+    }
+  });
+}
+
+function renderCategoryChart(data){
+  destroyChart(categoryChartInst);
+  const ctx = document.getElementById('posCategoryChart');
+  if(!ctx) return;
+  const top = data.slice(0, 12);
+  categoryChartInst = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: top.map(r => r.category),
+      datasets: [{
+        label: 'Αξία (€)',
+        data: top.map(r => r.gross_value),
+        backgroundColor: top.map((_, i) => CATEGORY_COLORS[i % CATEGORY_COLORS.length]),
+        borderRadius: 5,
+      }]
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label(ctx){ return ` ${fmtEur(ctx.raw)}`; }
+          }
+        }
+      },
+      scales: {
+        x: {
+          ticks: { callback(v){ return fmtEur(v); } },
+          grid: { color: 'rgba(0,0,0,0.05)' },
+        },
+        y: { grid: { display: false } },
+      },
+    },
+  });
+}
+
+function renderPaymentList(data){
+  const wrap = document.getElementById('posPaymentList');
+  if(!wrap) return;
+  if(!data.length){ wrap.innerHTML='<div class="pos-empty">Δεν υπάρχουν δεδομένα</div>'; return; }
+  const total = data.reduce((s, r) => s + r.gross_value, 0);
+  const pmColors = CATEGORY_COLORS;
+  wrap.innerHTML = data.map((r, i) => {
+    const pct = total > 0 ? (r.gross_value / total * 100) : 0;
+    const color = pmColors[i % pmColors.length];
+    return `<div class="pos-pm-row">
+      <div class="pos-pm-name" title="${r.payment_method}">${r.payment_method}</div>
+      <div class="d-flex flex-column align-items-end" style="min-width:120px">
+        <span class="pos-pm-value">${fmtEur(r.gross_value)}</span>
+        <span class="pos-pm-pct">${fmtNum(pct)}% · ${fmtInt(r.receipts)} απ.</span>
+        <div class="pos-bar-track" style="width:110px">
+          <div class="pos-bar-fill" style="width:${pct.toFixed(1)}%;background:${color}"></div>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderCategoryTable(data){
+  const tbody = document.getElementById('posCategoryTbody');
+  if(!tbody) return;
+  const total = data.reduce((s, r) => s + r.gross_value, 0);
+  if(!data.length){
+    tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-4">Δεν υπάρχουν δεδομένα</td></tr>';
+    return;
+  }
+  tbody.innerHTML = data.map((r, i) => {
+    const pct = total > 0 ? (r.gross_value / total * 100) : 0;
+    const color = CATEGORY_COLORS[i % CATEGORY_COLORS.length];
+    return `<tr>
+      <td class="ps-3 fw-bold">${r.category}</td>
+      <td class="text-end">${fmtEur(r.gross_value)}</td>
+      <td class="text-end">${fmtNum(pct)}%</td>
+      <td class="pe-3">
+        <div class="pos-bar-track">
+          <div class="pos-bar-fill" style="width:${pct.toFixed(1)}%;background:${color}"></div>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function showError(msg){
+  const el = document.getElementById('posError');
+  if(el){ el.textContent = msg; el.classList.remove('d-none'); }
+}
+function hideError(){
+  const el = document.getElementById('posError');
+  if(el) el.classList.add('d-none');
+}
+
+async function loadAll(){
+  hideError();
+  const p = posFiltersToParams();
+  const todayP = new URLSearchParams();
+  todayP.set('from', todayIso());
+  todayP.set('to', todayIso());
+  const branches = document.getElementById('posBranches');
+  Array.from(branches?.selectedOptions || []).forEach(o => todayP.append('branches', o.value));
+
+  try {
+    const [summary, summaryToday, paymentData, categoryData, trendData] = await Promise.all([
+      fetch(`/v1/kpi/pos/summary?${p.toString()}`).then(r => r.ok ? r.json() : {}),
+      fetch(`/v1/kpi/pos/summary?${todayP.toString()}`).then(r => r.ok ? r.json() : {}),
+      fetch(`/v1/kpi/pos/by-payment-method?${p.toString()}`).then(r => r.ok ? r.json() : []),
+      fetch(`/v1/kpi/pos/by-category?${p.toString()}`).then(r => r.ok ? r.json() : []),
+      fetch(`/v1/kpi/pos/daily-trend?${p.toString()}`).then(r => r.ok ? r.json() : []),
+    ]);
+
+    document.getElementById('kpiReceipts').textContent = fmtInt(summary.receipts ?? 0);
+    document.getElementById('kpiReceiptsToday').textContent = fmtInt(summaryToday.receipts ?? 0);
+    document.getElementById('kpiGrossValue').textContent = fmtEur(summary.gross_value ?? 0);
+    document.getElementById('kpiTodayGross').textContent = fmtEur(summaryToday.gross_value ?? 0);
+    document.getElementById('kpiAvgReceiptValue').textContent = fmtEur(summary.avg_receipt_value ?? 0);
+    document.getElementById('kpiAvgItems').textContent = fmtNum(summary.avg_items_per_receipt ?? 0);
+
+    renderTrendChart(trendData);
+    renderCategoryChart(categoryData);
+    renderPaymentList(paymentData);
+    renderCategoryTable(categoryData);
+  } catch(e) {
+    showError('Σφάλμα κατά τη φόρτωση δεδομένων. Παρακαλώ δοκιμάστε ξανά.');
+    console.error(e);
+  }
+}
+
+// Branch multi-select support
+function syncPosBranchesUI(filterText){
+  const select = document.getElementById('posBranches');
+  const optionsWrap = document.getElementById('posBranchesOptions');
+  const chips = document.getElementById('posBranchesChips');
+  const toggle = document.getElementById('posBranchesToggle');
+  if(!select || !optionsWrap || !chips || !toggle) return;
+  const selected = Array.from(select.options).filter(o => o.selected).map(o => o.value);
+  const norm = (filterText || '').toLowerCase().trim();
+  optionsWrap.innerHTML = '';
+  Array.from(select.options)
+    .filter(o => {
+      const display = (o.dataset.label || o.textContent || o.value).toLowerCase();
+      return !norm || o.value.toLowerCase().includes(norm) || display.includes(norm);
+    })
+    .forEach(o => {
+      const row = document.createElement('label');
+      row.className = 'bv-multi-opt';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = o.selected;
+      cb.addEventListener('change', () => {
+        o.selected = cb.checked;
+        syncPosBranchesUI(document.getElementById('posBranchesSearch')?.value || '');
+      });
+      const span = document.createElement('span');
+      span.textContent = o.textContent || o.value;
+      row.appendChild(cb); row.appendChild(span);
+      optionsWrap.appendChild(row);
+    });
+  if(!optionsWrap.children.length){
+    const empty = document.createElement('div');
+    empty.className = 'bv-multi-empty';
+    empty.textContent = 'Δεν υπάρχουν διαθέσιμες επιλογές';
+    optionsWrap.appendChild(empty);
+  }
+  chips.innerHTML = '';
+  selected.forEach(v => {
+    const chip = document.createElement('span');
+    chip.className = 'bv-chip';
+    const opt = Array.from(select.options).find(o => o.value === v);
+    chip.textContent = (opt && opt.textContent) ? opt.textContent : v;
+    chips.appendChild(chip);
+  });
+  toggle.textContent = selected.length ? `Υποκατάστημα (${selected.length})` : 'Επιλογή';
+}
+
+function initPosBranchesMulti(){
+  const toggle = document.getElementById('posBranchesToggle');
+  const menu = document.getElementById('posBranchesMenu');
+  const search = document.getElementById('posBranchesSearch');
+  const btnAll = document.getElementById('posBranchesAll');
+  const btnClear = document.getElementById('posBranchesClear');
+  const select = document.getElementById('posBranches');
+  if(!toggle || !menu || !search || !btnAll || !btnClear || !select) return;
+  toggle.addEventListener('click', () => { menu.hidden = !menu.hidden; });
+  search.addEventListener('input', () => syncPosBranchesUI(search.value));
+  btnAll.addEventListener('click', () => {
+    Array.from(select.options).forEach(o => o.selected = true);
+    syncPosBranchesUI(search.value);
+  });
+  btnClear.addEventListener('click', () => {
+    Array.from(select.options).forEach(o => o.selected = false);
+    syncPosBranchesUI(search.value);
+  });
+  document.addEventListener('click', e => {
+    if(!document.getElementById('posBranchesMulti')?.contains(e.target)) menu.hidden = true;
+  });
+}
+
+async function loadBranchOptions(){
+  try {
+    const res = await fetch('/v1/kpi/pos/branches');
+    if(!res.ok) return;
+    const branches = await res.json();
+    const select = document.getElementById('posBranches');
+    if(!select) return;
+    select.innerHTML = '';
+    (branches || []).forEach(b => {
+      const opt = document.createElement('option');
+      opt.value = b.ext_id;
+      opt.textContent = b.name || b.ext_id;
+      select.appendChild(opt);
+    });
+    syncPosBranchesUI('');
+  } catch(e) {
+    console.warn('POS branch options load failed', e);
+  }
+}
+
+document.addEventListener('DOMContentLoaded', async () => {
+  initPosBranchesMulti();
+  await loadBranchOptions();
+  await loadAll();
+  document.getElementById('posFilters')?.addEventListener('submit', e => {
+    e.preventDefault();
+    loadAll();
+  });
+});
+})();
+</script>
+{% endblock %}

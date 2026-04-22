@@ -104,35 +104,35 @@
   <div id="inventoryError" class="alert alert-danger d-none mb-3"></div>
   <div class="row g-3 mb-3">
     <div class="col-xl-3 col-md-6">
-      <div class="bv-kpi-box bv-kpi-blue">
-        <div class="kpi-title">{{ tt(request, 'stock_value') }}</div>
-        <div class="kpi-value" id="kpiStockValue">0.00</div>
-        <div class="kpi-meta">{{ tt(request, 'current_inventory_value') }}</div>
-        <div class="kpi-icon"><i class="fe fe-package"></i></div>
+      <div class="bv-metric-card" style="--mc-color:#3b82f6" data-kpi-what="Η συνολική αποτίμηση του αποθέματος στο snapshot που έχεις επιλέξει." data-kpi-formula="Αξία Αποθέματος = άθροισμα value_amount όλων των ειδών στο snapshot αποθήκης.">
+        <div class="mc-icon"><i class="fe fe-package"></i></div>
+        <div class="mc-label">{{ tt(request, 'stock_value') }}</div>
+        <div class="mc-value" id="kpiStockValue">—</div>
+        <div class="mc-meta">{{ tt(request, 'current_inventory_value') }}</div>
       </div>
     </div>
     <div class="col-xl-3 col-md-6">
-      <div class="bv-kpi-box bv-kpi-purple">
-        <div class="kpi-title">{{ tt(request, 'qty_on_hand') }}</div>
-        <div class="kpi-value" id="kpiQtyOnHand">0</div>
-        <div class="kpi-meta">{{ tt(request, 'total_quantity') }}</div>
-        <div class="kpi-icon"><i class="fe fe-layers"></i></div>
+      <div class="bv-metric-card" style="--mc-color:#8b5cf6" data-kpi-what="Η συνολική διαθέσιμη ποσότητα όλων των ειδών στο snapshot." data-kpi-formula="Ποσότητα σε Απόθεμα = άθροισμα qty_on_hand όλων των ειδών στο snapshot αποθήκης.">
+        <div class="mc-icon"><i class="fe fe-layers"></i></div>
+        <div class="mc-label">{{ tt(request, 'qty_on_hand') }}</div>
+        <div class="mc-value" id="kpiQtyOnHand">—</div>
+        <div class="mc-meta">{{ tt(request, 'total_quantity') }}</div>
       </div>
     </div>
     <div class="col-xl-3 col-md-6">
-      <div class="bv-kpi-box bv-kpi-green">
-        <div class="kpi-title">{{ tt(request, 'cost_amount') }}</div>
-        <div class="kpi-value" id="kpiCostAmount">0.00</div>
-        <div class="kpi-meta">{{ tt(request, 'total_inventory_cost') }}</div>
-        <div class="kpi-icon"><i class="fe fe-tag"></i></div>
+      <div class="bv-metric-card" style="--mc-color:#22c55e" data-kpi-what="Το συνολικό λογιστικό κόστος του αποθέματος στο snapshot." data-kpi-formula="Κόστος Αποθέματος = άθροισμα cost_amount όλων των ειδών στο snapshot αποθήκης.">
+        <div class="mc-icon"><i class="fe fe-tag"></i></div>
+        <div class="mc-label">{{ tt(request, 'cost_amount') }}</div>
+        <div class="mc-value" id="kpiCostAmount">—</div>
+        <div class="mc-meta">{{ tt(request, 'total_inventory_cost') }}</div>
       </div>
     </div>
     <div class="col-xl-3 col-md-6">
-      <div class="bv-kpi-box bv-kpi-orange">
-        <div class="kpi-title">{{ tt(request, 'reserved_qty') }}</div>
-        <div class="kpi-value" id="kpiQtyReserved">0</div>
-        <div class="kpi-meta">{{ tt(request, 'reserved_quantity') }}</div>
-        <div class="kpi-icon"><i class="fe fe-lock"></i></div>
+      <div class="bv-metric-card" style="--mc-color:#f97316" data-kpi-what="Η ποσότητα που είναι δεσμευμένη και δεν είναι άμεσα διαθέσιμη." data-kpi-formula="Δεσμευμένη Ποσότητα = άθροισμα qty_reserved όλων των ειδών στο snapshot αποθήκης.">
+        <div class="mc-icon"><i class="fe fe-lock"></i></div>
+        <div class="mc-label">{{ tt(request, 'reserved_qty') }}</div>
+        <div class="mc-value" id="kpiQtyReserved">—</div>
+        <div class="mc-meta">{{ tt(request, 'reserved_quantity') }}</div>
       </div>
     </div>
   </div>

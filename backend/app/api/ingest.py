@@ -10,6 +10,7 @@ from app.schemas.ingest import IngestBatchRequest
 from app.services.hmac_auth import verify_hmac_signature
 from app.services.ingestion import enqueue_tenant_job
 from app.services.ingestion.base import STREAM_TO_ENTITY
+from app.services.plan_rules import is_feature_enabled
 
 router = APIRouter(prefix='/v1/ingest', tags=['ingestion'])
 celery_client = Celery('ingest_sender', broker=settings.celery_broker_url)
@@ -94,7 +95,7 @@ async def ingest_purchases(
     x_signature: str = Header(alias='X-Signature'),
 ):
     tenant, api_key = ctx
-    if tenant.plan == PlanName.standard:
+    if not is_feature_enabled(tenant, 'purchases'):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='Plan does not allow purchases ingestion')
     await _validate_signature(request, api_key, x_signature)
     _enqueue_batch('purchase_documents', tenant, payload)
@@ -115,7 +116,7 @@ async def ingest_inventory(
     x_signature: str = Header(alias='X-Signature'),
 ):
     tenant, api_key = ctx
-    if tenant.plan != PlanName.enterprise:
+    if not is_feature_enabled(tenant, 'inventory'):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='Plan does not allow inventory ingestion')
     await _validate_signature(request, api_key, x_signature)
 
@@ -138,7 +139,7 @@ async def ingest_cashflows(
     x_signature: str = Header(alias='X-Signature'),
 ):
     tenant, api_key = ctx
-    if tenant.plan != PlanName.enterprise:
+    if not is_feature_enabled(tenant, 'cashflows'):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='Plan does not allow cashflow ingestion')
     await _validate_signature(request, api_key, x_signature)
 
@@ -161,7 +162,7 @@ async def ingest_supplier_balances(
     x_signature: str = Header(alias='X-Signature'),
 ):
     tenant, api_key = ctx
-    if tenant.plan != PlanName.enterprise:
+    if not is_feature_enabled(tenant, 'cashflows'):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='Plan does not allow supplier balance ingestion')
     await _validate_signature(request, api_key, x_signature)
 
@@ -184,7 +185,7 @@ async def ingest_customer_balances(
     x_signature: str = Header(alias='X-Signature'),
 ):
     tenant, api_key = ctx
-    if tenant.plan != PlanName.enterprise:
+    if not is_feature_enabled(tenant, 'cashflows'):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='Plan does not allow customer balance ingestion')
     await _validate_signature(request, api_key, x_signature)
 

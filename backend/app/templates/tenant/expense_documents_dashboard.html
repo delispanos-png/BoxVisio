@@ -1,0 +1,466 @@
+{% extends "base_tenant.html" %}
+{% block filters %}
+<form id="expenseDocumentsFilters" class="row g-2">
+  <div class="col-12 col-md-4 col-xl-3">
+    <label class="form-label mb-1">{{ tt(request, 'from') }}</label>
+    <input
+      class="form-control"
+      type="text"
+      name="from"
+      value="{{ default_from.strftime('%d/%m/%Y') if default_from else '' }}"
+      data-date-format="dmy"
+      placeholder="ηη/μμ/εεεε"
+      inputmode="numeric"
+    >
+  </div>
+  <div class="col-12 col-md-4 col-xl-3">
+    <label class="form-label mb-1">{{ tt(request, 'to') }}</label>
+    <input
+      class="form-control"
+      type="text"
+      name="to"
+      value="{{ default_to.strftime('%d/%m/%Y') if default_to else '' }}"
+      data-date-format="dmy"
+      placeholder="ηη/μμ/εεεε"
+      inputmode="numeric"
+    >
+  </div>
+  <div class="col-12 col-md-6 col-xl-3">
+    <label class="form-label mb-1">{{ tt(request, 'branches') }}</label>
+    <div class="bv-multi" id="expenseDocsBranchesMulti">
+      <button type="button" class="form-select bv-multi-toggle text-start" id="expenseDocsBranchesToggle">Επιλογή</button>
+      <div class="bv-multi-menu" id="expenseDocsBranchesMenu" hidden>
+        <div class="d-flex gap-2 mb-2">
+          <input type="text" class="form-control form-control-sm" id="expenseDocsBranchesSearch" placeholder="Αναζήτηση...">
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="expenseDocsBranchesAll">Όλα</button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="expenseDocsBranchesClear">Καθαρισμός</button>
+        </div>
+        <div id="expenseDocsBranchesOptions" class="bv-multi-options"></div>
+      </div>
+      <div id="expenseDocsBranchesChips" class="bv-chip-wrap mt-2"></div>
+      <select name="branches" id="expenseDocsBranches" multiple hidden></select>
+    </div>
+  </div>
+  <div class="col-12 col-md-6 col-xl-3">
+    <label class="form-label mb-1">Κατηγορίες εξόδων</label>
+    <div class="bv-multi" id="expenseDocsCategoriesMulti">
+      <button type="button" class="form-select bv-multi-toggle text-start" id="expenseDocsCategoriesToggle">Επιλογή</button>
+      <div class="bv-multi-menu" id="expenseDocsCategoriesMenu" hidden>
+        <div class="d-flex gap-2 mb-2">
+          <input type="text" class="form-control form-control-sm" id="expenseDocsCategoriesSearch" placeholder="Αναζήτηση...">
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="expenseDocsCategoriesAll">Όλα</button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="expenseDocsCategoriesClear">Καθαρισμός</button>
+        </div>
+        <div id="expenseDocsCategoriesOptions" class="bv-multi-options"></div>
+      </div>
+      <div id="expenseDocsCategoriesChips" class="bv-chip-wrap mt-2"></div>
+      <select name="categories" id="expenseDocsCategories" multiple hidden></select>
+    </div>
+  </div>
+  <div class="col-12 col-md-4 col-xl-3 d-grid gap-2 align-content-end">
+    <button class="btn btn-primary" type="submit"><i class="fe fe-filter"></i> {{ tt(request, 'apply') }}</button>
+    <button class="btn btn-outline-secondary" type="button" id="expenseDocsReset"><i class="fe fe-rotate-ccw"></i> Καθαρισμός</button>
+  </div>
+</form>
+{% endblock %}
+
+{% block content %}
+<style>
+  .expense-docs-table-wrap {
+    max-height: min(72vh, 780px);
+    overflow: auto;
+  }
+  #expenseDocsTable tbody tr { cursor: pointer; }
+  #expenseDocsTable tbody tr.is-active { background: rgba(59, 130, 246, 0.08); }
+</style>
+
+<div id="expenseDocsError" class="alert alert-danger d-none"></div>
+
+<div class="card border-0 shadow-sm mb-3 content-card">
+  <div class="card-header d-flex justify-content-between align-items-center gap-2 flex-wrap">
+    <h5 class="mb-0">Κύκλωμα Εξόδων - Παραστατικά ERP</h5>
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+      <input type="text" id="expenseDocsSearch" class="form-control form-control-sm" placeholder="Αναζήτηση παραστατικού / προμηθευτή" style="min-width: 280px;">
+      <button type="button" id="expenseDocsRefresh" class="btn btn-sm btn-outline-secondary"><i class="fe fe-refresh-cw"></i> Ανανέωση</button>
+    </div>
+  </div>
+  <div class="card-body table-responsive expense-docs-table-wrap">
+    <table class="table table-sm table-hover mb-0 bv-unified-table" id="expenseDocsTable">
+      <thead class="table-light sticky-top">
+        <tr>
+          <th>Ημερομηνία</th>
+          <th>Υποκατάστημα</th>
+          <th>Κατηγορία</th>
+          <th>Τύπος</th>
+          <th>Κωδ. παραστ.</th>
+          <th>Προμηθευτής</th>
+          <th class="text-end">Καθαρή Αξία</th>
+          <th class="text-end">Μικτή Αξία</th>
+        </tr>
+      </thead>
+      <tbody id="expenseDocsBody">
+        <tr><td colspan="8" class="text-center text-muted py-3">Φόρτωση παραστατικών...</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="card-footer bv-table-footer d-flex justify-content-between align-items-center gap-2 flex-wrap">
+    <div class="bv-summary-stack">
+      <small id="expenseDocsSummary" class="text-muted">Παραστατικά: 0</small>
+      <small id="expenseDocsRangeSummary" class="text-muted">Εμφάνιση 0 από 0</small>
+    </div>
+    <div class="bv-pager">
+      <div class="bv-pager-field bv-pager-field--size">
+        <label for="expenseDocsPageSize" class="bv-pager-label">Ανά σελίδα</label>
+        <select id="expenseDocsPageSize" class="form-select form-select-sm">
+          <option value="50">50</option>
+          <option value="100" selected>100</option>
+          <option value="250">250</option>
+          <option value="500">500</option>
+        </select>
+      </div>
+      <div class="bv-pager-field bv-pager-field--jump">
+        <span class="bv-pager-label">Σελίδα</span>
+        <input id="expenseDocsPageJump" type="number" min="1" step="1" value="1" class="form-control form-control-sm bv-pager-page-input" inputmode="numeric">
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="expenseDocsPageGo">Μετάβαση</button>
+      </div>
+      <div class="bv-pager-nav" role="group" aria-label="Πλοήγηση σελίδων">
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="expenseDocsFirstPage">&laquo;</button>
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="expenseDocsPrevPage">&lsaquo;</button>
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="expenseDocsNextPage">&rsaquo;</button>
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="expenseDocsLastPage">&raquo;</button>
+      </div>
+      <small id="expenseDocsPageInfo" class="bv-pager-info">1 / 1</small>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade bv-modal bv-modal--responsive bv-modal--lg" id="expenseDocumentModal" tabindex="-1" aria-hidden="true" data-bv-modal="true" data-bv-close-on-backdrop="false">
+  <div class="modal-dialog modal-xl">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title mb-0" id="expenseDocumentModalTitle">Παραστατικό Εξόδων</h5>
+          <small id="expenseDocumentModalSub" class="text-muted">-</small>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div id="expenseDocModalError" class="alert alert-danger d-none mb-3"></div>
+        <div class="row g-2 mb-3">
+          <div class="col-md-6"><label class="form-label mb-1">Υποκατάστημα</label><input type="text" class="form-control form-control-sm" id="expenseDocFBranch" readonly></div>
+          <div class="col-md-6"><label class="form-label mb-1">Κατηγορία</label><input type="text" class="form-control form-control-sm" id="expenseDocFCategory" readonly></div>
+          <div class="col-md-6"><label class="form-label mb-1">Τύπος</label><input type="text" class="form-control form-control-sm" id="expenseDocFType" readonly></div>
+          <div class="col-md-6"><label class="form-label mb-1">Προμηθευτής</label><input type="text" class="form-control form-control-sm" id="expenseDocFSupplier" readonly></div>
+          <div class="col-md-6"><label class="form-label mb-1">Ημερομηνία</label><input type="text" class="form-control form-control-sm" id="expenseDocFDate" readonly></div>
+          <div class="col-md-6"><label class="form-label mb-1">Κατάσταση Πληρωμής</label><input type="text" class="form-control form-control-sm" id="expenseDocFPaymentStatus" readonly></div>
+        </div>
+        <div class="table-responsive border rounded mb-3" style="max-height:min(34vh,360px); overflow:auto;">
+          <table class="table table-sm align-middle mb-0">
+            <thead class="table-light sticky-top">
+              <tr>
+                <th>Α/Α</th>
+                <th>Κατηγορία</th>
+                <th>Προμηθευτής</th>
+                <th>Λογαριασμός</th>
+                <th class="text-end">Καθαρή</th>
+                <th class="text-end">ΦΠΑ</th>
+                <th class="text-end">Μικτή</th>
+              </tr>
+            </thead>
+            <tbody id="expenseDocLinesBody">
+              <tr><td colspan="7" class="text-center text-muted py-3">Δεν υπάρχουν γραμμές.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const form = document.getElementById('expenseDocumentsFilters');
+  const errorEl = document.getElementById('expenseDocsError');
+  const bodyEl = document.getElementById('expenseDocsBody');
+  const searchEl = document.getElementById('expenseDocsSearch');
+  const refreshBtn = document.getElementById('expenseDocsRefresh');
+  const resetBtn = document.getElementById('expenseDocsReset');
+  const pageSizeEl = document.getElementById('expenseDocsPageSize');
+  const pageJumpEl = document.getElementById('expenseDocsPageJump');
+  const pageInfoEl = document.getElementById('expenseDocsPageInfo');
+  const summaryEl = document.getElementById('expenseDocsSummary');
+  const rangeEl = document.getElementById('expenseDocsRangeSummary');
+  const pageBtns = {
+    first: document.getElementById('expenseDocsFirstPage'),
+    prev: document.getElementById('expenseDocsPrevPage'),
+    next: document.getElementById('expenseDocsNextPage'),
+    last: document.getElementById('expenseDocsLastPage'),
+    go: document.getElementById('expenseDocsPageGo'),
+  };
+
+  const state = { rows: [], filtered: [], page: 1, pageSize: 100, selectedId: '' };
+  let expenseDocModalCtrl = null;
+
+  function money(v){ return new Intl.NumberFormat('el-GR',{style:'currency',currency:'EUR'}).format(Number(v||0)); }
+  function escAttr(v){
+    return String(v ?? '')
+      .replaceAll('&', '&amp;')
+      .replaceAll('"', '&quot;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;');
+  }
+  function getExpenseDocModalController(){
+    const modalEl = document.getElementById('expenseDocumentModal');
+    if(!modalEl) return null;
+    if(window.BVModalSystem){
+      expenseDocModalCtrl = expenseDocModalCtrl || window.BVModalSystem.create(modalEl, {
+        closeOnBackdrop: false,
+        keyboard: true,
+        focusTrap: true,
+        restoreFocus: true,
+      });
+      return expenseDocModalCtrl;
+    }
+    if(window.bootstrap?.Modal){
+      expenseDocModalCtrl = expenseDocModalCtrl || window.bootstrap.Modal.getOrCreateInstance(modalEl, {
+        backdrop: 'static',
+        keyboard: true,
+        focus: true,
+      });
+      return expenseDocModalCtrl;
+    }
+    return null;
+  }
+  function showExpenseDocModal(triggerEl){
+    const controller = getExpenseDocModalController();
+    if(!controller) return false;
+    if(controller.show.length >= 1) controller.show(triggerEl);
+    else controller.show();
+    return true;
+  }
+  function setError(msg){ errorEl.classList.toggle('d-none', !msg); errorEl.textContent = msg || ''; }
+  function asIso(raw){
+    const v = String(raw || '').trim();
+    if(!v) return '';
+    if(window.bvToIsoDate){
+      const out = String(window.bvToIsoDate(v) || '').trim();
+      if(/^\d{4}-\d{2}-\d{2}$/.test(out)) return out;
+    }
+    if(/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
+    const m = v.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if(m){
+      const dd = String(m[1]).padStart(2, '0');
+      const mm = String(m[2]).padStart(2, '0');
+      const yyyy = m[3];
+      return `${yyyy}-${mm}-${dd}`;
+    }
+    return v;
+  }
+
+  function getSelectedValues(selectEl){
+    return Array.from(selectEl.options).filter(o => o.selected).map(o => o.value);
+  }
+  function setupMulti(prefix){
+    const toggle = document.getElementById(prefix + 'Toggle');
+    const menu = document.getElementById(prefix + 'Menu');
+    const search = document.getElementById(prefix + 'Search');
+    const allBtn = document.getElementById(prefix + 'All');
+    const clearBtn = document.getElementById(prefix + 'Clear');
+    const optionsWrap = document.getElementById(prefix + 'Options');
+    const chips = document.getElementById(prefix + 'Chips');
+    const select = document.getElementById(prefix);
+    let values = [];
+    function syncLabel(){
+      const selected = getSelectedValues(select);
+      toggle.textContent = selected.length ? `Επιλογές: ${selected.length}` : 'Επιλογή';
+      chips.innerHTML = selected.map(v => {
+        const opt = Array.from(select.options).find(o => o.value === v);
+        return `<span class="badge bg-light text-dark border">${opt ? opt.textContent : v}</span>`;
+      }).join(' ');
+    }
+    function render(filter=''){
+      const q = String(filter||'').trim().toLowerCase();
+      optionsWrap.innerHTML = values
+        .filter(v => !q || String(v.label||v.value).toLowerCase().includes(q))
+        .map(v => `<label class="d-flex align-items-center gap-2 py-1"><input type="checkbox" value="${v.value}" ${getSelectedValues(select).includes(v.value) ? 'checked' : ''}> <span>${v.label}</span></label>`)
+        .join('');
+      optionsWrap.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+        cb.addEventListener('change', () => {
+          Array.from(select.options).forEach(o => { if(o.value === cb.value) o.selected = cb.checked; });
+          syncLabel();
+        });
+      });
+    }
+    toggle.addEventListener('click', () => { menu.hidden = !menu.hidden; if(!menu.hidden) render(search.value); });
+    document.addEventListener('click', (ev) => { if(!menu.hidden && !menu.parentElement.contains(ev.target)) menu.hidden = true; });
+    search.addEventListener('input', () => render(search.value));
+    allBtn.addEventListener('click', () => { Array.from(select.options).forEach(o => o.selected = true); render(search.value); syncLabel(); });
+    clearBtn.addEventListener('click', () => { Array.from(select.options).forEach(o => o.selected = false); render(search.value); syncLabel(); });
+    return {
+      setOptions(items){
+        values = items || [];
+        select.innerHTML = values.map(v => `<option value="${v.value}">${v.label}</option>`).join('');
+        render('');
+        syncLabel();
+      },
+      clear(){ select.innerHTML=''; values=[]; render(''); syncLabel(); },
+      sync: syncLabel,
+    };
+  }
+  const branchesMulti = setupMulti('expenseDocsBranches');
+  const categoriesMulti = setupMulti('expenseDocsCategories');
+
+  async function fetchJson(url){
+    const res = await fetch(url);
+    const body = await res.json().catch(() => ({}));
+    if(!res.ok) throw new Error(body.detail || `HTTP ${res.status}`);
+    return body || {};
+  }
+  function buildParams(includePagination=true){
+    const p = new URLSearchParams();
+    const from = asIso(form.elements.from?.value);
+    const to = asIso(form.elements.to?.value);
+    if(from) p.set('from', from);
+    if(to) p.set('to', to);
+    getSelectedValues(document.getElementById('expenseDocsBranches')).forEach(v => p.append('branches', v));
+    getSelectedValues(document.getElementById('expenseDocsCategories')).forEach(v => p.append('categories', v));
+    if(searchEl.value.trim()) p.set('q', searchEl.value.trim());
+    if(includePagination){
+      p.set('limit', String(state.pageSize));
+      p.set('offset', String((state.page - 1) * state.pageSize));
+    }
+    return p;
+  }
+  function renderTable(){
+    const rows = state.rows || [];
+    if(!rows.length){
+      bodyEl.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-3">Δεν βρέθηκαν παραστατικά εξόδων.</td></tr>';
+      summaryEl.textContent = 'Παραστατικά: 0';
+      rangeEl.textContent = 'Εμφάνιση 0 από 0';
+      pageInfoEl.textContent = '1 / 1';
+      return;
+    }
+    bodyEl.innerHTML = rows.map(r => `
+      <tr data-id="${escAttr(r.document_id)}" class="${state.selectedId===r.document_id?'is-active':''}" tabindex="0" role="button" title="Διπλό κλικ για άνοιγμα παραστατικού">
+        <td>${r.document_date || '-'}</td>
+        <td>${r.branch || '-'}</td>
+        <td>${r.category || '-'}</td>
+        <td>${r.document_type || '-'}</td>
+        <td>${r.document_no || '-'}</td>
+        <td>${r.supplier || '-'}</td>
+        <td class="text-end">${money(r.total_net_value)}</td>
+        <td class="text-end">${money(r.total_gross_value)}</td>
+      </tr>
+    `).join('');
+    bodyEl.querySelectorAll('tr[data-id]').forEach(tr => {
+      tr.addEventListener('click', () => {
+        state.selectedId = tr.dataset.id || '';
+        renderTable();
+      });
+      tr.addEventListener('dblclick', () => {
+        if(tr.dataset.id) openDetail(tr.dataset.id);
+      });
+      tr.addEventListener('keydown', (ev) => {
+        if((ev.key === 'Enter' || ev.key === ' ') && tr.dataset.id){
+          ev.preventDefault();
+          openDetail(tr.dataset.id);
+        }
+      });
+    });
+    const total = Number(bodyEl.dataset.total || rows.length);
+    const start = ((state.page - 1) * state.pageSize) + 1;
+    const end = start + rows.length - 1;
+    summaryEl.textContent = `Παραστατικά: ${total.toLocaleString('el-GR')}`;
+    rangeEl.textContent = `Εμφάνιση ${start.toLocaleString('el-GR')} από ${end.toLocaleString('el-GR')}`;
+    const pages = Math.max(1, Math.ceil(total / state.pageSize));
+    pageInfoEl.textContent = `${state.page} / ${pages}`;
+    pageJumpEl.value = state.page;
+  }
+  async function loadOptions(){
+    const data = await fetchJson(`/v1/kpi/expenses/filter-options?${buildParams(false).toString()}`);
+    branchesMulti.setOptions((data.branches || []).map(v => typeof v === 'string' ? ({value:v,label:(data.labels?.branches||{})[v] || v}) : v));
+    categoriesMulti.setOptions((data.categories || []).map(v => typeof v === 'string' ? ({value:v,label:(data.labels?.categories||{})[v] || v}) : v));
+  }
+  async function loadRows(){
+    setError('');
+    bodyEl.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-3">Φόρτωση...</td></tr>';
+    try {
+      const data = await fetchJson(`/v1/kpi/expenses/documents?${buildParams(true).toString()}`);
+      state.rows = data.rows || [];
+      bodyEl.dataset.total = String(data.summary?.documents || 0);
+      renderTable();
+    } catch (err) {
+      bodyEl.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-3">Δεν ήταν δυνατή η φόρτωση.</td></tr>';
+      setError(err.message || 'Αποτυχία φόρτωσης παραστατικών εξόδων.');
+    }
+  }
+  async function openDetail(documentId){
+    state.selectedId = documentId;
+    renderTable();
+    document.getElementById('expenseDocumentModalTitle').textContent = documentId || 'Παραστατικό Εξόδων';
+    document.getElementById('expenseDocumentModalSub').textContent = 'Φόρτωση...';
+    document.getElementById('expenseDocModalError').classList.add('d-none');
+    document.getElementById('expenseDocLinesBody').innerHTML = '<tr><td colspan="7" class="text-center text-muted py-3">Φόρτωση...</td></tr>';
+    if(!showExpenseDocModal(document.querySelector(`#expenseDocsBody tr[data-id="${CSS.escape(documentId)}"]`))){
+      setError('Δεν ήταν δυνατό να ανοίξει το παράθυρο παραστατικού.');
+      return;
+    }
+    try {
+      const p = buildParams(false);
+      const data = await fetchJson(`/v1/kpi/expenses/documents/${encodeURIComponent(documentId)}/detail?${p.toString()}`);
+      document.getElementById('expenseDocumentModalTitle').textContent = data.document_no || documentId;
+      document.getElementById('expenseDocumentModalSub').textContent = `Ημερομηνία: ${data.document_date || '-'} | Γραμμές: ${(data.totals?.line_count || 0).toLocaleString('el-GR')}`;
+      document.getElementById('expenseDocFBranch').value = data.header?.branch_name || '-';
+      document.getElementById('expenseDocFCategory').value = data.header?.category_name || '-';
+      document.getElementById('expenseDocFType').value = data.header?.document_type || '-';
+      document.getElementById('expenseDocFSupplier').value = data.header?.supplier_name || '-';
+      document.getElementById('expenseDocFDate').value = data.document_date || '-';
+      document.getElementById('expenseDocFPaymentStatus').value = data.header?.payment_status || '-';
+      const lines = data.lines || [];
+      document.getElementById('expenseDocLinesBody').innerHTML = lines.length ? lines.map(line => `
+        <tr>
+          <td>${line.row_no || ''}</td>
+          <td>${line.category || '-'}</td>
+          <td>${line.supplier || '-'}</td>
+          <td>${line.account || '-'}</td>
+          <td class="text-end">${money(line.net_value)}</td>
+          <td class="text-end">${money(line.tax_value)}</td>
+          <td class="text-end">${money(line.gross_value)}</td>
+        </tr>
+      `).join('') : '<tr><td colspan="7" class="text-center text-muted py-3">Δεν υπάρχουν γραμμές.</td></tr>';
+    } catch (err) {
+      const el = document.getElementById('expenseDocModalError');
+      el.textContent = err.message || 'Αποτυχία φόρτωσης παραστατικού εξόδων.';
+      el.classList.remove('d-none');
+    }
+  }
+
+  form.addEventListener('submit', async (ev) => { ev.preventDefault(); state.page = 1; await loadOptions(); await loadRows(); });
+  searchEl.addEventListener('keydown', async (ev) => { if(ev.key === 'Enter'){ ev.preventDefault(); state.page = 1; await loadRows(); } });
+  refreshBtn.addEventListener('click', async () => { await loadOptions(); await loadRows(); });
+  resetBtn.addEventListener('click', async () => {
+    form.reset();
+    document.getElementById('expenseDocsBranches').innerHTML = '';
+    document.getElementById('expenseDocsCategories').innerHTML = '';
+    branchesMulti.clear();
+    categoriesMulti.clear();
+    state.page = 1;
+    await loadOptions();
+    await loadRows();
+  });
+  pageSizeEl.addEventListener('change', async () => { state.pageSize = Number(pageSizeEl.value || 100); state.page = 1; await loadRows(); });
+  pageBtns.go.addEventListener('click', async () => { state.page = Math.max(1, Number(pageJumpEl.value || 1)); await loadRows(); });
+  pageBtns.first.addEventListener('click', async () => { state.page = 1; await loadRows(); });
+  pageBtns.prev.addEventListener('click', async () => { state.page = Math.max(1, state.page - 1); await loadRows(); });
+  pageBtns.next.addEventListener('click', async () => { state.page += 1; await loadRows(); });
+  pageBtns.last.addEventListener('click', async () => {
+    const total = Number(bodyEl.dataset.total || 0);
+    state.page = Math.max(1, Math.ceil(total / state.pageSize));
+    await loadRows();
+  });
+
+  state.pageSize = Number(pageSizeEl.value || 100);
+  loadOptions().then(loadRows);
+})();
+</script>
+{% endblock %}

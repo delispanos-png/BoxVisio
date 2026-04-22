@@ -43,13 +43,20 @@ configure_logging()
 init_sentry()
 
 app = FastAPI(title=settings.project_name, version=settings.app_version)
+_redis_client = Redis.from_url(settings.redis_url, decode_responses=True)
+app.state.redis = _redis_client
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=['*'],
+    allow_origins=[
+        f'https://{settings.admin_portal_host}',
+        f'https://{settings.tenant_portal_host}',
+        'http://localhost',
+        'http://localhost:8000',
+    ],
     allow_credentials=True,
-    allow_methods=['*'],
-    allow_headers=['*'],
+    allow_methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+    allow_headers=['Authorization', 'Content-Type', 'X-CSRF-Token', 'X-Request-ID'],
 )
 app.middleware('http')(secure_headers_middleware)
 app.middleware('http')(rate_limit_middleware)
@@ -105,7 +112,7 @@ async def health():
 async def ready():
     async with ControlSessionLocal() as db:
         await db.execute(text('SELECT 1'))
-    Redis.from_url(settings.redis_url).ping()
+    _redis_client.ping()
     return {'status': 'ready', 'service': settings.project_name}
 
 
@@ -128,12 +135,17 @@ async def metrics():
         db_pool_size.labels(pool=pool_name).set(stats['size'])
         db_pool_overflow.labels(pool=pool_name).set(stats['overflow'])
 
-    redis_client = Redis.from_url(settings.redis_url, decode_responses=True)
     async with ControlSessionLocal() as db:
         tenant_slugs = list((await db.execute(select(Tenant.slug).where(Tenant.status != 'terminated'))).scalars().all())
-    for slug in tenant_slugs:
-        ingest_queue_depth.labels(tenant=slug).set(redis_client.llen(tenant_queue_name(slug)))
-        ingest_dlq_depth.labels(tenant=slug).set(redis_client.llen(tenant_dlq_name(slug)))
+    if tenant_slugs:
+        pipe = _redis_client.pipeline(transaction=False)
+        for slug in tenant_slugs:
+            pipe.llen(tenant_queue_name(slug))
+            pipe.llen(tenant_dlq_name(slug))
+        pipe_results = pipe.execute()
+        for i, slug in enumerate(tenant_slugs):
+            ingest_queue_depth.labels(tenant=slug).set(pipe_results[i * 2])
+            ingest_dlq_depth.labels(tenant=slug).set(pipe_results[i * 2 + 1])
 
     payload, content_type = render_metrics()
     return Response(content=payload, media_type=content_type)

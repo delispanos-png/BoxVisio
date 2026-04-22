@@ -162,6 +162,7 @@ class ExternalApiIngestConnector(Connector):
             'salesSourceCodes',
             'purchaseSourceCodes',
             'inventorySourceCodes',
+            'inventoryItemSoType',
             'cashSourceCodes',
             'supplierBalanceSourceCodes',
             'customerBalanceSourceCodes',
@@ -182,14 +183,17 @@ class ExternalApiIngestConnector(Connector):
             body.setdefault('includeSales', True)
             body.setdefault('includePurchases', False)
             body.setdefault('includeInventory', False)
+            body.setdefault('salesSourceCodes', '1351')
         elif stream == 'purchase_documents':
             body.setdefault('includeSales', False)
             body.setdefault('includePurchases', True)
             body.setdefault('includeInventory', False)
+            body.setdefault('purchaseSourceCodes', '1251,1253')
         elif stream == 'inventory_documents':
             body.setdefault('includeSales', False)
             body.setdefault('includePurchases', False)
             body.setdefault('includeInventory', True)
+            body.setdefault('inventoryItemSoType', 51)
         elif stream == 'cash_transactions':
             body.setdefault('includeSales', False)
             body.setdefault('includePurchases', False)
@@ -206,6 +210,7 @@ class ExternalApiIngestConnector(Connector):
             body.setdefault('includeSupplierBalances', True)
             body.setdefault('includeCustomerBalances', False)
             body.setdefault('includeOperatingExpenses', False)
+            body.setdefault('supplierBalanceSourceCodes', '1251,1253,1261,1281,1412,1416,1653')
         elif stream == 'customer_balances':
             body.setdefault('includeSales', False)
             body.setdefault('includePurchases', False)
@@ -214,6 +219,7 @@ class ExternalApiIngestConnector(Connector):
             body.setdefault('includeSupplierBalances', False)
             body.setdefault('includeCustomerBalances', True)
             body.setdefault('includeOperatingExpenses', False)
+            body.setdefault('customerBalanceSourceCodes', '1351,1381,1413')
         elif stream == 'operating_expenses':
             body.setdefault('includeSales', False)
             body.setdefault('includePurchases', False)

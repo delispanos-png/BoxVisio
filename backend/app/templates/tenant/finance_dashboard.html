@@ -12,7 +12,19 @@
   </div>
   <div class="col-12 col-md-4">
     <label class="form-label mb-1">{{ tt(request, 'branches') }}</label>
-    <select class="form-select" id="financeBranches" name="branches" multiple size="4"></select>
+    <div class="bv-multi" id="financeBranchesMulti">
+      <button type="button" class="form-select bv-multi-toggle text-start" id="financeBranchesToggle">Επιλογή</button>
+      <div class="bv-multi-menu" id="financeBranchesMenu" hidden>
+        <div class="d-flex gap-2 mb-2">
+          <input type="text" class="form-control form-control-sm" id="financeBranchesSearch" placeholder="Αναζήτηση...">
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="financeBranchesAll">Όλα</button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="financeBranchesClear">Καθαρισμός</button>
+        </div>
+        <div id="financeBranchesOptions" class="bv-multi-options"></div>
+      </div>
+      <div id="financeBranchesChips" class="bv-chip-wrap mt-2"></div>
+      <select name="branches" id="financeBranches" multiple hidden></select>
+    </div>
   </div>
   <div class="col-12 d-grid d-md-flex justify-content-md-end">
     <button class="btn btn-primary" type="submit"><i class="fe fe-filter"></i> {{ tt(request, 'apply') }}</button>
@@ -21,39 +33,42 @@
 {% endblock %}
 
 {% block content %}
+<style>
+  .fin-loading { opacity: .45; }
+</style>
 <div id="financeError" class="alert alert-danger d-none"></div>
 
 <div class="row g-3 mb-3">
-  <div class="col-12 col-md-6 col-xl-3">
-    <div class="bv-stat-strip bv-kpi-style bv-tone-blue">
-      <div class="kpi-icon"><i class="fe fe-users"></i></div>
-      <div class="label">Συνολικές Απαιτήσεις</div>
-      <div id="finReceivables" class="value">0.00</div>
-      <div class="small text-muted">Ανοικτά υπόλοιπα πελατών</div>
+  <div class="col-12 col-sm-6 col-xl-3">
+    <div class="bv-metric-card" style="--mc-color:#3b82f6" data-kpi-what="Το σύνολο των ανοικτών υπολοίπων πελατών." data-kpi-formula="Συνολικές Απαιτήσεις = άθροισμα open_balance όλων των πελατών που πέρασαν τα φίλτρα.">
+      <div class="mc-icon"><i class="fe fe-users"></i></div>
+      <div class="mc-label">Συνολικές Απαιτήσεις</div>
+      <div id="finReceivables" class="mc-value fin-loading">—</div>
+      <div class="mc-meta">Ανοικτά υπόλοιπα πελατών</div>
     </div>
   </div>
-  <div class="col-12 col-md-6 col-xl-3">
-    <div class="bv-stat-strip bv-kpi-style bv-tone-red">
-      <div class="kpi-icon"><i class="fe fe-alert-triangle"></i></div>
-      <div class="label">Ληξιπρόθεσμες Απαιτήσεις</div>
-      <div id="finOverdueReceivables" class="value">0.00</div>
-      <div id="finOverdueRatio" class="small text-muted">0.00%</div>
+  <div class="col-12 col-sm-6 col-xl-3">
+    <div class="bv-metric-card" style="--mc-color:#ef4444" data-kpi-what="Το μέρος των απαιτήσεων που έχει λήξει." data-kpi-formula="Ληξιπρόθεσμες Απαιτήσεις = άθροισμα open_balance όπου due_date < σήμερα. Ποσοστό = (Ληξιπρόθεσμες / Συνολικές Απαιτήσεις) * 100.">
+      <div class="mc-icon"><i class="fe fe-alert-triangle"></i></div>
+      <div class="mc-label">Ληξιπρόθεσμες</div>
+      <div id="finOverdueReceivables" class="mc-value fin-loading">—</div>
+      <div id="finOverdueRatio" class="mc-meta">—</div>
     </div>
   </div>
-  <div class="col-12 col-md-6 col-xl-3">
-    <div class="bv-stat-strip bv-kpi-style bv-tone-orange">
-      <div class="kpi-icon"><i class="fe fe-truck"></i></div>
-      <div class="label">Υποχρεώσεις Προμηθευτών</div>
-      <div id="finPayables" class="value">0.00</div>
-      <div id="finOverduePayables" class="small text-muted">Ληξιπρόθεσμα: 0.00</div>
+  <div class="col-12 col-sm-6 col-xl-3">
+    <div class="bv-metric-card" style="--mc-color:#f97316" data-kpi-what="Το σύνολο των ανοικτών υποχρεώσεων προς προμηθευτές." data-kpi-formula="Υποχρεώσεις Προμηθευτών = άθροισμα open_balance όλων των προμηθευτών. Ληξιπρόθεσμα = άθροισμα open_balance όπου due_date < σήμερα.">
+      <div class="mc-icon"><i class="fe fe-truck"></i></div>
+      <div class="mc-label">Υποχρ. Προμηθευτών</div>
+      <div id="finPayables" class="mc-value fin-loading">—</div>
+      <div id="finOverduePayables" class="mc-meta">—</div>
     </div>
   </div>
-  <div class="col-12 col-md-6 col-xl-3">
-    <div class="bv-stat-strip bv-kpi-style bv-tone-cyan">
-      <div class="kpi-icon"><i class="fe fe-credit-card"></i></div>
-      <div class="label">Καθαρή Ταμειακή Ροή</div>
-      <div id="finNetCash" class="value">0.00</div>
-      <div id="finCashInOut" class="small text-muted">In: 0.00 | Out: 0.00</div>
+  <div class="col-12 col-sm-6 col-xl-3">
+    <div class="bv-metric-card" style="--mc-color:#06b6d4" data-kpi-what="Το καθαρό αποτέλεσμα ρευστότητας της περιόδου." data-kpi-formula="Καθαρή Ταμειακή Ροή = συνολικές εισπράξεις - συνολικές πληρωμές στο [Από, Έως].">
+      <div class="mc-icon"><i class="fe fe-credit-card"></i></div>
+      <div class="mc-label">Ταμειακή Ροή</div>
+      <div id="finNetCash" class="mc-value fin-loading">—</div>
+      <div id="finCashInOut" class="mc-meta">—</div>
     </div>
   </div>
 </div>
@@ -76,7 +91,7 @@
   </div>
   <div class="col-12 col-xl-6">
     <div class="card border-0 shadow-sm content-card h-100">
-      <div class="card-header"><h5 class="mb-0">Reconciliation View</h5></div>
+      <div class="card-header"><h5 class="mb-0">Ισοζύγιο Κεφαλαίου</h5></div>
       <div class="card-body">
         <div class="table-responsive">
           <table class="table table-sm mb-0 bv-unified-table" id="tblFinanceReconciliation">
@@ -118,7 +133,7 @@
 
   <div class="col-12 col-xl-6">
     <div class="card border-0 shadow-sm content-card h-100">
-      <div class="card-header"><h5 class="mb-0">Cash Transactions ανά Τύπο</h5></div>
+      <div class="card-header"><h5 class="mb-0">Ταμειακές Κινήσεις ανά Τύπο</h5></div>
       <div class="card-body">
         <div class="table-responsive">
           <table class="table table-sm mb-0 bv-unified-table" id="tblFinanceCashTypes">
@@ -159,12 +174,33 @@ function toNum(v){ const n = Number(v || 0); return Number.isFinite(n) ? n : 0; 
 function money(v){ return fmtMoney.format(toNum(v)); }
 function pct(v){ return `${fmtPct.format(toNum(v))}%`; }
 function esc(v){ return String(v ?? '').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;'); }
+const financeFieldDefs = [
+  {key:'branches', selectId:'financeBranches', label:'{{ tt(request, "branches") }}'},
+];
+const cashTypeLabels = {
+  customer_collections: '{{ tt(request, "cash_tx_customer_collections") }}',
+  customer_transfers: '{{ tt(request, "cash_tx_customer_transfers") }}',
+  supplier_payments: '{{ tt(request, "cash_tx_supplier_payments") }}',
+  supplier_transfers: '{{ tt(request, "cash_tx_supplier_transfers") }}',
+  financial_accounts: 'Εσωτερικές μεταφορές',
+};
 
 function setError(msg){
   const el = document.getElementById('financeError');
   if(!msg){ el.classList.add('d-none'); el.textContent=''; return; }
   el.classList.remove('d-none');
   el.textContent = msg;
+}
+
+function setFinLoading(on){
+  document.querySelectorAll('.fin-loading').forEach(el => {
+    if(on){ el.classList.add('fin-loading'); el.textContent='—'; }
+    else   el.classList.remove('fin-loading');
+  });
+  ['tblFinanceAging','tblFinanceSuppliers','tblFinanceCashTypes','tblFinanceAccounts'].forEach(id => {
+    const tb = document.querySelector(`#${id} tbody`);
+    if(tb && on) tb.innerHTML = '<tr><td colspan="10" class="text-muted text-center py-3"><span class="spinner-border spinner-border-sm me-2"></span>Φόρτωση...</td></tr>';
+  });
 }
 
 function financeParams(){
@@ -174,8 +210,10 @@ function financeParams(){
   const toRaw = fd.get('to');
   p.set('from', window.bvToIsoDate ? window.bvToIsoDate(fromRaw) : fromRaw);
   p.set('to', window.bvToIsoDate ? window.bvToIsoDate(toRaw) : toRaw);
-  const branchSel = document.getElementById('financeBranches');
-  Array.from(branchSel?.selectedOptions || []).forEach(o => p.append('branches', o.value));
+  financeFieldDefs.forEach((field)=>{
+    const sel = document.getElementById(field.selectId);
+    Array.from(sel?.selectedOptions || []).forEach(o => p.append(field.key, o.value));
+  });
   return p;
 }
 
@@ -198,12 +236,95 @@ async function loadBranchOptions(){
       const opt = document.createElement('option');
       opt.value = code;
       opt.textContent = labels[code] ? `${labels[code]}` : code;
+      opt.dataset.label = opt.textContent;
       if(previous.has(code)) opt.selected = true;
       sel.appendChild(opt);
     });
+    syncFinanceMultiUI('financeBranches', '{{ tt(request, "branches") }}');
   } catch(_err) {
     // Non-blocking.
   }
+}
+
+function syncFinanceMultiUI(prefix, label, filterText=''){
+  const select=document.getElementById(prefix);
+  const optionsWrap=document.getElementById(`${prefix}Options`);
+  const chips=document.getElementById(`${prefix}Chips`);
+  const toggle=document.getElementById(`${prefix}Toggle`);
+  if(!select || !optionsWrap || !chips || !toggle) return;
+
+  const selected = Array.from(select.options).filter(o=>o.selected).map(o=>o.value);
+  const normalized = (filterText || '').toLowerCase().trim();
+  optionsWrap.innerHTML='';
+
+  Array.from(select.options)
+    .filter(o=>{
+      const display=(o.dataset.label || o.textContent || o.value).toLowerCase();
+      return !normalized || o.value.toLowerCase().includes(normalized) || display.includes(normalized);
+    })
+    .forEach(o=>{
+      const row=document.createElement('label');
+      row.className='bv-multi-opt';
+      const cb=document.createElement('input');
+      cb.type='checkbox';
+      cb.checked=o.selected;
+      cb.addEventListener('change', ()=>{
+        o.selected=cb.checked;
+        syncFinanceMultiUI(prefix, label, document.getElementById(`${prefix}Search`)?.value || '');
+      });
+      const span=document.createElement('span');
+      span.textContent=o.textContent || o.value;
+      row.appendChild(cb);
+      row.appendChild(span);
+      optionsWrap.appendChild(row);
+    });
+
+  if(!optionsWrap.children.length){
+    const empty=document.createElement('div');
+    empty.className='bv-multi-empty';
+    empty.textContent='Δεν υπάρχουν διαθέσιμες επιλογές';
+    optionsWrap.appendChild(empty);
+  }
+
+  chips.innerHTML='';
+  selected.forEach(v=>{
+    const chip=document.createElement('span');
+    chip.className='bv-chip';
+    const opt = Array.from(select.options).find(o=>o.value===v);
+    chip.textContent=(opt && opt.textContent) ? opt.textContent : v;
+    chips.appendChild(chip);
+  });
+  toggle.textContent = selected.length ? `${label} (${selected.length})` : 'Επιλογή';
+}
+
+function initFinanceMulti(prefix, label){
+  const toggle=document.getElementById(`${prefix}Toggle`);
+  const menu=document.getElementById(`${prefix}Menu`);
+  const search=document.getElementById(`${prefix}Search`);
+  const btnAll=document.getElementById(`${prefix}All`);
+  const btnClear=document.getElementById(`${prefix}Clear`);
+  const select=document.getElementById(prefix);
+  if(!toggle || !menu || !search || !btnAll || !btnClear || !select || toggle.dataset.bound === '1') return;
+  toggle.dataset.bound='1';
+
+  toggle.addEventListener('click', (e)=>{
+    e.stopPropagation();
+    menu.hidden = !menu.hidden;
+    if(!menu.hidden){ search.focus(); }
+  });
+  document.addEventListener('click', (e)=>{
+    if(!menu.hidden && !menu.contains(e.target) && e.target !== toggle){ menu.hidden = true; }
+  });
+  search.addEventListener('input', ()=> syncFinanceMultiUI(prefix, label, search.value));
+  btnAll.addEventListener('click', ()=>{
+    Array.from(select.options).forEach(o=>{ o.selected = true; });
+    syncFinanceMultiUI(prefix, label, search.value);
+  });
+  btnClear.addEventListener('click', ()=>{
+    Array.from(select.options).forEach(o=>{ o.selected = false; });
+    syncFinanceMultiUI(prefix, label, search.value);
+  });
+  syncFinanceMultiUI(prefix, label, '');
 }
 
 function renderAging(agingData){
@@ -253,7 +374,7 @@ function renderCashTypes(rows){
   }
   tbody.innerHTML = list.map(r => (
     `<tr>
-      <td>${esc(r.entry_type || '-')}</td>
+      <td>${esc(cashTypeLabels[r.entry_type] || r.entry_type || '-')}</td>
       <td class="text-end">${money(r.inflows)}</td>
       <td class="text-end">${money(r.outflows)}</td>
       <td class="text-end">${money(r.net)}</td>
@@ -281,6 +402,7 @@ function renderAccounts(data){
 async function reloadFinanceDashboard(e){
   if(e) e.preventDefault();
   setError(null);
+  setFinLoading(true);
   try {
     const p = financeParams();
     p.set('supplier_limit', '50');
@@ -299,11 +421,12 @@ async function reloadFinanceDashboard(e){
 
     document.getElementById('finReceivables').textContent = money(receivables.total_receivables);
     document.getElementById('finOverdueReceivables').textContent = money(receivables.overdue_receivables);
-    document.getElementById('finOverdueRatio').textContent = `Overdue ratio: ${pct(receivables.overdue_ratio_pct)}`;
+    document.getElementById('finOverdueRatio').textContent = `Ληξιπρόθεσμα: ${pct(receivables.overdue_ratio_pct)}`;
     document.getElementById('finPayables').textContent = money(payables.open_balance);
     document.getElementById('finOverduePayables').textContent = `Ληξιπρόθεσμα: ${money(payables.overdue_balance)}`;
     document.getElementById('finNetCash').textContent = money(cashSummary?.net);
-    document.getElementById('finCashInOut').textContent = `In: ${money(cashSummary?.inflows)} | Out: ${money(cashSummary?.outflows)}`;
+    document.getElementById('finCashInOut').textContent = `Εισρ: ${money(cashSummary?.inflows)} | Εκρ: ${money(cashSummary?.outflows)}`;
+    setFinLoading(false);
 
     const netWorkingCapital = toNum(receivables.total_receivables) - toNum(payables.open_balance);
     const collections = toNum(recTrend?.summary?.estimated_collections);
@@ -321,12 +444,14 @@ async function reloadFinanceDashboard(e){
     renderCashTypes(cashTypes);
     renderAccounts(cashAccounts);
   } catch (err) {
+    setFinLoading(false);
     setError(`Σφάλμα φόρτωσης οικονομικού dashboard: ${err.message || 'unknown'}`);
   }
 }
 
 document.getElementById('financeFilters')?.addEventListener('submit', reloadFinanceDashboard);
 window.addEventListener('load', async ()=>{
+  initFinanceMulti('financeBranches', '{{ tt(request, "branches") }}');
   await loadBranchOptions();
   await reloadFinanceDashboard();
 });

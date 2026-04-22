@@ -30,6 +30,7 @@ from app.models.tenant import (
     AggCustomerBalancesDaily,
     DimBranch,
     DimBrand,
+    DimAccount,
     DimCategory,
     DimCustomer,
     DimExpenseCategory,
@@ -40,6 +41,7 @@ from app.models.tenant import (
     AggSupplierBalancesDaily,
     FactCashflow,
     FactCustomerBalance,
+    FactExpense,
     FactInventory,
     FactPurchases,
     FactSales,
@@ -195,6 +197,38 @@ def _payload_float(payload: dict | None, *aliases: str) -> float | None:
         return None
 
 
+def _payload_bool(payload: dict | None, *aliases: str) -> bool | None:
+    val = _payload_value(payload, *aliases)
+    if val is None:
+        return None
+    if isinstance(val, bool):
+        return val
+    txt = str(val).strip().lower()
+    if txt in {'1', 'true', 'yes', 'y', 'on', 'ναι'}:
+        return True
+    if txt in {'0', 'false', 'no', 'n', 'off', 'οχι', 'όχι'}:
+        return False
+    return None
+
+
+def _split_softone_codes(raw: str | None) -> list[str]:
+    txt = str(raw or '').strip()
+    if not txt:
+        return []
+    values: list[str] = []
+    seen: set[str] = set()
+    for token in txt.replace('\n', ',').replace(';', ',').split(','):
+        cleaned = str(token or '').strip()
+        if not cleaned or cleaned in {'-', '0', 'N/A', 'n/a', 'null', 'NULL'}:
+            continue
+        key = cleaned.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        values.append(cleaned)
+    return values
+
+
 def _resolve_line_discount(
     payload: dict | None,
     *,
@@ -332,6 +366,55 @@ def _apply_purchase_filters(stmt, branches=None, warehouses=None, brands=None, c
     return stmt
 
 
+def _apply_fact_purchase_filters(stmt, branches=None, warehouses=None, brands=None, categories=None, groups=None):
+    branches = _effective_branch_filter(branches)
+    if branches is not None:
+        stmt = stmt.where(FactPurchases.branch_ext_id.in_(branches))
+    if warehouses:
+        stmt = stmt.where(FactPurchases.warehouse_ext_id.in_(warehouses))
+    if brands:
+        brand_item_codes = (
+            select(DimItem.external_id)
+            .select_from(DimItem)
+            .join(DimBrand, DimItem.brand_id == DimBrand.id, isouter=True)
+            .where(DimItem.external_id.is_not(None))
+            .where(or_(DimBrand.external_id.in_(brands), DimBrand.name.in_(brands)))
+        )
+        inventory_brand_item_codes = (
+            select(FactInventory.item_code)
+            .where(FactInventory.item_code.is_not(None))
+            .where(
+                or_(
+                    FactInventory.source_payload_json['brand_external_id'].astext.in_(brands),
+                    FactInventory.source_payload_json['brand_name'].astext.in_(brands),
+                )
+            )
+        )
+        stmt = stmt.where(
+            or_(
+                FactPurchases.brand_ext_id.in_(brands),
+                FactPurchases.item_code.in_(brand_item_codes),
+                FactPurchases.item_code.in_(inventory_brand_item_codes),
+            )
+        )
+    if categories:
+        stmt = stmt.where(FactPurchases.category_ext_id.in_(categories))
+    if groups:
+        stmt = stmt.where(FactPurchases.group_ext_id.in_(groups))
+    return stmt
+
+
+def _fact_purchase_signed_discount_expr():
+    discount_total = (
+        func.coalesce(FactPurchases.discount_amount, 0)
+        + func.coalesce(FactPurchases.discount1_amount, 0)
+        + func.coalesce(FactPurchases.discount2_amount, 0)
+        + func.coalesce(FactPurchases.discount3_amount, 0)
+    )
+    abs_discount = func.abs(discount_total)
+    return case((func.coalesce(FactPurchases.net_value, 0) < 0, -abs_discount), else_=abs_discount)
+
+
 def _apply_sales_monthly_filters(stmt, branches=None, warehouses=None, brands=None, categories=None, groups=None):
     branches = _effective_branch_filter(branches)
     if branches is not None:
@@ -371,7 +454,28 @@ def _apply_expense_filters(stmt, branches=None, categories=None):
     return stmt
 
 
-def _apply_fact_sales_filters(stmt, branches=None, warehouses=None, brands=None, categories=None, groups=None):
+def _apply_fact_expense_filters(stmt, branches=None, categories=None):
+    branches = _effective_branch_filter(branches)
+    if branches is not None:
+        stmt = stmt.where(FactExpense.branch_ext_id.in_(branches))
+    if categories:
+        stmt = stmt.where(FactExpense.expense_category_code.in_(categories))
+    return stmt
+
+
+def _softone_clean_dimension_text(column):
+    text_col = func.btrim(cast(column, String))
+    return func.nullif(func.nullif(func.nullif(text_col, ''), '0'), '-')
+
+
+def _item_category_path_expr():
+    c1 = func.coalesce(_softone_clean_dimension_text(DimItem.category_1), literal('N/A'))
+    c2 = func.coalesce(_softone_clean_dimension_text(DimItem.category_2), c1)
+    c3 = func.coalesce(_softone_clean_dimension_text(DimItem.category_3), c2)
+    return func.concat(c1, literal(' > '), c2, literal(' > '), c3)
+
+
+def _apply_fact_sales_filters(stmt, branches=None, warehouses=None, brands=None, categories=None, groups=None, channels=None):
     branches = _effective_branch_filter(branches)
     if branches is not None:
         stmt = stmt.where(FactSales.branch_ext_id.in_(branches))
@@ -383,6 +487,8 @@ def _apply_fact_sales_filters(stmt, branches=None, warehouses=None, brands=None,
         stmt = stmt.where(FactSales.category_ext_id.in_(categories))
     if groups:
         stmt = stmt.where(FactSales.group_ext_id.in_(groups))
+    if channels:
+        stmt = stmt.where(FactSales.channel_ext_id.in_(channels))
     return stmt
 
 
@@ -518,11 +624,45 @@ def _apply_fact_purchases_filters(stmt, branches=None, warehouses=None, brands=N
     if warehouses:
         stmt = stmt.where(FactPurchases.warehouse_ext_id.in_(warehouses))
     if brands:
-        stmt = stmt.where(FactPurchases.brand_ext_id.in_(brands))
+        dim_brand_item_codes = (
+            select(DimItem.external_id)
+            .select_from(DimItem)
+            .join(DimBrand, DimItem.brand_id == DimBrand.id, isouter=True)
+            .where(DimItem.external_id.is_not(None))
+            .where(or_(DimBrand.external_id.in_(brands), DimBrand.name.in_(brands)))
+        )
+        brand_item_codes = (
+            select(FactInventory.item_code)
+            .where(FactInventory.item_code.is_not(None))
+            .where(
+                or_(
+                    FactInventory.source_payload_json['brand_external_id'].astext.in_(brands),
+                    FactInventory.source_payload_json['brand_name'].astext.in_(brands),
+                )
+            )
+        )
+        stmt = stmt.where(
+            or_(
+                FactPurchases.brand_ext_id.in_(brands),
+                FactPurchases.item_code.in_(dim_brand_item_codes),
+                FactPurchases.item_code.in_(brand_item_codes),
+            )
+        )
     if categories:
-        stmt = stmt.where(FactPurchases.category_ext_id.in_(categories))
+        category_path = _item_category_path_expr()
+        category_item_codes = (
+            select(DimItem.external_id)
+            .where(DimItem.external_id.is_not(None))
+            .where(category_path.in_(categories))
+        )
+        stmt = stmt.where(or_(FactPurchases.category_ext_id.in_(categories), FactPurchases.item_code.in_(category_item_codes)))
     if groups:
-        stmt = stmt.where(FactPurchases.group_ext_id.in_(groups))
+        group_item_codes = (
+            select(FactInventory.item_code)
+            .where(FactInventory.item_code.is_not(None))
+            .where(FactInventory.source_payload_json['group_external_id'].astext.in_(groups))
+        )
+        stmt = stmt.where(or_(FactPurchases.group_ext_id.in_(groups), FactPurchases.item_code.in_(group_item_codes)))
     return stmt
 
 
@@ -796,18 +936,36 @@ async def _latest_customer_balances_map(
 
         agg_latest_rows = (await db.execute(select(agg_ranked).where(agg_ranked.c.rn == 1))).mappings().all()
         if agg_latest_rows:
-            customer_ids = [str(row.get('customer_id') or '').strip() for row in agg_latest_rows if str(row.get('customer_id') or '').strip()]
+            if aggregate_only:
+                # caller only needs balance totals — skip name-resolution queries entirely
+                return {
+                    str(row.get('customer_id') or '').strip(): dict(row)
+                    for row in agg_latest_rows
+                    if str(row.get('customer_id') or '').strip()
+                }
+            customer_ids = list(
+                dict.fromkeys(
+                    str(row.get('customer_id') or '').strip()
+                    for row in agg_latest_rows
+                    if str(row.get('customer_id') or '').strip()
+                )
+            )
             dim_customer_map: dict[str, dict[str, str]] = {}
             if customer_ids:
-                dim_rows = (
-                    await db.execute(
-                        select(
-                            DimCustomer.external_id.label('customer_id'),
-                            DimCustomer.customer_code.label('customer_code'),
-                            DimCustomer.name.label('customer_name'),
-                        ).where(DimCustomer.external_id.in_(customer_ids))
+                dim_rows = []
+                for idx in range(0, len(customer_ids), 5000):
+                    batch = customer_ids[idx : idx + 5000]
+                    dim_rows.extend(
+                        (
+                            await db.execute(
+                                select(
+                                    DimCustomer.external_id.label('customer_id'),
+                                    DimCustomer.customer_code.label('customer_code'),
+                                    DimCustomer.name.label('customer_name'),
+                                ).where(DimCustomer.external_id.in_(batch))
+                            )
+                        ).mappings().all()
                     )
-                ).mappings().all()
                 dim_customer_map = {
                     str(r.get('customer_id') or '').strip(): {
                         'customer_code': str(r.get('customer_code') or '').strip(),
@@ -821,17 +979,22 @@ async def _latest_customer_balances_map(
             unresolved_ids = [cid for cid in customer_ids if cid and cid not in dim_customer_map]
             if unresolved_ids:
                 sales_key_expr = _sales_customer_key_expr()
-                from_sales_by_key = (
-                    await db.execute(
-                        select(
-                            sales_key_expr.label('customer_id'),
-                            func.coalesce(func.max(FactSales.customer_code), literal('')).label('customer_code'),
-                            func.coalesce(func.max(FactSales.customer_name), literal('')).label('customer_name'),
-                        )
-                        .where(sales_key_expr.in_(unresolved_ids))
-                        .group_by(sales_key_expr)
+                from_sales_by_key = []
+                for idx in range(0, len(unresolved_ids), 5000):
+                    batch = unresolved_ids[idx : idx + 5000]
+                    from_sales_by_key.extend(
+                        (
+                            await db.execute(
+                                select(
+                                    sales_key_expr.label('customer_id'),
+                                    func.coalesce(func.max(FactSales.customer_code), literal('')).label('customer_code'),
+                                    func.coalesce(func.max(FactSales.customer_name), literal('')).label('customer_name'),
+                                )
+                                .where(sales_key_expr.in_(batch))
+                                .group_by(sales_key_expr)
+                            )
+                        ).mappings().all()
                     )
-                ).mappings().all()
                 for row in from_sales_by_key:
                     cid = str(row.get('customer_id') or '').strip()
                     if not cid:
@@ -843,17 +1006,23 @@ async def _latest_customer_balances_map(
 
                 unresolved_codes = [cid for cid in unresolved_ids if cid and cid not in sales_profile_map]
                 if unresolved_codes:
-                    from_sales_by_code = (
-                        await db.execute(
-                            select(
-                                cast(func.coalesce(FactSales.customer_code, literal('')), String).label('customer_id'),
-                                func.coalesce(func.max(FactSales.customer_code), literal('')).label('customer_code'),
-                                func.coalesce(func.max(FactSales.customer_name), literal('')).label('customer_name'),
-                            )
-                            .where(cast(func.coalesce(FactSales.customer_code, literal('')), String).in_(unresolved_codes))
-                            .group_by(cast(func.coalesce(FactSales.customer_code, literal('')), String))
+                    from_sales_by_code = []
+                    customer_code_expr = cast(func.coalesce(FactSales.customer_code, literal('')), String)
+                    for idx in range(0, len(unresolved_codes), 5000):
+                        batch = unresolved_codes[idx : idx + 5000]
+                        from_sales_by_code.extend(
+                            (
+                                await db.execute(
+                                    select(
+                                        customer_code_expr.label('customer_id'),
+                                        func.coalesce(func.max(FactSales.customer_code), literal('')).label('customer_code'),
+                                        func.coalesce(func.max(FactSales.customer_name), literal('')).label('customer_name'),
+                                    )
+                                    .where(customer_code_expr.in_(batch))
+                                    .group_by(customer_code_expr)
+                                )
+                            ).mappings().all()
                         )
-                    ).mappings().all()
                     for row in from_sales_by_code:
                         cid = str(row.get('customer_id') or '').strip()
                         if not cid:
@@ -881,7 +1050,10 @@ async def _latest_customer_balances_map(
                 out[customer_id] = snap
             return out
 
-    if aggregate_only:
+    # When aggregate snapshots are not built yet, callers that prefer aggregate-only
+    # data should gracefully fall back to raw fact balances instead of returning an
+    # empty customer list while facts already exist.
+    if aggregate_only and agg_has_rows:
         return {}
 
     key_expr = _customer_balance_key_expr()
@@ -979,6 +1151,10 @@ def _inventory_base_stmt():
     )
 
 
+def _inventory_item_scope_predicate():
+    return or_(DimItem.softone_sotype.is_(None), DimItem.softone_sotype == 51)
+
+
 def _apply_inventory_filters(
     stmt,
     branches=None,
@@ -988,6 +1164,7 @@ def _apply_inventory_filters(
     groups=None,
     branch_ext_col=None,
 ):
+    stmt = stmt.where(_inventory_item_scope_predicate())
     branches = _effective_branch_filter(branches)
     if branches is not None:
         if branch_ext_col is not None:
@@ -999,7 +1176,18 @@ def _apply_inventory_filters(
     if brands:
         stmt = stmt.where(DimBrand.external_id.in_(brands))
     if categories:
-        stmt = stmt.where(DimCategory.external_id.in_(categories))
+        category_path_expr = func.concat_ws(
+            ' > ',
+            func.nullif(func.btrim(DimItem.category_1), ''),
+            func.nullif(func.btrim(DimItem.category_2), ''),
+            func.nullif(func.btrim(DimItem.category_3), ''),
+        )
+        stmt = stmt.where(
+            or_(
+                DimCategory.external_id.in_(categories),
+                category_path_expr.in_(categories),
+            )
+        )
     if groups:
         stmt = stmt.where(DimGroup.external_id.in_(groups))
     return stmt
@@ -1007,6 +1195,24 @@ def _apply_inventory_filters(
 
 def _month_floor(value: date) -> date:
     return value.replace(day=1)
+
+
+def _month_sequence(date_from: date, date_to: date) -> list[date]:
+    current = _month_floor(date_from)
+    end = _month_floor(date_to)
+    months: list[date] = []
+    while current <= end:
+        months.append(current)
+        if current.month == 12:
+            current = date(current.year + 1, 1, 1)
+        else:
+            current = date(current.year, current.month + 1, 1)
+    return months
+
+
+def _month_label(value: date) -> str:
+    labels = ['Ιαν', 'Φεβ', 'Μαρ', 'Απρ', 'Μαϊ', 'Ιουν', 'Ιουλ', 'Αυγ', 'Σεπ', 'Οκτ', 'Νοε', 'Δεκ']
+    return labels[value.month - 1]
 
 
 def _start_of_week(value: date) -> date:
@@ -1133,20 +1339,26 @@ async def _purchases_summaries_by_windows(
         return {}
 
     global_from, global_to = _window_bounds(windows)
+    net_expr = func.coalesce(FactPurchases.net_value, 0)
+    cost_expr = func.coalesce(FactPurchases.cost_amount, 0)
+    discount_expr = _fact_purchase_signed_discount_expr()
+    before_discount_expr = net_expr + discount_expr
     cols = []
     for key, (window_from, window_to) in windows.items():
-        cond = AggPurchasesDaily.doc_date.between(window_from, window_to)
+        cond = FactPurchases.doc_date.between(window_from, window_to)
         cols.extend(
             [
-                func.count(AggPurchasesDaily.id).filter(cond).label(f'{key}_records'),
-                func.coalesce(func.sum(AggPurchasesDaily.qty).filter(cond), 0).label(f'{key}_qty'),
-                func.coalesce(func.sum(AggPurchasesDaily.net_value).filter(cond), 0).label(f'{key}_net_value'),
-                func.coalesce(func.sum(AggPurchasesDaily.cost_amount).filter(cond), 0).label(f'{key}_cost_amount'),
+                func.count(FactPurchases.id).filter(cond).label(f'{key}_records'),
+                func.coalesce(func.sum(FactPurchases.qty).filter(cond), 0).label(f'{key}_qty'),
+                func.coalesce(func.sum(net_expr).filter(cond), 0).label(f'{key}_net_value'),
+                func.coalesce(func.sum(cost_expr).filter(cond), 0).label(f'{key}_cost_amount'),
+                func.coalesce(func.sum(before_discount_expr).filter(cond), 0).label(f'{key}_gross_value'),
+                func.coalesce(func.sum(discount_expr).filter(cond), 0).label(f'{key}_discount_amount'),
             ]
         )
 
-    stmt = select(*cols).where(*_date_range(AggPurchasesDaily.doc_date, global_from, global_to))
-    stmt = _apply_purchase_filters(
+    stmt = select(*cols).where(*_date_range(FactPurchases.doc_date, global_from, global_to))
+    stmt = _apply_fact_purchase_filters(
         stmt,
         branches=branches,
         warehouses=warehouses,
@@ -1163,6 +1375,8 @@ async def _purchases_summaries_by_windows(
             'qty': float(row.get(f'{key}_qty') or 0),
             'net_value': float(row.get(f'{key}_net_value') or 0),
             'cost_amount': float(row.get(f'{key}_cost_amount') or 0),
+            'gross_value': float(row.get(f'{key}_gross_value') or 0),
+            'discount_amount': float(row.get(f'{key}_discount_amount') or 0),
         }
     return out
 
@@ -1172,23 +1386,32 @@ def _map_branch_window_rows(
     *,
     key_prefix: str,
 ) -> list[dict]:
-    prepped = []
+    prepped_by_branch: dict[str, dict] = {}
     for row in raw_rows:
         net_value = float(row.get(f'{key_prefix}_net') or 0)
         gross_value = float(row.get(f'{key_prefix}_gross') or 0)
         cost_amount = float(row.get(f'{key_prefix}_cost') or 0)
         if net_value == 0 and gross_value == 0 and cost_amount == 0:
             continue
-        prepped.append(
+        branch = row.get('branch_name') or row.get('branch_ext_id') or 'N/A'
+        branch_code = row.get('branch_ext_id') or 'N/A'
+        bucket = prepped_by_branch.setdefault(
+            branch,
             {
-                'branch': row.get('branch_name') or row.get('branch_ext_id') or 'N/A',
-                'branch_code': row.get('branch_ext_id') or 'N/A',
-                'net_value': net_value,
-                'gross_value': gross_value,
-                'cost_amount': cost_amount,
-            }
+                'branch': branch,
+                'branch_code': branch_code,
+                'net_value': 0.0,
+                'gross_value': 0.0,
+                'cost_amount': 0.0,
+            },
         )
+        if branch_code not in str(bucket.get('branch_code') or '').split(', '):
+            bucket['branch_code'] = f"{bucket['branch_code']}, {branch_code}"
+        bucket['net_value'] = float(bucket['net_value']) + net_value
+        bucket['gross_value'] = float(bucket['gross_value']) + gross_value
+        bucket['cost_amount'] = float(bucket['cost_amount']) + cost_amount
 
+    prepped = list(prepped_by_branch.values())
     total_net = sum(float(item['net_value']) for item in prepped)
     avg_net = (total_net / len(prepped)) if prepped else 0.0
     out: list[dict] = []
@@ -1524,6 +1747,49 @@ async def sales_by_branch(
     return out
 
 
+async def _latest_sales_anchor_date(
+    db: AsyncSession,
+    *,
+    date_from: date,
+    date_to: date,
+    branches: list[str] | None = None,
+    warehouses: list[str] | None = None,
+    brands: list[str] | None = None,
+    categories: list[str] | None = None,
+    groups: list[str] | None = None,
+) -> date | None:
+    """Return latest available sales date inside the selected range.
+
+    We use this to keep day/week/month widgets meaningful when the chosen
+    period extends beyond the latest loaded tenant sales data.
+    """
+    if _has_sales_turnover_series_rules():
+        stmt = select(func.max(FactSales.doc_date)).where(*_date_range(FactSales.doc_date, date_from, date_to))
+        stmt = _apply_fact_sales_filters(
+            stmt,
+            branches=branches,
+            warehouses=warehouses,
+            brands=brands,
+            categories=categories,
+            groups=groups,
+        )
+        stmt = _apply_fact_sales_turnover_rules(stmt)
+    else:
+        stmt = select(func.max(AggSalesDaily.doc_date)).where(*_date_range(AggSalesDaily.doc_date, date_from, date_to))
+        stmt = _apply_sales_filters(
+            stmt,
+            branches=branches,
+            warehouses=warehouses,
+            brands=brands,
+            categories=categories,
+            groups=groups,
+        )
+    latest = (await db.execute(stmt)).scalar_one_or_none()
+    if latest is None:
+        return None
+    return latest.date() if hasattr(latest, 'date') else latest
+
+
 async def sales_by_brand(
     db: AsyncSession,
     date_from: date,
@@ -1642,24 +1908,37 @@ async def purchases_summary(
     categories: list[str] | None = None,
     groups: list[str] | None = None,
 ):
+    net_expr = func.coalesce(FactPurchases.net_value, 0)
+    cost_expr = func.coalesce(FactPurchases.cost_amount, 0)
+    discount_expr = _fact_purchase_signed_discount_expr()
+    before_discount_expr = net_expr + discount_expr
     stmt = (
         select(
-            func.count(AggPurchasesDaily.id),
-            func.coalesce(func.sum(AggPurchasesDaily.qty), 0),
-            func.coalesce(func.sum(AggPurchasesDaily.net_value), 0),
-            func.coalesce(func.sum(AggPurchasesDaily.cost_amount), 0),
+            func.count(FactPurchases.id),
+            func.coalesce(func.sum(FactPurchases.qty), 0),
+            func.coalesce(func.sum(net_expr), 0),
+            func.coalesce(func.sum(cost_expr), 0),
+            func.coalesce(func.sum(before_discount_expr), 0),
+            func.coalesce(func.sum(discount_expr), 0),
         )
-        .where(*_date_range(AggPurchasesDaily.doc_date, date_from, date_to))
+        .where(*_date_range(FactPurchases.doc_date, date_from, date_to))
     )
-    stmt = _apply_purchase_filters(
+    stmt = _apply_fact_purchase_filters(
         stmt, branches=branches, warehouses=warehouses, brands=brands, categories=categories, groups=groups
     )
     row = (await db.execute(stmt)).one()
+    net_value = float(row[2] or 0)
+    gross_value = float(row[4] or 0)
+    discount_amount = float(row[5] or 0)
     return {
         'records': int(row[0] or 0),
         'qty': float(row[1] or 0),
-        'net_value': float(row[2] or 0),
+        'net_value': net_value,
         'cost_amount': float(row[3] or 0),
+        'gross_value': gross_value,
+        'discount_amount': discount_amount,
+        'before_discount_value': gross_value,
+        'after_discount_value': net_value,
     }
 
 
@@ -1675,18 +1954,19 @@ async def purchases_by_supplier(
 ):
     stmt = (
         select(
-            AggPurchasesDaily.supplier_ext_id,
-            func.coalesce(func.max(DimSupplier.name), AggPurchasesDaily.supplier_ext_id).label('supplier_name'),
-            func.coalesce(func.sum(AggPurchasesDaily.net_value), 0).label('net_value'),
-            func.coalesce(func.sum(AggPurchasesDaily.cost_amount), 0).label('cost_amount'),
+            FactPurchases.supplier_ext_id,
+            func.coalesce(func.max(DimSupplier.name), FactPurchases.supplier_ext_id).label('supplier_name'),
+            func.coalesce(func.sum(FactPurchases.net_value), 0).label('net_value'),
+            func.coalesce(func.sum(FactPurchases.cost_amount), 0).label('cost_amount'),
         )
-        .join(DimSupplier, DimSupplier.external_id == AggPurchasesDaily.supplier_ext_id, isouter=True)
-        .where(*_date_range(AggPurchasesDaily.doc_date, date_from, date_to))
+        .select_from(FactPurchases)
+        .join(DimSupplier, DimSupplier.external_id == FactPurchases.supplier_ext_id, isouter=True)
+        .where(*_date_range(FactPurchases.doc_date, date_from, date_to))
     )
-    stmt = _apply_purchase_filters(
+    stmt = _apply_fact_purchases_filters(
         stmt, branches=branches, warehouses=warehouses, brands=brands, categories=categories, groups=groups
     )
-    stmt = stmt.group_by(AggPurchasesDaily.supplier_ext_id).order_by(func.sum(AggPurchasesDaily.net_value).desc())
+    stmt = stmt.group_by(FactPurchases.supplier_ext_id).order_by(func.sum(FactPurchases.net_value).desc())
     rows = (await db.execute(stmt)).all()
     return [
         {
@@ -1709,17 +1989,17 @@ async def purchases_monthly_trend(
     categories: list[str] | None = None,
     groups: list[str] | None = None,
 ):
-    month_start_expr = cast(func.date_trunc(literal_column("'month'"), AggPurchasesDaily.doc_date), Date)
+    month_start_expr = cast(func.date_trunc(literal_column("'month'"), FactPurchases.doc_date), Date)
     stmt = (
         select(
             month_start_expr.label('month_start'),
-            func.coalesce(func.sum(AggPurchasesDaily.net_value), 0).label('net_value'),
-            func.coalesce(func.sum(AggPurchasesDaily.cost_amount), 0).label('cost_amount'),
-            func.coalesce(func.sum(AggPurchasesDaily.qty), 0).label('qty'),
+            func.coalesce(func.sum(FactPurchases.net_value), 0).label('net_value'),
+            func.coalesce(func.sum(FactPurchases.cost_amount), 0).label('cost_amount'),
+            func.coalesce(func.sum(FactPurchases.qty), 0).label('qty'),
         )
-        .where(*_date_range(AggPurchasesDaily.doc_date, date_from, date_to))
+        .where(*_date_range(FactPurchases.doc_date, date_from, date_to))
     )
-    stmt = _apply_purchase_filters(
+    stmt = _apply_fact_purchases_filters(
         stmt, branches=branches, warehouses=warehouses, brands=brands, categories=categories, groups=groups
     )
     stmt = stmt.group_by(month_start_expr).order_by(month_start_expr)
@@ -1934,6 +2214,131 @@ async def purchases_cost_change_detection(
     }
 
 
+def _same_day_previous_year(value: date) -> date:
+    try:
+        return value.replace(year=value.year - 1)
+    except ValueError:
+        # 29/02 -> 28/02 for PYTD comparisons.
+        return value.replace(year=value.year - 1, day=28)
+
+
+async def purchases_items_ytd_breakdown(
+    db: AsyncSession,
+    date_to: date,
+    branches: list[str] | None = None,
+    warehouses: list[str] | None = None,
+    brands: list[str] | None = None,
+    categories: list[str] | None = None,
+    groups: list[str] | None = None,
+    limit: int = 250,
+):
+    def aggregate_stmt(window_from: date, window_to: date):
+        discount_amount = func.coalesce(FactPurchases.discount_amount, 0)
+        stmt = (
+            select(
+                FactPurchases.item_code.label('item_code'),
+                func.coalesce(func.sum(FactPurchases.net_value), 0).label('value'),
+                func.coalesce(func.sum(FactPurchases.qty), 0).label('qty'),
+                func.coalesce(func.sum(func.abs(discount_amount)), 0).label('discount_amount'),
+                func.coalesce(
+                    func.sum(func.abs(FactPurchases.net_value) + func.abs(discount_amount)),
+                    0,
+                ).label('discount_base'),
+            )
+            .where(*_date_range(FactPurchases.doc_date, window_from, window_to))
+            .where(FactPurchases.item_code.is_not(None))
+            .where(FactPurchases.item_code != '')
+        )
+        stmt = _apply_fact_purchases_filters(
+            stmt,
+            branches=branches,
+            warehouses=warehouses,
+            brands=brands,
+            categories=categories,
+            groups=groups,
+        )
+        return stmt.group_by(FactPurchases.item_code)
+
+    ytd_from = date(date_to.year, 1, 1)
+    pytd_to = _same_day_previous_year(date_to)
+    pytd_from = date(pytd_to.year, 1, 1)
+
+    ytd_rows = (await db.execute(aggregate_stmt(ytd_from, date_to))).all()
+    pytd_rows = (await db.execute(aggregate_stmt(pytd_from, pytd_to))).all()
+
+    by_code: dict[str, dict[str, float | str]] = {}
+
+    def ensure(code: str) -> dict[str, float | str]:
+        row = by_code.setdefault(
+            code,
+            {
+                'item_code': code,
+                'barcode': '',
+                'item_name': code,
+                'ytd_value': 0.0,
+                'ytd_qty': 0.0,
+                'ytd_discount_pct': 0.0,
+                'pytd_value': 0.0,
+                'pytd_qty': 0.0,
+                'pytd_discount_pct': 0.0,
+                '_ytd_discount_amount': 0.0,
+                '_ytd_discount_base': 0.0,
+                '_pytd_discount_amount': 0.0,
+                '_pytd_discount_base': 0.0,
+            },
+        )
+        return row
+
+    for code, value, qty, discount_amount, discount_base in ytd_rows:
+        item = ensure(str(code))
+        item['ytd_value'] = float(value or 0)
+        item['ytd_qty'] = float(qty or 0)
+        item['_ytd_discount_amount'] = float(discount_amount or 0)
+        item['_ytd_discount_base'] = float(discount_base or 0)
+
+    for code, value, qty, discount_amount, discount_base in pytd_rows:
+        item = ensure(str(code))
+        item['pytd_value'] = float(value or 0)
+        item['pytd_qty'] = float(qty or 0)
+        item['_pytd_discount_amount'] = float(discount_amount or 0)
+        item['_pytd_discount_base'] = float(discount_base or 0)
+
+    codes = list(by_code.keys())
+    if codes:
+        dim_rows = (
+            await db.execute(
+                select(DimItem.external_id, DimItem.barcode, DimItem.name).where(DimItem.external_id.in_(codes))
+            )
+        ).all()
+        for ext, barcode, name in dim_rows:
+            item = by_code.get(str(ext))
+            if not item:
+                continue
+            item['barcode'] = str(barcode or '')
+            item['item_name'] = _clean_item_name(str(name or ''), fallback=str(ext))
+
+    rows = []
+    for item in by_code.values():
+        ytd_base = float(item.pop('_ytd_discount_base') or 0)
+        ytd_disc = float(item.pop('_ytd_discount_amount') or 0)
+        pytd_base = float(item.pop('_pytd_discount_base') or 0)
+        pytd_disc = float(item.pop('_pytd_discount_amount') or 0)
+        item['ytd_discount_pct'] = (ytd_disc / ytd_base * 100.0) if ytd_base else 0.0
+        item['pytd_discount_pct'] = (pytd_disc / pytd_base * 100.0) if pytd_base else 0.0
+        rows.append(item)
+
+    rows.sort(key=lambda r: abs(float(r.get('ytd_value') or 0)), reverse=True)
+    return {
+        'periods': {
+            'ytd_from': str(ytd_from),
+            'ytd_to': str(date_to),
+            'pytd_from': str(pytd_from),
+            'pytd_to': str(pytd_to),
+        },
+        'rows': rows[: max(1, min(limit, 1000))],
+    }
+
+
 async def purchases_decision_pack(
     db: AsyncSession,
     date_from: date,
@@ -2015,6 +2420,16 @@ async def purchases_decision_pack(
         groups=groups,
         limit=10,
     )
+    item_breakdown = await purchases_items_ytd_breakdown(
+        db,
+        date_to=date_to,
+        branches=branches,
+        warehouses=warehouses,
+        brands=brands,
+        categories=categories,
+        groups=groups,
+        limit=250,
+    )
     return {
         'summary': summary,
         'purchase_trend': trend,
@@ -2023,6 +2438,7 @@ async def purchases_decision_pack(
         'cost_change_detection': cost_change,
         'seasonality': seasonal,
         'new_codes': new_codes,
+        'item_breakdown': item_breakdown,
     }
 
 
@@ -2058,6 +2474,133 @@ async def _distinct_dimension_values(
     return [str(v) for v in rows if v]
 
 
+async def _distinct_purchase_dimension_values(
+    db: AsyncSession,
+    *,
+    date_from: date,
+    date_to: date,
+    agg_column,
+    fact_column,
+    branches: list[str] | None = None,
+    warehouses: list[str] | None = None,
+    brands: list[str] | None = None,
+    categories: list[str] | None = None,
+    groups: list[str] | None = None,
+):
+    values = await _distinct_dimension_values(
+        db,
+        AggPurchasesDaily.doc_date,
+        agg_column,
+        date_from,
+        date_to,
+        _apply_purchase_filters,
+        branches=branches,
+        warehouses=warehouses,
+        brands=brands,
+        categories=categories,
+        groups=groups,
+    )
+    if values:
+        return values
+
+    stmt = (
+        select(fact_column)
+        .where(*_date_range(FactPurchases.doc_date, date_from, date_to))
+        .where(fact_column.is_not(None))
+        .where(fact_column != '')
+    )
+    stmt = _apply_fact_purchases_filters(
+        stmt,
+        branches=branches,
+        warehouses=warehouses,
+        brands=brands,
+        categories=categories,
+        groups=groups,
+    )
+    stmt = stmt.distinct().order_by(fact_column)
+    rows = (await db.execute(stmt)).scalars().all()
+    return [str(v) for v in rows if v]
+
+
+async def _purchase_item_dimension_options(
+    db: AsyncSession,
+    *,
+    date_from: date,
+    date_to: date,
+    dimension: str,
+    branches: list[str] | None = None,
+    warehouses: list[str] | None = None,
+    brands: list[str] | None = None,
+    categories: list[str] | None = None,
+    groups: list[str] | None = None,
+) -> tuple[list[str], dict[str, str]]:
+    purchase_items = (
+        select(FactPurchases.item_code)
+        .where(*_date_range(FactPurchases.doc_date, date_from, date_to))
+        .where(FactPurchases.item_code.is_not(None))
+    )
+    purchase_items = _apply_fact_purchases_filters(
+        purchase_items,
+        branches=branches,
+        warehouses=warehouses,
+        brands=None if dimension == 'brands' else brands,
+        categories=None if dimension == 'categories' else categories,
+        groups=None if dimension == 'groups' else groups,
+    ).distinct()
+
+    if dimension == 'categories':
+        c1 = func.coalesce(_softone_clean_dimension_text(DimItem.category_1), literal('N/A'))
+        c2 = func.coalesce(_softone_clean_dimension_text(DimItem.category_2), c1)
+        c3 = func.coalesce(_softone_clean_dimension_text(DimItem.category_3), c2)
+        path = func.concat(c1, literal(' > '), c2, literal(' > '), c3).label('path')
+        rows = (
+            await db.execute(
+                select(path)
+                .where(DimItem.external_id.in_(purchase_items))
+                .where(
+                    or_(
+                        _softone_clean_dimension_text(DimItem.category_1).is_not(None),
+                        _softone_clean_dimension_text(DimItem.category_2).is_not(None),
+                        _softone_clean_dimension_text(DimItem.category_3).is_not(None),
+                    )
+                )
+                .distinct()
+                .order_by(path)
+            )
+        ).scalars().all()
+        values = [str(v) for v in rows if v]
+        return values, {v: v for v in values}
+
+    if dimension == 'brands':
+        value_expr = FactInventory.source_payload_json['brand_external_id'].astext
+        label_expr = FactInventory.source_payload_json['brand_name'].astext
+    elif dimension == 'groups':
+        value_expr = FactInventory.source_payload_json['group_external_id'].astext
+        label_expr = FactInventory.source_payload_json['group_name'].astext
+    else:
+        return [], {}
+
+    rows = (
+        await db.execute(
+            select(value_expr.label('value'), func.max(label_expr).label('label'))
+            .where(FactInventory.item_code.in_(purchase_items))
+            .where(value_expr.is_not(None))
+            .where(value_expr != '')
+            .group_by(value_expr)
+            .order_by(func.max(label_expr), value_expr)
+        )
+    ).all()
+    values: list[str] = []
+    labels: dict[str, str] = {}
+    for value, label in rows:
+        if not value:
+            continue
+        key = str(value)
+        values.append(key)
+        labels[key] = str(label or value)
+    return values, labels
+
+
 async def _dimension_label_map(db: AsyncSession, model) -> dict[str, str]:
     if model is DimCategory:
         parent = aliased(DimCategory)
@@ -2087,8 +2630,37 @@ async def _dimension_label_map(db: AsyncSession, model) -> dict[str, str]:
                 label_map[str(ext)] = str(ext)
         return label_map
 
+    if model is DimWarehouse:
+        rows = (
+            await db.execute(
+                select(DimWarehouse.external_id, DimWarehouse.name).where(DimWarehouse.external_id.is_not(None))
+            )
+        ).all()
+        label_map: dict[str, str] = {}
+        for ext, name in rows:
+            if not ext:
+                continue
+            ext_txt = str(ext).strip()
+            name_txt = str(name or "").strip()
+            if name_txt and name_txt.lower() != ext_txt.lower():
+                label_map[ext_txt] = f"{ext_txt} - {name_txt}"
+            else:
+                label_map[ext_txt] = ext_txt
+        return label_map
+
     rows = (await db.execute(select(model.external_id, model.name).where(model.external_id.is_not(None)))).all()
     return {str(ext): str(name or ext) for ext, name in rows if ext}
+
+
+async def _expense_category_label_map(db: AsyncSession) -> dict[str, str]:
+    rows = (
+        await db.execute(
+            select(DimExpenseCategory.category_code, DimExpenseCategory.category_name).where(
+                DimExpenseCategory.category_code.is_not(None)
+            )
+        )
+    ).all()
+    return {str(code): str(name or code) for code, name in rows if code}
 
 
 async def sales_filter_options(
@@ -2239,7 +2811,21 @@ async def sales_filter_options(
                 max_date,
             )
 
-    return {**options, 'labels': labels}
+    channels_rows = (
+        await db.execute(
+            select(FactSales.channel_ext_id, FactSales.channel_name)
+            .where(FactSales.doc_date >= date_from)
+            .where(FactSales.doc_date <= date_to)
+            .where(FactSales.channel_ext_id.is_not(None))
+            .where(FactSales.channel_ext_id != '')
+            .distinct()
+            .order_by(FactSales.channel_name)
+        )
+    ).all()
+    channel_ids = [str(r[0]) for r in channels_rows]
+    labels['channels'] = {str(r[0]): str(r[1] or r[0]) for r in channels_rows}
+
+    return {**options, 'channels': channel_ids, 'labels': labels}
 
 
 async def sales_documents_overview(
@@ -2251,6 +2837,7 @@ async def sales_documents_overview(
     brands: list[str] | None = None,
     categories: list[str] | None = None,
     groups: list[str] | None = None,
+    channels: list[str] | None = None,
     status: str = 'all',
     series: str | None = None,
     document_no: str | None = None,
@@ -2311,6 +2898,7 @@ async def sales_documents_overview(
         brands=brands,
         categories=categories,
         groups=groups,
+        channels=channels,
     )
 
     status_clean = str(status or 'all').strip().lower()
@@ -2707,6 +3295,7 @@ async def sales_document_detail(
             'reason': str(first_fact.reason or ''),
             'from_ref': str(first_fact.origin_ref or ''),
             'to_ref': str(first_fact.destination_ref or ''),
+            'channel_name': str(getattr(first_fact, 'channel_name', '') or ''),
         },
         'delivery': {
             'customer_branch': customer_branch,
@@ -3137,6 +3726,7 @@ async def purchase_document_detail(
                 'line_total': gross_value,
                 'line_net': net_value,
                 'line_external_id': str(fact.external_id or ''),
+                'channel_name': str(getattr(fact, 'channel_name', '') or ''),
             }
         )
 
@@ -3246,6 +3836,9 @@ async def inventory_documents_overview(
         .join(DimCategory, DimCategory.id == DimItem.category_id, isouter=True)
         .join(DimGroup, DimGroup.id == DimItem.group_id, isouter=True)
         .where(*_date_range(FactInventory.doc_date, date_from, date_to))
+        # Inventory snapshots belong to inventory balance views, not ERP warehouse documents.
+        .where(func.coalesce(FactInventory.document_series, literal('')) != literal('SNAPSHOT'))
+        .where(_inventory_item_scope_predicate())
     )
     branches = _effective_branch_filter(branches)
     if branches is not None:
@@ -3373,6 +3966,8 @@ async def inventory_document_detail(
         .join(DimCategory, DimCategory.id == DimItem.category_id, isouter=True)
         .join(DimGroup, DimGroup.id == DimItem.group_id, isouter=True)
         .where(doc_key == doc_id)
+        .where(func.coalesce(FactInventory.document_series, literal('')) != literal('SNAPSHOT'))
+        .where(_inventory_item_scope_predicate())
     )
     if date_from is not None:
         stmt = stmt.where(FactInventory.doc_date >= date_from)
@@ -3553,6 +4148,42 @@ async def purchases_filter_options(
         'categories': await _dimension_label_map(db, DimCategory),
         'groups': await _dimension_label_map(db, DimGroup),
     }
+    brand_values, brand_labels = await _purchase_item_dimension_options(
+        db,
+        date_from=date_from,
+        date_to=date_to,
+        dimension='brands',
+        branches=branches,
+        warehouses=warehouses,
+        brands=brands,
+        categories=categories,
+        groups=groups,
+    )
+    category_values, category_labels = await _purchase_item_dimension_options(
+        db,
+        date_from=date_from,
+        date_to=date_to,
+        dimension='categories',
+        branches=branches,
+        warehouses=warehouses,
+        brands=brands,
+        categories=categories,
+        groups=groups,
+    )
+    group_values, group_labels = await _purchase_item_dimension_options(
+        db,
+        date_from=date_from,
+        date_to=date_to,
+        dimension='groups',
+        branches=branches,
+        warehouses=warehouses,
+        brands=brands,
+        categories=categories,
+        groups=groups,
+    )
+    labels['brands'].update(brand_labels)
+    labels['categories'].update(category_labels)
+    labels['groups'].update(group_labels)
     return {
         'branches': await _distinct_dimension_values(
             db,
@@ -3580,46 +4211,272 @@ async def purchases_filter_options(
             categories=categories,
             groups=groups,
         ),
-        'brands': await _distinct_dimension_values(
+        'brands': await _distinct_purchase_dimension_values(
             db,
-            AggPurchasesDaily.doc_date,
-            AggPurchasesDaily.brand_ext_id,
-            date_from,
-            date_to,
-            _apply_purchase_filters,
+            date_from=date_from,
+            date_to=date_to,
+            agg_column=AggPurchasesDaily.brand_ext_id,
+            fact_column=FactPurchases.brand_ext_id,
             branches=branches,
             warehouses=warehouses,
             brands=None,
             categories=categories,
             groups=groups,
-        ),
-        'categories': await _distinct_dimension_values(
+        ) or brand_values,
+        'categories': await _distinct_purchase_dimension_values(
             db,
-            AggPurchasesDaily.doc_date,
-            AggPurchasesDaily.category_ext_id,
-            date_from,
-            date_to,
-            _apply_purchase_filters,
+            date_from=date_from,
+            date_to=date_to,
+            agg_column=AggPurchasesDaily.category_ext_id,
+            fact_column=FactPurchases.category_ext_id,
             branches=branches,
             warehouses=warehouses,
             brands=brands,
             categories=None,
             groups=groups,
-        ),
-        'groups': await _distinct_dimension_values(
+        ) or category_values,
+        'groups': await _distinct_purchase_dimension_values(
             db,
-            AggPurchasesDaily.doc_date,
-            AggPurchasesDaily.group_ext_id,
-            date_from,
-            date_to,
-            _apply_purchase_filters,
+            date_from=date_from,
+            date_to=date_to,
+            agg_column=AggPurchasesDaily.group_ext_id,
+            fact_column=FactPurchases.group_ext_id,
             branches=branches,
             warehouses=warehouses,
             brands=brands,
             categories=categories,
             groups=None,
-        ),
+        ) or group_values,
         'labels': labels,
+    }
+
+
+async def expenses_filter_options(
+    db: AsyncSession,
+    date_from: date,
+    date_to: date,
+    branches: list[str] | None = None,
+    categories: list[str] | None = None,
+):
+    labels = {
+        'branches': await _dimension_label_map(db, DimBranch),
+        'categories': await _expense_category_label_map(db),
+    }
+    branch_filter = _effective_branch_filter(branches)
+    branch_stmt = (
+        select(AggExpensesDaily.branch_ext_id)
+        .where(*_date_range(AggExpensesDaily.expense_date, date_from, date_to))
+        .where(AggExpensesDaily.branch_ext_id.is_not(None))
+        .where(AggExpensesDaily.branch_ext_id != '')
+    )
+    if categories:
+        branch_stmt = branch_stmt.where(AggExpensesDaily.expense_category_code.in_(categories))
+    branch_stmt = branch_stmt.distinct().order_by(AggExpensesDaily.branch_ext_id)
+    category_stmt = (
+        select(AggExpensesDaily.expense_category_code)
+        .where(*_date_range(AggExpensesDaily.expense_date, date_from, date_to))
+        .where(AggExpensesDaily.expense_category_code.is_not(None))
+        .where(AggExpensesDaily.expense_category_code != '')
+    )
+    if branch_filter is not None:
+        category_stmt = category_stmt.where(AggExpensesDaily.branch_ext_id.in_(branch_filter))
+    category_stmt = category_stmt.distinct().order_by(AggExpensesDaily.expense_category_code)
+    return {
+        'branches': [str(v) for v in (await db.execute(branch_stmt)).scalars().all() if v],
+        'categories': [str(v) for v in (await db.execute(category_stmt)).scalars().all() if v],
+        'labels': labels,
+    }
+
+
+async def expenses_documents_overview(
+    db: AsyncSession,
+    date_from: date,
+    date_to: date,
+    branches: list[str] | None = None,
+    categories: list[str] | None = None,
+    q: str | None = None,
+    limit: int = 200,
+    offset: int = 0,
+):
+    branch_filter = _effective_branch_filter(branches)
+    doc_key = func.coalesce(FactExpense.document_no, FactExpense.external_id)
+    base = (
+        select(
+            doc_key.label('document_id'),
+            func.coalesce(func.max(FactExpense.document_no), func.max(FactExpense.external_id), literal('')).label('document_no'),
+            func.max(FactExpense.expense_date).label('document_date'),
+            func.coalesce(func.max(DimBranch.name), func.max(FactExpense.branch_ext_id), literal('N/A')).label('branch_name'),
+            func.coalesce(
+                func.max(DimExpenseCategory.category_name),
+                func.max(FactExpense.expense_category_code),
+                literal('N/A'),
+            ).label('category_name'),
+            func.coalesce(func.max(FactExpense.document_type), literal('Παραστατικό Εξόδων')).label('document_type'),
+            func.coalesce(func.max(DimSupplier.name), func.max(FactExpense.supplier_ext_id), literal('N/A')).label('supplier_name'),
+            func.coalesce(func.sum(FactExpense.amount_net), 0).label('amount_net'),
+            func.coalesce(func.sum(FactExpense.amount_tax), 0).label('amount_tax'),
+            func.coalesce(func.sum(FactExpense.amount_gross), 0).label('amount_gross'),
+            func.count(FactExpense.id).label('line_count'),
+            func.max(FactExpense.updated_at).label('last_update'),
+        )
+        .select_from(FactExpense)
+        .join(DimBranch, DimBranch.id == FactExpense.branch_id, isouter=True)
+        .join(DimExpenseCategory, DimExpenseCategory.id == FactExpense.category_id, isouter=True)
+        .join(DimSupplier, DimSupplier.id == FactExpense.supplier_id, isouter=True)
+        .where(*_date_range(FactExpense.expense_date, date_from, date_to))
+    )
+    if branch_filter is not None:
+        base = base.where(FactExpense.branch_ext_id.in_(branch_filter))
+    if categories:
+        base = base.where(FactExpense.expense_category_code.in_(categories))
+    q_clean = str(q or '').strip().lower()
+    if q_clean:
+        like = f'%{q_clean}%'
+        base = base.where(
+            func.lower(cast(func.coalesce(FactExpense.document_no, FactExpense.external_id, literal('')), String)).like(like)
+            | func.lower(cast(func.coalesce(FactExpense.document_type, literal('')), String)).like(like)
+            | func.lower(cast(func.coalesce(DimSupplier.name, FactExpense.supplier_ext_id, literal('')), String)).like(like)
+            | func.lower(cast(func.coalesce(DimExpenseCategory.category_name, FactExpense.expense_category_code, literal('')), String)).like(like)
+        )
+    docs_sub = base.group_by(doc_key).subquery('expense_docs')
+    totals_row = (
+        await db.execute(
+            select(
+                func.coalesce(func.count(), 0).label('docs_count'),
+                func.coalesce(func.sum(docs_sub.c.amount_net), 0).label('amount_net'),
+                func.coalesce(func.sum(docs_sub.c.amount_tax), 0).label('amount_tax'),
+                func.coalesce(func.sum(docs_sub.c.amount_gross), 0).label('amount_gross'),
+            )
+        )
+    ).mappings().one()
+    rows = (
+        await db.execute(
+            select(docs_sub)
+            .order_by(docs_sub.c.document_date.desc(), docs_sub.c.last_update.desc(), docs_sub.c.document_id.asc())
+            .offset(max(0, int(offset)))
+            .limit(max(1, min(int(limit), 500)))
+        )
+    ).mappings().all()
+    out_rows = []
+    for r in rows:
+        doc_date_val = r.get('document_date')
+        out_rows.append(
+            {
+                'document_id': str(r.get('document_id') or ''),
+                'document_no': str(r.get('document_no') or r.get('document_id') or ''),
+                'document_date': doc_date_val.isoformat() if isinstance(doc_date_val, date) else str(doc_date_val or ''),
+                'branch': str(r.get('branch_name') or 'N/A'),
+                'category': str(r.get('category_name') or 'N/A'),
+                'document_type': str(r.get('document_type') or 'Παραστατικό Εξόδων'),
+                'supplier': str(r.get('supplier_name') or 'N/A'),
+                'total_net_value': float(r.get('amount_net') or 0),
+                'total_tax_value': float(r.get('amount_tax') or 0),
+                'total_gross_value': float(r.get('amount_gross') or 0),
+                'line_count': int(r.get('line_count') or 0),
+                'last_update': _raw_scalar(r.get('last_update')),
+            }
+        )
+    return {
+        'summary': {
+            'documents': int(totals_row['docs_count'] or 0),
+            'amount_net': float(totals_row['amount_net'] or 0),
+            'amount_tax': float(totals_row['amount_tax'] or 0),
+            'amount_gross': float(totals_row['amount_gross'] or 0),
+        },
+        'limit': int(limit),
+        'offset': int(offset),
+        'rows': out_rows,
+    }
+
+
+async def expense_document_detail(
+    db: AsyncSession,
+    document_id: str,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    branches: list[str] | None = None,
+    categories: list[str] | None = None,
+):
+    doc_id = str(document_id or '').strip()
+    if not doc_id:
+        raise ValueError('Missing document id')
+    branch_filter = _effective_branch_filter(branches)
+    doc_key = func.coalesce(FactExpense.document_no, FactExpense.external_id)
+    stmt = (
+        select(
+            FactExpense,
+            DimBranch.name.label('branch_name'),
+            DimExpenseCategory.category_name.label('category_name'),
+            DimSupplier.name.label('supplier_name'),
+            DimAccount.name.label('account_name'),
+        )
+        .select_from(FactExpense)
+        .join(DimBranch, DimBranch.id == FactExpense.branch_id, isouter=True)
+        .join(DimExpenseCategory, DimExpenseCategory.id == FactExpense.category_id, isouter=True)
+        .join(DimSupplier, DimSupplier.id == FactExpense.supplier_id, isouter=True)
+        .join(DimAccount, DimAccount.id == FactExpense.account_id, isouter=True)
+        .where(doc_key == doc_id)
+    )
+    if date_from is not None:
+        stmt = stmt.where(FactExpense.expense_date >= date_from)
+    if date_to is not None:
+        stmt = stmt.where(FactExpense.expense_date <= date_to)
+    if branch_filter is not None:
+        stmt = stmt.where(FactExpense.branch_ext_id.in_(branch_filter))
+    if categories:
+        stmt = stmt.where(FactExpense.expense_category_code.in_(categories))
+    rows = (await db.execute(stmt.order_by(FactExpense.expense_date.desc(), FactExpense.external_id.asc()))).all()
+    if not rows:
+        raise ValueError('Expense document not found')
+    first_fact: FactExpense = rows[0][0]
+    branch_name = str(rows[0][1] or first_fact.branch_ext_id or 'N/A')
+    category_name = str(rows[0][2] or first_fact.expense_category_code or 'N/A')
+    supplier_name = str(rows[0][3] or first_fact.supplier_ext_id or 'N/A')
+    account_name = str(rows[0][4] or first_fact.account_ext_id or '')
+    line_rows = []
+    total_net = 0.0
+    total_tax = 0.0
+    total_gross = 0.0
+    for idx, row in enumerate(rows, start=1):
+        fact: FactExpense = row[0]
+        amount_net = float(fact.amount_net or 0)
+        amount_tax = float(fact.amount_tax or 0)
+        amount_gross = float(fact.amount_gross or 0)
+        total_net += amount_net
+        total_tax += amount_tax
+        total_gross += amount_gross
+        line_rows.append(
+            {
+                'row_no': idx,
+                'category': str(row[2] or fact.expense_category_code or ''),
+                'supplier': str(row[3] or fact.supplier_ext_id or ''),
+                'account': str(row[4] or fact.account_ext_id or ''),
+                'net_value': amount_net,
+                'tax_value': amount_tax,
+                'gross_value': amount_gross,
+                'external_id': str(fact.external_id or ''),
+            }
+        )
+    return {
+        'document_id': doc_id,
+        'document_no': str(first_fact.document_no or doc_id),
+        'document_date': first_fact.expense_date.isoformat() if first_fact.expense_date else '',
+        'header': {
+            'branch_name': branch_name,
+            'category_name': category_name,
+            'document_type': str(first_fact.document_type or 'Παραστατικό Εξόδων'),
+            'supplier_name': supplier_name,
+            'account_name': account_name,
+            'payment_status': str(first_fact.payment_status or ''),
+            'cost_center': str(first_fact.cost_center or ''),
+        },
+        'totals': {
+            'net_value': total_net,
+            'tax_value': total_tax,
+            'gross_value': total_gross,
+            'line_count': len(line_rows),
+        },
+        'lines': line_rows,
     }
 
 
@@ -3748,17 +4605,14 @@ async def sales_slow_fast_movers(
             .where(*_date_range(FactPurchases.doc_date, date_from, date_to))
             .where(FactPurchases.item_code.in_(fast_item_codes))
         )
-        branches = _effective_branch_filter(branches)
-        if branches is not None:
-            purchases_stmt = purchases_stmt.where(FactPurchases.branch_ext_id.in_(branches))
-        if warehouses:
-            purchases_stmt = purchases_stmt.where(FactPurchases.warehouse_ext_id.in_(warehouses))
-        if brands:
-            purchases_stmt = purchases_stmt.where(FactPurchases.brand_ext_id.in_(brands))
-        if categories:
-            purchases_stmt = purchases_stmt.where(FactPurchases.category_ext_id.in_(categories))
-        if groups:
-            purchases_stmt = purchases_stmt.where(FactPurchases.group_ext_id.in_(groups))
+        purchases_stmt = _apply_fact_purchases_filters(
+            purchases_stmt,
+            branches=branches,
+            warehouses=warehouses,
+            brands=brands,
+            categories=categories,
+            groups=groups,
+        )
         purchases_stmt = purchases_stmt.group_by(FactPurchases.item_code)
         purchase_rows = (await db.execute(purchases_stmt)).all()
         purchases_map = {str(r[0]): float(r[2] or 0) for r in purchase_rows if r[0]}
@@ -4607,6 +5461,7 @@ async def _latest_stock_aging_snapshot_date(
 
 
 def _apply_stock_aging_dimension_filters(stmt, *, brands=None, categories=None, groups=None):
+    stmt = stmt.where(_inventory_item_scope_predicate())
     if brands:
         stmt = stmt.where(DimBrand.external_id.in_(brands))
     if categories:
@@ -4980,6 +5835,8 @@ async def inventory_summary_bundle_from_current_state(
             FactInventory.qty_reserved.label('qty_reserved'),
             FactInventory.cost_amount.label('cost_amount'),
             FactInventory.value_amount.label('value_amount'),
+            FactInventory.source_payload_json['manufacturer_code'].astext.label('payload_manufacturer_code'),
+            FactInventory.source_payload_json['manufacturer_name'].astext.label('payload_manufacturer_name'),
             func.row_number()
             .over(
                 partition_by=(
@@ -5001,6 +5858,13 @@ async def inventory_summary_bundle_from_current_state(
             item_code_expr.label('item_code'),
             func.coalesce(func.max(DimBrand.name), func.max(DimBrand.external_id), literal('N/A')).label('brand_label'),
             func.coalesce(func.max(DimGroup.name), func.max(DimGroup.external_id), literal('N/A')).label('group_label'),
+            func.coalesce(
+                func.max(func.nullif(func.btrim(DimItem.manufacturer_name), '')),
+                func.max(func.nullif(func.btrim(latest_inventory_rows.c.payload_manufacturer_name), '')),
+                func.max(func.nullif(func.btrim(DimItem.manufacturer_code), '')),
+                func.max(func.nullif(func.btrim(latest_inventory_rows.c.payload_manufacturer_code), '')),
+                literal('N/A'),
+            ).label('manufacturer_label'),
             func.coalesce(func.sum(latest_inventory_rows.c.qty_on_hand), 0).label('qty_on_hand'),
             func.coalesce(func.sum(latest_inventory_rows.c.qty_reserved), 0).label('qty_reserved'),
             func.coalesce(func.sum(latest_inventory_rows.c.cost_amount), 0).label('cost_amount'),
@@ -5043,38 +5907,6 @@ async def inventory_summary_bundle_from_current_state(
     )
     sales_last = sales_last.group_by(FactSales.item_code).subquery('inventory_sales_last')
 
-    supplier_ranked = (
-        select(
-            FactPurchases.item_code.label('item_code'),
-            FactPurchases.supplier_ext_id.label('supplier_ext_id'),
-            over(
-                func.row_number(),
-                partition_by=FactPurchases.item_code,
-                order_by=(FactPurchases.doc_date.desc(), FactPurchases.updated_at.desc()),
-            ).label('rn'),
-        )
-        .where(FactPurchases.item_code.is_not(None))
-        .where(FactPurchases.doc_date <= as_of)
-        .where(FactPurchases.doc_date >= (as_of - timedelta(days=365)))
-    )
-    branches = _effective_branch_filter(branches)
-    if branches is not None:
-        supplier_ranked = supplier_ranked.where(FactPurchases.branch_ext_id.in_(branches))
-    if warehouses:
-        supplier_ranked = supplier_ranked.where(FactPurchases.warehouse_ext_id.in_(warehouses))
-    if brands:
-        supplier_ranked = supplier_ranked.where(FactPurchases.brand_ext_id.in_(brands))
-    if categories:
-        supplier_ranked = supplier_ranked.where(FactPurchases.category_ext_id.in_(categories))
-    if groups:
-        supplier_ranked = supplier_ranked.where(FactPurchases.group_ext_id.in_(groups))
-    supplier_ranked = supplier_ranked.subquery('inventory_supplier_ranked')
-    latest_supplier = (
-        select(supplier_ranked.c.item_code, supplier_ranked.c.supplier_ext_id)
-        .where(supplier_ranked.c.rn == 1)
-        .subquery('inventory_latest_supplier')
-    )
-
     rows = (
         await db.execute(
             select(
@@ -5085,12 +5917,10 @@ async def inventory_summary_bundle_from_current_state(
                 inv_base.c.cost_amount,
                 inv_base.c.stock_value,
                 sales_last.c.last_sale_date,
-                func.coalesce(DimSupplier.name, latest_supplier.c.supplier_ext_id, literal('N/A')).label('manufacturer_label'),
+                inv_base.c.manufacturer_label,
             )
             .select_from(inv_base)
             .join(sales_last, sales_last.c.item_code == inv_base.c.item_code, isouter=True)
-            .join(latest_supplier, latest_supplier.c.item_code == inv_base.c.item_code, isouter=True)
-            .join(DimSupplier, DimSupplier.external_id == latest_supplier.c.supplier_ext_id, isouter=True)
         )
     ).mappings().all()
 
@@ -7226,30 +8056,17 @@ async def inventory_by_manufacturer(
     lookback_days: int = 365,
     limit: int = 12,
 ):
-    supplier_ranked = (
-        select(
-            FactPurchases.item_code.label('item_code'),
-            FactPurchases.supplier_ext_id.label('supplier_ext_id'),
-            over(
-                func.row_number(),
-                partition_by=FactPurchases.item_code,
-                order_by=(FactPurchases.doc_date.desc(), FactPurchases.updated_at.desc()),
-            ).label('rn'),
-        )
-        .where(FactPurchases.item_code.is_not(None))
-        .where(FactPurchases.doc_date <= as_of)
-        .where(FactPurchases.doc_date >= (as_of - timedelta(days=max(30, lookback_days))))
-        .subquery('supplier_ranked')
-    )
-    latest_supplier = (
-        select(supplier_ranked.c.item_code, supplier_ranked.c.supplier_ext_id)
-        .where(supplier_ranked.c.rn == 1)
-        .subquery('latest_supplier')
+    manufacturer_label = func.coalesce(
+        func.nullif(func.btrim(DimItem.manufacturer_name), ''),
+        func.nullif(func.btrim(FactInventory.source_payload_json['manufacturer_name'].astext), ''),
+        func.nullif(func.btrim(DimItem.manufacturer_code), ''),
+        func.nullif(func.btrim(FactInventory.source_payload_json['manufacturer_code'].astext), ''),
+        literal('N/A'),
     )
 
     stmt = (
         select(
-            func.coalesce(DimSupplier.name, latest_supplier.c.supplier_ext_id, literal('N/A')).label('manufacturer'),
+            manufacturer_label.label('manufacturer'),
             func.coalesce(func.sum(FactInventory.qty_on_hand), 0).label('qty_on_hand'),
             func.coalesce(func.sum(FactInventory.value_amount), 0).label('value_amount'),
         )
@@ -7260,8 +8077,6 @@ async def inventory_by_manufacturer(
         .join(DimBrand, DimItem.brand_id == DimBrand.id, isouter=True)
         .join(DimCategory, DimItem.category_id == DimCategory.id, isouter=True)
         .join(DimGroup, DimItem.group_id == DimGroup.id, isouter=True)
-        .join(latest_supplier, DimItem.external_id == latest_supplier.c.item_code, isouter=True)
-        .join(DimSupplier, DimSupplier.external_id == latest_supplier.c.supplier_ext_id, isouter=True)
         .where(FactInventory.doc_date <= as_of)
     )
     stmt = _apply_inventory_filters(
@@ -7273,7 +8088,7 @@ async def inventory_by_manufacturer(
         groups=groups,
     )
     stmt = (
-        stmt.group_by(DimSupplier.name, latest_supplier.c.supplier_ext_id)
+        stmt.group_by(manufacturer_label)
         .order_by(func.sum(FactInventory.value_amount).desc())
         .limit(max(1, min(limit, 100)))
     )
@@ -7297,11 +8112,17 @@ async def inventory_filter_options(
     categories: list[str] | None = None,
     groups: list[str] | None = None,
 ):
+    category_path_expr = func.concat_ws(
+        ' > ',
+        func.nullif(func.btrim(DimItem.category_1), ''),
+        func.nullif(func.btrim(DimItem.category_2), ''),
+        func.nullif(func.btrim(DimItem.category_3), ''),
+    )
     labels = {
         'branches': await _dimension_label_map(db, DimBranch),
         'warehouses': await _dimension_label_map(db, DimWarehouse),
         'brands': await _dimension_label_map(db, DimBrand),
-        'categories': await _dimension_label_map(db, DimCategory),
+        'categories': {},
         'groups': await _dimension_label_map(db, DimGroup),
     }
     base = (
@@ -7309,7 +8130,7 @@ async def inventory_filter_options(
             DimBranch.external_id.label('branch'),
             DimWarehouse.external_id.label('warehouse'),
             DimBrand.external_id.label('brand'),
-            DimCategory.external_id.label('category'),
+            category_path_expr.label('category'),
             DimGroup.external_id.label('group'),
         )
         .select_from(FactInventory)
@@ -7335,11 +8156,14 @@ async def inventory_filter_options(
         rows = (await db.execute(select(col).where(col.is_not(None)).distinct().order_by(col))).scalars().all()
         return [str(x) for x in rows if x]
 
+    categories_out = await _distinct('category')
+    labels['categories'] = {value: value for value in categories_out}
+
     return {
         'branches': await _distinct('branch'),
         'warehouses': await _distinct('warehouse'),
         'brands': await _distinct('brand'),
-        'categories': await _distinct('category'),
+        'categories': categories_out,
         'groups': await _distinct('group'),
         'labels': labels,
     }
@@ -7462,8 +8286,16 @@ async def executive_dashboard_summary(
     groups: list[str] | None = None,
     insights_limit: int = 12,
 ) -> dict:
+    # Do not silently move the dashboard to the last day that has sales.
+    # The day KPI must show the requested anchor date (today by default);
+    # otherwise a delayed sync is hidden and users see "yesterday" as "today".
     anchor_date = date_to
-    day_from = anchor_date
+    # "Τζίρος Ημέρας" is intentionally independent from broad date ranges:
+    # - default/open dashboard: current day
+    # - explicit one-day filter (from == to): that selected day
+    # - any multi-day range: current day, while period KPIs still use the range
+    day_anchor_date = date_from if date_from == date_to else date.today()
+    day_from = day_anchor_date
     week_from = _start_of_week(anchor_date)
     month_from = _start_of_month(anchor_date)
     year_from = _start_of_year(anchor_date)
@@ -7480,7 +8312,7 @@ async def executive_dashboard_summary(
     prev_month_to = _safe_same_day(prev_month_date.year, prev_month_date.month, anchor_date.day)
 
     sales_windows = {
-        'day': (day_from, anchor_date),
+        'day': (day_from, day_anchor_date),
         'week': (week_from, anchor_date),
         'month': (month_from, anchor_date),
         'year': (year_from, anchor_date),
@@ -7510,7 +8342,7 @@ async def executive_dashboard_summary(
     branch_windows = await _sales_by_branch_windows(
         db,
         windows={
-            'day': (day_from, anchor_date),
+            'day': (day_from, day_anchor_date),
             'month': (month_from, anchor_date),
             'year': (year_from, anchor_date),
             'prev_month': (prev_month_from, prev_month_to),
@@ -7772,20 +8604,40 @@ async def expenses_summary(
     categories: list[str] | None = None,
 ) -> dict:
     try:
+        has_aggregate_rows = (
+            await db.execute(
+                select(func.count())
+                .select_from(AggExpensesDaily)
+                .where(*_date_range(AggExpensesDaily.expense_date, date_from, date_to))
+            )
+        ).scalar_one() or 0
+
         stmt = (
             select(
-                func.coalesce(func.sum(AggExpensesDaily.amount_net), 0).label('amount_net'),
-                func.coalesce(func.sum(AggExpensesDaily.amount_tax), 0).label('amount_tax'),
-                func.coalesce(func.sum(AggExpensesDaily.amount_gross), 0).label('amount_gross'),
-                func.coalesce(func.sum(AggExpensesDaily.entries), 0).label('entries'),
+                func.coalesce(func.sum(FactExpense.amount_net), 0).label('amount_net'),
+                func.coalesce(func.sum(FactExpense.amount_tax), 0).label('amount_tax'),
+                func.coalesce(func.sum(FactExpense.amount_gross), 0).label('amount_gross'),
+                func.count(FactExpense.id).label('entries'),
             )
-            .where(*_date_range(AggExpensesDaily.expense_date, date_from, date_to))
+            .where(*_date_range(FactExpense.expense_date, date_from, date_to))
         )
-        stmt = _apply_expense_filters(stmt, branches=branches, categories=categories)
+        if has_aggregate_rows:
+            stmt = (
+                select(
+                    func.coalesce(func.sum(AggExpensesDaily.amount_net), 0).label('amount_net'),
+                    func.coalesce(func.sum(AggExpensesDaily.amount_tax), 0).label('amount_tax'),
+                    func.coalesce(func.sum(AggExpensesDaily.amount_gross), 0).label('amount_gross'),
+                    func.coalesce(func.sum(AggExpensesDaily.entries), 0).label('entries'),
+                )
+                .where(*_date_range(AggExpensesDaily.expense_date, date_from, date_to))
+            )
+            stmt = _apply_expense_filters(stmt, branches=branches, categories=categories)
+        else:
+            stmt = _apply_fact_expense_filters(stmt, branches=branches, categories=categories)
         row = (await db.execute(stmt)).mappings().first() or {}
-        total_expenses = float(row.get('amount_net') or 0)
-        total_tax = float(row.get('amount_tax') or 0)
-        total_gross = float(row.get('amount_gross') or 0)
+        total_expenses = abs(float(row.get('amount_net') or 0))
+        total_tax = abs(float(row.get('amount_tax') or 0))
+        total_gross = abs(float(row.get('amount_gross') or 0))
         entries = int(row.get('entries') or 0)
 
         sales_stmt = (
@@ -7829,7 +8681,13 @@ async def expenses_by_category(
         use_daily = bool(branches)
         if not use_daily:
             try:
-                has_rows = (await db.execute(select(AggExpensesByCategoryDaily.expense_date).limit(1))).first() is not None
+                has_rows = (
+                    await db.execute(
+                        select(AggExpensesByCategoryDaily.expense_date)
+                        .where(*_date_range(AggExpensesByCategoryDaily.expense_date, date_from, date_to))
+                        .limit(1)
+                    )
+                ).first() is not None
                 use_daily = not has_rows
             except Exception:
                 use_daily = True
@@ -7837,14 +8695,14 @@ async def expenses_by_category(
         if use_daily:
             stmt = (
                 select(
-                    AggExpensesDaily.expense_category_code.label('category_code'),
-                    func.coalesce(func.sum(AggExpensesDaily.amount_net), 0).label('amount_net'),
-                    func.coalesce(func.sum(AggExpensesDaily.entries), 0).label('entries'),
+                    FactExpense.expense_category_code.label('category_code'),
+                    func.coalesce(func.sum(FactExpense.amount_net), 0).label('amount_net'),
+                    func.count(FactExpense.id).label('entries'),
                 )
-                .where(*_date_range(AggExpensesDaily.expense_date, date_from, date_to))
+                .where(*_date_range(FactExpense.expense_date, date_from, date_to))
             )
-            stmt = _apply_expense_filters(stmt, branches=branches, categories=categories)
-            stmt = stmt.group_by(AggExpensesDaily.expense_category_code)
+            stmt = _apply_fact_expense_filters(stmt, branches=branches, categories=categories)
+            stmt = stmt.group_by(FactExpense.expense_category_code)
         else:
             stmt = (
                 select(
@@ -7873,11 +8731,11 @@ async def expenses_by_category(
             ).all()
             name_map = {str(code): str(name or code) for code, name in dim_rows}
 
-        total = sum(float(row.get('amount_net') or 0) for row in rows)
+        total = sum(abs(float(row.get('amount_net') or 0)) for row in rows)
         out: list[dict] = []
         for row in rows:
             code = str(row.get('category_code') or '').strip() or '-'
-            amount_net = float(row.get('amount_net') or 0)
+            amount_net = abs(float(row.get('amount_net') or 0))
             out.append(
                 {
                     'category_code': code if code != '-' else None,
@@ -7905,7 +8763,13 @@ async def expenses_by_branch(
         use_daily = bool(categories)
         if not use_daily:
             try:
-                has_rows = (await db.execute(select(AggExpensesByBranchDaily.expense_date).limit(1))).first() is not None
+                has_rows = (
+                    await db.execute(
+                        select(AggExpensesByBranchDaily.expense_date)
+                        .where(*_date_range(AggExpensesByBranchDaily.expense_date, date_from, date_to))
+                        .limit(1)
+                    )
+                ).first() is not None
                 use_daily = not has_rows
             except Exception:
                 use_daily = True
@@ -7913,14 +8777,14 @@ async def expenses_by_branch(
         if use_daily:
             stmt = (
                 select(
-                    AggExpensesDaily.branch_ext_id.label('branch_ext_id'),
-                    func.coalesce(func.sum(AggExpensesDaily.amount_net), 0).label('amount_net'),
-                    func.coalesce(func.sum(AggExpensesDaily.entries), 0).label('entries'),
+                    FactExpense.branch_ext_id.label('branch_ext_id'),
+                    func.coalesce(func.sum(FactExpense.amount_net), 0).label('amount_net'),
+                    func.count(FactExpense.id).label('entries'),
                 )
-                .where(*_date_range(AggExpensesDaily.expense_date, date_from, date_to))
+                .where(*_date_range(FactExpense.expense_date, date_from, date_to))
             )
-            stmt = _apply_expense_filters(stmt, branches=branches, categories=categories)
-            stmt = stmt.group_by(AggExpensesDaily.branch_ext_id)
+            stmt = _apply_fact_expense_filters(stmt, branches=branches, categories=categories)
+            stmt = stmt.group_by(FactExpense.branch_ext_id)
         else:
             stmt = (
                 select(
@@ -7952,7 +8816,7 @@ async def expenses_by_branch(
                 {
                     'branch_ext_id': ext_id or None,
                     'branch_name': branch_name_map.get(ext_id, ext_id or 'N/A'),
-                    'amount_net': float(row.get('amount_net') or 0),
+                    'amount_net': abs(float(row.get('amount_net') or 0)),
                     'entries': int(row.get('entries') or 0),
                 }
             )
@@ -7973,25 +8837,25 @@ async def expenses_trend(
     try:
         stmt = (
             select(
-                AggExpensesDaily.expense_date.label('expense_date'),
-                func.coalesce(func.sum(AggExpensesDaily.amount_net), 0).label('amount_net'),
-                func.coalesce(func.sum(AggExpensesDaily.amount_gross), 0).label('amount_gross'),
-                func.coalesce(func.sum(AggExpensesDaily.entries), 0).label('entries'),
+                FactExpense.expense_date.label('expense_date'),
+                func.coalesce(func.sum(FactExpense.amount_net), 0).label('amount_net'),
+                func.coalesce(func.sum(FactExpense.amount_gross), 0).label('amount_gross'),
+                func.count(FactExpense.id).label('entries'),
             )
-            .where(*_date_range(AggExpensesDaily.expense_date, date_from, date_to))
+            .where(*_date_range(FactExpense.expense_date, date_from, date_to))
         )
-        stmt = _apply_expense_filters(stmt, branches=branches, categories=categories)
+        stmt = _apply_fact_expense_filters(stmt, branches=branches, categories=categories)
         stmt = (
-            stmt.group_by(AggExpensesDaily.expense_date)
-            .order_by(AggExpensesDaily.expense_date.asc())
+            stmt.group_by(FactExpense.expense_date)
+            .order_by(FactExpense.expense_date.asc())
             .limit(max(1, min(int(limit), 365)))
         )
         rows = (await db.execute(stmt)).mappings().all()
         return [
             {
                 'date': _raw_scalar(row.get('expense_date')),
-                'amount_net': float(row.get('amount_net') or 0),
-                'amount_gross': float(row.get('amount_gross') or 0),
+                'amount_net': abs(float(row.get('amount_net') or 0)),
+                'amount_gross': abs(float(row.get('amount_gross') or 0)),
                 'entries': int(row.get('entries') or 0),
             }
             for row in rows
@@ -8246,17 +9110,14 @@ async def purchases_seasonality(
         )
         .where(*_date_range(FactPurchases.doc_date, date_from, date_to))
     )
-    branches = _effective_branch_filter(branches)
-    if branches is not None:
-        stmt = stmt.where(FactPurchases.branch_ext_id.in_(branches))
-    if warehouses:
-        stmt = stmt.where(FactPurchases.warehouse_ext_id.in_(warehouses))
-    if brands:
-        stmt = stmt.where(FactPurchases.brand_ext_id.in_(brands))
-    if categories:
-        stmt = stmt.where(FactPurchases.category_ext_id.in_(categories))
-    if groups:
-        stmt = stmt.where(FactPurchases.group_ext_id.in_(groups))
+    stmt = _apply_fact_purchases_filters(
+        stmt,
+        branches=branches,
+        warehouses=warehouses,
+        brands=brands,
+        categories=categories,
+        groups=groups,
+    )
     stmt = stmt.group_by(season_expr)
     rows = (await db.execute(stmt)).all()
     order = ['winter', 'spring', 'summer', 'autumn']
@@ -8313,17 +9174,14 @@ async def new_item_codes_activity(
         )
         .where(*_date_range(FactPurchases.doc_date, date_from, date_to))
     )
-    branches = _effective_branch_filter(branches)
-    if branches is not None:
-        purchases_stmt = purchases_stmt.where(FactPurchases.branch_ext_id.in_(branches))
-    if warehouses:
-        purchases_stmt = purchases_stmt.where(FactPurchases.warehouse_ext_id.in_(warehouses))
-    if brands:
-        purchases_stmt = purchases_stmt.where(FactPurchases.brand_ext_id.in_(brands))
-    if categories:
-        purchases_stmt = purchases_stmt.where(FactPurchases.category_ext_id.in_(categories))
-    if groups:
-        purchases_stmt = purchases_stmt.where(FactPurchases.group_ext_id.in_(groups))
+    purchases_stmt = _apply_fact_purchases_filters(
+        purchases_stmt,
+        branches=branches,
+        warehouses=warehouses,
+        brands=brands,
+        categories=categories,
+        groups=groups,
+    )
     purchases_stmt = purchases_stmt.group_by(FactPurchases.item_code).subquery('purchases_stmt')
 
     inv_latest_date = (await db.execute(select(func.max(FactInventory.doc_date)))).scalar_one_or_none()
@@ -8412,6 +9270,19 @@ async def inventory_items_overview(
             FactInventory.warehouse_id.label('warehouse_id'),
             FactInventory.item_id.label('item_id'),
             FactInventory.item_code.label('item_code'),
+            FactInventory.source_payload_json['item_name'].astext.label('payload_item_name'),
+            FactInventory.source_payload_json['barcode'].astext.label('payload_barcode'),
+            FactInventory.source_payload_json['alternate_barcodes'].astext.label('payload_alternate_barcodes'),
+            FactInventory.source_payload_json['brand_name'].astext.label('payload_brand_name'),
+            FactInventory.source_payload_json['manufacturer_code'].astext.label('payload_manufacturer_code'),
+            FactInventory.source_payload_json['manufacturer_name'].astext.label('payload_manufacturer_name'),
+            FactInventory.source_payload_json['group_name'].astext.label('payload_group_name'),
+            FactInventory.source_payload_json['commercial_category'].astext.label('payload_commercial_category'),
+            FactInventory.source_payload_json['category_1'].astext.label('payload_category_1'),
+            FactInventory.source_payload_json['category_2'].astext.label('payload_category_2'),
+            FactInventory.source_payload_json['category_3'].astext.label('payload_category_3'),
+            FactInventory.source_payload_json['is_active'].astext.label('payload_is_active'),
+            FactInventory.source_payload_json['is_active_source'].astext.label('payload_is_active_source'),
             FactInventory.qty_on_hand.label('qty_on_hand'),
             FactInventory.value_amount.label('value_amount'),
             func.row_number()
@@ -8429,16 +9300,73 @@ async def inventory_items_overview(
         .subquery('latest_inventory_rows')
     )
     item_code_expr = func.coalesce(DimItem.external_id, latest_inventory_rows.c.item_code)
+    payload_active_raw = func.lower(
+        func.trim(
+            func.coalesce(
+                cast(latest_inventory_rows.c.payload_is_active_source, String),
+                cast(latest_inventory_rows.c.payload_is_active, String),
+                literal(''),
+            )
+        )
+    )
+    payload_active_expr = case(
+        (
+            payload_active_raw.in_(
+                ['1', 'true', 'yes', 'y', 'on', 'ναι']
+            ),
+            True,
+        ),
+        (
+            payload_active_raw.in_(
+                ['0', 'false', 'no', 'n', 'off', 'οχι', 'όχι']
+            ),
+            False,
+        ),
+        else_=None,
+    )
 
     inv_base = (
         select(
             item_code_expr.label('item_code'),
-            func.coalesce(func.max(DimItem.name), item_code_expr).label('item_name'),
-            func.coalesce(func.max(DimItem.barcode), func.max(DimItem.sku), literal('')).label('barcode'),
-            func.coalesce(func.max(DimBrand.name), literal('N/A')).label('brand'),
-            func.coalesce(func.max(DimCategory.name), literal('N/A')).label('category'),
-            func.coalesce(func.max(DimGroup.name), literal('N/A')).label('group_name'),
-            func.bool_or(DimItem.is_active_source).label('is_active_source'),
+            func.coalesce(
+                func.max(func.nullif(func.btrim(DimItem.name), '')),
+                func.max(func.nullif(func.btrim(latest_inventory_rows.c.payload_item_name), '')),
+                item_code_expr,
+            ).label('item_name'),
+            func.coalesce(
+                func.max(func.nullif(func.btrim(DimItem.barcode), '')),
+                func.max(func.nullif(func.btrim(latest_inventory_rows.c.payload_barcode), '')),
+                literal(''),
+            ).label('barcode'),
+            func.coalesce(
+                func.max(func.nullif(func.btrim(DimBrand.name), '')),
+                func.max(func.nullif(func.btrim(latest_inventory_rows.c.payload_brand_name), '')),
+                literal('N/A'),
+            ).label('brand'),
+            func.coalesce(
+                func.max(func.nullif(func.btrim(DimItem.manufacturer_name), '')),
+                func.max(func.nullif(func.btrim(latest_inventory_rows.c.payload_manufacturer_name), '')),
+                func.max(func.nullif(func.btrim(DimItem.manufacturer_code), '')),
+                func.max(func.nullif(func.btrim(latest_inventory_rows.c.payload_manufacturer_code), '')),
+                literal('N/A'),
+            ).label('manufacturer'),
+            func.coalesce(func.max(func.nullif(func.btrim(DimCategory.name), '')), literal('N/A')).label('category'),
+            func.coalesce(
+                func.max(func.nullif(func.btrim(DimGroup.name), '')),
+                func.max(func.nullif(func.btrim(latest_inventory_rows.c.payload_group_name), '')),
+                literal('N/A'),
+            ).label('group_name'),
+            func.coalesce(
+                func.max(func.nullif(func.btrim(DimItem.category_1), '')),
+                func.max(func.nullif(func.btrim(latest_inventory_rows.c.payload_category_1), '')),
+                literal(''),
+            ).label('category_1'),
+            func.coalesce(
+                func.max(func.nullif(func.btrim(DimItem.commercial_category), '')),
+                func.max(func.nullif(func.btrim(latest_inventory_rows.c.payload_commercial_category), '')),
+                literal(''),
+            ).label('commercial_category'),
+            func.coalesce(func.bool_or(DimItem.is_active_source), func.bool_or(payload_active_expr)).label('is_active_source'),
             func.coalesce(func.sum(latest_inventory_rows.c.qty_on_hand), 0).label('qty_on_hand'),
             func.coalesce(func.sum(latest_inventory_rows.c.value_amount), 0).label('stock_value'),
         )
@@ -8484,17 +9412,14 @@ async def inventory_items_overview(
         .where(FactPurchases.doc_date >= (as_of - timedelta(days=30)))
         .where(FactPurchases.doc_date <= as_of)
     )
-    branches = _effective_branch_filter(branches)
-    if branches is not None:
-        purch_30 = purch_30.where(FactPurchases.branch_ext_id.in_(branches))
-    if warehouses:
-        purch_30 = purch_30.where(FactPurchases.warehouse_ext_id.in_(warehouses))
-    if brands:
-        purch_30 = purch_30.where(FactPurchases.brand_ext_id.in_(brands))
-    if categories:
-        purch_30 = purch_30.where(FactPurchases.category_ext_id.in_(categories))
-    if groups:
-        purch_30 = purch_30.where(FactPurchases.group_ext_id.in_(groups))
+    purch_30 = _apply_fact_purchases_filters(
+        purch_30,
+        branches=branches,
+        warehouses=warehouses,
+        brands=brands,
+        categories=categories,
+        groups=groups,
+    )
     purch_30 = purch_30.group_by(FactPurchases.item_code).subquery('purch_30')
 
     first_seen = (
@@ -8514,8 +9439,11 @@ async def inventory_items_overview(
             inv_base.c.item_name,
             inv_base.c.barcode,
             inv_base.c.brand,
+            inv_base.c.manufacturer,
             inv_base.c.category,
             inv_base.c.group_name,
+            inv_base.c.category_1,
+            inv_base.c.commercial_category,
             inv_base.c.qty_on_hand,
             inv_base.c.stock_value,
             func.coalesce(sales_30.c.sales_qty_30, 0).label('sales_qty_30'),
@@ -8541,9 +9469,12 @@ async def inventory_items_overview(
     rows = (await db.execute(stmt)).all()
     mapped = []
     for r in rows:
-        sales_qty_30 = float(r[8] or 0)
-        last_sale_date = r[9]
-        is_active_source = r[12]
+        sales_qty_30 = float(r[11] or 0)
+        last_sale_date = r[12]
+        is_active_source = r[15]
+        category_value = str(r[5] or 'N/A')
+        if category_value == 'N/A':
+            category_value = str(r[7] or r[8] or 'N/A')
         status_value, movement_level = _classify_inventory_item(
             as_of=as_of,
             last_sale_date=last_sale_date,
@@ -8557,14 +9488,15 @@ async def inventory_items_overview(
                 'item_name': _clean_item_name(r[1], r[0] or 'N/A'),
                 'barcode': str(r[2] or ''),
                 'brand': str(r[3] or 'N/A'),
-                'category': str(r[4] or 'N/A'),
-                'group': str(r[5] or 'N/A'),
-                'qty_on_hand': float(r[6] or 0),
-                'stock_value': float(r[7] or 0),
+                'manufacturer': str(r[4] or 'N/A'),
+                'category': category_value,
+                'group': str(r[6] or 'N/A'),
+                'qty_on_hand': float(r[9] or 0),
+                'stock_value': float(r[10] or 0),
                 'sales_qty_30': sales_qty_30,
                 'last_sale_date': str(last_sale_date) if last_sale_date else None,
-                'purchases_qty_30': float(r[10] or 0),
-                'first_seen': str(r[11]) if r[11] else None,
+                'purchases_qty_30': float(r[13] or 0),
+                'first_seen': str(r[14]) if r[14] else None,
                 'is_active_source': (bool(is_active_source) if is_active_source is not None else None),
                 'status': status_value,
                 'movement': movement_level,
@@ -8638,6 +9570,7 @@ async def inventory_item_detail(
             FactInventory.qty_reserved.label('qty_reserved'),
             FactInventory.cost_amount.label('cost_amount'),
             FactInventory.value_amount.label('value_amount'),
+            FactInventory.source_payload_json.label('source_payload_json'),
             FactInventory.updated_at.label('updated_at'),
             FactInventory.created_at.label('created_at'),
             func.row_number()
@@ -8776,17 +9709,14 @@ async def inventory_item_detail(
         .where(FactPurchases.doc_date >= (as_of - timedelta(days=30)))
         .where(FactPurchases.doc_date <= as_of)
     )
-    branches = _effective_branch_filter(branches)
-    if branches is not None:
-        purch_30_stmt = purch_30_stmt.where(FactPurchases.branch_ext_id.in_(branches))
-    if warehouses:
-        purch_30_stmt = purch_30_stmt.where(FactPurchases.warehouse_ext_id.in_(warehouses))
-    if brands:
-        purch_30_stmt = purch_30_stmt.where(FactPurchases.brand_ext_id.in_(brands))
-    if categories:
-        purch_30_stmt = purch_30_stmt.where(FactPurchases.category_ext_id.in_(categories))
-    if groups:
-        purch_30_stmt = purch_30_stmt.where(FactPurchases.group_ext_id.in_(groups))
+    purch_30_stmt = _apply_fact_purchases_filters(
+        purch_30_stmt,
+        branches=branches,
+        warehouses=warehouses,
+        brands=brands,
+        categories=categories,
+        groups=groups,
+    )
     purch_30_row = (await db.execute(purch_30_stmt)).mappings().one()
 
     first_seen_row = (
@@ -8828,14 +9758,91 @@ async def inventory_item_detail(
         last_sale_date=last_sale_date,
         sales_qty_30=sales_qty_30,
         config=resolved_classification,
-        is_active_source=(bool(dim_item.is_active_source) if dim_item and dim_item.is_active_source is not None else None),
+        is_active_source=None,
+    )
+    payloads = [getattr(row[0], 'source_payload_json', None) for row in inv_detail_rows if row and row[0] is not None]
+    payload_item_name = next(
+        (
+            _payload_text(
+                payload,
+                'item_name',
+                'name',
+                'item_description',
+                'description',
+                'product_name',
+                'mtrl_name',
+                'mtrl_description',
+            )
+            for payload in payloads
+            if _payload_text(
+                payload,
+                'item_name',
+                'name',
+                'item_description',
+                'description',
+                'product_name',
+                'mtrl_name',
+                'mtrl_description',
+            )
+        ),
+        '',
+    )
+    payload_barcode = next((_payload_text(payload, 'barcode', 'code1') for payload in payloads if _payload_text(payload, 'barcode', 'code1')), '')
+    payload_alt_barcodes = next(
+        (_payload_text(payload, 'alternate_barcodes', 'alt_barcodes', 'substitute_codes') for payload in payloads if _payload_text(payload, 'alternate_barcodes', 'alt_barcodes', 'substitute_codes')),
+        '',
+    )
+    payload_brand_name = next((_payload_text(payload, 'brand_name') for payload in payloads if _payload_text(payload, 'brand_name')), '')
+    payload_manufacturer_code = next(
+        (_payload_text(payload, 'manufacturer_code', 'manufacturer_external_id', 'manufacturer_ext_id') for payload in payloads if _payload_text(payload, 'manufacturer_code', 'manufacturer_external_id', 'manufacturer_ext_id')),
+        '',
+    )
+    payload_manufacturer_name = next(
+        (_payload_text(payload, 'manufacturer_name', 'manufacturer', 'manufacturer_label') for payload in payloads if _payload_text(payload, 'manufacturer_name', 'manufacturer', 'manufacturer_label')),
+        '',
+    )
+    payload_group_name = next((_payload_text(payload, 'group_name') for payload in payloads if _payload_text(payload, 'group_name')), '')
+    payload_category_1 = next((_payload_text(payload, 'category_1') for payload in payloads if _payload_text(payload, 'category_1')), '')
+    payload_category_2 = next((_payload_text(payload, 'category_2') for payload in payloads if _payload_text(payload, 'category_2')), '')
+    payload_category_3 = next((_payload_text(payload, 'category_3') for payload in payloads if _payload_text(payload, 'category_3')), '')
+    payload_commercial_category = next((_payload_text(payload, 'commercial_category') for payload in payloads if _payload_text(payload, 'commercial_category')), '')
+    payload_active_source = next(
+        (
+            _payload_bool(payload, 'is_active_source', 'is_active', 'active', 'enabled')
+            for payload in payloads
+            if _payload_bool(payload, 'is_active_source', 'is_active', 'active', 'enabled') is not None
+        ),
+        None,
     )
 
-    item_name = _clean_item_name(dim_item.name if dim_item else None, code)
-    barcode = str(dim_item.barcode or dim_item.sku or '') if dim_item else ''
-    brand_name = str(dim_brand.name or 'N/A') if dim_brand and dim_brand.name else 'N/A'
+    effective_active_source = (
+        bool(dim_item.is_active_source)
+        if dim_item and dim_item.is_active_source is not None
+        else payload_active_source
+    )
+    status_value, movement_level = _classify_inventory_item(
+        as_of=as_of,
+        last_sale_date=last_sale_date,
+        sales_qty_30=sales_qty_30,
+        config=resolved_classification,
+        is_active_source=effective_active_source,
+    )
+
+    item_name = _clean_item_name(dim_item.name if dim_item else None, payload_item_name or code)
+    barcode = str((dim_item.barcode if dim_item else None) or payload_barcode or '')
+    alternate_barcodes = str((dim_item.alternate_barcodes if dim_item else None) or payload_alt_barcodes or '')
+    brand_name = str((dim_brand.name if dim_brand and dim_brand.name else None) or payload_brand_name or 'N/A')
+    manufacturer_name = str(
+        (dim_item.manufacturer_name if dim_item and dim_item.manufacturer_name else None)
+        or payload_manufacturer_name
+        or (dim_item.manufacturer_code if dim_item and dim_item.manufacturer_code else None)
+        or payload_manufacturer_code
+        or 'N/A'
+    )
     category_name = str(dim_category.name or 'N/A') if dim_category and dim_category.name else 'N/A'
-    group_name = str(dim_group.name or 'N/A') if dim_group and dim_group.name else 'N/A'
+    if category_name == 'N/A':
+        category_name = payload_category_1 or payload_commercial_category or 'N/A'
+    group_name = str((dim_group.name if dim_group and dim_group.name else None) or payload_group_name or 'N/A')
 
     raw_fields = []
     _append_model_raw_fields(raw_fields, 'dim_items', dim_item)
@@ -8844,6 +9851,28 @@ async def inventory_item_detail(
     _append_model_raw_fields(raw_fields, 'dim_brands', dim_brand)
     _append_model_raw_fields(raw_fields, 'dim_categories', dim_category)
     _append_model_raw_fields(raw_fields, 'dim_groups', dim_group)
+    if payload_item_name:
+        _append_raw_field(raw_fields, 'inventory.payload_item_name', payload_item_name)
+    if payload_barcode:
+        _append_raw_field(raw_fields, 'inventory.payload_barcode', payload_barcode)
+    if alternate_barcodes:
+        _append_raw_field(raw_fields, 'inventory.alternate_barcodes', alternate_barcodes)
+    if payload_brand_name:
+        _append_raw_field(raw_fields, 'inventory.payload_brand_name', payload_brand_name)
+    if payload_manufacturer_code:
+        _append_raw_field(raw_fields, 'inventory.payload_manufacturer_code', payload_manufacturer_code)
+    if payload_manufacturer_name:
+        _append_raw_field(raw_fields, 'inventory.payload_manufacturer_name', payload_manufacturer_name)
+    if payload_group_name:
+        _append_raw_field(raw_fields, 'inventory.payload_group_name', payload_group_name)
+    if payload_commercial_category:
+        _append_raw_field(raw_fields, 'inventory.payload_commercial_category', payload_commercial_category)
+    if payload_category_1:
+        _append_raw_field(raw_fields, 'inventory.payload_category_1', payload_category_1)
+    if payload_category_2:
+        _append_raw_field(raw_fields, 'inventory.payload_category_2', payload_category_2)
+    if payload_category_3:
+        _append_raw_field(raw_fields, 'inventory.payload_category_3', payload_category_3)
 
     _append_raw_field(raw_fields, 'inventory.snapshot_date', latest_date)
     _append_raw_field(raw_fields, 'inventory.rows_in_snapshot', int(inv_row['inv_rows'] or 0))
@@ -8882,7 +9911,7 @@ async def inventory_item_detail(
     _append_raw_field(raw_fields, 'classification.status', status_value)
     _append_raw_field(raw_fields, 'classification.movement', movement_level)
     _append_raw_field(raw_fields, 'classification.status_source', resolved_classification['status_source'])
-    _append_raw_field(raw_fields, 'classification.is_active_source', dim_item.is_active_source if dim_item else None)
+    _append_raw_field(raw_fields, 'classification.is_active_source', effective_active_source)
     _append_raw_field(raw_fields, 'classification.active_last_sale_days', resolved_classification['active_last_sale_days'])
     _append_raw_field(raw_fields, 'classification.fast_sales_qty_30d_min', resolved_classification['fast_sales_qty_30d_min'])
     _append_raw_field(raw_fields, 'classification.slow_sales_qty_30d_max', resolved_classification['slow_sales_qty_30d_max'])
@@ -8891,7 +9920,9 @@ async def inventory_item_detail(
         'item_code': code,
         'item_name': item_name,
         'barcode': barcode,
+        'alternate_barcodes': alternate_barcodes,
         'brand': brand_name,
+        'manufacturer': manufacturer_name,
         'category': category_name,
         'group': group_name,
         'qty_on_hand': qty_on_hand,
@@ -9124,7 +10155,7 @@ async def price_control_items(
             select(
                 DimItem.external_id,
                 func.coalesce(DimItem.name, DimItem.external_id).label('item_name'),
-                func.coalesce(DimItem.barcode, DimItem.sku, literal('')).label('barcode'),
+                func.coalesce(DimItem.barcode, literal('')).label('barcode'),
                 func.coalesce(DimBrand.name, literal('N/A')).label('brand'),
                 func.coalesce(DimCategory.name, literal('N/A')).label('category'),
                 func.coalesce(DimGroup.name, literal('N/A')).label('group_name'),
@@ -9225,4 +10256,797 @@ async def price_control_items(
         },
         'effective_discount_pct': round(effective_discount_pct, 2),
         'rows': rows,
+    }
+
+
+def _sellout_item_metadata_filters(
+    stmt,
+    *,
+    item_column,
+    brands: list[str] | None = None,
+    categories: list[str] | None = None,
+    groups: list[str] | None = None,
+):
+    if brands:
+        dim_brand_items = (
+            select(DimItem.external_id)
+            .select_from(DimItem)
+            .join(DimBrand, DimItem.brand_id == DimBrand.id, isouter=True)
+            .where(DimItem.external_id.is_not(None))
+            .where(or_(DimBrand.external_id.in_(brands), DimBrand.name.in_(brands)))
+            .distinct()
+        )
+        inventory_brand_items = (
+            select(FactInventory.item_code)
+            .where(FactInventory.item_code.is_not(None))
+            .where(
+                or_(
+                    FactInventory.source_payload_json['brand_external_id'].astext.in_(brands),
+                    FactInventory.source_payload_json['brand_name'].astext.in_(brands),
+                )
+            )
+            .distinct()
+        )
+        stmt = stmt.where(
+            or_(
+                FactSales.brand_ext_id.in_(brands),
+                item_column.in_(dim_brand_items),
+                item_column.in_(inventory_brand_items),
+            )
+        )
+    if categories:
+        dim_category_items = (
+            select(DimItem.external_id)
+            .select_from(DimItem)
+            .join(DimCategory, DimItem.category_id == DimCategory.id, isouter=True)
+            .where(DimItem.external_id.is_not(None))
+            .where(
+                or_(
+                    DimCategory.external_id.in_(categories),
+                    DimCategory.name.in_(categories),
+                    _item_category_path_expr().in_(categories),
+                )
+            )
+            .distinct()
+        )
+        stmt = stmt.where(or_(FactSales.category_ext_id.in_(categories), item_column.in_(dim_category_items)))
+    if groups:
+        dim_group_items = (
+            select(DimItem.external_id)
+            .select_from(DimItem)
+            .join(DimGroup, DimItem.group_id == DimGroup.id, isouter=True)
+            .where(DimItem.external_id.is_not(None))
+            .where(or_(DimGroup.external_id.in_(groups), DimGroup.name.in_(groups)))
+            .distinct()
+        )
+        inventory_group_items = (
+            select(FactInventory.item_code)
+            .where(FactInventory.item_code.is_not(None))
+            .where(
+                or_(
+                    FactInventory.source_payload_json['group_external_id'].astext.in_(groups),
+                    FactInventory.source_payload_json['group_name'].astext.in_(groups),
+                )
+            )
+            .distinct()
+        )
+        stmt = stmt.where(
+            or_(
+                FactSales.group_ext_id.in_(groups),
+                item_column.in_(dim_group_items),
+                item_column.in_(inventory_group_items),
+            )
+        )
+    return stmt
+
+
+def _sellout_action(*, sales_qty: float, sales_value: float, profit_pct: float, stock_qty: float, days: int) -> str:
+    avg_daily_qty = sales_qty / max(days, 1)
+    stock_cover_days = (stock_qty / avg_daily_qty) if avg_daily_qty > 0 else None
+    if sales_qty <= 0 and stock_qty > 0:
+        return 'Νεκρό απόθεμα: ζήτησε επιστροφή, αντικατάσταση ή promo.'
+    if sales_value > 0 and profit_pct < 15:
+        return 'Χαμηλό περιθώριο: ζήτησε καλύτερη έκπτωση ή εμπορική πολιτική.'
+    if stock_cover_days is not None and stock_cover_days < 20 and sales_qty > 0:
+        return 'Ταχυκίνητο με χαμηλό απόθεμα: κλείσε διαθεσιμότητα/παραγγελία.'
+    if stock_cover_days is not None and stock_cover_days > 180:
+        return 'Υψηλό απόθεμα: ζήτησε στήριξη, promo ή αλλαγή κωδικών.'
+    if sales_qty > 0 and profit_pct >= 30:
+        return 'Καλή κίνηση και κέρδος: κράτησε χώρο και συζήτησε επιπλέον παροχή.'
+    return 'Κανονική παρακολούθηση.'
+
+
+async def _sellout_latest_inventory_rows(
+    db: AsyncSession,
+    item_codes: list[str],
+    *,
+    date_to: date,
+    branches: list[str] | None = None,
+    warehouses: list[str] | None = None,
+) -> dict[str, dict[str, object]]:
+    if not item_codes:
+        return {}
+    latest_date = (
+        await db.execute(
+            select(func.max(FactInventory.doc_date))
+            .where(FactInventory.doc_date <= date_to)
+            .where(FactInventory.item_code.in_(item_codes))
+        )
+    ).scalar()
+    if not latest_date:
+        return {}
+    stmt = (
+        select(
+            FactInventory.item_code,
+            func.coalesce(func.sum(FactInventory.qty_on_hand), 0).label('stock_qty'),
+            func.coalesce(func.sum(FactInventory.value_amount), 0).label('stock_value'),
+            func.coalesce(func.sum(FactInventory.cost_amount), 0).label('stock_cost'),
+            func.max(FactInventory.source_payload_json['brand_external_id'].astext).label('brand_external_id'),
+            func.max(FactInventory.source_payload_json['brand_name'].astext).label('brand_name'),
+            func.max(FactInventory.source_payload_json['group_external_id'].astext).label('group_external_id'),
+            func.max(FactInventory.source_payload_json['group_name'].astext).label('group_name'),
+            func.max(FactInventory.source_payload_json['category_1'].astext).label('category_1'),
+            func.max(FactInventory.source_payload_json['category_2'].astext).label('category_2'),
+            func.max(FactInventory.source_payload_json['category_3'].astext).label('category_3'),
+            func.max(FactInventory.source_payload_json['barcode'].astext).label('payload_barcode'),
+            func.max(FactInventory.source_payload_json['color'].astext).label('color'),
+            func.max(FactInventory.source_payload_json['size'].astext).label('size'),
+        )
+        .where(FactInventory.doc_date == latest_date)
+        .where(FactInventory.item_code.in_(item_codes))
+    )
+    if branches:
+        stmt = stmt.where(FactInventory.branch_ext_id.in_(branches))
+    if warehouses:
+        stmt = stmt.where(FactInventory.warehouse_ext_id.in_(warehouses))
+    rows = (await db.execute(stmt.group_by(FactInventory.item_code))).mappings().all()
+    return {str(row['item_code']): dict(row) for row in rows if row.get('item_code')}
+
+
+async def sellout_filter_options(
+    db: AsyncSession,
+    date_from: date,
+    date_to: date,
+    branches: list[str] | None = None,
+    warehouses: list[str] | None = None,
+):
+    sold_items = (
+        select(FactSales.item_code)
+        .where(*_date_range(FactSales.doc_date, date_from, date_to))
+        .where(FactSales.item_code.is_not(None))
+    )
+    sold_items = _apply_fact_sales_filters(sold_items, branches=branches, warehouses=warehouses).distinct()
+
+    labels = {
+        'branches': await _dimension_label_map(db, DimBranch),
+        'warehouses': await _dimension_label_map(db, DimWarehouse),
+        'brands': await _dimension_label_map(db, DimBrand),
+        'categories': await _dimension_label_map(db, DimCategory),
+        'groups': await _dimension_label_map(db, DimGroup),
+        'suppliers': await _dimension_label_map(db, DimSupplier),
+    }
+
+    def add_option(values: list[str], label_map: dict[str, str], value: object, label: object = None) -> None:
+        key = str(value or '').strip()
+        if not key or key in {'0', '-'}:
+            return
+        if key not in values:
+            values.append(key)
+        label_text = str(label or label_map.get(key) or key).strip()
+        if label_text and label_text not in {'0', '-'}:
+            label_map[key] = label_text
+
+    brands: list[str] = []
+    brand_fact_stmt = (
+        select(FactSales.brand_ext_id.label('value'), func.max(DimBrand.name).label('label'))
+        .select_from(FactSales)
+        .join(DimBrand, DimBrand.external_id == FactSales.brand_ext_id, isouter=True)
+        .where(*_date_range(FactSales.doc_date, date_from, date_to))
+        .where(FactSales.brand_ext_id.is_not(None))
+        .where(FactSales.brand_ext_id != '')
+        .group_by(FactSales.brand_ext_id)
+        .order_by(func.max(DimBrand.name), FactSales.brand_ext_id)
+    )
+    brand_fact_stmt = _apply_fact_sales_filters(brand_fact_stmt, branches=branches, warehouses=warehouses)
+    brand_fact_rows = (await db.execute(brand_fact_stmt)).all()
+    for value, label in brand_fact_rows:
+        add_option(brands, labels['brands'], value, label)
+
+    brand_dim_rows = (
+        await db.execute(
+            select(DimBrand.external_id, DimBrand.name)
+            .select_from(DimItem)
+            .join(DimBrand, DimItem.brand_id == DimBrand.id)
+            .where(DimItem.external_id.in_(sold_items))
+            .where(DimBrand.external_id.is_not(None))
+            .distinct()
+            .order_by(DimBrand.name, DimBrand.external_id)
+        )
+    ).all()
+    for value, label in brand_dim_rows:
+        add_option(brands, labels['brands'], value, label)
+
+    brand_value_expr = literal_column("fact_inventory.source_payload_json ->> 'brand_external_id'")
+    brand_label_expr = literal_column("fact_inventory.source_payload_json ->> 'brand_name'")
+    brand_rows = (
+        await db.execute(
+            select(
+                brand_value_expr.label('value'),
+                func.max(brand_label_expr).label('label'),
+            )
+            .where(FactInventory.item_code.in_(sold_items))
+            .where(brand_value_expr.is_not(None))
+            .where(brand_value_expr != '')
+            .group_by(brand_value_expr)
+            .order_by(func.max(brand_label_expr))
+        )
+    ).all()
+    for value, label in brand_rows:
+        add_option(brands, labels['brands'], value, label)
+
+    categories: list[str] = []
+    category_fact_stmt = (
+        select(FactSales.category_ext_id.label('value'), func.max(DimCategory.name).label('label'))
+        .select_from(FactSales)
+        .join(DimCategory, DimCategory.external_id == FactSales.category_ext_id, isouter=True)
+        .where(*_date_range(FactSales.doc_date, date_from, date_to))
+        .where(FactSales.category_ext_id.is_not(None))
+        .where(FactSales.category_ext_id != '')
+        .group_by(FactSales.category_ext_id)
+        .order_by(func.max(DimCategory.name), FactSales.category_ext_id)
+    )
+    category_fact_stmt = _apply_fact_sales_filters(category_fact_stmt, branches=branches, warehouses=warehouses)
+    category_fact_rows = (await db.execute(category_fact_stmt)).all()
+    for value, label in category_fact_rows:
+        add_option(categories, labels['categories'], value, label)
+
+    category_dim_rows = (
+        await db.execute(
+            select(DimCategory.external_id, DimCategory.name)
+            .select_from(DimItem)
+            .join(DimCategory, DimItem.category_id == DimCategory.id)
+            .where(DimItem.external_id.in_(sold_items))
+            .where(DimCategory.external_id.is_not(None))
+            .distinct()
+            .order_by(DimCategory.name, DimCategory.external_id)
+        )
+    ).all()
+    for value, label in category_dim_rows:
+        add_option(categories, labels['categories'], value, label)
+
+    category_rows = (
+        await db.execute(
+            select(_item_category_path_expr().label('value'))
+            .where(DimItem.external_id.in_(sold_items))
+            .where(
+                or_(
+                    _softone_clean_dimension_text(DimItem.category_1).is_not(None),
+                    _softone_clean_dimension_text(DimItem.category_2).is_not(None),
+                    _softone_clean_dimension_text(DimItem.category_3).is_not(None),
+                )
+            )
+            .distinct()
+        )
+    ).scalars().all()
+    for value in category_rows:
+        add_option(categories, labels['categories'], value, value)
+
+    groups: list[str] = []
+    group_dim_rows = (
+        await db.execute(
+            select(DimGroup.external_id, DimGroup.name)
+            .select_from(DimItem)
+            .join(DimGroup, DimItem.group_id == DimGroup.id)
+            .where(DimItem.external_id.in_(sold_items))
+            .where(DimGroup.external_id.is_not(None))
+            .distinct()
+            .order_by(DimGroup.name, DimGroup.external_id)
+        )
+    ).all()
+    for value, label in group_dim_rows:
+        add_option(groups, labels['groups'], value, label)
+
+    group_value_expr = literal_column("fact_inventory.source_payload_json ->> 'group_external_id'")
+    group_label_expr = literal_column("fact_inventory.source_payload_json ->> 'group_name'")
+    group_rows = (
+        await db.execute(
+            select(
+                group_value_expr.label('value'),
+                func.max(group_label_expr).label('label'),
+            )
+            .where(FactInventory.item_code.in_(sold_items))
+            .where(group_value_expr.is_not(None))
+            .where(group_value_expr != '')
+            .group_by(group_value_expr)
+            .order_by(func.max(group_label_expr))
+        )
+    ).all()
+    for value, label in group_rows:
+        add_option(groups, labels['groups'], value, label)
+
+    supplier_rows = (
+        await db.execute(
+            select(FactPurchases.supplier_ext_id)
+            .where(FactPurchases.item_code.in_(sold_items))
+            .where(FactPurchases.supplier_ext_id.is_not(None))
+            .where(FactPurchases.supplier_ext_id != '')
+            .distinct()
+            .order_by(FactPurchases.supplier_ext_id)
+        )
+    ).scalars().all()
+
+    return {
+        'branches': await _distinct_dimension_values(
+            db, FactSales.doc_date, FactSales.branch_ext_id, date_from, date_to, _apply_fact_sales_filters,
+            branches=None, warehouses=warehouses
+        ),
+        'warehouses': await _distinct_dimension_values(
+            db, FactSales.doc_date, FactSales.warehouse_ext_id, date_from, date_to, _apply_fact_sales_filters,
+            branches=branches, warehouses=None
+        ),
+        'brands': sorted(brands, key=lambda value: labels['brands'].get(value, value).lower()),
+        'categories': sorted(categories, key=lambda value: labels['categories'].get(value, value).lower()),
+        'groups': sorted(groups, key=lambda value: labels['groups'].get(value, value).lower()),
+        'suppliers': [str(v) for v in supplier_rows if v],
+        'labels': labels,
+    }
+
+
+async def sellout_report(
+    db: AsyncSession,
+    date_from: date,
+    date_to: date,
+    branches: list[str] | None = None,
+    warehouses: list[str] | None = None,
+    brands: list[str] | None = None,
+    categories: list[str] | None = None,
+    groups: list[str] | None = None,
+    suppliers: list[str] | None = None,
+    q: str | None = None,
+    limit: int = 250,
+    offset: int = 0,
+):
+    supplier_item_filter = None
+    if suppliers:
+        supplier_item_filter = (
+            select(FactPurchases.item_code)
+            .where(FactPurchases.item_code.is_not(None))
+            .where(FactPurchases.supplier_ext_id.in_(suppliers))
+            .distinct()
+        )
+
+    profit_expr = func.coalesce(func.sum(FactSales.profit_amount), func.sum(FactSales.net_value - FactSales.cost_amount), 0)
+
+    async def _sellout_monthly_sales(start_date: date, end_date: date) -> dict[date, float]:
+        yr_expr = func.extract('year', FactSales.doc_date).label('yr')
+        mo_expr = func.extract('month', FactSales.doc_date).label('mo')
+        stmt = (
+            select(
+                yr_expr,
+                mo_expr,
+                func.coalesce(func.sum(FactSales.net_value), 0).label('sales_value'),
+            )
+            .select_from(FactSales)
+            .where(*_date_range(FactSales.doc_date, start_date, end_date))
+            .where(FactSales.item_code.is_not(None))
+        )
+        stmt = _apply_fact_sales_filters(stmt, branches=branches, warehouses=warehouses)
+        stmt = _sellout_item_metadata_filters(
+            stmt,
+            item_column=FactSales.item_code,
+            brands=brands,
+            categories=categories,
+            groups=groups,
+        )
+        if supplier_item_filter is not None:
+            stmt = stmt.where(FactSales.item_code.in_(supplier_item_filter))
+        if q_clean:
+            like = f'%{q_clean}%'
+            stmt = stmt.where(
+                func.lower(cast(func.coalesce(FactSales.item_code, literal('')), String)).like(like)
+            )
+        rows = (await db.execute(stmt.group_by(yr_expr, mo_expr).order_by(yr_expr, mo_expr))).all()
+        return {date(int(row[0]), int(row[1]), 1): float(row[2] or 0) for row in rows}
+
+    async def _sellout_monthly_by_dim(
+        start_date: date, end_date: date, dim: str
+    ) -> list[tuple[str, str, date, float]]:
+        month_expr = cast(func.date_trunc(literal_column("'month'"), FactSales.doc_date), Date)
+
+        # Build item→brand map from inventory payload (the primary brand source for this ERP)
+        inv_brand_sq = (
+            select(
+                FactInventory.item_code.label('ic'),
+                func.max(FactInventory.source_payload_json['brand_external_id'].astext).label('bid'),
+                func.max(FactInventory.source_payload_json['brand_name'].astext).label('bname'),
+            )
+            .where(FactInventory.item_code.is_not(None))
+            .where(FactInventory.source_payload_json['brand_external_id'].astext.is_not(None))
+            .where(FactInventory.source_payload_json['brand_external_id'].astext != '')
+            .group_by(FactInventory.item_code)
+        ).subquery('ibsq')
+
+        if dim == 'brand':
+            resolved_id = func.coalesce(FactSales.brand_ext_id, DimBrand.external_id, inv_brand_sq.c.bid)
+            resolved_name = func.coalesce(
+                func.max(DimBrand.name),
+                func.max(inv_brand_sq.c.bname),
+                func.max(FactSales.brand_ext_id),
+            )
+            stmt = (
+                select(
+                    resolved_id.label('dim_id'),
+                    resolved_name.label('dim_name'),
+                    month_expr.label('month_start'),
+                    func.coalesce(func.sum(FactSales.net_value), 0).label('sales_value'),
+                )
+                .select_from(FactSales)
+                .join(DimItem, DimItem.external_id == FactSales.item_code, isouter=True)
+                .join(DimBrand, DimItem.brand_id == DimBrand.id, isouter=True)
+                .join(inv_brand_sq, inv_brand_sq.c.ic == FactSales.item_code, isouter=True)
+                .where(*_date_range(FactSales.doc_date, start_date, end_date))
+                .where(FactSales.item_code.is_not(None))
+                .where(resolved_id.is_not(None))
+            )
+            group_by_col = resolved_id
+        else:
+            # Categories live in DimItem.category_1/2/3 — use category_1 as primary group key
+            cat_id_col = func.coalesce(
+                FactSales.category_ext_id,
+                _softone_clean_dimension_text(DimItem.category_1),
+            )
+            resolved_name = func.coalesce(
+                func.max(_softone_clean_dimension_text(DimItem.category_1)),
+                func.max(FactSales.category_ext_id),
+            )
+            stmt = (
+                select(
+                    cat_id_col.label('dim_id'),
+                    resolved_name.label('dim_name'),
+                    month_expr.label('month_start'),
+                    func.coalesce(func.sum(FactSales.net_value), 0).label('sales_value'),
+                )
+                .select_from(FactSales)
+                .join(DimItem, DimItem.external_id == FactSales.item_code, isouter=True)
+                .where(*_date_range(FactSales.doc_date, start_date, end_date))
+                .where(FactSales.item_code.is_not(None))
+                .where(cat_id_col.is_not(None))
+            )
+            group_by_col = cat_id_col
+        stmt = _apply_fact_sales_filters(stmt, branches=branches, warehouses=warehouses)
+        stmt = _sellout_item_metadata_filters(
+            stmt,
+            item_column=FactSales.item_code,
+            brands=brands,
+            categories=categories,
+            groups=groups,
+        )
+        if supplier_item_filter is not None:
+            stmt = stmt.where(FactSales.item_code.in_(supplier_item_filter))
+        if q_clean:
+            like = f'%{q_clean}%'
+            stmt = stmt.where(
+                func.lower(cast(func.coalesce(FactSales.item_code, literal('')), String)).like(like)
+            )
+        rows = (
+            await db.execute(
+                stmt.group_by(group_by_col, month_expr).order_by(group_by_col, month_expr)
+            )
+        ).all()
+        return [(str(r[0]), str(r[1] or r[0]), r[2], float(r[3] or 0)) for r in rows]
+
+    async def _sellout_monthly_by_brand_category(
+        start_date: date, end_date: date
+    ) -> list[tuple[str, str, str, date, float]]:
+        """Returns (brand_id, brand_name, category_label, month_start, value) per brand×category."""
+        month_expr = cast(func.date_trunc(literal_column("'month'"), FactSales.doc_date), Date)
+        inv_brand_sq = (
+            select(
+                FactInventory.item_code.label('ic'),
+                func.max(FactInventory.source_payload_json['brand_external_id'].astext).label('bid'),
+                func.max(FactInventory.source_payload_json['brand_name'].astext).label('bname'),
+            )
+            .where(FactInventory.item_code.is_not(None))
+            .where(FactInventory.source_payload_json['brand_external_id'].astext.is_not(None))
+            .where(FactInventory.source_payload_json['brand_external_id'].astext != '')
+            .group_by(FactInventory.item_code)
+        ).subquery('ibsq2')
+        resolved_brand = func.coalesce(FactSales.brand_ext_id, DimBrand.external_id, inv_brand_sq.c.bid)
+        cat_label = func.coalesce(
+            _softone_clean_dimension_text(DimItem.category_1),
+            FactSales.category_ext_id,
+            literal('N/A'),
+        )
+        stmt = (
+            select(
+                resolved_brand.label('brand_id'),
+                func.coalesce(func.max(DimBrand.name), func.max(inv_brand_sq.c.bname), func.max(FactSales.brand_ext_id)).label('brand_name'),
+                cat_label.label('cat_label'),
+                month_expr.label('month_start'),
+                func.coalesce(func.sum(FactSales.net_value), 0).label('sales_value'),
+            )
+            .select_from(FactSales)
+            .join(DimItem, DimItem.external_id == FactSales.item_code, isouter=True)
+            .join(DimBrand, DimItem.brand_id == DimBrand.id, isouter=True)
+            .join(inv_brand_sq, inv_brand_sq.c.ic == FactSales.item_code, isouter=True)
+            .where(*_date_range(FactSales.doc_date, start_date, end_date))
+            .where(FactSales.item_code.is_not(None))
+            .where(resolved_brand.is_not(None))
+        )
+        stmt = _apply_fact_sales_filters(stmt, branches=branches, warehouses=warehouses)
+        stmt = _sellout_item_metadata_filters(
+            stmt, item_column=FactSales.item_code,
+            brands=brands, categories=categories, groups=groups,
+        )
+        if supplier_item_filter is not None:
+            stmt = stmt.where(FactSales.item_code.in_(supplier_item_filter))
+        if q_clean:
+            like = f'%{q_clean}%'
+            stmt = stmt.where(
+                func.lower(cast(func.coalesce(FactSales.item_code, literal('')), String)).like(like)
+            )
+        rows = (
+            await db.execute(
+                stmt.group_by(resolved_brand, cat_label, month_expr)
+                .order_by(resolved_brand, cat_label, month_expr)
+            )
+        ).all()
+        return [(str(r[0]), str(r[1] or r[0]), str(r[2] or 'N/A'), r[3], float(r[4] or 0)) for r in rows]
+
+    sales_base = (
+        select(
+            FactSales.item_code.label('item_code'),
+            func.coalesce(func.max(DimItem.name), func.max(FactSales.item_code), literal('N/A')).label('item_name'),
+            func.coalesce(func.max(DimItem.barcode), literal('')).label('barcode'),
+            func.coalesce(func.max(DimItem.alternate_barcodes), literal('')).label('alternate_barcodes'),
+            func.coalesce(func.sum(FactSales.net_value), 0).label('sales_value'),
+            func.coalesce(func.sum(FactSales.qty), 0).label('sales_qty'),
+            func.coalesce(func.sum(FactSales.cost_amount), 0).label('sales_cost'),
+            profit_expr.label('gross_profit_value'),
+            func.coalesce(func.avg(FactSales.discount_pct), 0).label('avg_discount_pct'),
+            func.max(FactSales.doc_date).label('last_sale_date'),
+        )
+        .select_from(FactSales)
+        .join(DimItem, DimItem.external_id == FactSales.item_code, isouter=True)
+        .where(*_date_range(FactSales.doc_date, date_from, date_to))
+        .where(FactSales.item_code.is_not(None))
+    )
+    sales_base = _apply_fact_sales_filters(sales_base, branches=branches, warehouses=warehouses)
+    sales_base = _sellout_item_metadata_filters(
+        sales_base,
+        item_column=FactSales.item_code,
+        brands=brands,
+        categories=categories,
+        groups=groups,
+    )
+    if supplier_item_filter is not None:
+        sales_base = sales_base.where(FactSales.item_code.in_(supplier_item_filter))
+    q_clean = str(q or '').strip().lower()
+    if q_clean:
+        like = f'%{q_clean}%'
+        sales_base = sales_base.where(
+            func.lower(cast(func.coalesce(FactSales.item_code, literal('')), String)).like(like)
+            | func.lower(cast(func.coalesce(DimItem.name, literal('')), String)).like(like)
+            | func.lower(cast(func.coalesce(DimItem.barcode, literal('')), String)).like(like)
+        )
+
+    grouped = sales_base.group_by(FactSales.item_code).subquery('sellout_sales')
+    totals = (
+        await db.execute(
+            select(
+                func.coalesce(func.count(), 0).label('items'),
+                func.coalesce(func.sum(grouped.c.sales_value), 0).label('sales_value'),
+                func.coalesce(func.sum(grouped.c.sales_qty), 0).label('sales_qty'),
+                func.coalesce(func.sum(grouped.c.sales_cost), 0).label('sales_cost'),
+                func.coalesce(func.sum(grouped.c.gross_profit_value), 0).label('gross_profit_value'),
+            )
+        )
+    ).mappings().one()
+
+    row_limit = max(1, min(int(limit), 1000))
+    row_offset = max(0, int(offset))
+    sales_rows = (
+        await db.execute(
+            select(grouped)
+            .order_by(grouped.c.sales_value.desc(), grouped.c.sales_qty.desc(), grouped.c.item_code.asc())
+            .offset(row_offset)
+            .limit(row_limit)
+        )
+    ).mappings().all()
+    item_codes = [str(r['item_code']) for r in sales_rows if r.get('item_code')]
+
+    inventory_map = await _sellout_latest_inventory_rows(
+        db,
+        item_codes,
+        date_to=date_to,
+        branches=branches,
+        warehouses=warehouses,
+    )
+
+    purchase_stmt = (
+        select(
+            FactPurchases.item_code,
+            func.coalesce(func.sum(FactPurchases.net_value), 0).label('purchase_value'),
+            func.coalesce(func.sum(FactPurchases.qty), 0).label('purchase_qty'),
+            func.coalesce(
+                func.sum(
+                    func.coalesce(FactPurchases.discount_amount, 0)
+                    + func.coalesce(FactPurchases.discount1_amount, 0)
+                    + func.coalesce(FactPurchases.discount2_amount, 0)
+                    + func.coalesce(FactPurchases.discount3_amount, 0)
+                ),
+                0,
+            ).label('purchase_discount_amount'),
+            func.max(FactPurchases.supplier_ext_id).label('supplier_ext_id'),
+            func.coalesce(func.max(DimSupplier.name), func.max(FactPurchases.supplier_ext_id), literal('')).label('supplier_name'),
+        )
+        .select_from(FactPurchases)
+        .join(DimSupplier, DimSupplier.external_id == FactPurchases.supplier_ext_id, isouter=True)
+        .where(FactPurchases.item_code.in_(item_codes))
+        .where(FactPurchases.doc_date <= date_to)
+        .group_by(FactPurchases.item_code)
+    )
+    if suppliers:
+        purchase_stmt = purchase_stmt.where(FactPurchases.supplier_ext_id.in_(suppliers))
+    purchase_rows = (await db.execute(purchase_stmt)).mappings().all() if item_codes else []
+    purchase_map = {str(r['item_code']): dict(r) for r in purchase_rows if r.get('item_code')}
+
+    days = (date_to - date_from).days + 1
+    dim_rows = (
+        await db.execute(
+            select(DimItem.external_id, DimItem.category_1, DimItem.category_2, DimItem.category_3).where(DimItem.external_id.in_(item_codes))
+        )
+    ).all() if item_codes else []
+    dim_category_map = {
+        str(code): [str(x).strip() for x in [c1, c2, c3] if x and str(x).strip() not in {'0', '-'}]
+        for code, c1, c2, c3 in dim_rows
+    }
+    rows: list[dict[str, object]] = []
+    stock_total = 0.0
+    for r in sales_rows:
+        code = str(r.get('item_code') or '')
+        inv = inventory_map.get(code, {})
+        pur = purchase_map.get(code, {})
+        sales_value = float(r.get('sales_value') or 0)
+        sales_qty = float(r.get('sales_qty') or 0)
+        gross_profit_value = float(r.get('gross_profit_value') or 0)
+        profit_pct = (gross_profit_value / sales_value * 100.0) if sales_value else 0.0
+        stock_qty = float(inv.get('stock_qty') or 0)
+        stock_value = float(inv.get('stock_value') or 0)
+        stock_total += stock_qty
+        category_parts = [
+            str(x).strip()
+            for x in [inv.get('category_1'), inv.get('category_2'), inv.get('category_3')]
+            if x and str(x).strip() not in {'0', '-'}
+        ]
+        category_label = ' > '.join(category_parts or dim_category_map.get(code, [])) or 'N/A'
+        purchase_value = float(pur.get('purchase_value') or 0)
+        purchase_qty = float(pur.get('purchase_qty') or 0)
+        purchase_discount_amount = float(pur.get('purchase_discount_amount') or 0)
+        discount_base = abs(purchase_value) + abs(purchase_discount_amount)
+        purchase_discount_pct = (purchase_discount_amount / discount_base * 100.0) if discount_base else 0.0
+        rows.append(
+            {
+                'item_code': code,
+                'product': _clean_item_name(str(r.get('item_name') or ''), code),
+                'barcode': str(r.get('barcode') or inv.get('payload_barcode') or '-'),
+                'alternate_barcodes': str(r.get('alternate_barcodes') or ''),
+                'color': str(inv.get('color') or '-'),
+                'size': str(inv.get('size') or '-'),
+                'supplier_code': str(pur.get('supplier_ext_id') or ''),
+                'supplier_name': str(pur.get('supplier_name') or 'N/A'),
+                'brand': str(inv.get('brand_name') or inv.get('brand_external_id') or 'N/A'),
+                'category': category_label,
+                'group': str(inv.get('group_name') or inv.get('group_external_id') or 'N/A'),
+                'sales_value': round(sales_value, 2),
+                'sales_qty': round(sales_qty, 4),
+                'gross_profit_pct': round(profit_pct, 2),
+                'gross_profit_value': round(gross_profit_value, 2),
+                'stock_qty': round(stock_qty, 4),
+                'stock_value': round(stock_value, 2),
+                'purchase_value': round(purchase_value, 2),
+                'purchase_qty': round(purchase_qty, 4),
+                'purchase_discount_pct': round(purchase_discount_pct, 2),
+                'last_sale_date': r.get('last_sale_date').isoformat() if r.get('last_sale_date') else None,
+                'action': _sellout_action(
+                    sales_qty=sales_qty,
+                    sales_value=sales_value,
+                    profit_pct=profit_pct,
+                    stock_qty=stock_qty,
+                    days=days,
+                ),
+            }
+        )
+
+    total_sales = float(totals.get('sales_value') or 0)
+    total_profit = float(totals.get('gross_profit_value') or 0)
+
+    prev_year_from = _safe_same_day(date_from.year - 1, date_from.month, date_from.day)
+    prev_year_to = _safe_same_day(date_to.year - 1, date_to.month, date_to.day)
+    current_months = _month_sequence(date_from, date_to)
+    current_month_map = await _sellout_monthly_sales(date_from, date_to) if current_months else {}
+    previous_month_map = await _sellout_monthly_sales(prev_year_from, prev_year_to) if current_months else {}
+    trend_labels = [_month_label(month) for month in current_months]
+    trend_current = [round(float(current_month_map.get(month, 0.0)), 2) for month in current_months]
+    trend_previous = [round(float(previous_month_map.get(month.replace(year=month.year - 1), 0.0)), 2) for month in current_months]
+    trend_current_total = round(sum(trend_current), 2)
+    trend_previous_total = round(sum(trend_previous), 2)
+    trend_delta_pct = round(
+        ((trend_current_total - trend_previous_total) / trend_previous_total * 100.0) if trend_previous_total else 0.0,
+        2,
+    )
+
+    breakdown_dim = 'brand' if brands else ('category' if categories else None)
+    breakdown: list[dict] = []
+    breakdown_detail: list[dict] = []
+
+    def _build_breakdown_series(raw_rows: list[tuple], months: list) -> list[dict]:
+        """Build sorted breakdown list from (id, name, month, value) tuples."""
+        maps: dict[str, dict] = {}
+        names: dict[str, str] = {}
+        for dim_id, dim_name, month, val in raw_rows:
+            maps.setdefault(dim_id, {})[month] = val
+            names[dim_id] = dim_name
+        result = []
+        for dim_id in sorted(maps.keys(), key=lambda x: names.get(x, x)):
+            bd_vals = [round(float(maps.get(dim_id, {}).get(m, 0.0)), 2) for m in months]
+            bd_total = round(sum(bd_vals), 2)
+            result.append({'id': dim_id, 'name': names.get(dim_id, dim_id), 'current': bd_vals, 'current_total': bd_total})
+        return result
+
+    if breakdown_dim and current_months:
+        curr_raw = await _sellout_monthly_by_dim(date_from, date_to, breakdown_dim)
+        breakdown = _build_breakdown_series(curr_raw, current_months)
+
+        # Detailed breakdown: per brand×category (only when brands are selected)
+        if breakdown_dim == 'brand':
+            detail_raw = await _sellout_monthly_by_brand_category(date_from, date_to)
+            # detail_raw: (brand_id, brand_name, cat_label, month, value)
+            detail_maps: dict[tuple, dict] = {}
+            detail_meta: dict[tuple, tuple] = {}
+            for brand_id, brand_name, cat_label, month, val in detail_raw:
+                key = (brand_id, cat_label)
+                detail_maps.setdefault(key, {})[month] = val
+                detail_meta[key] = (brand_name, cat_label)
+            for key in sorted(detail_maps.keys(), key=lambda k: (detail_meta[k][0], detail_meta[k][1])):
+                brand_name, cat_label = detail_meta[key]
+                vals = [round(float(detail_maps[key].get(m, 0.0)), 2) for m in current_months]
+                total = round(sum(vals), 2)
+                breakdown_detail.append({
+                    'id': f'{key[0]}||{key[1]}',
+                    'brand_id': key[0],
+                    'brand_name': brand_name,
+                    'cat_label': cat_label,
+                    'name': f'{brand_name} · {cat_label}',
+                    'current': vals,
+                    'current_total': total,
+                })
+
+    return {
+        'period': {'from': date_from.isoformat(), 'to': date_to.isoformat(), 'days': days},
+        'summary': {
+            'items': int(totals.get('items') or 0),
+            'sales_value': round(total_sales, 2),
+            'sales_qty': round(float(totals.get('sales_qty') or 0), 4),
+            'gross_profit_value': round(total_profit, 2),
+            'gross_profit_pct': round((total_profit / total_sales * 100.0) if total_sales else 0.0, 2),
+            'stock_qty': round(stock_total, 4),
+        },
+        'trend': {
+            'labels': trend_labels,
+            'current': trend_current,
+            'previous': trend_previous,
+            'current_label': str(date_from.year),
+            'previous_label': str(date_from.year - 1),
+            'current_period': {'from': date_from.isoformat(), 'to': date_to.isoformat()},
+            'previous_period': {'from': prev_year_from.isoformat(), 'to': prev_year_to.isoformat()},
+            'current_total': trend_current_total,
+            'previous_total': trend_previous_total,
+            'delta_pct': trend_delta_pct,
+            'breakdown': breakdown,
+            'breakdown_detail': breakdown_detail,
+        },
+        'rows': rows,
+        'limit': row_limit,
+        'offset': row_offset,
     }

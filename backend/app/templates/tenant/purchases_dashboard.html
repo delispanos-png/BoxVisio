@@ -212,20 +212,65 @@
     font-size: 12px;
     color: #1e293b;
   }
+  .purchases-items-table {
+    min-width: 1120px;
+  }
+  .purchases-items-table th,
+  .purchases-items-table td {
+    vertical-align: middle;
+  }
+  .purchases-item-name {
+    font-weight: 700;
+    color: #0f172a;
+  }
+  .purchases-item-code {
+    color: #64748b;
+    font-size: 12px;
+  }
 </style>
 
 <div class="row g-3 mb-3">
   <div class="col-xl-3 col-md-6">
-    <div class="bv-kpi-box bv-kpi-purple"><div class="kpi-icon"><i class="fe fe-shopping-bag"></i></div><div class="kpi-title">Σύνολο Αγορών</div><div id="cardTotalPurchases" class="kpi-value">0.00</div><div class="kpi-meta">Αξία προμηθειών</div></div>
+    <div class="bv-metric-card" style="--mc-color:#8b5cf6" data-kpi-what="Η αξία αγορών πριν αφαιρεθούν οι εκπτώσεις γραμμής." data-kpi-formula="Σύνολο Αγορών = Καθαρή αξία μετά εκπτώσεων + εκπτώσεις γραμμών αγορών, στο [Από, Έως]."><div class="mc-icon"><i class="fe fe-shopping-bag"></i></div><div class="mc-label">Σύνολο Αγορών</div><div id="cardTotalPurchases" class="mc-value">—</div><div class="mc-meta">Πριν τις εκπτώσεις</div></div>
   </div>
   <div class="col-xl-3 col-md-6">
-    <div class="bv-kpi-box bv-kpi-blue"><div class="kpi-icon"><i class="fe fe-credit-card"></i></div><div class="kpi-title">Κόστος Αγορών</div><div id="cardCost" class="kpi-value">0.00</div><div class="kpi-meta">Συνολικό κόστος</div></div>
+    <div class="bv-metric-card" style="--mc-color:#3b82f6" data-kpi-what="Η καθαρή αξία αγορών μετά τις εκπτώσεις γραμμής." data-kpi-formula="Κόστος Αγορών = άθροισμα net_value των παραστατικών αγορών, δηλαδή αξία μετά τις εκπτώσεις στο [Από, Έως]."><div class="mc-icon"><i class="fe fe-credit-card"></i></div><div class="mc-label">Κόστος Αγορών</div><div id="cardCost" class="mc-value">—</div><div class="mc-meta">Μετά τις εκπτώσεις</div></div>
   </div>
   <div class="col-xl-3 col-md-6">
-    <div class="bv-kpi-box bv-kpi-green"><div class="kpi-icon"><i class="fe fe-layers"></i></div><div class="kpi-title">{{ tt(request, 'purchased_qty') }}</div><div id="cardQty" class="kpi-value">0</div><div class="kpi-meta">{{ tt(request, 'units') }}</div></div>
+    <div class="bv-metric-card" style="--mc-color:#22c55e" data-kpi-what="Οι συνολικές μονάδες που αγοράστηκαν στο επιλεγμένο διάστημα." data-kpi-formula="Αγορασθείσα Ποσότητα = άθροισμα qty όλων των γραμμών αγορών στο [Από, Έως]."><div class="mc-icon"><i class="fe fe-layers"></i></div><div class="mc-label">{{ tt(request, 'purchased_qty') }}</div><div id="cardQty" class="mc-value">—</div><div class="mc-meta">{{ tt(request, 'units') }}</div></div>
   </div>
   <div class="col-xl-3 col-md-6">
-    <div class="bv-kpi-box bv-kpi-orange"><div class="kpi-icon"><i class="fe fe-activity"></i></div><div class="kpi-title">Περιθώριο %</div><div id="cardMarginProxy" class="kpi-value">0.00%</div><div class="kpi-meta">Δείκτης αποδοτικότητας</div></div>
+    <div class="bv-metric-card" style="--mc-color:#f97316" data-kpi-what="Το ποσοστό έκπτωσης που πέτυχαν οι αγορές στο επιλεγμένο διάστημα." data-kpi-formula="Περιθώριο % = ((Αξία πριν εκπτώσεις - Αξία μετά εκπτώσεις) / Αξία πριν εκπτώσεις) * 100."><div class="mc-icon"><i class="fe fe-activity"></i></div><div class="mc-label">Περιθώριο %</div><div id="cardMarginProxy" class="mc-value">—</div><div class="mc-meta">Έκπτωση επί αγορών</div></div>
+  </div>
+</div>
+
+<div class="card border-0 shadow-sm content-card mb-3">
+  <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+    <div>
+      <h5 class="mb-0">Είδη που συμμετέχουν στις αγορές</h5>
+      <div id="purchasesItemsPeriods" class="text-muted small mt-1"></div>
+    </div>
+    <button class="btn btn-sm btn-light" type="button" id="togglePurchasesItems">
+      <i class="fe fe-chevron-down me-1"></i><span>Εμφάνιση λεπτομερειών</span>
+    </button>
+  </div>
+  <div class="card-body table-responsive d-none" id="purchasesItemsBody">
+    <table class="table table-sm bv-unified-table purchases-items-table" id="purchasesItemsTable">
+      <thead>
+        <tr>
+          <th>Κωδικός είδους</th>
+          <th>Barcode</th>
+          <th>Ονομασία είδους</th>
+          <th class="text-end">YTD αγορές αξία</th>
+          <th class="text-end">YTD αγορές ποσότητα</th>
+          <th class="text-end">YTD έκπτωση %</th>
+          <th class="text-end">PYTD αγορές αξία</th>
+          <th class="text-end">PYTD αγορές ποσότητα</th>
+          <th class="text-end">PYTD έκπτωση %</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
   </div>
 </div>
 
@@ -322,6 +367,15 @@ function money(v){return new Intl.NumberFormat('el-GR',{style:'currency',currenc
 const fmt2 = new Intl.NumberFormat('el-GR',{ minimumFractionDigits:2, maximumFractionDigits:2 });
 const fmt0 = new Intl.NumberFormat('el-GR',{ maximumFractionDigits:0 });
 function pct(v){return `${fmt2.format(toNum(v))}%`}
+function esc(v){
+  return String(v ?? '').replace(/[&<>"']/g, ch => ({
+    '&':'&amp;',
+    '<':'&lt;',
+    '>':'&gt;',
+    '"':'&quot;',
+    "'":'&#039;'
+  }[ch]));
+}
 function supplierName(r){
   const name = (r?.supplier || '').trim();
   if(!name) return 'N/A';
@@ -346,7 +400,11 @@ function params(){
   const toRaw = fd.get('to');
   p.set('from', window.bvToIsoDate ? window.bvToIsoDate(fromRaw) : fromRaw);
   p.set('to', window.bvToIsoDate ? window.bvToIsoDate(toRaw) : toRaw);
+  const hasCategoryFilter = selectedValues('purchasesCategoryL1').size
+    || selectedValues('purchasesCategoryL2').size
+    || selectedValues('purchasesCategoryL3').size;
   purchasesFieldDefs.forEach((field)=>{
+    if(field.selectId === 'purchasesCategories' && !hasCategoryFilter) return;
     const sel = document.getElementById(field.selectId);
     Array.from(sel?.selectedOptions || []).forEach(o => p.append(field.key, o.value));
   });
@@ -461,6 +519,9 @@ function rebuildPurchasesHiddenCategories(){
   const hidden = document.getElementById('purchasesCategories');
   if(!hidden) return;
   hidden.innerHTML = '';
+  if(!l1.size && !l2.size && !l3.size){
+    return;
+  }
   purchasesCategoryHierarchy
     .filter(c => !l1.size || l1.has(c.l1))
     .filter(c => !l2.size || l2.has(c.l2))
@@ -545,7 +606,11 @@ async function loadPurchasesFilterOptions(){
   const p=new URLSearchParams();
   p.set('from', window.bvToIsoDate ? window.bvToIsoDate(fd.get('from')) : fd.get('from'));
   p.set('to', window.bvToIsoDate ? window.bvToIsoDate(fd.get('to')) : fd.get('to'));
+  const hasCategoryFilter = selectedValues('purchasesCategoryL1').size
+    || selectedValues('purchasesCategoryL2').size
+    || selectedValues('purchasesCategoryL3').size;
   purchasesFieldDefs.forEach((field)=>{
+    if(field.selectId === 'purchasesCategories' && !hasCategoryFilter) return;
     const sel=document.getElementById(field.selectId);
     Array.from(sel?.selectedOptions || []).forEach(o=>p.append(field.key, o.value));
   });
@@ -575,11 +640,18 @@ function setError(msg){
 }
 
 function renderCards(summary){
-  document.getElementById('cardTotalPurchases').textContent=money(summary.net_value);
-  document.getElementById('cardCost').textContent=money(summary.cost_amount);
+  const afterDiscounts = toNum(summary.after_discount_value ?? summary.net_value);
+  let beforeDiscounts = toNum(summary.before_discount_value ?? summary.gross_value);
+  const discountAmount = toNum(summary.discount_amount);
+  if(!beforeDiscounts && (afterDiscounts || discountAmount)){
+    beforeDiscounts = afterDiscounts + discountAmount;
+  }
+  document.getElementById('cardTotalPurchases').textContent=money(beforeDiscounts);
+  document.getElementById('cardCost').textContent=money(afterDiscounts);
   document.getElementById('cardQty').textContent=fmt0.format(Math.round(toNum(summary.qty)));
-  const marginValue=toNum(summary.net_value)-toNum(summary.cost_amount);
-  const marginPct=toNum(summary.net_value)>0 ? (marginValue/toNum(summary.net_value))*100 : 0;
+  const marginValue = beforeDiscounts - afterDiscounts;
+  const marginBase = Math.abs(beforeDiscounts);
+  const marginPct = marginBase > 0 ? (marginValue / marginBase) * 100 : 0;
   document.getElementById('cardMarginProxy').textContent=pct(marginPct);
 }
 
@@ -714,6 +786,42 @@ function renderPurchasesNewCodes(rows){
   });
 }
 
+function renderPurchasesItems(breakdown){
+  const tbody = document.querySelector('#purchasesItemsTable tbody');
+  const periodsEl = document.getElementById('purchasesItemsPeriods');
+  if(!tbody) return;
+  const rows = (breakdown && breakdown.rows) || [];
+  const periods = (breakdown && breakdown.periods) || {};
+  if(periodsEl){
+    const ytdFrom = periods.ytd_from ? (window.bvToDmyDate ? window.bvToDmyDate(periods.ytd_from) : periods.ytd_from) : '-';
+    const ytdTo = periods.ytd_to ? (window.bvToDmyDate ? window.bvToDmyDate(periods.ytd_to) : periods.ytd_to) : '-';
+    const pytdFrom = periods.pytd_from ? (window.bvToDmyDate ? window.bvToDmyDate(periods.pytd_from) : periods.pytd_from) : '-';
+    const pytdTo = periods.pytd_to ? (window.bvToDmyDate ? window.bvToDmyDate(periods.pytd_to) : periods.pytd_to) : '-';
+    periodsEl.textContent = `YTD: ${ytdFrom} έως ${ytdTo} | PYTD: ${pytdFrom} έως ${pytdTo}`;
+  }
+  tbody.innerHTML = '';
+  if(!rows.length){
+    tbody.innerHTML = `<tr><td colspan="9" class="text-center text-muted py-3">{{ tt(request, "no_data_available") }}</td></tr>`;
+    return;
+  }
+  rows.forEach((r) => {
+    const itemName = cleanItemLabel(r.item_name || r.item_code || '-');
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><span class="purchases-item-code">${esc(r.item_code || '-')}</span></td>
+      <td>${esc(r.barcode || '-')}</td>
+      <td><span class="purchases-item-name">${esc(itemName || '-')}</span></td>
+      <td class="text-end">${money(r.ytd_value)}</td>
+      <td class="text-end">${fmt0.format(Math.round(toNum(r.ytd_qty)))}</td>
+      <td class="text-end">${pct(r.ytd_discount_pct)}</td>
+      <td class="text-end">${money(r.pytd_value)}</td>
+      <td class="text-end">${fmt0.format(Math.round(toNum(r.pytd_qty)))}</td>
+      <td class="text-end">${pct(r.pytd_discount_pct)}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
 async function reloadPurchases(e){
   if(e) e.preventDefault();
   setError(null);
@@ -732,11 +840,25 @@ async function reloadPurchases(e){
     renderCostChange(data.cost_change_detection||{alerts:[]});
     renderPurchasesSeasonality(data.seasonality||[]);
     renderPurchasesNewCodes(data.new_codes||[]);
+    renderPurchasesItems(data.item_breakdown||{rows:[]});
     document.getElementById('exportPurchasesCsv').href = `/v1/kpi/purchases/by-supplier/export.csv?${p.toString()}`;
   }catch(err){setError(err.message||'{{ tt(request, "purchases_dashboard_load_failed") }}');}
 }
 
 document.getElementById('purchasesFilters').addEventListener('submit', reloadPurchases);
+document.getElementById('togglePurchasesItems')?.addEventListener('click', () => {
+  const body = document.getElementById('purchasesItemsBody');
+  const btn = document.getElementById('togglePurchasesItems');
+  if(!body || !btn) return;
+  const isHidden = body.classList.toggle('d-none');
+  const icon = btn.querySelector('i');
+  const label = btn.querySelector('span');
+  if(icon){
+    icon.classList.toggle('fe-chevron-down', isHidden);
+    icon.classList.toggle('fe-chevron-up', !isHidden);
+  }
+  if(label) label.textContent = isHidden ? 'Εμφάνιση λεπτομερειών' : 'Απόκρυψη λεπτομερειών';
+});
 window.addEventListener('load', async () => {
   purchasesUiFieldDefs.forEach((field)=>initPurchasesMulti(field.selectId, field.label));
   ['purchasesCategoryL1','purchasesCategoryL2','purchasesCategoryL3'].forEach((id)=>{

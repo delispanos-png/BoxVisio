@@ -111,4 +111,5 @@ def infer_default_features_for_plan(plan: PlanName) -> dict[str, bool]:
         return {'sales': True, 'purchases': False, 'inventory': False, 'cashflows': False}
     if plan == PlanName.pro:
         return {'sales': True, 'purchases': True, 'inventory': False, 'cashflows': False}
+    # enterprise and custom
     return {'sales': True, 'purchases': True, 'inventory': True, 'cashflows': True}

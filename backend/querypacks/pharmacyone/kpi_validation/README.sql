@@ -5,3 +5,8 @@
 --   Reconciles facts vs aggregates, YTD/month windows, branch totals,
 --   SoftOne TFPRMS behavior totals, 102-series breakdown, and duplicate checks
 --   for pharmacy295 against a reference cutoff/baseline.
+-- - pharmacy295_purchases_reconciliation.sql
+--   Reconciles purchases facts vs aggregates, YTD/month windows, branch totals,
+--   SoftOne SOSOURCE/object_id totals, series breakdown, and duplicate checks
+--   for pharmacy295 against a reference cutoff/baseline.
+--   Useful when purchases KPIs diverge from the old BI or from expected branch totals.

@@ -44,6 +44,8 @@ from app.services.ingestion import (
     process_job,
     push_dead_letter,
     release_tenant_lock,
+    tenant_delete_active_key,
+    tenant_lock_name,
     tenant_stop_key,
     tenant_queue_name,
 )
@@ -91,14 +93,23 @@ def _iter_date_chunks(from_date: date, to_date: date, chunk_days: int):
         current = chunk_end + timedelta(days=1)
 
 
-def _clear_tenant_runtime_queue_state(tenant_slug: str, *, clear_lock: bool = True) -> int:
+def _clear_tenant_runtime_queue_state(
+    tenant_slug: str,
+    *,
+    clear_lock: bool = True,
+    clear_stop: bool = True,
+    clear_delete_active: bool = False,
+) -> int:
     redis = Redis.from_url(settings.redis_url, decode_responses=True)
     keys = [
         tenant_queue_name(tenant_slug),
         f'dlq:{tenant_slug}',
         f'throttle:ingest:{tenant_slug}',
-        tenant_stop_key(tenant_slug),
     ]
+    if clear_stop:
+        keys.append(tenant_stop_key(tenant_slug))
+    if clear_delete_active:
+        keys.append(tenant_delete_active_key(tenant_slug))
     if clear_lock:
         keys.append(f'lock:ingest:{tenant_slug}')
     return int(redis.delete(*keys))
@@ -122,6 +133,15 @@ async def _tenant_has_active_connector(tenant_slug: str, connector_type: str) ->
 
 
 def _enqueue_stream_job(tenant_slug: str, stream: str, *, connector: str = 'sql_connector', payload: dict | None = None) -> dict:
+    redis = Redis.from_url(settings.redis_url, decode_responses=True)
+    if bool(redis.get(tenant_delete_active_key(tenant_slug))):
+        return {
+            'status': 'skipped',
+            'tenant': tenant_slug,
+            'connector': str(connector or '').strip().lower() or 'sql_connector',
+            'stream': normalize_stream_name(stream),
+            'reason': 'delete_active',
+        }
     connector_norm = str(connector or '').strip().lower() or 'sql_connector'
     if connector_norm == 'external_api':
         has_active = _run_coro(_tenant_has_active_connector(tenant_slug, connector_norm))
@@ -249,7 +269,7 @@ def auto_recover_stuck_ingest() -> dict:
         operation = str(raw.get('operation') or '').strip().lower() or 'backfill'
         if status not in {'running', 'queued'}:
             continue
-        if operation != 'backfill':
+        if operation == 'delete':
             continue
 
         checked += 1
@@ -263,19 +283,48 @@ def auto_recover_stuck_ingest() -> dict:
             skipped.append({'tenant': tenant_slug, 'reason': 'missing_updated_at'})
             continue
         heartbeat_age_seconds = max(0, int((now - updated_at).total_seconds()))
-        if heartbeat_age_seconds < stale_after_seconds:
-            continue
 
         active = active_drain_tasks.get(tenant_slug, [])
         active_ages = [int(t.get('age_seconds')) for t in active if isinstance(t.get('age_seconds'), int)]
         max_active_age_seconds = max(active_ages) if active_ages else None
         processed_jobs = int(raw.get('processed_jobs') or 0)
+        has_lock = bool(redis.get(tenant_lock_name(tenant_slug)))
         # Fast-recover mode:
         # If drain appears active but progress heartbeat is stale and no job has been
         # processed yet, recover earlier instead of waiting full force_after_seconds.
         # This avoids long "0/N jobs" stalls caused by stale locks or hung first job.
         fast_recover_after = max(stale_after_seconds + 30, 210)
         allow_early_recover = processed_jobs <= 0 and heartbeat_age_seconds >= fast_recover_after
+        # Ultra-early recover:
+        # If the queue is non-empty, nothing has been processed yet, there is no active
+        # drain task, but a tenant lock still exists, we are almost certainly stuck
+        # behind a stale lock left behind by a crashed/aborted drain attempt.
+        orphan_lock_recover_after = 45
+        allow_orphan_lock_recover = (
+            processed_jobs <= 0
+            and not active
+            and has_lock
+            and heartbeat_age_seconds >= orphan_lock_recover_after
+        )
+
+        active_is_making_progress = (
+            active
+            and processed_jobs > 0
+            and heartbeat_age_seconds < stale_after_seconds
+        )
+
+        if active_is_making_progress:
+            skipped.append(
+                {
+                    'tenant': tenant_slug,
+                    'reason': 'active_drain_progressing',
+                    'heartbeat_age_seconds': heartbeat_age_seconds,
+                    'max_active_age_seconds': max_active_age_seconds,
+                    'processed_jobs': processed_jobs,
+                    'force_after_seconds': force_after_seconds,
+                }
+            )
+            continue
 
         if active and (max_active_age_seconds is None or (max_active_age_seconds < force_after_seconds and not allow_early_recover)):
             skipped.append(
@@ -286,6 +335,21 @@ def auto_recover_stuck_ingest() -> dict:
                     'max_active_age_seconds': max_active_age_seconds,
                     'processed_jobs': processed_jobs,
                     'fast_recover_after': fast_recover_after,
+                }
+            )
+            continue
+
+        if not active and not has_lock and heartbeat_age_seconds < stale_after_seconds:
+            continue
+
+        if not active and has_lock and not allow_orphan_lock_recover and heartbeat_age_seconds < stale_after_seconds:
+            skipped.append(
+                {
+                    'tenant': tenant_slug,
+                    'reason': 'waiting_orphan_lock_grace',
+                    'heartbeat_age_seconds': heartbeat_age_seconds,
+                    'processed_jobs': processed_jobs,
+                    'orphan_lock_recover_after': orphan_lock_recover_after,
                 }
             )
             continue
@@ -330,6 +394,61 @@ def auto_recover_stuck_ingest() -> dict:
         )
         if len(recovered) >= max_recoveries:
             break
+
+    # A completed/stopped progress hash can still leave a Redis queue item and a
+    # tenant lock behind after a worker timeout. That state is invisible to the
+    # progress-only recovery loop above, but it blocks the 5-minute incremental
+    # sync forever. Recover those orphan locks directly from the lock keys.
+    if len(recovered) < max_recoveries:
+        for lock_key in [str(k) for k in redis.scan_iter(match='lock:ingest:*', count=500)]:
+            tenant_slug = lock_key.rsplit(':', 1)[-1].strip()
+            if not tenant_slug or bool(redis.get(tenant_delete_active_key(tenant_slug))):
+                continue
+            if tenant_slug in active_drain_tasks:
+                continue
+            queue_left = int(redis.llen(tenant_queue_name(tenant_slug)))
+            if queue_left <= 0:
+                cleared_lock = int(redis.delete(lock_key))
+                if cleared_lock:
+                    recovered.append(
+                        {
+                            'tenant': tenant_slug,
+                            'queue_left': 0,
+                            'reason': 'orphan_lock_without_queue',
+                            'cleared_lock': cleared_lock,
+                        }
+                    )
+                continue
+
+            cleared_lock = int(redis.delete(lock_key))
+            cleared_throttle = int(redis.delete(f'throttle:ingest:{tenant_slug}'))
+            task = drain_tenant_ingest_queue.apply_async(kwargs={'tenant_slug': tenant_slug}, queue='ingest')
+            begin_ingest_progress(
+                tenant_slug=tenant_slug,
+                operation='incremental_sync_recovery',
+                status='running',
+                total_jobs=queue_left,
+                start_queue_depth=queue_left,
+                target_queue_depth=0,
+            )
+            recovered.append(
+                {
+                    'tenant': tenant_slug,
+                    'queue_left': queue_left,
+                    'reason': 'orphan_lock_with_queue',
+                    'cleared_lock': cleared_lock,
+                    'cleared_throttle': cleared_throttle,
+                    'drain_task_id': task.id,
+                }
+            )
+            logger.warning(
+                'auto_recover_orphan_ingest_lock tenant=%s queue_left=%s cleared_lock=%s',
+                tenant_slug,
+                queue_left,
+                cleared_lock,
+            )
+            if len(recovered) >= max_recoveries:
+                break
 
     return {
         'status': 'ok',
@@ -417,6 +536,12 @@ def enqueue_incremental_sync(tenant_slug: str, limit: int = 500) -> dict:
 
 async def _enqueue_incremental_sync(tenant_slug: str, limit: int = 500) -> dict:
     redis = Redis.from_url(settings.redis_url, decode_responses=True)
+    if bool(redis.get(tenant_delete_active_key(tenant_slug))):
+        return {
+            'status': 'skipped',
+            'tenant': tenant_slug,
+            'reason': 'delete_active',
+        }
     if bool(redis.get(tenant_stop_key(tenant_slug))):
         return {
             'status': 'skipped',
@@ -433,7 +558,34 @@ async def _enqueue_incremental_sync(tenant_slug: str, limit: int = 500) -> dict:
     queue_depth = int(redis.llen(tenant_queue_name(tenant_slug)))
     if queue_depth > 0:
         lock_active = bool(redis.get(f'lock:ingest:{tenant_slug}'))
+        progress_status = str(progress.get('status') or '').strip().lower()
+        if lock_active and progress_status in {'completed', 'failed', 'stopped', 'idle'}:
+            redis.delete(f'lock:ingest:{tenant_slug}', f'throttle:ingest:{tenant_slug}')
+            drain_tenant_ingest_queue.delay(tenant_slug=tenant_slug)
+            begin_ingest_progress(
+                tenant_slug=tenant_slug,
+                operation='incremental_sync_recovery',
+                status='running',
+                total_jobs=queue_depth,
+                start_queue_depth=queue_depth,
+                target_queue_depth=0,
+            )
+            return {
+                'status': 'resumed',
+                'tenant': tenant_slug,
+                'reason': 'queue_not_empty_completed_progress',
+                'queue_depth': queue_depth,
+            }
         if not lock_active:
+            if progress_status in {'completed', 'failed', 'stopped', 'idle', ''}:
+                begin_ingest_progress(
+                    tenant_slug=tenant_slug,
+                    operation='incremental_sync_recovery',
+                    status='running',
+                    total_jobs=queue_depth,
+                    start_queue_depth=queue_depth,
+                    target_queue_depth=0,
+                )
             drain_tenant_ingest_queue.delay(tenant_slug=tenant_slug)
             return {
                 'status': 'resumed',
@@ -458,9 +610,11 @@ async def _enqueue_incremental_sync(tenant_slug: str, limit: int = 500) -> dict:
         return {'status': 'skipped', 'tenant': tenant_slug, 'reason': 'no_jobs'}
 
     queued = 0
+    effective_limit = max(100, int(limit))
     for base_job in jobs:
         payload = dict(base_job.get('payload') or {})
-        payload.setdefault('limit', max(100, int(limit)))
+        planned_limit = int(payload.get('limit') or effective_limit)
+        payload['limit'] = max(100, min(planned_limit, effective_limit))
         job = dict(base_job)
         job['payload'] = payload
         job.setdefault('attempt', 0)
@@ -468,6 +622,14 @@ async def _enqueue_incremental_sync(tenant_slug: str, limit: int = 500) -> dict:
         enqueue_tenant_job(tenant_slug, job)
         queued += 1
 
+    begin_ingest_progress(
+        tenant_slug=tenant_slug,
+        operation='incremental_sync',
+        status='queued',
+        total_jobs=queued,
+        start_queue_depth=int(redis.llen(tenant_queue_name(tenant_slug))),
+        target_queue_depth=0,
+    )
     drain_tenant_ingest_queue.delay(tenant_slug=tenant_slug)
     return {'status': 'queued', 'tenant': tenant_slug, 'jobs': queued}
 
@@ -554,7 +716,11 @@ def enqueue_pharmacyone_backfill(
     include_operating_expenses: bool = True,
     operation: str = 'backfill',
 ) -> dict:
-    Redis.from_url(settings.redis_url, decode_responses=True).delete(tenant_stop_key(tenant_slug))
+    redis = Redis.from_url(settings.redis_url, decode_responses=True)
+    if bool(redis.get(tenant_delete_active_key(tenant_slug))):
+        return {'status': 'skipped', 'tenant': tenant_slug, 'reason': 'delete_active'}
+    if bool(redis.get(tenant_stop_key(tenant_slug))):
+        return {'status': 'skipped', 'tenant': tenant_slug, 'reason': 'stop_requested'}
     from_date = date.fromisoformat(from_date_str)
     to_date = date.fromisoformat(to_date_str)
     if from_date > to_date:
@@ -574,16 +740,16 @@ def enqueue_pharmacyone_backfill(
     }
     balance_streams = {'supplier_balances', 'customer_balances'}
     base_chunk_days = max(1, int(chunk_days))
-    sales_chunk_cap = max(1, int(getattr(settings, 'ingest_backfill_sales_chunk_days', 7) or 7))
-    purchases_chunk_cap = max(1, int(getattr(settings, 'ingest_backfill_purchases_chunk_days', 7) or 7))
+    sales_chunk_cap = max(1, int(getattr(settings, 'ingest_backfill_sales_chunk_days', 1) or 1))
+    purchases_chunk_cap = max(1, int(getattr(settings, 'ingest_backfill_purchases_chunk_days', 1) or 1))
+    inventory_chunk_cap = max(1, int(getattr(settings, 'ingest_backfill_inventory_chunk_days', 1) or 1))
     stream_chunk_days = {
-        # Sales is the heaviest stream. Keep chunking configurable so large tenants
-        # don't create excessive queues during manual backfills.
+        # Document streams are materially more stable with daily windows during SQL
+        # backfills. Keep the caps configurable, but default them to 1 day.
         'sales_documents': min(sales_chunk_cap, base_chunk_days),
-        # Purchases are lower volume but still configurable for consistency.
         'purchase_documents': min(purchases_chunk_cap, base_chunk_days),
+        'inventory_documents': min(inventory_chunk_cap, base_chunk_days),
         # Other streams follow user-selected chunk.
-        'inventory_documents': base_chunk_days,
         'cash_transactions': base_chunk_days,
         'operating_expenses': base_chunk_days,
     }
@@ -678,8 +844,11 @@ def enqueue_sql_backfill(
     include_operating_expenses: bool = True,
     operation: str = 'backfill',
 ) -> dict:
-    # Ensure a previous manual stop does not block a new explicitly requested backfill.
-    Redis.from_url(settings.redis_url, decode_responses=True).delete(tenant_stop_key(tenant_slug))
+    redis = Redis.from_url(settings.redis_url, decode_responses=True)
+    if bool(redis.get(tenant_delete_active_key(tenant_slug))):
+        return {'status': 'skipped', 'tenant': tenant_slug, 'reason': 'delete_active'}
+    if bool(redis.get(tenant_stop_key(tenant_slug))):
+        return {'status': 'skipped', 'tenant': tenant_slug, 'reason': 'stop_requested'}
     return enqueue_pharmacyone_backfill(
         tenant_slug=tenant_slug,
         from_date_str=from_date_str,
@@ -733,7 +902,27 @@ async def _truncate_tenant_operational_tables(tenant: Tenant, *, include_notific
         if not include_notifications:
             tables = [name for name in tables if name not in {'insights', 'insight_runs'}]
         for table in tables:
-            await tenant_db.execute(text(f'TRUNCATE TABLE {_quote_ident(table)} RESTART IDENTITY CASCADE'))
+            last_exc: Exception | None = None
+            for attempt in range(5):
+                try:
+                    await tenant_db.execute(text(f'TRUNCATE TABLE {_quote_ident(table)} RESTART IDENTITY CASCADE'))
+                    last_exc = None
+                    break
+                except Exception as exc:
+                    last_exc = exc
+                    msg = str(exc).lower()
+                    if 'lock timeout' not in msg and 'locknotavailable' not in msg and 'cannot switch to state' not in msg:
+                        raise
+                    await tenant_db.rollback()
+                    logger.warning(
+                        "Retrying tenant table truncate after lock contention",
+                        extra={"tenant_slug": tenant.slug, "table": table, "attempt": attempt + 1},
+                    )
+                    await _terminate_tenant_db_backends(tenant)
+                    await asyncio.sleep(min(2 + attempt, 5))
+                    await tenant_db.execute(text("SET lock_timeout = '10s'"))
+            if last_exc is not None:
+                raise last_exc
         await tenant_db.commit()
         return tables
 
@@ -1038,6 +1227,8 @@ async def _reset_tenant_data_and_backfill(
             'task_id': task_id,
         }
     finally:
+        redis = Redis.from_url(settings.redis_url, decode_responses=True)
+        redis.delete(tenant_delete_active_key(tenant_slug), f'delete:retry:{tenant_slug}')
         release_tenant_lock(tenant_slug, lock_token)
 
 
@@ -1088,7 +1279,7 @@ async def _delete_tenant_data_only(
                     'to_date_str': to_date_str,
                     'include_notifications': bool(include_notifications),
                 },
-                queue='ingest',
+                queue='delete',
                 countdown=10,
             )
             return {
@@ -1102,31 +1293,40 @@ async def _delete_tenant_data_only(
 
     try:
         Redis.from_url(settings.redis_url, decode_responses=True).delete(f'delete:retry:{tenant_slug}')
+        tenant = None
+        tenant_id: int | None = None
+        cleared_keys = 0
         async with ControlSessionLocal() as control_db:
             tenant = (await control_db.execute(select(Tenant).where(Tenant.slug == tenant_slug))).scalar_one_or_none()
             if not tenant:
                 update_ingest_progress(tenant_slug, status='failed', error='tenant_not_found')
                 return {'status': 'not_found', 'tenant': tenant_slug}
+            tenant_id = int(tenant.id)
 
-            cleared_keys = _clear_tenant_runtime_queue_state(tenant.slug)
-            if scoped_delete and from_date and to_date:
-                await _terminate_tenant_db_backends(tenant)
-                scoped_stats = await _delete_tenant_operational_tables_by_date_range(
-                    tenant,
-                    from_date=from_date,
-                    to_date=to_date,
-                    include_notifications=bool(include_notifications),
-                )
-                await control_db.commit()
-            else:
-                await _terminate_tenant_db_backends(tenant)
-                truncated_tables = await _truncate_tenant_operational_tables(
-                    tenant,
-                    include_notifications=bool(include_notifications),
-                )
+            cleared_keys = _clear_tenant_runtime_queue_state(
+                tenant.slug,
+                clear_stop=False,
+                clear_delete_active=False,
+            )
+
+        if scoped_delete and from_date and to_date:
+            await _terminate_tenant_db_backends(tenant)
+            scoped_stats = await _delete_tenant_operational_tables_by_date_range(
+                tenant,
+                from_date=from_date,
+                to_date=to_date,
+                include_notifications=bool(include_notifications),
+            )
+        else:
+            await _terminate_tenant_db_backends(tenant)
+            truncated_tables = await _truncate_tenant_operational_tables(
+                tenant,
+                include_notifications=bool(include_notifications),
+            )
+            async with ControlSessionLocal() as control_db:
                 sync_conns = (
                     await control_db.execute(
-                        select(TenantConnection).where(TenantConnection.tenant_id == tenant.id)
+                        select(TenantConnection).where(TenantConnection.tenant_id == tenant_id)
                     )
                 ).scalars().all()
                 for conn in sync_conns:
@@ -1157,10 +1357,12 @@ async def _delete_tenant_data_only(
         update_ingest_progress(tenant_slug, status='failed', error=str(exc)[:300])
         raise
     finally:
+        redis = Redis.from_url(settings.redis_url, decode_responses=True)
+        redis.delete(tenant_delete_active_key(tenant_slug), f'delete:retry:{tenant_slug}')
         release_tenant_lock(tenant_slug, lock_token)
 
 
-@shared_task(name='worker.tasks.delete_tenant_data_only', autoretry_for=(Exception,), retry_backoff=True, retry_kwargs={'max_retries': 3})
+@shared_task(name='worker.tasks.delete_tenant_data_only')
 def delete_tenant_data_only(
     tenant_slug: str,
     from_date_str: str | None = None,
@@ -1211,6 +1413,9 @@ async def _drain_tenant_ingest_queue(tenant_slug: str, max_jobs: int) -> dict:
                 if not extend_tenant_lock(tenant_slug, lock_token, ttl_seconds=lock_ttl):
                     logger.warning('ingest_lock_refresh_lost tenant=%s', tenant_slug)
                     break
+                # Refresh progress heartbeat too, so the admin UI does not mark a
+                # long-running but healthy chunk as stuck while it is still working.
+                update_ingest_progress(tenant_slug, status='running')
 
         try:
             heartbeat_task = asyncio.create_task(_heartbeat())
@@ -1309,15 +1514,17 @@ async def _drain_tenant_ingest_queue(tenant_slug: str, max_jobs: int) -> dict:
                             bucket['from'] = str(min_doc_date)
                         if str(max_doc_date) > bucket['to']:
                             bucket['to'] = str(max_doc_date)
-                    # Refresh aggregates for every successful ingest chunk, including backfill jobs.
-                    # This keeps KPI views live even when long backfills are still in progress.
-                    refresh_aggregates_for_entity.delay(
-                        tenant_slug=tenant_slug,
-                        entity=entity,
-                        from_date_str=min_doc_date,
-                        to_date_str=max_doc_date,
-                    )
-                    aggregates_refreshed += 1
+                    else:
+                        # Incremental jobs stay visible quickly. Backfills refresh once at
+                        # the end of the whole requested range to avoid hundreds of slow,
+                        # duplicate aggregate/insight tasks blocking ingestion.
+                        refresh_aggregates_for_entity.delay(
+                            tenant_slug=tenant_slug,
+                            entity=entity,
+                            from_date_str=min_doc_date,
+                            to_date_str=max_doc_date,
+                        )
+                        aggregates_refreshed += 1
                 update_ingest_progress(tenant_slug, status='running')
             except Exception as exc:
                 if bool(redis.get(stop_key)):
@@ -1419,8 +1626,9 @@ def refresh_aggregates_for_entity(
     entity: str,
     from_date_str: str | None = None,
     to_date_str: str | None = None,
+    run_insights: bool = False,
 ) -> dict:
-    return _run_coro(_refresh_aggregates_task(tenant_slug, entity, from_date_str, to_date_str))
+    return _run_coro(_refresh_aggregates_task(tenant_slug, entity, from_date_str, to_date_str, run_insights=run_insights))
 
 
 @shared_task(name='worker.tasks.refresh_sales_aggregates', autoretry_for=(Exception,), retry_backoff=True, retry_kwargs={'max_retries': 3})
@@ -2282,6 +2490,24 @@ async def _refresh_inventory_aggregates(
                     ib.snapshot_date,
                     ib.item_external_id,
                     ib.branch_ext_id
+            ),
+            aging_base AS (
+                SELECT
+                    ib.snapshot_date,
+                    ib.item_external_id,
+                    ib.branch_ext_id,
+                    COALESCE(SUM(ib.qty_on_hand), 0) AS qty_on_hand,
+                    COALESCE(SUM(ib.stock_value), 0) AS stock_value,
+                    MAX(sl.last_sale_date) AS last_sale_date
+                FROM inventory_base ib
+                LEFT JOIN sales_last sl
+                    ON sl.snapshot_date = ib.snapshot_date
+                   AND sl.item_external_id = ib.item_external_id
+                   AND COALESCE(sl.branch_ext_id, '') = COALESCE(ib.branch_ext_id, '')
+                GROUP BY
+                    ib.snapshot_date,
+                    ib.item_external_id,
+                    ib.branch_ext_id
             )
             INSERT INTO agg_stock_aging (
                 snapshot_date,
@@ -2296,30 +2522,26 @@ async def _refresh_inventory_aggregates(
                 created_at
             )
             SELECT
-                ib.snapshot_date,
-                ib.item_external_id,
-                ib.branch_ext_id,
-                ib.qty_on_hand,
-                ib.stock_value,
-                sl.last_sale_date,
+                ab.snapshot_date,
+                ab.item_external_id,
+                ab.branch_ext_id,
+                ab.qty_on_hand,
+                ab.stock_value,
+                ab.last_sale_date,
                 CASE
-                    WHEN sl.last_sale_date IS NULL THEN NULL
-                    ELSE (ib.snapshot_date - sl.last_sale_date)
+                    WHEN ab.last_sale_date IS NULL THEN NULL
+                    ELSE (ab.snapshot_date - ab.last_sale_date)
                 END AS days_since_last_sale,
                 CASE
-                    WHEN sl.last_sale_date IS NULL THEN '90_plus'
-                    WHEN (ib.snapshot_date - sl.last_sale_date) <= 30 THEN '0_30'
-                    WHEN (ib.snapshot_date - sl.last_sale_date) <= 60 THEN '31_60'
-                    WHEN (ib.snapshot_date - sl.last_sale_date) <= 90 THEN '61_90'
+                    WHEN ab.last_sale_date IS NULL THEN '90_plus'
+                    WHEN (ab.snapshot_date - ab.last_sale_date) <= 30 THEN '0_30'
+                    WHEN (ab.snapshot_date - ab.last_sale_date) <= 60 THEN '31_60'
+                    WHEN (ab.snapshot_date - ab.last_sale_date) <= 90 THEN '61_90'
                     ELSE '90_plus'
                 END AS aging_bucket,
                 NOW(),
                 NOW()
-            FROM inventory_base ib
-            LEFT JOIN sales_last sl
-                ON sl.snapshot_date = ib.snapshot_date
-               AND sl.item_external_id = ib.item_external_id
-               AND COALESCE(sl.branch_ext_id, '') = COALESCE(ib.branch_ext_id, '')
+            FROM aging_base ab
             ON CONFLICT (snapshot_date, item_external_id, branch_ext_id) DO UPDATE
             SET
                 qty_on_hand = EXCLUDED.qty_on_hand,
@@ -2730,8 +2952,15 @@ async def _refresh_aggregates_task(
     entity: str,
     from_date_str: str | None = None,
     to_date_str: str | None = None,
+    *,
+    run_insights: bool = False,
 ) -> dict:
     started = time.perf_counter()
+    redis = Redis.from_url(settings.redis_url, decode_responses=True)
+    if redis.get(tenant_delete_active_key(tenant_slug)):
+        return {'status': 'skipped', 'tenant': tenant_slug, 'entity': entity, 'reason': 'tenant_delete_active'}
+    if redis.get(tenant_stop_key(tenant_slug)):
+        return {'status': 'skipped', 'tenant': tenant_slug, 'entity': entity, 'reason': 'tenant_stop_requested'}
     lock_key = f'{tenant_slug}:{entity}:agg'
     lock_token = acquire_tenant_lock(lock_key, ttl_seconds=settings.ingest_tenant_lock_ttl_seconds)
     if not lock_token:
@@ -2826,7 +3055,11 @@ async def _refresh_aggregates_task(
                     return {'status': 'error', 'detail': f'unsupported entity: {entity}'}
                 await tenant_db.commit()
                 await invalidate_tenant_cache(str(tenant.id))
-                if entity in {'sales', 'purchases', 'inventory', 'cashflows', 'supplier_balances', 'customer_balances', 'expenses'}:
+                if (
+                    run_insights
+                    and entity in {'sales', 'purchases', 'inventory', 'cashflows', 'supplier_balances', 'customer_balances', 'expenses'}
+                    and not Redis.from_url(settings.redis_url, decode_responses=True).get(tenant_delete_active_key(tenant_slug))
+                ):
                     generate_insights_for_tenant.delay(tenant_slug=tenant_slug)
                 sync_duration_seconds.labels(task='refresh_aggregates', entity=entity, status='ok').observe(time.perf_counter() - started)
                 return {'status': 'ok', 'entity': entity, 'from_date': str(from_date), 'to_date': str(to_date)}
@@ -2843,6 +3076,11 @@ def generate_insights_for_tenant(tenant_slug: str, as_of_date_str: str | None = 
 
 
 async def _generate_insights_for_tenant(tenant_slug: str, as_of_date_str: str | None = None) -> dict:
+    redis = Redis.from_url(settings.redis_url, decode_responses=True)
+    if redis.get(tenant_delete_active_key(tenant_slug)):
+        return {'status': 'skipped', 'tenant': tenant_slug, 'reason': 'tenant_delete_active'}
+    if redis.get(tenant_stop_key(tenant_slug)):
+        return {'status': 'skipped', 'tenant': tenant_slug, 'reason': 'tenant_stop_requested'}
     as_of_date = date.fromisoformat(as_of_date_str) if as_of_date_str else (date.today() - timedelta(days=1))
     async with ControlSessionLocal() as control_db:
         tenant = (await control_db.execute(select(Tenant).where(Tenant.slug == tenant_slug))).scalar_one_or_none()
@@ -2889,6 +3127,8 @@ async def _generate_daily_insights_all_tenants(as_of_date_str: str | None = None
             )
         ).scalars().all()
         for tenant in tenants:
+            if Redis.from_url(settings.redis_url, decode_responses=True).get(tenant_delete_active_key(tenant.slug)):
+                continue
             generate_insights_for_tenant.delay(tenant_slug=tenant.slug, as_of_date_str=as_of_date.isoformat())
             queued += 1
     return {'status': 'ok', 'as_of': str(as_of_date), 'queued': queued}

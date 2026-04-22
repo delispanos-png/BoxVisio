@@ -310,25 +310,49 @@ async def list_tenants(
     _: object = Depends(require_roles(RoleName.cloudon_admin)),
     db: AsyncSession = Depends(get_control_db),
 ):
-    tenants = (await db.execute(select(Tenant).order_by(Tenant.id.desc()))).scalars().all()
+    rows = (
+        await db.execute(
+            select(Tenant, Subscription)
+            .outerjoin(Subscription, Subscription.tenant_id == Tenant.id)
+            .order_by(Tenant.id.desc())
+        )
+    ).all()
+
     payload = []
-    for t in tenants:
-        sub = await get_or_create_subscription(db, t)
-        await sync_tenant_from_subscription(db, t, sub)
-        payload.append(
-            {
-                'id': t.id,
-                'name': t.name,
-                'slug': t.slug,
+    tenants_needing_sub: list[Tenant] = []
+    for tenant, sub in rows:
+        if sub is None:
+            tenants_needing_sub.append(tenant)
+        else:
+            payload.append({
+                'id': tenant.id,
+                'name': tenant.name,
+                'slug': tenant.slug,
                 'plan': sub.plan.value,
-                'status': t.status.value,
+                'status': tenant.status.value,
                 'subscription_status': sub.status.value,
                 'trial_ends_at': sub.trial_ends_at,
                 'current_period_end': sub.current_period_end,
-                'source': t.source,
-            }
-        )
-    await db.commit()
+                'source': tenant.source,
+            })
+
+    for tenant in tenants_needing_sub:
+        sub = await get_or_create_subscription(db, tenant)
+        payload.append({
+            'id': tenant.id,
+            'name': tenant.name,
+            'slug': tenant.slug,
+            'plan': sub.plan.value,
+            'status': tenant.status.value,
+            'subscription_status': sub.status.value,
+            'trial_ends_at': sub.trial_ends_at,
+            'current_period_end': sub.current_period_end,
+            'source': tenant.source,
+        })
+
+    if tenants_needing_sub:
+        await db.commit()
+
     return payload
 
 
@@ -955,10 +979,13 @@ async def invite_reset(
     user = (await db.execute(select(User).where(User.id == user_id, User.is_active.is_(True)))).scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail='User not found')
-    user.reset_token = secrets.token_urlsafe(24)
+    raw_token = secrets.token_urlsafe(24)
+    user.reset_token = raw_token
     user.reset_token_expires_at = datetime.utcnow() + timedelta(days=2)
     await db.commit()
-    return {'status': 'ok', 'reset_token': user.reset_token, 'expires_at': user.reset_token_expires_at}
+    # Return the token only once here so the caller can build a reset URL.
+    # It is NOT stored in logs — do not log raw_token anywhere.
+    return {'status': 'ok', 'reset_token': raw_token, 'expires_at': user.reset_token_expires_at}
 
 
 @router.post('/tenants/{tenant_id}/api-keys/rotate')
@@ -1017,7 +1044,7 @@ async def run_tenant_insights_now(
     task = celery_client.send_task(
         'worker.tasks.generate_insights_for_tenant',
         kwargs={'tenant_slug': tenant.slug},
-        queue='ingest',
+        queue='default',
     )
     return {'status': 'queued', 'tenant': tenant.slug, 'task_id': task.id}
 

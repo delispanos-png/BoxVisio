@@ -47,16 +47,16 @@
   {% else %}
   <div class="row g-3 mb-3">
     <div class="col-xl-3 col-md-6">
-      <div class="bv-kpi-box bv-kpi-green"><div class="kpi-title">{{ tt(request, 'cash_in') }}</div><div class="kpi-value" id="kpiCashIn">0.00</div><div class="kpi-meta">{{ tt(request, 'cash_in') }}</div><div class="kpi-icon"><i class="fe fe-arrow-down-circle"></i></div></div>
+      <div class="bv-metric-card" style="--mc-color:#22c55e" data-kpi-what="Το σύνολο των εισροών στο ταμείο/χρηματοροή για το επιλεγμένο διάστημα." data-kpi-formula="Εισροές = άθροισμα amount όλων των εγγραφών cashflow με θετικό πρόσημο ή τύπο inflow στο [Από, Έως]."><div class="mc-icon"><i class="fe fe-arrow-down-circle"></i></div><div class="mc-label">{{ tt(request, 'cash_in') }}</div><div class="mc-value" id="kpiCashIn">—</div><div class="mc-meta">{{ tt(request, 'cash_in') }}</div></div>
     </div>
     <div class="col-xl-3 col-md-6">
-      <div class="bv-kpi-box bv-kpi-orange"><div class="kpi-title">{{ tt(request, 'cash_out') }}</div><div class="kpi-value" id="kpiCashOut">0.00</div><div class="kpi-meta">{{ tt(request, 'cash_out') }}</div><div class="kpi-icon"><i class="fe fe-arrow-up-circle"></i></div></div>
+      <div class="bv-metric-card" style="--mc-color:#f97316" data-kpi-what="Το σύνολο των εκροών στο ταμείο/χρηματοροή για το επιλεγμένο διάστημα." data-kpi-formula="Εκροές = άθροισμα amount όλων των εγγραφών cashflow με αρνητικό πρόσημο ή τύπο outflow στο [Από, Έως]."><div class="mc-icon"><i class="fe fe-arrow-up-circle"></i></div><div class="mc-label">{{ tt(request, 'cash_out') }}</div><div class="mc-value" id="kpiCashOut">—</div><div class="mc-meta">{{ tt(request, 'cash_out') }}</div></div>
     </div>
     <div class="col-xl-3 col-md-6">
-      <div class="bv-kpi-box bv-kpi-blue"><div class="kpi-title">{{ tt(request, 'net_cash') }}</div><div class="kpi-value" id="kpiCashNet">0.00</div><div class="kpi-meta">{{ tt(request, 'net_cash') }}</div><div class="kpi-icon"><i class="fe fe-trending-up"></i></div></div>
+      <div class="bv-metric-card" style="--mc-color:#3b82f6" data-kpi-what="Το καθαρό αποτέλεσμα ρευστότητας στο επιλεγμένο διάστημα." data-kpi-formula="Καθαρή Ροή = Εισροές - Εκροές."><div class="mc-icon"><i class="fe fe-trending-up"></i></div><div class="mc-label">{{ tt(request, 'net_cash') }}</div><div class="mc-value" id="kpiCashNet">—</div><div class="mc-meta">{{ tt(request, 'net_cash') }}</div></div>
     </div>
     <div class="col-xl-3 col-md-6">
-      <div class="bv-kpi-box bv-kpi-purple"><div class="kpi-title">{{ tt(request, 'entries') }}</div><div class="kpi-value" id="kpiCashEntries">0</div><div class="kpi-meta">{{ tt(request, 'entries') }}</div><div class="kpi-icon"><i class="fe fe-list"></i></div></div>
+      <div class="bv-metric-card" style="--mc-color:#8b5cf6" data-kpi-what="Πόσες κινήσεις cashflow βρέθηκαν στο επιλεγμένο διάστημα." data-kpi-formula="Πλήθος Εγγραφών = count(εγγραφές cashflow) στο [Από, Έως]."><div class="mc-icon"><i class="fe fe-list"></i></div><div class="mc-label">{{ tt(request, 'entries') }}</div><div class="mc-value" id="kpiCashEntries">—</div><div class="mc-meta">{{ tt(request, 'entries') }}</div></div>
     </div>
   </div>
 

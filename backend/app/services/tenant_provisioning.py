@@ -33,6 +33,7 @@ PRODUCT_PLAN_MAP = {
     '1': PlanName.standard,
     '2': PlanName.pro,
     '3': PlanName.enterprise,
+    '4': PlanName.custom,
 }
 
 

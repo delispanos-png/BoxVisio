@@ -46,35 +46,35 @@
 
 <div class="row g-3 mb-3">
   <div class="col-xl-3 col-md-6">
-    <div class="bv-kpi-box bv-kpi-orange">
-      <div class="kpi-title">Σύνολο Εξόδων</div>
-      <div class="kpi-value" id="expTotal">0,00 €</div>
-      <div class="kpi-meta">Καθαρές δαπάνες περιόδου</div>
-      <div class="kpi-icon"><i class="fe fe-credit-card"></i></div>
+    <div class="bv-metric-card" style="--mc-color:#f97316" data-kpi-what="Το σύνολο των εξόδων στο επιλεγμένο διάστημα." data-kpi-formula="Σύνολο Εξόδων = άθροισμα amount όλων των εγγραφών εξόδων στο [Από, Έως].">
+      <div class="mc-icon"><i class="fe fe-credit-card"></i></div>
+      <div class="mc-label">Σύνολο Εξόδων</div>
+      <div class="mc-value" id="expTotal">—</div>
+      <div class="mc-meta">Καθαρές δαπάνες περιόδου</div>
     </div>
   </div>
   <div class="col-xl-3 col-md-6">
-    <div class="bv-kpi-box bv-kpi-blue">
-      <div class="kpi-title">Έξοδα / Έσοδα</div>
-      <div class="kpi-value" id="expRatio">0,00%</div>
-      <div class="kpi-meta">Expense ratio to revenue</div>
-      <div class="kpi-icon"><i class="fe fe-percent"></i></div>
+    <div class="bv-metric-card" style="--mc-color:#3b82f6" data-kpi-what="Το ποσοστό που αντιστοιχούν τα έξοδα πάνω στα έσοδα της ίδιας περιόδου." data-kpi-formula="Έξοδα / Έσοδα = (Σύνολο Εξόδων / Πωλήσεις Περιόδου) * 100.">
+      <div class="mc-icon"><i class="fe fe-percent"></i></div>
+      <div class="mc-label">Έξοδα / Έσοδα</div>
+      <div class="mc-value" id="expRatio">—</div>
+      <div class="mc-meta">Αναλογία εξόδων/εσόδων</div>
     </div>
   </div>
   <div class="col-xl-3 col-md-6">
-    <div class="bv-kpi-box bv-kpi-green">
-      <div class="kpi-title">Πλήθος Εγγραφών</div>
-      <div class="kpi-value" id="expEntries">0</div>
-      <div class="kpi-meta">Expense entries</div>
-      <div class="kpi-icon"><i class="fe fe-list"></i></div>
+    <div class="bv-metric-card" style="--mc-color:#22c55e" data-kpi-what="Πόσες εγγραφές εξόδων βρέθηκαν στο διάστημα." data-kpi-formula="Πλήθος Εγγραφών = count(εγγραφές εξόδων) στο [Από, Έως].">
+      <div class="mc-icon"><i class="fe fe-list"></i></div>
+      <div class="mc-label">Πλήθος Εγγραφών</div>
+      <div class="mc-value" id="expEntries">—</div>
+      <div class="mc-meta">Εγγραφές εξόδων</div>
     </div>
   </div>
   <div class="col-xl-3 col-md-6">
-    <div class="bv-kpi-box bv-kpi-purple">
-      <div class="kpi-title">Κατηγορίες</div>
-      <div class="kpi-value" id="expCategories">0</div>
-      <div class="kpi-meta">Ενεργές κατηγορίες εξόδων</div>
-      <div class="kpi-icon"><i class="fe fe-grid"></i></div>
+    <div class="bv-metric-card" style="--mc-color:#8b5cf6" data-kpi-what="Πόσες διαφορετικές κατηγορίες εξόδων συμμετείχαν στο διάστημα." data-kpi-formula="Κατηγορίες = count(distinct category) στις εγγραφές εξόδων του [Από, Έως].">
+      <div class="mc-icon"><i class="fe fe-grid"></i></div>
+      <div class="mc-label">Κατηγορίες</div>
+      <div class="mc-value" id="expCategories">—</div>
+      <div class="mc-meta">Ενεργές κατηγορίες εξόδων</div>
     </div>
   </div>
 </div>

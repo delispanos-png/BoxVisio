@@ -25,6 +25,38 @@
       inputmode="numeric"
     >
   </div>
+  <div class="col-12 col-md-6 col-xl-3">
+    <label class="form-label mb-1">{{ tt(request, 'branches') }}</label>
+    <div class="bv-multi" id="purchaseDocsBranchesMulti">
+      <button type="button" class="form-select bv-multi-toggle text-start" id="purchaseDocsBranchesToggle">Επιλογή</button>
+      <div class="bv-multi-menu" id="purchaseDocsBranchesMenu" hidden>
+        <div class="d-flex gap-2 mb-2">
+          <input type="text" class="form-control form-control-sm" id="purchaseDocsBranchesSearch" placeholder="Αναζήτηση...">
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="purchaseDocsBranchesAll">Όλα</button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="purchaseDocsBranchesClear">Καθαρισμός</button>
+        </div>
+        <div id="purchaseDocsBranchesOptions" class="bv-multi-options"></div>
+      </div>
+      <div id="purchaseDocsBranchesChips" class="bv-chip-wrap mt-2"></div>
+      <select name="branches" id="purchaseDocsBranches" multiple hidden></select>
+    </div>
+  </div>
+  <div class="col-12 col-md-6 col-xl-3">
+    <label class="form-label mb-1">{{ tt(request, 'warehouses') }}</label>
+    <div class="bv-multi" id="purchaseDocsWarehousesMulti">
+      <button type="button" class="form-select bv-multi-toggle text-start" id="purchaseDocsWarehousesToggle">Επιλογή</button>
+      <div class="bv-multi-menu" id="purchaseDocsWarehousesMenu" hidden>
+        <div class="d-flex gap-2 mb-2">
+          <input type="text" class="form-control form-control-sm" id="purchaseDocsWarehousesSearch" placeholder="Αναζήτηση...">
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="purchaseDocsWarehousesAll">Όλα</button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="purchaseDocsWarehousesClear">Καθαρισμός</button>
+        </div>
+        <div id="purchaseDocsWarehousesOptions" class="bv-multi-options"></div>
+      </div>
+      <div id="purchaseDocsWarehousesChips" class="bv-chip-wrap mt-2"></div>
+      <select name="warehouses" id="purchaseDocsWarehouses" multiple hidden></select>
+    </div>
+  </div>
   <div class="col-12 col-md-4 col-xl-3 d-grid gap-2 align-content-end">
     <button class="btn btn-primary" type="submit"><i class="fe fe-filter"></i> {{ tt(request, 'apply') }}</button>
     <button class="btn btn-outline-secondary" type="button" id="purchaseDocsReset"><i class="fe fe-rotate-ccw"></i> Καθαρισμός</button>
@@ -204,6 +236,7 @@
                     <th style="width:52px">Α/Α</th>
                     <th style="width:120px">Κωδικός</th>
                     <th>Περιγραφή</th>
+                    <th>Κανάλι</th>
                     <th class="text-end">Ποσ. 1</th>
                     <th class="text-end">Εκτελ.</th>
                     <th class="text-end">Τιμή</th>
@@ -220,7 +253,7 @@
                   </tr>
                 </thead>
                 <tbody id="purchaseDocLinesBody">
-                  <tr><td colspan="16" class="text-center text-muted py-3">Δεν υπάρχουν γραμμές.</td></tr>
+                  <tr><td colspan="17" class="text-center text-muted py-3">Δεν υπάρχουν γραμμές.</td></tr>
                 </tbody>
               </table>
             </div>
@@ -286,9 +319,6 @@
           <button type="button" class="btn btn-primary btn-sm" data-bv-wizard-next>Επόμενο</button>
         </div>
       </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ tt(request, 'close') if tt(request, 'close') != 'close' else 'Κλείσιμο' }}</button>
-      </div>
     </div>
   </div>
 </div>
@@ -301,6 +331,10 @@ let purchaseDocActiveId = '';
 let purchaseDocOpenToken = 0;
 let purchaseDocsPage = 1;
 let purchaseDocsTotal = 0;
+const purchaseDocFieldDefs = [
+  { key:'branches', selectId:'purchaseDocsBranches', label:'{{ tt(request, "branches") }}' },
+  { key:'warehouses', selectId:'purchaseDocsWarehouses', label:'{{ tt(request, "warehouses") }}' },
+];
 
 const fmt2 = new Intl.NumberFormat('el-GR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmt0 = new Intl.NumberFormat('el-GR', { maximumFractionDigits: 0 });
@@ -467,6 +501,10 @@ function params(){
   const p = new URLSearchParams();
   p.set('from', toIsoDate(fd.get('from')));
   p.set('to', toIsoDate(fd.get('to')));
+  purchaseDocFieldDefs.forEach((field) => {
+    const sel = document.getElementById(field.selectId);
+    Array.from(sel?.selectedOptions || []).forEach((o) => p.append(field.key, o.value));
+  });
   return p;
 }
 function purchaseDocumentsParams(){
@@ -478,6 +516,106 @@ function purchaseDocumentsParams(){
   const q = String(document.getElementById('purchaseDocsSearch')?.value || '').trim();
   if(q) p.set('q', q);
   return p;
+}
+
+function syncPurchaseDocsMultiUI(prefix, label, filterText=''){
+  const select = document.getElementById(prefix);
+  const optionsWrap = document.getElementById(`${prefix}Options`);
+  const chips = document.getElementById(`${prefix}Chips`);
+  const toggle = document.getElementById(`${prefix}Toggle`);
+  if(!select || !optionsWrap || !chips || !toggle) return;
+  const selected = Array.from(select.options).filter((o) => o.selected).map((o) => o.value);
+  const normalized = (filterText || '').toLowerCase().trim();
+  optionsWrap.innerHTML = '';
+  Array.from(select.options)
+    .filter((o) => !normalized || ((o.dataset.label || o.textContent || o.value).toLowerCase().includes(normalized)))
+    .forEach((o) => {
+      const row = document.createElement('label');
+      row.className = 'bv-multi-opt';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = o.selected;
+      cb.addEventListener('change', () => {
+        o.selected = cb.checked;
+        syncPurchaseDocsMultiUI(prefix, label, document.getElementById(`${prefix}Search`)?.value || '');
+      });
+      const span = document.createElement('span');
+      span.textContent = o.dataset.label || o.textContent || o.value;
+      row.appendChild(cb);
+      row.appendChild(span);
+      optionsWrap.appendChild(row);
+    });
+  if(!optionsWrap.children.length){
+    const empty = document.createElement('div');
+    empty.className = 'bv-multi-empty';
+    empty.textContent = '{{ tt(request, "no_options_available") }}';
+    optionsWrap.appendChild(empty);
+  }
+  chips.innerHTML = '';
+  selected.forEach((v) => {
+    const chip = document.createElement('span');
+    chip.className = 'bv-chip';
+    const opt = Array.from(select.options).find((o) => o.value === v);
+    chip.textContent = opt?.dataset.label || opt?.textContent || v;
+    chips.appendChild(chip);
+  });
+  toggle.textContent = selected.length ? `${label} (${selected.length})` : '{{ tt(request, "select") }}';
+}
+
+function initPurchaseDocsMulti(prefix, label){
+  const toggle = document.getElementById(`${prefix}Toggle`);
+  const menu = document.getElementById(`${prefix}Menu`);
+  const search = document.getElementById(`${prefix}Search`);
+  const btnAll = document.getElementById(`${prefix}All`);
+  const btnClear = document.getElementById(`${prefix}Clear`);
+  const select = document.getElementById(prefix);
+  if(!toggle || !menu || !search || !btnAll || !btnClear || !select || toggle.dataset.bound === '1') return;
+  toggle.dataset.bound = '1';
+  toggle.addEventListener('click', () => { menu.hidden = !menu.hidden; });
+  search.addEventListener('input', () => syncPurchaseDocsMultiUI(prefix, label, search.value));
+  btnAll.addEventListener('click', () => {
+    Array.from(select.options).forEach((o) => { o.selected = true; });
+    syncPurchaseDocsMultiUI(prefix, label, search.value);
+  });
+  btnClear.addEventListener('click', () => {
+    Array.from(select.options).forEach((o) => { o.selected = false; });
+    syncPurchaseDocsMultiUI(prefix, label, search.value);
+  });
+  document.addEventListener('click', (e) => {
+    if(!document.getElementById(`${prefix}Multi`)?.contains(e.target)) menu.hidden = true;
+  });
+}
+
+function populatePurchaseDocsSelect(prefix, label, values, labels={}){
+  const select = document.getElementById(prefix);
+  if(!select) return;
+  const prev = new Set(Array.from(select.selectedOptions || []).map((o) => o.value));
+  select.innerHTML = '';
+  const ordered = [...(values || [])].sort((a, b) =>
+    String(labels[a] || a).localeCompare(String(labels[b] || b), 'el', { sensitivity:'base' })
+  );
+  ordered.forEach((v) => {
+    const opt = document.createElement('option');
+    opt.value = v;
+    opt.textContent = labels[v] || v;
+    opt.dataset.label = labels[v] || v;
+    if(prev.has(v)) opt.selected = true;
+    select.appendChild(opt);
+  });
+  syncPurchaseDocsMultiUI(prefix, label, document.getElementById(`${prefix}Search`)?.value || '');
+}
+
+async function loadPurchaseDocsFilterOptions(){
+  try{
+    const p = params();
+    const res = await fetch(`/v1/kpi/purchases/filter-options?${p.toString()}`);
+    if(!res.ok) return;
+    const options = await res.json();
+    purchaseDocFieldDefs.forEach((field) => {
+      const labels = (options && options.labels && options.labels[field.key]) || {};
+      populatePurchaseDocsSelect(field.selectId, field.label, (options && options[field.key]) || [], labels);
+    });
+  }catch(_err){}
 }
 
 function resetPurchaseDocModal(){
@@ -568,7 +706,7 @@ function renderPurchaseDocumentLines(lines){
   if(!linesBody) return;
   linesBody.innerHTML = '';
   if(!(lines || []).length){
-    linesBody.innerHTML = '<tr><td colspan="16" class="text-center text-muted py-3">Δεν υπάρχουν γραμμές.</td></tr>';
+    linesBody.innerHTML = '<tr><td colspan="17" class="text-center text-muted py-3">Δεν υπάρχουν γραμμές.</td></tr>';
     return;
   }
   (lines || []).forEach((line, idx) => {
@@ -577,6 +715,7 @@ function renderPurchaseDocumentLines(lines){
       <td>${fmt0.format(Number(line.row_no || idx + 1))}</td>
       <td>${escapeHtml(textOrDash(line.item_code, '-'))}</td>
       <td>${escapeHtml(textOrDash(line.item_name, '-'))}</td>
+      <td>${escapeHtml(textOrDash(line.channel_name, ''))}</td>
       <td class="text-end">${fmt2.format(toNum(line.qty))}</td>
       <td class="text-end">${fmt2.format(toNum(line.qty_executed))}</td>
       <td class="text-end">${money(line.unit_price)}</td>
@@ -696,6 +835,7 @@ window.addEventListener('load', async () => {
   purchaseDocModalEl = document.getElementById('purchaseDocumentModal');
   bindPurchaseDocTabs();
   getPurchaseDocModalController();
+  purchaseDocFieldDefs.forEach((field) => initPurchaseDocsMulti(field.selectId, field.label));
 
   const searchEl = document.getElementById('purchaseDocsSearch');
   if(searchEl){
@@ -710,6 +850,11 @@ window.addEventListener('load', async () => {
   document.getElementById('purchaseDocsRefresh')?.addEventListener('click', () => reloadPurchaseDocuments());
   document.getElementById('purchaseDocsReset')?.addEventListener('click', () => {
     document.getElementById('purchaseDocumentsFilters')?.reset();
+    purchaseDocFieldDefs.forEach((field) => {
+      const select = document.getElementById(field.selectId);
+      Array.from(select?.options || []).forEach((o) => { o.selected = false; });
+      syncPurchaseDocsMultiUI(field.selectId, field.label);
+    });
     if(window.bvInitDmyDateInputs) window.bvInitDmyDateInputs(document.getElementById('purchaseDocumentsFilters'));
     purchaseDocsPage = 1;
     reloadPurchaseDocuments();
@@ -729,6 +874,7 @@ window.addEventListener('load', async () => {
     purchaseDocsPage = val;
     reloadPurchaseDocuments();
   });
+  await loadPurchaseDocsFilterOptions();
   await reloadPurchaseDocuments();
 });
 </script>

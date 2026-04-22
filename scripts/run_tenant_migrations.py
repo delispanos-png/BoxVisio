@@ -15,7 +15,7 @@ from app.core.config import settings  # noqa: E402
 # NOTE: alembic config currently exposes both control + tenant heads.
 # Keep tenant migrations pinned to the latest tenant revision to avoid
 # ambiguous "head" errors.
-TENANT_MIGRATION_HEAD = '20260409_0015_tenant'
+TENANT_MIGRATION_HEAD = '20260418_0020_tenant'
 
 
 def _tenant_creds(tenant_slug: str) -> tuple[str, str, str]:

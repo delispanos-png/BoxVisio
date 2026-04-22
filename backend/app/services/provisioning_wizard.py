@@ -31,7 +31,7 @@ from app.models.control import (
 )
 from app.services.subscriptions import infer_default_features_for_plan
 
-TENANT_MIGRATION_HEAD = '20260308_0010_tenant'
+TENANT_MIGRATION_HEAD = '20260418_0020_tenant'
 
 
 def _rand_secret(size: int = 40) -> str:

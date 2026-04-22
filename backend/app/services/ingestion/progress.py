@@ -5,7 +5,7 @@ from datetime import datetime
 from redis import Redis
 
 from app.core.config import settings
-from app.services.ingestion.queueing import tenant_lock_name, tenant_queue_name
+from app.services.ingestion.queueing import tenant_delete_active_key, tenant_lock_name, tenant_queue_name
 
 PROGRESS_TTL_SECONDS = 7 * 24 * 60 * 60
 
@@ -20,6 +20,10 @@ def progress_key(tenant_slug: str) -> str:
 
 def queue_depth(tenant_slug: str) -> int:
     return int(_redis().llen(tenant_queue_name(tenant_slug)))
+
+
+def clear_ingest_progress(tenant_slug: str) -> None:
+    _redis().delete(progress_key(tenant_slug))
 
 
 def begin_ingest_progress(
@@ -102,6 +106,8 @@ def update_ingest_progress(tenant_slug: str, *, status: str | None = None, error
             current_depth_value = 0
             done = total_jobs
             pct = 100.0
+        elif next_status in {'failed', 'stopped'}:
+            current_depth_value = 0
         elif next_status in {'queued', 'running'}:
             current_depth_value = 1
     elif queue_depth_now <= target_depth:
@@ -115,7 +121,7 @@ def update_ingest_progress(tenant_slug: str, *, status: str | None = None, error
         'progress_pct': str(pct),
         'updated_at': now,
     }
-    if next_status in {'completed', 'stopped'}:
+    if next_status in {'completed', 'stopped', 'failed'}:
         update_map.setdefault('completed_at', now)
     if error:
         update_map['last_error'] = error
@@ -134,6 +140,7 @@ def get_ingest_progress(tenant_slug: str) -> dict[str, object]:
     raw = redis.hgetall(key)
     current_depth = int(redis.llen(tenant_queue_name(tenant_slug)))
     lock_value = redis.get(tenant_lock_name(tenant_slug))
+    delete_active = bool(redis.get(tenant_delete_active_key(tenant_slug)))
     if not raw:
         is_running = current_depth > 0
         return {
@@ -153,12 +160,36 @@ def get_ingest_progress(tenant_slug: str) -> dict[str, object]:
     operation = str(raw.get('operation') or 'backfill')
     status = str(raw.get('status') or 'running')
     if operation == 'delete':
+        if not delete_active:
+            redis.delete(key)
+            return {
+                'tenant_slug': tenant_slug,
+                'operation': 'delete',
+                'status': 'idle',
+                'total_jobs': 0,
+                'start_queue_depth': 0,
+                'target_queue_depth': 0,
+                'current_queue_depth': 0,
+                'processed_jobs': 0,
+                'progress_pct': 0.0,
+                'from_date': None,
+                'to_date': None,
+                'chunk_records': 0,
+                'chunk_days': 0,
+                'started_at': None,
+                'updated_at': datetime.utcnow().isoformat(),
+                'completed_at': None,
+                'last_error': None,
+                'lock_active': bool(lock_value),
+            }
         total_jobs = max(1, int(raw.get('total_jobs') or 1))
         current_depth = int(raw.get('current_queue_depth') or (0 if status == 'completed' else 1))
         done = int(raw.get('processed_jobs') or (total_jobs if status == 'completed' else 0))
         if status == 'completed':
             current_depth = 0
             done = total_jobs
+        elif status in {'failed', 'stopped'}:
+            current_depth = 0
         pct = round(min(100.0, max(0.0, (done / max(1, total_jobs)) * 100.0)), 1)
         start_depth = int(raw.get('start_queue_depth') or 1)
         target_depth = int(raw.get('target_queue_depth') or 0)

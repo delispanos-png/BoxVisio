@@ -51,29 +51,36 @@ SELECT
     AS decimal(28,8)
   ) AS gross_value,
 
+  CAST(NULLIF(CAST(ISNULL(I.CCC88ECHANNEL, 0) AS nvarchar(64)), '0') AS nvarchar(64)) AS channel_ext_id,
+  CAST(ISNULL(EC.NAME, '') AS nvarchar(255)) AS channel_name,
   CAST(ISNULL(F.SOSOURCE, 0) AS int) AS source_module_id,
   CAST(ISNULL(F.SOREDIR, 0) AS int) AS redirect_module_id,
   CAST(ISNULL(F.SODTYPE, 0) AS int) AS source_entity_id,
   CAST(ISNULL(F.TFPRMS, 0) AS int) AS source_transaction_type_id,
   CAST(ISNULL(F.SOSOURCE, 0) + ISNULL(F.SOREDIR, 0) AS int) AS object_id,
   CAST(ISNULL(BR.NAME, CAST(F.BRANCH AS nvarchar(255))) AS nvarchar(255)) AS branch_name,
+  CAST(ISNULL(WH.NAME, CAST(ISNULL(MD.WHOUSE, 0) AS nvarchar(255))) AS nvarchar(255)) AS warehouse_name,
   CAST(F.BRANCH AS nvarchar(64)) AS branch_code,
   CAST(F.COMPANY AS nvarchar(64)) AS company_id
 FROM FINDOC F
 INNER JOIN MTRLINES L ON L.FINDOC = F.FINDOC AND L.COMPANY = F.COMPANY
 LEFT JOIN MTRDOC MD ON MD.FINDOC = F.FINDOC AND MD.COMPANY = F.COMPANY
+LEFT JOIN WHOUSE WH ON WH.WHOUSE = MD.WHOUSE AND WH.COMPANY = F.COMPANY
 LEFT JOIN TRDR C ON C.TRDR = F.TRDR AND C.COMPANY = F.COMPANY
 LEFT JOIN MTRL I ON I.MTRL = L.MTRL AND I.COMPANY = F.COMPANY
+LEFT JOIN CCC88ECHANNEL EC ON EC.CCC88ECHANNEL = I.CCC88ECHANNEL
 LEFT JOIN BRANCH BR ON BR.BRANCH = F.BRANCH AND BR.COMPANY = F.COMPANY
 LEFT JOIN SERIES SR ON SR.SERIES = F.SERIES AND SR.COMPANY = F.COMPANY AND SR.SOSOURCE = F.SOSOURCE
 WHERE
+  (@company_id IS NULL OR F.COMPANY = @company_id)
+  AND
   ISNULL(F.SODTYPE, 0) = 13
   AND ISNULL(F.SOSOURCE, 0) = 1351
   AND ISNULL(F.SOREDIR, 0) IN (0, 10000)
   -- Sales/revenue behaviors only (SoftOne):
-  -- 102 invoice, 131 retail receipt, 151/152/181 credits (negative sign above).
+  -- 102 invoice, 103 invoice-delivery note, 131 retail receipt, 151/152/181 credits (negative sign above).
   -- Excludes orders/movements (e.g. 201/101/104) that inflate turnover KPIs.
-  AND ISNULL(F.TFPRMS, 0) IN (102, 131, 151, 152, 181)
+  AND ISNULL(F.TFPRMS, 0) IN (102, 103, 131, 151, 152, 181)
   AND (@from_date IS NULL OR F.TRNDATE >= @from_date)
   AND (@to_date IS NULL OR F.TRNDATE < DATEADD(day, 1, @to_date))
   AND (

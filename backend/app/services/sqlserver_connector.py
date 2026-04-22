@@ -1,5 +1,6 @@
 from collections.abc import Iterable
 from datetime import datetime
+import re
 import time
 from typing import Any
 
@@ -41,7 +42,14 @@ def _quote_identifier(identifier: str) -> str:
     return f'[{safe}]'
 
 
-def _build_final_query(query_template: str, *, incremental_column: str, id_column: str, date_column: str) -> str:
+def _build_final_query(
+    query_template: str,
+    *,
+    incremental_column: str,
+    id_column: str,
+    date_column: str,
+    limit: int | None = None,
+) -> str:
     base = (query_template or '').strip().rstrip(';')
     if not base:
         raise ValueError('query_template is empty')
@@ -50,8 +58,13 @@ def _build_final_query(query_template: str, *, incremental_column: str, id_colum
     id_col = _quote_identifier(id_column)
     dt_col = _quote_identifier(date_column)
 
+    top_clause = ''
+    if limit is not None:
+        top_n = max(1, min(int(limit), 10000))
+        top_clause = f'TOP {top_n} '
+
     wrapped = (
-        "SELECT * FROM ("
+        f"SELECT {top_clause}* FROM ("
         f"{base}"
         ") AS src "
         "WHERE (? IS NULL OR src.{date_col} >= ?) "
@@ -72,22 +85,25 @@ def _bind_template_params(
     to_date: Any,
     last_sync_timestamp: Any,
     last_sync_id: Any,
+    company_id: Any = None,
 ) -> tuple[str, list[Any]]:
-    tokens = ['@from_date', '@to_date', '@last_sync_ts', '@last_sync_id']
+    tokens = ['@from_date', '@to_date', '@last_sync_ts', '@last_sync_id', '@company_id']
     params_map = {
         '@from_date': from_date,
         '@to_date': to_date,
         '@last_sync_ts': last_sync_timestamp,
         '@last_sync_id': last_sync_id,
+        '@company_id': company_id,
     }
     params: list[Any] = []
-    normalized = query_template
-    for token in tokens:
-        count = normalized.count(token)
-        if count <= 0:
-            continue
-        normalized = normalized.replace(token, '?')
-        params.extend([params_map[token]] * count)
+    token_re = re.compile('|'.join(re.escape(token) for token in tokens))
+
+    def _replace(match: re.Match[str]) -> str:
+        token = match.group(0)
+        params.append(params_map[token])
+        return '?'
+
+    normalized = token_re.sub(_replace, query_template)
     return normalized, params
 
 
@@ -214,11 +230,14 @@ def fetch_incremental_rows(
     last_sync_id: str | None = None,
     from_date: datetime | None = None,
     to_date: datetime | None = None,
+    company_id: str | int | None = None,
+    limit: int | None = None,
     retries: int = 3,
     retry_sleep_sec: int = 2,
 ) -> Iterable[dict[str, Any]]:
     from_date = _normalize_param_datetime(from_date)
     to_date = _normalize_param_datetime(to_date)
+    last_sync_timestamp = _normalize_param_datetime(last_sync_timestamp)
 
     templated_query, template_params = _bind_template_params(
         query_template,
@@ -226,12 +245,14 @@ def fetch_incremental_rows(
         to_date=to_date,
         last_sync_timestamp=last_sync_timestamp,
         last_sync_id=last_sync_id,
+        company_id=company_id,
     )
     effective_query = _build_final_query(
         templated_query,
         incremental_column=incremental_column,
         id_column=id_column,
         date_column=date_column,
+        limit=limit,
     )
     last_id: Any = last_sync_id
     if last_id is not None and str(last_id).isdigit():
@@ -250,11 +271,14 @@ def fetch_incremental_rows(
     params = template_params + filter_params
 
     fetch_batch_size = max(100, int(getattr(settings, 'sqlserver_fetch_batch_size', 1000) or 1000))
+    query_timeout = max(30, int(getattr(settings, 'sqlserver_query_timeout_seconds', 180) or 180))
 
     for attempt in range(1, retries + 1):
         try:
             with _connect(connection_string) as conn:
                 cur = conn.cursor()
+                if hasattr(cur, 'timeout'):
+                    cur.timeout = query_timeout
                 cur.execute(effective_query, *params)
                 columns = [col[0] for col in cur.description]
                 while True:

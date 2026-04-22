@@ -1,4 +1,5 @@
 import logging
+import csv
 from datetime import date, timedelta
 from io import StringIO
 import re
@@ -40,8 +41,13 @@ from app.services.kpi_queries import (
     inventory_items_overview,
     inventory_snapshot,
     purchases_filter_options,
+    sellout_filter_options,
+    sellout_report,
     purchase_document_detail,
     purchases_documents_overview,
+    expenses_filter_options,
+    expense_document_detail,
+    expenses_documents_overview,
     purchases_decision_pack,
     purchases_by_supplier,
     purchases_summary,
@@ -272,9 +278,9 @@ def _parse_int_param(
 
 def _csv_response(filename: str, header: list[str], rows: list[list[str]]) -> StreamingResponse:
     buf = StringIO()
-    buf.write(','.join(header) + '\n')
-    for row in rows:
-        buf.write(','.join(row) + '\n')
+    writer = csv.writer(buf)
+    writer.writerow(header)
+    writer.writerows(rows)
     buf.seek(0)
     return StreamingResponse(
         iter([buf.getvalue()]),
@@ -293,6 +299,11 @@ def _normalize_list(values: list[str] | None) -> tuple[str, ...]:
     if not values:
         return tuple()
     return tuple(sorted({str(value) for value in values if str(value).strip()}))
+
+
+def _clean_query_list(values: list[str] | None) -> list[str] | None:
+    cleaned = [str(value).strip() for value in (values or []) if str(value or '').strip()]
+    return cleaned or None
 
 
 def _kpi_filter_cache_params(
@@ -919,6 +930,7 @@ async def get_sales_documents(
     brands: list[str] | None = Query(default=None),
     categories: list[str] | None = Query(default=None),
     groups: list[str] | None = Query(default=None),
+    channels: list[str] | None = Query(default=None),
     status: str = Query(default='all'),
     series: str | None = Query(default=None),
     document_no: str | None = Query(default=None),
@@ -942,6 +954,7 @@ async def get_sales_documents(
         brands=brands,
         categories=categories,
         groups=groups,
+        channels=channels,
         status=status,
         series=series,
         document_no=document_no,
@@ -1042,6 +1055,51 @@ async def get_purchase_document_detail(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+@router.get('/v1/kpi/expenses/documents')
+async def get_expenses_documents(
+    date_from: date = Query(default_factory=_default_from, alias='from'),
+    date_to: date = Query(default_factory=_default_to, alias='to'),
+    branches: list[str] | None = Query(default=None),
+    categories: list[str] | None = Query(default=None),
+    q: str | None = Query(default=None),
+    limit: int = Query(default=200, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+    tenant_db: AsyncSession = Depends(get_tenant_db),
+):
+    return await expenses_documents_overview(
+        tenant_db,
+        date_from=date_from,
+        date_to=date_to,
+        branches=branches,
+        categories=categories,
+        q=q,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get('/v1/kpi/expenses/documents/{document_id}/detail')
+async def get_expense_document_detail(
+    document_id: str,
+    date_from: date | None = Query(default=None, alias='from'),
+    date_to: date | None = Query(default=None, alias='to'),
+    branches: list[str] | None = Query(default=None),
+    categories: list[str] | None = Query(default=None),
+    tenant_db: AsyncSession = Depends(get_tenant_db),
+):
+    try:
+        return await expense_document_detail(
+            tenant_db,
+            document_id=document_id,
+            date_from=date_from,
+            date_to=date_to,
+            branches=branches,
+            categories=categories,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @router.get('/v1/intelligence/insights')
 async def get_recent_intelligence_insights(
     request: Request,
@@ -1086,7 +1144,7 @@ async def run_intelligence_now(
     task = celery_client.send_task(
         'worker.tasks.generate_insights_for_tenant',
         kwargs={'tenant_slug': tenant.slug},
-        queue='ingest',
+        queue='default',
     )
     return {'status': 'queued', 'tenant': tenant.slug, 'task_id': task.id}
 
@@ -1276,6 +1334,11 @@ async def get_purchases_summary(
 ):
     if tenant.plan == PlanName.standard:
         raise HTTPException(status_code=403, detail='Upgrade required for purchases KPIs')
+    branches = _clean_query_list(branches)
+    warehouses = _clean_query_list(warehouses)
+    brands = _clean_query_list(brands)
+    categories = _clean_query_list(categories)
+    groups = _clean_query_list(groups)
     params = _kpi_filter_cache_params(
         date_from=date_from,
         date_to=date_to,
@@ -1318,6 +1381,11 @@ async def get_purchases_by_supplier(
 ):
     if tenant.plan == PlanName.standard:
         raise HTTPException(status_code=403, detail='Upgrade required for purchases KPIs')
+    branches = _clean_query_list(branches)
+    warehouses = _clean_query_list(warehouses)
+    brands = _clean_query_list(brands)
+    categories = _clean_query_list(categories)
+    groups = _clean_query_list(groups)
     return await purchases_by_supplier(
         tenant_db,
         date_from=date_from,
@@ -1347,6 +1415,11 @@ async def get_purchases_compare(
 ):
     if tenant.plan == PlanName.standard:
         raise HTTPException(status_code=403, detail='Upgrade required for purchases KPIs')
+    branches = _clean_query_list(branches)
+    warehouses = _clean_query_list(warehouses)
+    brands = _clean_query_list(brands)
+    categories = _clean_query_list(categories)
+    groups = _clean_query_list(groups)
     return {
         'A': await purchases_summary(
             tenant_db,
@@ -1385,6 +1458,11 @@ async def get_purchases_decision_pack(
 ):
     if tenant.plan == PlanName.standard:
         raise HTTPException(status_code=403, detail='Upgrade required for purchases KPIs')
+    branches = _clean_query_list(branches)
+    warehouses = _clean_query_list(warehouses)
+    brands = _clean_query_list(brands)
+    categories = _clean_query_list(categories)
+    groups = _clean_query_list(groups)
     return await purchases_decision_pack(
         tenant_db,
         date_from=date_from,
@@ -1411,6 +1489,11 @@ async def get_purchases_filter_options(
 ):
     if tenant.plan == PlanName.standard:
         raise HTTPException(status_code=403, detail='Upgrade required for purchases KPIs')
+    branches = _clean_query_list(branches)
+    warehouses = _clean_query_list(warehouses)
+    brands = _clean_query_list(brands)
+    categories = _clean_query_list(categories)
+    groups = _clean_query_list(groups)
     return await purchases_filter_options(
         tenant_db,
         date_from=date_from,
@@ -1420,6 +1503,153 @@ async def get_purchases_filter_options(
         brands=brands,
         categories=categories,
         groups=groups,
+    )
+
+
+@router.get('/v1/reports/sellout/filter-options')
+async def get_sellout_filter_options(
+    date_from: date = Query(default_factory=_default_from, alias='from'),
+    date_to: date = Query(default_factory=_default_to, alias='to'),
+    branches: list[str] | None = Query(default=None),
+    warehouses: list[str] | None = Query(default=None),
+    tenant_db: AsyncSession = Depends(get_tenant_db),
+):
+    branches = _clean_query_list(branches)
+    warehouses = _clean_query_list(warehouses)
+    return await sellout_filter_options(
+        tenant_db,
+        date_from=date_from,
+        date_to=date_to,
+        branches=branches,
+        warehouses=warehouses,
+    )
+
+
+@router.get('/v1/reports/sellout')
+async def get_sellout_report(
+    date_from: date = Query(default_factory=_default_from, alias='from'),
+    date_to: date = Query(default_factory=_default_to, alias='to'),
+    branches: list[str] | None = Query(default=None),
+    warehouses: list[str] | None = Query(default=None),
+    brands: list[str] | None = Query(default=None),
+    categories: list[str] | None = Query(default=None),
+    groups: list[str] | None = Query(default=None),
+    suppliers: list[str] | None = Query(default=None),
+    q: str | None = Query(default=None),
+    limit: int = Query(default=250, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0),
+    tenant_db: AsyncSession = Depends(get_tenant_db),
+):
+    branches = _clean_query_list(branches)
+    warehouses = _clean_query_list(warehouses)
+    brands = _clean_query_list(brands)
+    categories = _clean_query_list(categories)
+    groups = _clean_query_list(groups)
+    suppliers = _clean_query_list(suppliers)
+    return await sellout_report(
+        tenant_db,
+        date_from=date_from,
+        date_to=date_to,
+        branches=branches,
+        warehouses=warehouses,
+        brands=brands,
+        categories=categories,
+        groups=groups,
+        suppliers=suppliers,
+        q=q,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get('/v1/reports/sellout/export.csv')
+async def export_sellout_report_csv(
+    date_from: date = Query(default_factory=_default_from, alias='from'),
+    date_to: date = Query(default_factory=_default_to, alias='to'),
+    branches: list[str] | None = Query(default=None),
+    warehouses: list[str] | None = Query(default=None),
+    brands: list[str] | None = Query(default=None),
+    categories: list[str] | None = Query(default=None),
+    groups: list[str] | None = Query(default=None),
+    suppliers: list[str] | None = Query(default=None),
+    q: str | None = Query(default=None),
+    tenant_db: AsyncSession = Depends(get_tenant_db),
+):
+    branches = _clean_query_list(branches)
+    warehouses = _clean_query_list(warehouses)
+    brands = _clean_query_list(brands)
+    categories = _clean_query_list(categories)
+    groups = _clean_query_list(groups)
+    suppliers = _clean_query_list(suppliers)
+    data = await sellout_report(
+        tenant_db,
+        date_from=date_from,
+        date_to=date_to,
+        branches=branches,
+        warehouses=warehouses,
+        brands=brands,
+        categories=categories,
+        groups=groups,
+        suppliers=suppliers,
+        q=q,
+        limit=1000,
+        offset=0,
+    )
+    csv_rows = [
+        [
+            str(r.get('item_code', '')),
+            str(r.get('product', '')),
+            str(r.get('barcode', '')),
+            str(r.get('color', '')),
+            str(r.get('size', '')),
+            str(r.get('sales_value', 0)),
+            str(r.get('sales_qty', 0)),
+            str(r.get('gross_profit_pct', 0)),
+            str(r.get('gross_profit_value', 0)),
+            str(r.get('stock_qty', 0)),
+            str(r.get('supplier_name', '')),
+            str(r.get('brand', '')),
+            str(r.get('category', '')),
+            str(r.get('action', '')),
+        ]
+        for r in data.get('rows', [])
+    ]
+    return _csv_response(
+        'sellout_report.csv',
+        [
+            'ΚΩΔΙΚΟΣ ΕΙΔΟΥΣ',
+            'ΠΡΟΙΟΝ',
+            'BARCODE',
+            'ΧΡΩΜΑ',
+            'ΜΕΓΕΘΟΣ',
+            'ΠΩΛΗΣΕΙΣ ΣΕ ΑΞΙΑ',
+            'ΠΩΛΗΣΕΙΣ ΣΕ ΠΟΣΟΤΗΤΑ',
+            'ΜΙΚΤΟ ΚΕΡΔΟΣ %',
+            'ΜΙΚΤΟ ΚΕΡΔΟΣ ΑΞΙΑ',
+            'ΑΠΟΘΕΜΑ',
+            'ΠΡΟΜΗΘΕΥΤΗΣ',
+            'BRAND',
+            'ΚΑΤΗΓΟΡΙΑ',
+            'ΠΡΟΤΑΣΗ',
+        ],
+        csv_rows,
+    )
+
+
+@router.get('/v1/kpi/expenses/filter-options')
+async def get_expenses_filter_options(
+    date_from: date = Query(default_factory=_default_from, alias='from'),
+    date_to: date = Query(default_factory=_default_to, alias='to'),
+    branches: list[str] | None = Query(default=None),
+    categories: list[str] | None = Query(default=None),
+    tenant_db: AsyncSession = Depends(get_tenant_db),
+):
+    return await expenses_filter_options(
+        tenant_db,
+        date_from=date_from,
+        date_to=date_to,
+        branches=branches,
+        categories=categories,
     )
 
 

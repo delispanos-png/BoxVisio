@@ -82,8 +82,14 @@ from app.services.sqlserver_connector import (
 from app.services.provisioning_wizard import run_tenant_provisioning_wizard
 from app.services.ingestion import enqueue_tenant_job
 from app.services.ingestion.base import ALL_OPERATIONAL_STREAMS, STREAM_TO_ENTITY, normalize_stream_name, normalize_stream_values
-from app.services.ingestion.progress import begin_ingest_progress, get_ingest_progress, queue_depth, update_ingest_progress
-from app.services.ingestion.queueing import tenant_lock_name, tenant_queue_name, tenant_stop_key, tenant_throttle_key
+from app.services.ingestion.progress import begin_ingest_progress, clear_ingest_progress, get_ingest_progress, queue_depth, update_ingest_progress
+from app.services.ingestion.queueing import (
+    tenant_delete_active_key,
+    tenant_lock_name,
+    tenant_queue_name,
+    tenant_stop_key,
+    tenant_throttle_key,
+)
 from app.services.ingestion.sync_planner import plan_tenant_sync_jobs
 from app.services.kpi_cache import invalidate_tenant_cache
 from app.services.querypacks import apply_querypack_to_connection, load_querypack
@@ -121,6 +127,65 @@ def _admin_dashboard_redirect(host: str | None = None) -> str:
     if host and host.lower() != settings.admin_portal_host.lower():
         return f'https://{settings.admin_portal_host}{admin_path}'
     return admin_path
+
+
+def _preempt_tenant_tasks(
+    tenant_slug: str,
+    *,
+    task_names: set[str] | None = None,
+) -> dict[str, int]:
+    revoked = {"active": 0, "reserved": 0, "scheduled": 0}
+    target_names = task_names or {
+        "worker.tasks.generate_insights_for_tenant",
+    }
+    try:
+        inspector = celery_client.control.inspect(timeout=1.0)
+        active = inspector.active() or {}
+        reserved = inspector.reserved() or {}
+        scheduled = inspector.scheduled() or {}
+
+        def _matches(task: dict) -> bool:
+            if str(task.get("name") or "") not in target_names:
+                return False
+            kwargs = task.get("kwargs") or {}
+            if isinstance(kwargs, dict):
+                return str(kwargs.get("tenant_slug") or "") == tenant_slug
+            return tenant_slug in str(kwargs)
+
+        for tasks in active.values():
+            for task in tasks or []:
+                if _matches(task):
+                    task_id = str(task.get("id") or "").strip()
+                    if task_id:
+                        celery_client.control.revoke(task_id, terminate=True, signal="SIGKILL")
+                        revoked["active"] += 1
+
+        for tasks in reserved.values():
+            for task in tasks or []:
+                if _matches(task):
+                    task_id = str(task.get("id") or "").strip()
+                    if task_id:
+                        celery_client.control.revoke(task_id)
+                        revoked["reserved"] += 1
+
+        for tasks in scheduled.values():
+            for entry in tasks or []:
+                request = (entry or {}).get("request") or {}
+                if _matches(request):
+                    task_id = str(request.get("id") or "").strip()
+                    if task_id:
+                        celery_client.control.revoke(task_id)
+                        revoked["scheduled"] += 1
+    except Exception:
+        logger.exception("Failed to preempt tenant tasks", extra={"tenant_slug": tenant_slug, "task_names": sorted(target_names)})
+    return revoked
+
+
+def _preempt_tenant_insight_tasks(tenant_slug: str) -> dict[str, int]:
+    return _preempt_tenant_tasks(
+        tenant_slug,
+        task_names={"worker.tasks.generate_insights_for_tenant"},
+    )
 
 
 def _login_redirect_for(user: User, host: str | None = None, profile_code: str | None = None) -> str:
@@ -346,10 +411,11 @@ def _normalize_tenant_status(raw: str) -> str:
 
 
 def _tenant_feature_flags(tenant: Tenant) -> dict[str, bool]:
-    is_enterprise = tenant.plan == PlanName.enterprise
+    from app.services.plan_rules import is_feature_enabled
     return {
-        'inventory_enabled': is_enterprise,
-        'cashflow_enabled': is_enterprise,
+        'inventory_enabled': is_feature_enabled(tenant, 'inventory'),
+        'cashflow_enabled': is_feature_enabled(tenant, 'cashflows'),
+        'supplier_targets_enabled': is_feature_enabled(tenant, 'supplier_targets'),
     }
 
 
@@ -1932,6 +1998,20 @@ async def _connections_template_context(
     if selected_tenant_id is None and tenants:
         selected_tenant_id = int(tenants[0].id)
 
+    last_backfill = None
+    if selected_tenant_id is not None:
+        last_backfill = (
+            await db.execute(
+                select(AuditLog)
+                .where(
+                    AuditLog.tenant_id == selected_tenant_id,
+                    AuditLog.action == 'initial_backfill_queued_ui',
+                )
+                .order_by(AuditLog.created_at.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+
     query_connector = str(request.query_params.get('connector_type') or '').strip()
     connector_type = str(resolved_form.get('connector_type') or query_connector or 'sql_connector')
     resolved_form['tenant_id'] = selected_tenant_id
@@ -2044,6 +2124,7 @@ async def _connections_template_context(
         'discovery': discovery,
         'form_values': resolved_form,
         'stream_options': stream_options,
+        'last_backfill': last_backfill,
     }
 
 
@@ -2193,7 +2274,6 @@ def _render_tenant_menu_placeholder(
             'title': title,
             'page_title_key': page_title_key,
             'page_description': page_description,
-            'hide_page_filters': True,
         },
     )
 
@@ -3452,7 +3532,10 @@ async def admin_connections_backfill(
             ),
             status_code=303,
         )
-    Redis.from_url(settings.redis_url, decode_responses=True).delete(tenant_stop_key(tenant.slug))
+    Redis.from_url(settings.redis_url, decode_responses=True).delete(
+        tenant_stop_key(tenant.slug),
+        tenant_delete_active_key(tenant.slug),
+    )
 
     planned_jobs = await plan_tenant_sync_jobs(
         db,
@@ -3631,8 +3714,27 @@ async def _enqueue_delete_only_task(
         to_dt = None
 
     redis = Redis.from_url(settings.redis_url, decode_responses=True)
+    existing_delete_active = bool(redis.get(tenant_delete_active_key(tenant.slug)))
+    existing_progress = get_ingest_progress(tenant.slug)
+    existing_delete_running = (
+        str(existing_progress.get('operation') or '') == 'delete'
+        and str(existing_progress.get('status') or '') in {'queued', 'running'}
+    )
+    if existing_delete_active or existing_delete_running:
+        return RedirectResponse(
+            url=_connections_redirect_url(
+                redirect_base,
+                tenant_id=tenant_id,
+                connector_type=connector_type,
+                delete_data=1,
+            ),
+            status_code=303,
+        )
     stop_ttl_seconds = max(300, int(getattr(settings, 'ingest_stop_ttl_seconds', 3600) or 3600))
+    delete_ttl_seconds = max(stop_ttl_seconds, 24 * 60 * 60)
     redis.set(tenant_stop_key(tenant.slug), datetime.utcnow().isoformat(), ex=stop_ttl_seconds)
+    redis.set(tenant_delete_active_key(tenant.slug), datetime.utcnow().isoformat(), ex=delete_ttl_seconds)
+    preempted_insight_tasks = _preempt_tenant_insight_tasks(tenant.slug)
     queue_before = int(redis.llen(tenant_queue_name(tenant.slug)))
     lock_active = bool(redis.get(tenant_lock_name(tenant.slug)))
     cleared_runtime_keys = int(
@@ -3644,26 +3746,31 @@ async def _enqueue_delete_only_task(
     )
 
     task_name = 'worker.tasks.delete_tenant_data_only'
-    begin_ingest_progress(
-        tenant_slug=tenant.slug,
-        operation='delete',
-        status='queued',
-        total_jobs=1,
-        start_queue_depth=1,
-        target_queue_depth=0,
-        from_date=from_dt.isoformat() if from_dt else None,
-        to_date=to_dt.isoformat() if to_dt else None,
-    )
-    task = celery_client.send_task(
-        task_name,
-        kwargs={
-            'tenant_slug': tenant.slug,
-            'from_date_str': from_dt.isoformat() if from_dt else None,
-            'to_date_str': to_dt.isoformat() if to_dt else None,
-            'include_notifications': bool(include_notifications),
-        },
-        queue='ingest',
-    )
+    try:
+        task = celery_client.send_task(
+            task_name,
+            kwargs={
+                'tenant_slug': tenant.slug,
+                'from_date_str': from_dt.isoformat() if from_dt else None,
+                'to_date_str': to_dt.isoformat() if to_dt else None,
+                'include_notifications': bool(include_notifications),
+            },
+            queue='delete',
+        )
+        begin_ingest_progress(
+            tenant_slug=tenant.slug,
+            operation='delete',
+            status='queued',
+            total_jobs=1,
+            start_queue_depth=1,
+            target_queue_depth=0,
+            from_date=from_dt.isoformat() if from_dt else None,
+            to_date=to_dt.isoformat() if to_dt else None,
+        )
+    except Exception:
+        redis.delete(tenant_delete_active_key(tenant.slug))
+        clear_ingest_progress(tenant.slug)
+        raise
 
     db.add(
         AuditLog(
@@ -3678,6 +3785,7 @@ async def _enqueue_delete_only_task(
                 'lock_active_on_submit': lock_active,
                 'stop_requested_before_delete': True,
                 'stop_ttl_seconds': stop_ttl_seconds,
+                'preempted_insight_tasks': preempted_insight_tasks,
                 'cleared_runtime_keys': cleared_runtime_keys,
                 'delete_mode': 'date_range' if from_dt and to_dt else 'full',
                 'from_date': from_dt.isoformat() if from_dt else None,
@@ -3784,7 +3892,7 @@ async def admin_connections_recover_sync(
     queue_left = int(queue_depth(tenant.slug))
     cleared_lock = int(redis.delete(tenant_lock_name(tenant.slug)))
     cleared_throttle = int(redis.delete(tenant_throttle_key(tenant.slug)))
-    cleared_stop = int(redis.delete(tenant_stop_key(tenant.slug)))
+    cleared_stop = int(redis.delete(tenant_stop_key(tenant.slug), tenant_delete_active_key(tenant.slug)))
 
     task_id = None
     action = 'noop'
@@ -3854,11 +3962,26 @@ async def admin_connections_stop_sync(
     stop_ttl_seconds = max(300, int(getattr(settings, 'ingest_stop_ttl_seconds', 3600) or 3600))
     queue_before = int(redis.llen(tenant_queue_name(tenant.slug)))
     redis.set(tenant_stop_key(tenant.slug), datetime.utcnow().isoformat(), ex=stop_ttl_seconds)
+    preempted_tasks = _preempt_tenant_tasks(
+        tenant.slug,
+        task_names={
+            'worker.tasks.generate_insights_for_tenant',
+            'worker.tasks.drain_tenant_ingest_queue',
+            'worker.tasks.enqueue_incremental_sync',
+            'worker.tasks.enqueue_sql_backfill',
+            'worker.tasks.enqueue_pharmacyone_backfill',
+            'worker.tasks.refresh_aggregates_for_entity',
+        },
+    )
     cleared_queue = int(redis.delete(tenant_queue_name(tenant.slug)))
     cleared_throttle = int(redis.delete(tenant_throttle_key(tenant.slug)))
     cleared_lock = int(redis.delete(tenant_lock_name(tenant.slug)))
     queue_after = int(redis.llen(tenant_queue_name(tenant.slug)))
-    update_ingest_progress(tenant.slug, status='stopped', error='stopped_by_user')
+    has_active_preemptions = any(int(preempted_tasks.get(k) or 0) > 0 for k in ("active", "reserved", "scheduled"))
+    if queue_after == 0 and not has_active_preemptions:
+        clear_ingest_progress(tenant.slug)
+    else:
+        update_ingest_progress(tenant.slug, status='stopped', error='stopped_by_user')
 
     db.add(
         AuditLog(
@@ -3873,6 +3996,7 @@ async def admin_connections_stop_sync(
                 'cleared_throttle': cleared_throttle,
                 'cleared_lock': cleared_lock,
                 'stop_ttl_seconds': stop_ttl_seconds,
+                'preempted_tasks': preempted_tasks,
             },
         )
     )
@@ -4024,7 +4148,7 @@ async def admin_insights_run_now(
         celery_client.send_task(
             'worker.tasks.generate_insights_for_tenant',
             kwargs={'tenant_slug': tenant.slug},
-            queue='ingest',
+            queue='default',
         )
     return RedirectResponse(url='/admin/insights', status_code=303)
 
@@ -4192,7 +4316,7 @@ async def admin_insight_rules_run(
         celery_client.send_task(
             'worker.tasks.generate_insights_for_tenant',
             kwargs={'tenant_slug': tenant.slug},
-            queue='ingest',
+            queue='default',
         )
     return RedirectResponse(url=f'/admin/insight-rules?tenant_id={tenant_id}', status_code=303)
 
@@ -5634,6 +5758,28 @@ async def tenant_sales_documents_dashboard(
     )
 
 
+@router.get('/tenant/pos', response_class=HTMLResponse)
+async def tenant_pos_dashboard(
+    request: Request,
+    tenant: Tenant = Depends(get_request_tenant),
+    _user=Depends(get_current_user),
+):
+    to_date = date.today()
+    from_date = to_date - timedelta(days=30)
+    return templates.TemplateResponse(
+        'tenant/pos_dashboard.html',
+        {
+            'request': request,
+            'tenant': tenant,
+            **(await _tenant_navigation_context(tenant)),
+            'default_from': from_date,
+            'default_to': to_date,
+            'active_page': 'pos',
+            'title': 'Φυσικό Σημείο Πώλησης',
+        },
+    )
+
+
 @router.get('/tenant/purchases', response_class=HTMLResponse)
 async def tenant_purchases_dashboard(
     request: Request,
@@ -5718,6 +5864,28 @@ async def tenant_operating_expenses_dashboard(
             'default_to': to_date,
             'active_page': 'operating_expenses',
             'title': 'title_operating_expenses_dashboard',
+        },
+    )
+
+
+@router.get('/tenant/expense-documents', response_class=HTMLResponse)
+async def tenant_expense_documents_dashboard(
+    request: Request,
+    tenant: Tenant = Depends(get_request_tenant),
+    _user=Depends(get_current_user),
+):
+    to_date = date.today()
+    from_date = to_date - timedelta(days=365)
+    return templates.TemplateResponse(
+        'tenant/expense_documents_dashboard.html',
+        {
+            'request': request,
+            'tenant': tenant,
+            **(await _tenant_navigation_context(tenant)),
+            'default_from': from_date,
+            'default_to': to_date,
+            'active_page': 'expense_documents',
+            'title': 'title_expense_documents_dashboard',
         },
     )
 
@@ -5971,7 +6139,7 @@ async def tenant_insights_run_now(
     celery_client.send_task(
         'worker.tasks.generate_insights_for_tenant',
         kwargs={'tenant_slug': tenant.slug},
-        queue='ingest',
+        queue='default',
     )
     return RedirectResponse(url='/tenant/insights', status_code=303)
 
@@ -6097,15 +6265,7 @@ async def tenant_analytics_receivables_payables(
     tenant: Tenant = Depends(get_request_tenant),
     _user=Depends(get_current_user),
 ):
-    return _render_tenant_menu_placeholder(
-        request=request,
-        tenant=tenant,
-        nav_context=await _tenant_navigation_context(tenant),
-        active_page='analytics_receivables_payables',
-        title='title_analytics_receivables_payables',
-        page_title_key='analytics_receivables_payables',
-        page_description='Συγκεντρωτική προβολή απαιτήσεων πελατών και υποχρεώσεων προμηθευτών για οικονομική παρακολούθηση.',
-    )
+    return RedirectResponse(url='/tenant/finance-dashboard', status_code=302)
 
 
 @router.get('/tenant/exports/reports', response_class=HTMLResponse)
@@ -6122,6 +6282,25 @@ async def tenant_exports_reports(
         title='title_exports_reports',
         page_title_key='reports',
         page_description='Κεντρική λίστα διαθέσιμων reports με φίλτρα, εκτέλεση και ιστορικό εξαγωγών.',
+    )
+
+
+@router.get('/tenant/exports/sellout', response_class=HTMLResponse)
+async def tenant_exports_sellout(
+    request: Request,
+    tenant: Tenant = Depends(get_request_tenant),
+    _user=Depends(get_current_user),
+):
+    return templates.TemplateResponse(
+        'tenant/sellout_report.html',
+        {
+            'request': request,
+            'tenant': tenant,
+            **await _tenant_navigation_context(tenant),
+            'active_page': 'exports_sellout',
+            'title': 'Sell Out',
+            'page_title_key': 'Sell Out',
+        },
     )
 
 

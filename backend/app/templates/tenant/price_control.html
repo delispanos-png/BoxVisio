@@ -33,16 +33,19 @@
 
   <div class="col-xl-4 col-md-6">
     <label class="form-label">{{ tt(request, 'categories') }}</label>
+    <input type="search" id="pcCategoriesSearch" class="form-control form-control-sm mb-1" placeholder="Αναζήτηση κατηγορίας...">
     <select id="pcCategories" class="form-select" multiple size="4"></select>
     <small class="text-muted">Ctrl/Cmd για πολλαπλή επιλογή</small>
   </div>
   <div class="col-xl-4 col-md-6">
     <label class="form-label">{{ tt(request, 'groups') }}</label>
+    <input type="search" id="pcGroupsSearch" class="form-control form-control-sm mb-1" placeholder="Αναζήτηση ομάδας...">
     <select id="pcGroups" class="form-select" multiple size="4"></select>
     <small class="text-muted">Ctrl/Cmd για πολλαπλή επιλογή</small>
   </div>
   <div class="col-xl-4 col-md-12">
     <label class="form-label">{{ tt(request, 'item_codes') }}</label>
+    <input type="search" id="pcItemsSearch" class="form-control form-control-sm mb-1" placeholder="Αναζήτηση είδους / κωδικού...">
     <select id="pcItems" class="form-select" multiple size="4"></select>
     <small class="text-muted">Όταν επιλέγεις στόχο, εμφανίζονται μόνο τα είδη του στόχου.</small>
   </div>
@@ -55,23 +58,28 @@
 {% endblock %}
 
 {% block content %}
+<style>
+  .bv-kpi-box .kpi-value { font-size: 1.35rem; line-height: 1.15; word-break: break-all; }
+  .bv-kpi-box .kpi-title { font-size: .75rem; }
+  .bv-kpi-box .kpi-meta  { font-size: .72rem; }
+</style>
 <div id="pcError" class="alert alert-danger d-none mb-3"></div>
 
 <div class="row g-3 mb-3">
   <div class="col-lg-4">
-    <div class="bv-kpi-box bv-kpi-blue">
+    <div class="bv-kpi-box bv-kpi-blue" data-kpi-what="Πόσοι κωδικοί ειδών συμμετέχουν στον έλεγχο τιμών με τα τρέχοντα φίλτρα." data-kpi-formula="Item Codes = count(item_code) όλων των ειδών που πέρασαν τα φίλτρα.">
       <div class="kpi-title">{{ tt(request, 'item_codes') }}</div>
       <div id="pcItemsCount" class="kpi-value">0</div>
     </div>
   </div>
   <div class="col-lg-4">
-    <div class="bv-kpi-box bv-kpi-green">
+    <div class="bv-kpi-box bv-kpi-green" data-kpi-what="Το μέσο ποσοστό περιθωρίου των ειδών που εμφανίζονται." data-kpi-formula="Μέσο Margin = μέσος όρος του ((τιμή πώλησης - κόστος) / τιμή πώλησης) * 100 για όλα τα items του result set.">
       <div class="kpi-title">{{ tt(request, 'margin') }}</div>
       <div id="pcAvgMargin" class="kpi-value">0.00%</div>
     </div>
   </div>
   <div class="col-lg-4">
-    <div class="bv-kpi-box bv-kpi-orange">
+    <div class="bv-kpi-box bv-kpi-orange" data-kpi-what="Η μέση πραγματική έκπτωση που εφαρμόζεται στα είδη που βλέπεις." data-kpi-formula="Μέση Έκπτωση % = μέσος όρος του ((τιμή καταλόγου - τελική τιμή) / τιμή καταλόγου) * 100 για όλα τα items του result set.">
       <div class="kpi-title">{{ tt(request, 'discount_pct') }}</div>
       <div id="pcEffectiveDiscount" class="kpi-value">0.00%</div>
     </div>
@@ -124,6 +132,11 @@
   const categoriesEl = document.getElementById('pcCategories');
   const groupsEl = document.getElementById('pcGroups');
   const itemsEl = document.getElementById('pcItems');
+  const pcMultiState = {
+    pcCategories: { rows: [], selected: new Set(), searchEl: document.getElementById('pcCategoriesSearch') },
+    pcGroups: { rows: [], selected: new Set(), searchEl: document.getElementById('pcGroupsSearch') },
+    pcItems: { rows: [], selected: new Set(), searchEl: document.getElementById('pcItemsSearch') },
+  };
 
   const summaryItemsEl = document.getElementById('pcItemsCount');
   const summaryAvgEl = document.getElementById('pcAvgMargin');
@@ -137,15 +150,53 @@
   }
 
   function selectedValues(el){
+    const state = pcMultiState[el?.id];
+    if(state) return Array.from(state.selected).filter(Boolean);
     return Array.from(el?.selectedOptions || []).map(o=>o.value).filter(Boolean);
   }
 
-  function clearAndFillSelect(el, rows){
-    const prev = new Set(selectedValues(el));
+  function syncManagedSelection(el){
+    const state = pcMultiState[el?.id];
+    if(!state) return;
+    Array.from(el.options || []).forEach((opt)=>{
+      if(opt.selected) state.selected.add(opt.value);
+      else state.selected.delete(opt.value);
+    });
+  }
+
+  function renderManagedMulti(el){
+    const state = pcMultiState[el?.id];
+    if(!state) return;
+    const query = String(state.searchEl?.value || '').trim().toLowerCase();
+    const rows = state.rows.filter((r)=>{
+      const label = String(r.label || r.value || '').toLowerCase();
+      const value = String(r.value || '').toLowerCase();
+      return !query || label.includes(query) || value.includes(query);
+    });
     el.innerHTML = '';
+    rows.forEach((r)=>{
+      const opt = document.createElement('option');
+      opt.value = r.value;
+      opt.textContent = r.label || r.value;
+      opt.selected = state.selected.has(opt.value);
+      el.appendChild(opt);
+    });
+  }
+
+  function clearAndFillSelect(el, rows){
+    const state = pcMultiState[el?.id];
+    const prev = new Set(selectedValues(el));
     const ordered = [...(rows || [])].sort((a, b) =>
       String(a.label || a.value || '').localeCompare(String(b.label || b.value || ''), 'el', { sensitivity: 'base' })
     );
+    if(state){
+      const allowed = new Set(ordered.map((r)=>String(r.value)));
+      state.selected = new Set([...prev].filter((v)=>allowed.has(String(v))));
+      state.rows = ordered.map((r)=>({ value: String(r.value), label: String(r.label || r.value) }));
+      renderManagedMulti(el);
+      return;
+    }
+    el.innerHTML = '';
     ordered.forEach(r=>{
       const opt=document.createElement('option');
       opt.value = r.value;
@@ -284,7 +335,17 @@
     Array.from(categoriesEl.options).forEach(o=>{o.selected=false;});
     Array.from(groupsEl.options).forEach(o=>{o.selected=false;});
     Array.from(itemsEl.options).forEach(o=>{o.selected=false;});
+    Object.values(pcMultiState).forEach((state)=>{ state.selected.clear(); if(state.searchEl) state.searchEl.value = ''; });
+    renderManagedMulti(categoriesEl);
+    renderManagedMulti(groupsEl);
+    renderManagedMulti(itemsEl);
     refreshAndLoad();
+  });
+
+  [categoriesEl, groupsEl, itemsEl].forEach((el)=>{
+    el.addEventListener('change', ()=>syncManagedSelection(el));
+    const state = pcMultiState[el.id];
+    state.searchEl?.addEventListener('input', ()=>renderManagedMulti(el));
   });
 
   refreshAndLoad();

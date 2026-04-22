@@ -123,6 +123,40 @@ services:
     networks:
       - bi_net
 
+  worker_delete:
+    image: python:3.12-slim-bookworm
+    working_dir: /opt/cloudon-bi
+    command:
+      - /bin/sh
+      - -lc
+      - ln -sf /usr/local/bin/python /usr/bin/python3 && exec /opt/cloudon-bi/.venv/bin/celery -A worker.celery_app worker -l INFO -Q delete -c 1
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      PYTHONPATH: /opt/cloudon-bi/backend:/opt/cloudon-bi
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/cloudon-bi/.venv/bin/celery -A worker.celery_app inspect ping -d celery@$$HOSTNAME >/dev/null 2>&1 || pgrep -f 'celery.*worker' >/dev/null"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    volumes:
+      - /opt/cloudon-bi:/opt/cloudon-bi
+      - /lib/x86_64-linux-gnu/libc.so.6:/lib/x86_64-linux-gnu/libc.so.6:ro
+      - /lib/x86_64-linux-gnu/ld-linux-x86-64.so.2:/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2:ro
+      - /lib/x86_64-linux-gnu/libodbc.so.2:/lib/x86_64-linux-gnu/libodbc.so.2:ro
+      - /lib/x86_64-linux-gnu/libodbcinst.so.2:/lib/x86_64-linux-gnu/libodbcinst.so.2:ro
+      - /lib/x86_64-linux-gnu/libltdl.so.7:/lib/x86_64-linux-gnu/libltdl.so.7:ro
+      - /opt/microsoft/msodbcsql18:/opt/microsoft/msodbcsql18:ro
+      - /etc/odbcinst.ini:/etc/odbcinst.ini:ro
+    networks:
+      - bi_net
+
   worker_beat:
     image: python:3.12-slim-bookworm
     working_dir: /opt/cloudon-bi

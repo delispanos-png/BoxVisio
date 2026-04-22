@@ -274,6 +274,36 @@ def _as_optional_text(raw: Any, max_len: int) -> str | None:
     return txt[:max_len]
 
 
+def _as_optional_softone_text(raw: Any, max_len: int) -> str | None:
+    txt = _as_optional_text(raw, max_len)
+    if txt is None:
+        return None
+    if txt.strip().lower() in {'0', '-', 'null', 'n/a', 'na'}:
+        return None
+    return txt
+
+
+def _as_optional_softone_text_list(raw: Any, max_len: int) -> str | None:
+    txt = _as_optional_text(raw, max_len * 4)
+    if txt is None:
+        return None
+    parts: list[str] = []
+    seen: set[str] = set()
+    for token in str(txt).replace('\n', ',').replace(';', ',').split(','):
+        cleaned = _as_optional_softone_text(token, max_len)
+        if cleaned is None:
+            continue
+        normalized = cleaned.strip().lower()
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        parts.append(cleaned)
+    if not parts:
+        return None
+    joined = ', '.join(parts)
+    return joined[: max_len * 4]
+
+
 def _normalize_cashflow_subcategory(value: str | None) -> str:
     raw = str(value or '').strip().lower()
     if not raw:
@@ -383,6 +413,41 @@ def _row_getter(row: dict[str, Any], field_mapping: dict[str, str] | None = None
     return _get
 
 
+def _expected_company_id(context: ConnectorContext) -> str | None:
+    params = context.connection_parameters if isinstance(context.connection_parameters, dict) else {}
+    auth_config = params.get('auth_config') if isinstance(params.get('auth_config'), dict) else {}
+    company = (
+        params.get('company_id')
+        or params.get('company')
+        or params.get('COMPANY')
+        or auth_config.get('company')
+        or auth_config.get('COMPANY')
+    )
+    return _as_optional_text(company, 64)
+
+
+def _company_mismatch(row: dict[str, Any], fact: dict[str, Any], context: ConnectorContext) -> bool:
+    expected = _expected_company_id(context)
+    if not expected:
+        return False
+
+    get = _row_getter(row)
+    row_company = _as_optional_text(
+        get('company_id', 'company', 'COMPANY', 'company_code', 'legal_entity_id', 'organization_id'),
+        64,
+    )
+    if row_company and row_company != expected:
+        return True
+
+    branch_ext = _as_optional_text(fact.get('branch_ext_id'), 64)
+    if branch_ext and ':' in branch_ext:
+        branch_company = branch_ext.split(':', 1)[0].strip()
+        if branch_company and branch_company != expected:
+            return True
+
+    return False
+
+
 def _upsert_sales_stmt(fact: dict):
     ins = insert(FactSales).values(**fact)
     return ins.on_conflict_do_update(
@@ -475,6 +540,8 @@ def _upsert_purchases_stmt(fact: dict):
             'source_payload_json': ins.excluded.source_payload_json,
             'item_id': ins.excluded.item_id,
             'item_code': ins.excluded.item_code,
+            'channel_ext_id': ins.excluded.channel_ext_id,
+            'channel_name': ins.excluded.channel_name,
             'qty': ins.excluded.qty,
             'discount1_pct': ins.excluded.discount1_pct,
             'discount2_pct': ins.excluded.discount2_pct,
@@ -799,6 +866,8 @@ def _build_fact_upsert_stmt(entity: str, facts: list[dict]):
                 'vat_amount': ins.excluded.vat_amount,
                 'source_payload_json': ins.excluded.source_payload_json,
                 'item_code': ins.excluded.item_code,
+                'channel_ext_id': ins.excluded.channel_ext_id,
+                'channel_name': ins.excluded.channel_name,
                 'qty': ins.excluded.qty,
                 'net_value': ins.excluded.net_value,
                 'gross_value': ins.excluded.gross_value,
@@ -1212,11 +1281,11 @@ async def _upsert_dims_from_row(
     item = fact.get('item_code')
     if item and _seen_once(dim_seen_cache, 'item', str(item)):
         item_external_id = str(item)[:128]
-        item_barcode = _as_optional_text(
-            get('barcode', 'item_barcode', 'barcode_code', 'ean', 'ean13'),
+        item_barcode = _as_optional_softone_text(
+            get('barcode', 'item_barcode', 'barcode_code', 'ean', 'ean13', 'code1', 'item_code1'),
             128,
         )
-        item_sku = _as_optional_text(get('sku', 'item_sku', 'stock_code', 'item_sku_code'), 128)
+        item_sku = _as_optional_softone_text(get('sku', 'item_sku', 'stock_code', 'item_sku_code', 'code'), 128)
         item_name = _as_optional_text(
             get(
                 'item_name',
@@ -1239,17 +1308,30 @@ async def _upsert_dims_from_row(
 
         item_values = {
             'external_id': item_external_id,
-            'sku': item_sku or item_barcode or item_external_id,
-            'barcode': item_barcode or item_sku,
+            'sku': item_sku or item_external_id,
+            'barcode': item_barcode,
+            'alternate_barcodes': _as_optional_softone_text_list(
+                get('alternate_barcodes', 'alt_barcodes', 'secondary_barcodes', 'substitute_codes'),
+                128,
+            ),
+            'softone_sotype': _as_optional_int(get('softone_sotype', 'item_sotype', 'sotype', 'mtrl_sotype')),
             'name': item_name,
             'main_unit': _as_optional_text(get('main_unit', 'unit', 'uom', 'unit_main', 'primary_unit'), 64),
             'vat_rate': _as_optional_float(get('vat_rate', 'vat_percent', 'vat', 'fpa', 'tax_rate')),
-            'vat_label': _as_optional_text(get('vat_label', 'vat_text', 'fpa_label'), 64),
+            'vat_label': _as_optional_text(get('vat_label', 'vat_name', 'vat_text', 'fpa_label'), 64),
             'use_batch': _as_optional_bool(get('use_batch', 'batch_tracking', 'lot_tracking', 'use_lot')),
-            'commercial_category': _as_optional_text(get('commercial_category', 'commercial_category_name'), 255),
-            'category_1': _as_optional_text(get('category_1', 'category1', 'category_l1', 'category_level1'), 255),
-            'category_2': _as_optional_text(get('category_2', 'category2', 'category_l2', 'category_level2'), 255),
-            'category_3': _as_optional_text(get('category_3', 'category3', 'category_l3', 'category_level3'), 255),
+            'commercial_category': _as_optional_softone_text(get('commercial_category', 'commercial_category_name'), 255),
+            'category_1': _as_optional_softone_text(get('category_1', 'category1', 'category_l1', 'category_level1'), 255),
+            'category_2': _as_optional_softone_text(get('category_2', 'category2', 'category_l2', 'category_level2'), 255),
+            'category_3': _as_optional_softone_text(get('category_3', 'category3', 'category_l3', 'category_level3'), 255),
+            'manufacturer_code': _as_optional_softone_text(
+                get('manufacturer_code', 'manufacturer_ext_id', 'manufacturer_external_id', 'mtrmanfctr'),
+                128,
+            ),
+            'manufacturer_name': _as_optional_softone_text(
+                get('manufacturer_name', 'manufacturer', 'manufacturer_label', 'mtrmanfctr_name'),
+                255,
+            ),
             'model_name': _as_optional_text(get('model', 'model_name'), 255),
             'business_unit_name': _as_optional_text(get('business_unit', 'business_unit_name', 'businessunit'), 255),
             'unit2': _as_optional_text(get('unit2', 'second_unit', 'secondary_unit'), 64),
@@ -1289,7 +1371,17 @@ async def _upsert_dims_from_row(
                 1024,
             ),
             'discount_pct': _as_optional_float(get('discount_pct', 'discount_percent', 'discount', 'item_discount_pct')),
-            'is_active_source': _as_optional_bool(get('is_active', 'active', 'enabled', 'item_active')),
+            'is_active_source': _as_optional_bool(
+                get(
+                    'is_active_source',
+                    'item_is_active_source',
+                    'is_active',
+                    'active',
+                    'enabled',
+                    'item_active',
+                    'isactive',
+                )
+            ),
         }
 
         ins = insert(DimItem).values(
@@ -1302,6 +1394,8 @@ async def _upsert_dims_from_row(
                     'updated_at': datetime.utcnow(),
                     'sku': func.coalesce(ins.excluded.sku, DimItem.sku),
                     'barcode': func.coalesce(ins.excluded.barcode, DimItem.barcode),
+                    'alternate_barcodes': func.coalesce(ins.excluded.alternate_barcodes, DimItem.alternate_barcodes),
+                    'softone_sotype': func.coalesce(ins.excluded.softone_sotype, DimItem.softone_sotype),
                     'name': func.coalesce(
                         func.nullif(
                             func.nullif(func.btrim(ins.excluded.name), ''),
@@ -1317,6 +1411,8 @@ async def _upsert_dims_from_row(
                     'category_1': func.coalesce(ins.excluded.category_1, DimItem.category_1),
                     'category_2': func.coalesce(ins.excluded.category_2, DimItem.category_2),
                     'category_3': func.coalesce(ins.excluded.category_3, DimItem.category_3),
+                    'manufacturer_code': func.coalesce(ins.excluded.manufacturer_code, DimItem.manufacturer_code),
+                    'manufacturer_name': func.coalesce(ins.excluded.manufacturer_name, DimItem.manufacturer_name),
                     'model_name': func.coalesce(ins.excluded.model_name, DimItem.model_name),
                     'business_unit_name': func.coalesce(ins.excluded.business_unit_name, DimItem.business_unit_name),
                     'unit2': func.coalesce(ins.excluded.unit2, DimItem.unit2),
@@ -1745,6 +1841,8 @@ def _build_fact(
                     'discount_pct': discount_pct,
                     'discount_amount': discount_amount,
                     'vat_amount': vat_amount if vat_amount is not None else max(0.0, gross - net),
+                    'channel_ext_id': _as_optional_text(get('channel_ext_id', 'channel_external_id', 'channel_code'), 64),
+                    'channel_name': _as_optional_text(get('channel_name', 'channel'), 255),
                     'source_payload_json': _sanitize_payload_json(row),
                 }
             )
@@ -1799,6 +1897,8 @@ def _build_fact(
                     'redirect_module_id': redirect_module_id,
                     'source_entity_id': source_entity_id,
                     'object_id': object_id,
+                    'channel_ext_id': _as_optional_text(get('channel_ext_id', 'channel_external_id', 'channel_code'), 64),
+                    'channel_name': _as_optional_text(get('channel_name', 'channel'), 255),
                     'discount1_pct': discount1_pct,
                     'discount2_pct': discount2_pct,
                     'discount3_pct': discount3_pct,
@@ -2187,6 +2287,7 @@ async def process_job(job: dict[str, Any]) -> dict[str, Any]:
     last_id = None if ignore_sync_state else initial_last_id
     min_doc_date = None
     max_doc_date = None
+    skipped_company_mismatch = 0
     dim_id_cache: dict[tuple[str, str], Any] = {}
     expense_category_cache: dict[str, Any] = {}
 
@@ -2274,6 +2375,13 @@ async def process_job(job: dict[str, Any]) -> dict[str, Any]:
                     stream=stream,
                 )
                 fact['source_connector_id'] = str(connector_type)[:64]
+                if _company_mismatch(row, fact, context):
+                    skipped_company_mismatch += 1
+                    last_ts, last_id = _update_incremental_state(last_ts, last_id, incremental_val)
+                    if not bulk_fact_mode:
+                        await _mark_staging_row_processed(tenant_db, stream=stream, stage_id=stage_id)
+                    continue
+
                 await _upsert_dims_from_row(tenant_db, entity, row, fact, dim_seen_cache=dim_seen_cache)
                 if entity == 'sales':
                     if not fast_backfill_mode:
@@ -2398,6 +2506,7 @@ async def process_job(job: dict[str, Any]) -> dict[str, Any]:
         'processed': processed,
         'min_doc_date': str(min_doc_date) if min_doc_date else None,
         'max_doc_date': str(max_doc_date) if max_doc_date else None,
+        'skipped_company_mismatch': skipped_company_mismatch,
         'last_sync_timestamp': last_ts.isoformat() if isinstance(last_ts, datetime) else None,
         'last_sync_id': last_id,
     }

@@ -201,13 +201,18 @@ body.azea-shell .form-select[multiple] {
 }
 .bv-multi-menu > .d-flex {
   align-items: center;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 .bv-multi-menu .form-control-sm {
+  flex: 1 1 100%;
+  width: 100%;
+  min-width: 0;
   min-height: 36px;
   border-radius: 10px;
 }
 .bv-multi-menu .btn-sm {
+  flex: 1 1 calc(50% - 4px);
   min-height: 36px;
   border-radius: 10px;
   font-size: .73rem;
@@ -260,14 +265,8 @@ body.azea-shell .form-select[multiple] {
   padding: 5px 8px;
 }
 @media (max-width: 576px) {
-  .bv-multi-menu > .d-flex {
-    flex-wrap: wrap;
-  }
-  .bv-multi-menu > .d-flex .form-control-sm {
-    flex: 1 1 100%;
-  }
-  .bv-multi-menu > .d-flex .btn-sm {
-    flex: 1 1 calc(50% - 4px);
+  .bv-multi-menu {
+    min-width: min(280px, calc(100vw - 32px));
   }
 }
 
@@ -496,21 +495,29 @@ body.azea-shell[data-theme='dark'] .btn-outline-dark {
   position: relative;
   overflow: hidden;
   box-shadow: 0 16px 30px rgba(15, 23, 42, 0.16);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
 }
 .bv-kpi-box .kpi-title {
   font-size: .82rem;
   letter-spacing: .02em;
   opacity: .92;
+  width: 100%;
 }
 .bv-kpi-box .kpi-value {
   font-size: 1.8rem;
   font-weight: 800;
   line-height: 1.1;
   margin: 6px 0 2px;
+  width: 100%;
 }
 .bv-kpi-box .kpi-meta {
   font-size: .78rem;
   opacity: .92;
+  width: 100%;
 }
 .bv-kpi-box .kpi-icon {
   position: absolute;
@@ -556,7 +563,9 @@ body.azea-shell[data-theme='dark'] .btn-outline-dark {
   min-height: 132px;
   display: flex;
   flex-direction: column;
-  justify-content: flex-start;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
   position: relative;
   padding: 14px 16px;
 }
@@ -573,11 +582,13 @@ body.azea-shell[data-theme='dark'] .btn-outline-dark {
   line-height: 1.1;
   margin-top: 8px;
   margin-bottom: 6px;
+  width: 100%;
 }
 .bv-stat-strip.bv-kpi-style .small {
   color: rgba(255, 255, 255, 0.9) !important;
   font-weight: 600;
-  margin-top: auto;
+  margin-top: 0;
+  width: 100%;
 }
 .bv-stat-strip.bv-kpi-style .kpi-icon {
   position: absolute;

@@ -44,6 +44,22 @@
     </div>
   </div>
   <div class="col-12 col-md-6 col-xl-2">
+    <label class="form-label mb-1">Κανάλι</label>
+    <div class="bv-multi" id="salesDocChannelsMulti">
+      <button type="button" class="form-select bv-multi-toggle text-start" id="salesDocChannelsToggle">Επιλογή</button>
+      <div class="bv-multi-menu" id="salesDocChannelsMenu" hidden>
+        <div class="d-flex gap-2 mb-2">
+          <input type="text" class="form-control form-control-sm" id="salesDocChannelsSearch" placeholder="Αναζήτηση...">
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="salesDocChannelsAll">Όλα</button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="salesDocChannelsClear">Καθαρισμός</button>
+        </div>
+        <div id="salesDocChannelsOptions" class="bv-multi-options"></div>
+      </div>
+      <div id="salesDocChannelsChips" class="bv-chip-wrap mt-2"></div>
+      <select name="channels" id="salesDocChannels" multiple hidden></select>
+    </div>
+  </div>
+  <div class="col-12 col-md-6 col-xl-2">
     <label class="form-label mb-1">Σειρά</label>
     <input class="form-control" type="text" name="series" placeholder="Σειρά">
   </div>
@@ -198,6 +214,13 @@
 {% block content %}
 <div id="salesError" class="alert alert-danger d-none"></div>
 <style>
+  .bv-kpi-box .kpi-value {
+    font-size: 1.35rem;
+    line-height: 1.15;
+    word-break: break-all;
+  }
+  .bv-kpi-box .kpi-title { font-size: .75rem; }
+  .bv-kpi-box .kpi-meta  { font-size: .72rem; }
   .insights-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(460px, 1fr));
@@ -761,7 +784,7 @@
 {% if not documents_mode %}
 <div class="row g-3 mb-3">
   <div class="col-xl-3 col-md-6">
-    <div class="bv-kpi-box bv-kpi-purple">
+    <div class="bv-kpi-box bv-kpi-purple" data-kpi-what="Συνολική καθαρή αξία πωλήσεων στο επιλεγμένο διάστημα." data-kpi-formula="Σύνολο Τζίρου = άθροισμα net_value όλων των παραστατικών που έχουν χαρακτηριστεί ως Έσοδα, στο [Από, Έως].">
       <div class="kpi-icon"><i class="fe fe-trending-up"></i></div>
       <div class="kpi-title">{{ tt(request, 'total_turnover') }}</div>
       <div id="cardTurnover" class="kpi-value">0.00</div>
@@ -769,7 +792,7 @@
     </div>
   </div>
   <div class="col-xl-3 col-md-6">
-    <div class="bv-kpi-box bv-kpi-green">
+    <div class="bv-kpi-box bv-kpi-green" data-kpi-what="Μικτό αποτέλεσμα πωλήσεων στο επιλεγμένο διάστημα." data-kpi-formula="Μικτό Κέρδος = Σύνολο Τζίρου - Κόστος Πωλήσεων.">
       <div class="kpi-icon"><i class="fe fe-award"></i></div>
       <div class="kpi-title">{{ tt(request, 'gross_profit') }}</div>
       <div id="cardGrossProfit" class="kpi-value">0.00</div>
@@ -777,7 +800,7 @@
     </div>
   </div>
   <div class="col-xl-3 col-md-6">
-    <div class="bv-kpi-box bv-kpi-orange">
+    <div class="bv-kpi-box bv-kpi-orange" data-kpi-what="Το ποσοστό κερδοφορίας πάνω στις πωλήσεις." data-kpi-formula="Margin % = ((Σύνολο Τζίρου - Κόστος Πωλήσεων) / Σύνολο Τζίρου) * 100.">
       <div class="kpi-icon"><i class="fe fe-percent"></i></div>
       <div class="kpi-title">{{ tt(request, 'margin') if tt(request, 'margin') != 'margin' else 'Margin %' }}</div>
       <div id="cardMarginPct" class="kpi-value">0.00%</div>
@@ -785,7 +808,7 @@
     </div>
   </div>
   <div class="col-xl-3 col-md-6">
-    <div class="bv-kpi-box bv-kpi-blue">
+    <div class="bv-kpi-box bv-kpi-blue" data-kpi-what="Συνολικές μονάδες που πουλήθηκαν στο επιλεγμένο διάστημα." data-kpi-formula="Πωληθείσα Ποσότητα = άθροισμα qty όλων των γραμμών πώλησης στο [Από, Έως].">
       <div class="kpi-icon"><i class="fe fe-package"></i></div>
       <div class="kpi-title">{{ tt(request, 'quantity_sold') }}</div>
       <div id="cardQty" class="kpi-value">0</div>
@@ -796,7 +819,7 @@
 
 <div class="row g-3 mb-3">
   <div class="col-xl-4 col-md-6">
-    <div class="bv-stat-strip bv-kpi-style bv-tone-cyan">
+    <div class="bv-stat-strip bv-kpi-style bv-tone-cyan" data-kpi-what="Μέσος τζίρος ανά ημέρα στο επιλεγμένο διάστημα." data-kpi-formula="Μέση Πώληση / Ημέρα = Σύνολο Τζίρου / πλήθος ημερών από το 'Από' έως το 'Έως'.">
       <div class="kpi-icon"><i class="fe fe-activity"></i></div>
       <div class="label">{{ tt(request, 'avg_sale_per_day') }}</div>
       <div id="cardAvgSalePerDay" class="value">0.00</div>
@@ -804,7 +827,7 @@
     </div>
   </div>
   <div class="col-xl-4 col-md-6">
-    <div class="bv-stat-strip bv-kpi-style bv-tone-blue">
+    <div class="bv-stat-strip bv-kpi-style bv-tone-blue" data-kpi-what="Η μεταβολή του τζίρου σε σχέση με την αμέσως προηγούμενη συγκρίσιμη περίοδο." data-kpi-formula="Growth vs Prev = ((Τζίρος Τρέχουσας Περιόδου - Τζίρος Προηγούμενης Περιόδου) / Τζίρος Προηγούμενης Περιόδου) * 100.">
       <div class="kpi-icon"><i class="fe fe-trending-up"></i></div>
       <div class="label">{{ tt(request, 'growth_vs_prev') }}</div>
       <div id="cardGrowthPct" class="value">-</div>
@@ -812,7 +835,7 @@
     </div>
   </div>
   <div class="col-xl-4 col-md-6">
-    <div class="bv-stat-strip bv-kpi-style bv-tone-purple">
+    <div class="bv-stat-strip bv-kpi-style bv-tone-purple" data-kpi-what="Μέσο περιθώριο αν δεις κάθε υποκατάστημα ξεχωριστά και μετά πάρεις τον μέσο όρο." data-kpi-formula="Avg Margin / Branch = μέσος όρος των ποσοστών ((τζίρος branch - κόστος branch) / τζίρος branch) * 100 για όλα τα branches.">
       <div class="kpi-icon"><i class="fe fe-percent"></i></div>
       <div class="label">{{ tt(request, 'avg_margin_per_branch') }}</div>
       <div id="cardAvgMarginBranch" class="value">0.00%</div>
@@ -823,7 +846,7 @@
 
 <div class="row g-3 mb-3">
   <div class="col-xl-3 col-md-6">
-    <div class="bv-stat-strip bv-kpi-style bv-tone-red">
+    <div class="bv-stat-strip bv-kpi-style bv-tone-red" data-kpi-what="Καθαρή αξία πωλήσεων του προηγούμενου έτους μέχρι την ίδια ημέρα cutoff." data-kpi-formula="Τζίρος Προηγ. Έτους YTD = άθροισμα net_value από 01/01/{προηγ. έτος} έως ίδια ημερομηνία cutoff.">
       <div class="kpi-icon"><i class="fe fe-clock"></i></div>
       <div class="label">Τζίρος <span id="salesPrevYearLabel">{{ default_to.year - 1 }}</span> (YTD)</div>
       <div id="salesPrevYearValue" class="value">0.00</div>
@@ -831,7 +854,7 @@
     </div>
   </div>
   <div class="col-xl-3 col-md-6">
-    <div class="bv-stat-strip bv-kpi-style bv-tone-blue">
+    <div class="bv-stat-strip bv-kpi-style bv-tone-blue" data-kpi-what="Καθαρή αξία πωλήσεων του τρέχοντος έτους μέχρι την ημερομηνία cutoff." data-kpi-formula="Τζίρος Τρέχοντος Έτους YTD = άθροισμα net_value από 01/01/{τρέχον έτος} έως ημερομηνία 'Έως'.">
       <div class="kpi-icon"><i class="fe fe-trending-up"></i></div>
       <div class="label">Τζίρος <span id="salesYearLabel">{{ default_to.year }}</span> (YTD)</div>
       <div id="salesYearValue" class="value">0.00</div>
@@ -839,7 +862,7 @@
     </div>
   </div>
   <div class="col-xl-3 col-md-6">
-    <div class="bv-stat-strip bv-kpi-style bv-tone-red">
+    <div class="bv-stat-strip bv-kpi-style bv-tone-red" data-kpi-what="Συνολική καθαρή αξία πωλήσεων για όλο το προηγούμενο έτος." data-kpi-formula="Τζίρος Προηγ. Έτους Full = άθροισμα net_value από 01/01 έως 31/12 του προηγούμενου έτους.">
       <div class="kpi-icon"><i class="fe fe-calendar"></i></div>
       <div class="label">Τζίρος <span id="salesFullPrevYearLabel">{{ default_to.year - 1 }}</span> (FULL YEAR)</div>
       <div id="salesFullPrevYearValue" class="value">0.00</div>
@@ -847,7 +870,7 @@
     </div>
   </div>
   <div class="col-xl-3 col-md-6">
-    <div class="bv-stat-strip bv-kpi-style bv-tone-blue">
+    <div class="bv-stat-strip bv-kpi-style bv-tone-blue" data-kpi-what="Ο φετινός τζίρος YTD, με σύγκριση απέναντι στο full προηγούμενο έτος." data-kpi-formula="Τζίρος Τρέχοντος Έτους YTD = άθροισμα net_value από 01/01/{τρέχον έτος} έως 'Έως'. Σύγκριση = ((YTD - Προηγ. Έτος Full) / Προηγ. Έτος Full) * 100.">
       <div class="kpi-icon"><i class="fe fe-flag"></i></div>
       <div class="label">Τζίρος <span id="salesFullCurrentYearLabel">{{ default_to.year }}</span> (YTD)</div>
       <div id="salesFullCurrentYearValue" class="value">0.00</div>
@@ -1096,6 +1119,10 @@
                 <label class="form-label mb-1">Αιτιολογία</label>
                 <input type="text" class="form-control form-control-sm" id="salesDocFReason" readonly>
               </div>
+              <div class="col-md-6">
+                <label class="form-label mb-1">Κανάλι πώλησης</label>
+                <input type="text" class="form-control form-control-sm" id="salesDocFChannel" readonly>
+              </div>
             </div>
 
             <div class="fw-semibold text-warning border-bottom pb-1 mb-2">Είδη</div>
@@ -1235,9 +1262,6 @@
           <button type="button" class="btn btn-outline-secondary btn-sm" data-bv-wizard-prev>Πίσω</button>
           <button type="button" class="btn btn-primary btn-sm" data-bv-wizard-next>Επόμενο</button>
         </div>
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ tt(request, 'close') if tt(request, 'close') != 'close' else 'Κλείσιμο' }}</button>
       </div>
     </div>
   </div>
@@ -1470,7 +1494,7 @@ function resetSalesDocModal(){
   [
     'salesDocFBranch','salesDocFWarehouse','salesDocFSeries','salesDocFType','salesDocFDocumentNo',
     'salesDocFEshopCode','salesDocFCustomer','salesDocFStatus','salesDocFDate','salesDocFPayment',
-    'salesDocFShipping','salesDocFReason','salesDocTGross','salesDocTVat','salesDocTExpenses','salesDocTNet',
+    'salesDocFShipping','salesDocFReason','salesDocFChannel','salesDocTGross','salesDocTVat','salesDocTExpenses','salesDocTNet',
     'salesDocTQty','salesDocTQtyExec','salesDocDCustomerBranch','salesDocDAddress','salesDocDMovement','salesDocDZip',
     'salesDocDCarrier','salesDocDArea','salesDocDMedium','salesDocDCity','salesDocDMediumNo',
     'salesDocDLoadingDate','salesDocDDeliveryDate','salesDocDRoute',
@@ -1604,6 +1628,7 @@ function fillSalesDocumentModal(data){
   setInputValue('salesDocFPayment', header.payment_method);
   setInputValue('salesDocFShipping', header.shipping_method);
   setInputValue('salesDocFReason', header.reason);
+  setInputValue('salesDocFChannel', header.channel_name);
 
   renderSalesDocumentLines(data?.lines || [], data?.lines_note || '');
   setInputValue('salesDocTGross', money(totals.gross_value));
@@ -1699,6 +1724,8 @@ function params(){
       const value = String(fd.get(key) || '').trim();
       if (value) p.set(key, value);
     });
+    const channelSel = document.getElementById('salesDocChannels');
+    Array.from(channelSel?.selectedOptions || []).forEach(o => p.append('channels', o.value));
   }
   return p;
 }
@@ -1959,6 +1986,12 @@ async function loadSalesFilterOptions(){
       (options && options.labels && options.labels.categories) || {}
     );
     document.getElementById('salesGroups').innerHTML = '';
+    if(documentsMode){
+      const channelVals = (options && options.channels) || [];
+      const channelLabels = (options && options.labels && options.labels.channels) || {};
+      populateSalesSelect('salesDocChannels', 'Κανάλι', channelVals, channelLabels);
+      syncSalesMultiUI('salesDocChannels', 'Κανάλι');
+    }
   }catch(_err){}
 }
 
@@ -2663,6 +2696,7 @@ window.addEventListener('load', async () => {
     applyInsightsState();
   }
   salesUiFieldDefs.forEach((field)=>initSalesMulti(field.selectId, field.label));
+  if(documentsMode) initSalesMulti('salesDocChannels', 'Κανάλι');
   ['salesCategoryL1','salesCategoryL2','salesCategoryL3'].forEach((id)=>{
     const el = document.getElementById(id);
     if(el) el.addEventListener('change', ()=>syncSalesCategoryHierarchy(id));

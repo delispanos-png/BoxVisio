@@ -9,9 +9,9 @@
   <link href="/static/azea/plugins/iconfonts/icons.css" rel="stylesheet">
   <link href="/static/azea/css/main.css" rel="stylesheet">
   <link href="/static/azea/css/themes/all-themes.css" rel="stylesheet">
-  <link href="/static/css/boxvisio-ui.css?v=20260306za" rel="stylesheet">
+  <link href="/static/css/boxvisio-ui.css?v=20260417a" rel="stylesheet">
   <link href="/static/css/bv-unified-ui.css?v=20260308a" rel="stylesheet">
-  <link href="/static/css/bv-modal-system.css?v=20260306c" rel="stylesheet">
+  <link href="/static/css/bv-modal-system.css?v=20260416a" rel="stylesheet">
   <style>
     :root {
       --shell-bg: #f3f5fb;
@@ -264,7 +264,7 @@
       max-width: 74px !important;
       overflow-x: hidden;
     }
-    .tenant-shell.admin-sidebar-collapsed .content.home {
+    body.tenant-shell.admin-sidebar-collapsed .content.home {
       margin-left: 74px !important;
     }
     .tenant-shell.admin-sidebar-collapsed .sidebar .admin-image {
@@ -387,8 +387,79 @@
       letter-spacing: .2px;
     }
     .bv-kpi-box .kpi-icon,
-    .bv-stat-strip .kpi-icon {
+    .bv-stat-strip .kpi-icon,
+    .bv-metric-card .mc-icon {
       cursor: pointer;
+    }
+    /* ── Global metric card ── */
+    .bv-metric-card {
+      background: #fff;
+      border-radius: 12px;
+      border: 1px solid #e2e8f0;
+      border-left: 4px solid var(--mc-color, #6366f1);
+      padding: 14px 14px 12px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      min-height: 112px;
+      position: relative;
+      overflow: hidden;
+      box-shadow: 0 1px 3px rgba(15,23,42,.05), 0 3px 8px rgba(15,23,42,.04);
+      transition: transform .15s ease, box-shadow .15s ease;
+    }
+    .bv-metric-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 14px rgba(15,23,42,.10);
+    }
+    .bv-metric-card .mc-icon {
+      position: absolute;
+      right: 12px;
+      top: 12px;
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      background: color-mix(in srgb, var(--mc-color, #6366f1) 12%, transparent);
+      color: var(--mc-color, #6366f1);
+      display: grid;
+      place-items: center;
+      font-size: 15px;
+    }
+    .bv-metric-card .mc-label {
+      font-size: .68rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .07em;
+      color: #94a3b8;
+      margin-bottom: 5px;
+      padding-right: 38px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      width: 100%;
+    }
+    .bv-metric-card .mc-value {
+      font-size: 1.35rem;
+      font-weight: 800;
+      color: #0f172a;
+      line-height: 1.1;
+      margin-bottom: 5px;
+      word-break: break-all;
+    }
+    .bv-metric-card .mc-meta {
+      font-size: .7rem;
+      color: #64748b;
+      margin-top: auto;
+    }
+    body[data-theme='dark'] .bv-metric-card {
+      background: #1e293b;
+      border-color: #334155;
+    }
+    body[data-theme='dark'] .bv-metric-card .mc-value {
+      color: #f1f5f9;
+    }
+    body[data-theme='dark'] .bv-metric-card .mc-meta {
+      color: #94a3b8;
     }
     .bv-kpi-help-title {
       font-weight: 800;
@@ -541,11 +612,142 @@
     body[data-theme='dark'] .bv-kpi-help-block p {
       color: #e5e7eb;
     }
+
+    /* ── Bootstrap modals above sidebar (sidebar z-index: 1088 in main.css) ── */
+    .modal-backdrop { z-index: 1089 !important; }
+    .modal          { z-index: 1090 !important; }
+    /* also ensure sidebar never covers an open modal */
+    body:has(.modal.show) #leftsidebar.sidebar,
+    body:has(.modal.show) .left-sidebar {
+      z-index: 1 !important;
+    }
+
+    /* ── Mobile sidebar overlay ── */
+    .bv-sidebar-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(15,23,42,.45);
+      z-index: 1039;
+    }
+    .bv-sidebar-backdrop.active { display: block; }
+
+    /* ── Table row-header <th> inside tbody should not be bold ── */
+    .bv-unified-table tbody th,
+    .table tbody th {
+      font-weight: 400;
+    }
+
+    /* ── Page title headings always bold ── */
+    .dashboard-shell .bv-page-head h3 {
+      font-weight: 800 !important;
+      letter-spacing: -0.02em;
+    }
+
+    /* ── Responsive typography: scale root rem down on smaller screens ── */
+    @media (max-width: 991.98px) {
+      html { font-size: 13.5px; }
+    }
+    @media (max-width: 767.98px) {
+      html { font-size: 12.5px; }
+    }
+    @media (max-width: 479.98px) {
+      html { font-size: 12px; }
+    }
+
+    /* Tablet (768–991px): force icon-only collapsed sidebar */
+    @media (max-width: 991.98px) {
+      .tenant-shell #leftsidebar.sidebar,
+      .tenant-shell .left-sidebar {
+        width: 74px !important;
+        min-width: 74px !important;
+        max-width: 74px !important;
+        overflow-x: hidden !important;
+      }
+      body.tenant-shell .content.home {
+        margin-left: 74px !important;
+      }
+      .tenant-shell .menu-head,
+      .tenant-shell .main-sidebar .list .nav-item .nav-link .sidemenu-label {
+        display: none !important;
+      }
+      .tenant-shell .main-sidebar .list .nav-item .nav-link {
+        margin: 4px 8px !important;
+        min-height: 42px;
+        justify-content: center !important;
+        align-items: center !important;
+        padding: 10px 8px !important;
+      }
+      .tenant-shell .main-sidebar .list .nav-item .nav-link .sidemenu-icon {
+        margin: 0 !important;
+        font-size: 19px;
+        line-height: 1;
+      }
+      .tenant-shell .main-sidebar .list .bv-menu-group .bv-group-arrow,
+      .tenant-shell .main-sidebar .list .bv-menu-group .bv-submenu {
+        display: none !important;
+      }
+      .tenant-shell .sidebar .admin-image {
+        padding: 8px 6px;
+        min-height: 66px;
+      }
+      .tenant-shell .sidebar .admin-image .brand-logo {
+        width: 42px !important;
+        max-width: 42px !important;
+        height: 42px;
+        object-fit: cover;
+        object-position: left center;
+        border-radius: 10px !important;
+        display: block;
+        margin: 0 auto;
+      }
+      .tenant-shell .tenant-mini-expand { display: inline-flex !important; }
+    }
+
+    /* Mobile (< 768px): sidebar as slide-in overlay */
+    @media (max-width: 767.98px) {
+      .tenant-shell #leftsidebar.sidebar,
+      .tenant-shell .left-sidebar {
+        position: fixed !important;
+        top: 0;
+        left: 0;
+        height: 100vh !important;
+        z-index: 1040;
+        transform: translateX(-100%) !important;
+        width: 260px !important;
+        min-width: 260px !important;
+        max-width: 260px !important;
+        overflow-x: hidden !important;
+        transition: transform .24s ease !important;
+      }
+      .tenant-shell.bv-mobile-sidebar-open #leftsidebar.sidebar,
+      .tenant-shell.bv-mobile-sidebar-open .left-sidebar {
+        transform: translateX(0) !important;
+      }
+      body.tenant-shell .content.home {
+        margin-left: 0 !important;
+      }
+      /* restore labels when sidebar is open on mobile */
+      .tenant-shell.bv-mobile-sidebar-open .menu-head { display: block !important; }
+      .tenant-shell.bv-mobile-sidebar-open .main-sidebar .list .nav-item .nav-link .sidemenu-label { display: inline !important; }
+      .tenant-shell.bv-mobile-sidebar-open .main-sidebar .list .nav-item .nav-link {
+        margin: 2px 10px !important;
+        justify-content: flex-start !important;
+        padding: 10px 14px !important;
+      }
+      .tenant-shell.bv-mobile-sidebar-open .main-sidebar .list .nav-item .nav-link .sidemenu-icon {
+        margin-right: 10px !important;
+        font-size: 16px;
+      }
+      .tenant-shell .tenant-mini-expand { display: none !important; }
+      .dashboard-shell { padding: 12px !important; }
+    }
   </style>
 </head>
 <body class="azea-shell tenant-shell" data-theme="{{ request.cookies.get('theme', 'light') }}">
   <div class="overlay"></div>
   <div class="sidebar-overlay" data-toggle="sidebar"></div>
+  <div class="bv-sidebar-backdrop" id="bvSidebarBackdrop"></div>
   <section>
     <aside id="leftsidebar" class="sidebar left-sidebar">
       <div class="admin-image"><img class="brand-logo" src="/static/azea/images/boxvisio-logo.svg" alt="BoxVisio logo"></div>
@@ -587,10 +789,10 @@
         {% set _operational_stream_open = active_page in _operational_stream_pages or (active_page == 'cashflow' and _cashflow_is_stream) %}
         {% set _dashboard_pages = ['dashboard', 'finance_dashboard', 'insights'] %}
         {% set _dashboard_open = active_page in _dashboard_pages %}
-        {% set _analytics_open = active_page in ['sales', 'purchases', 'inventory', 'items', 'analytics_receivables_payables', 'supplier_targets'] or (active_page == 'cashflow' and not _cashflow_is_stream) %}
+        {% set _analytics_open = active_page in ['sales', 'pos', 'purchases', 'inventory', 'items', 'analytics_receivables_payables', 'supplier_targets'] or (active_page == 'cashflow' and not _cashflow_is_stream) %}
         {% set _comparison_pages = ['compare_period', 'compare_branch', 'compare_category'] %}
         {% set _comparison_open = active_page in _comparison_pages %}
-        {% set _exports_open = active_page in ['exports_reports', 'exports_csv_excel'] %}
+        {% set _exports_open = active_page in ['exports_reports', 'exports_csv_excel', 'exports_sellout'] %}
         <ul class="list">
           {% if _show_dashboard_group %}
           <li class="nav-item bv-menu-group {% if _dashboard_open %}active open{% endif %}">
@@ -672,6 +874,20 @@
                 </a>
               </li>
               {% endif %}
+              {% if _menu_stream_expenses %}
+              <li class="{% if active_page == 'expense_documents' %}is-active{% endif %}">
+                <a class="bv-submenu-link" href="/tenant/expense-documents">
+                  <i class="fe fe-file-text"></i>
+                  <span>{{ tt(request, 'expense_documents_short') }}</span>
+                </a>
+              </li>
+              <li class="{% if active_page == 'operating_expenses' %}is-active{% endif %}">
+                <a class="bv-submenu-link" href="/tenant/operating-expenses">
+                  <i class="fe fe-credit-card"></i>
+                  <span>{{ tt(request, 'operating_expenses_short') }}</span>
+                </a>
+              </li>
+              {% endif %}
               {% if _menu_stream_cash %}
               <li class="bv-menu-group {% if active_page == 'cashflow' and _cashflow_is_stream %}active open{% endif %} {% if not _cashflow_ok %}disabled opacity-75{% endif %}">
                 <button
@@ -719,14 +935,6 @@
                 </ul>
               </li>
               {% endif %}
-              {% if _menu_stream_expenses %}
-              <li class="{% if active_page == 'operating_expenses' %}is-active{% endif %}">
-                <a class="bv-submenu-link" href="/tenant/operating-expenses">
-                  <i class="fe fe-credit-card"></i>
-                  <span>{{ tt(request, 'operating_expenses_short') }}</span>
-                </a>
-              </li>
-              {% endif %}
               {% if _menu_stream_suppliers %}
               <li class="{% if active_page == 'suppliers' %}is-active{% endif %}">
                 <a class="bv-submenu-link" href="/tenant/suppliers">
@@ -765,6 +973,9 @@
               <li class="{% if active_page == 'sales' %}is-active{% endif %}">
                 <a class="bv-submenu-link" href="/tenant/sales"><i class="fe fe-bar-chart-2"></i><span>{{ tt(request, 'sales') }}</span></a>
               </li>
+              <li class="{% if active_page == 'pos' %}is-active{% endif %}">
+                <a class="bv-submenu-link" href="/tenant/pos"><i class="fe fe-shopping-bag"></i><span>Φυσικό Σημείο</span></a>
+              </li>
               {% endif %}
               {% if _menu_analytics_purchases %}
               <li class="{% if active_page == 'purchases' %}is-active{% endif %}">
@@ -785,11 +996,11 @@
               </li>
               {% endif %}
               {% if _menu_analytics_receivables %}
-              <li class="{% if active_page == 'analytics_receivables_payables' %}is-active{% endif %}">
-                <a class="bv-submenu-link" href="/tenant/analytics/receivables-payables"><i class="fe fe-pie-chart"></i><span>{{ tt(request, 'analytics_receivables_payables_short') }}</span></a>
+              <li class="{% if active_page in ['analytics_receivables_payables', 'finance_dashboard'] %}is-active{% endif %}">
+                <a class="bv-submenu-link" href="/tenant/finance-dashboard"><i class="fe fe-pie-chart"></i><span>{{ tt(request, 'analytics_receivables_payables_short') }}</span></a>
               </li>
               {% endif %}
-              {% if _menu_analytics_supplier_targets %}
+              {% if _menu_analytics_supplier_targets and (supplier_targets_enabled if supplier_targets_enabled is defined else false) %}
               <li class="{% if active_page == 'supplier_targets' %}is-active{% endif %}">
                 <a class="bv-submenu-link" href="/tenant/supplier-targets"><i class="fe fe-target"></i><span>{{ tt(request, 'supplier_targets') }}</span></a>
               </li>
@@ -843,6 +1054,9 @@
             <ul class="bv-submenu" data-menu-group="tenant-exports">
               <li class="{% if active_page == 'exports_reports' %}is-active{% endif %}">
                 <a class="bv-submenu-link" href="/tenant/exports/reports"><i class="fe fe-file-text"></i><span>{{ tt(request, 'reports_short') }}</span></a>
+              </li>
+              <li class="{% if active_page == 'exports_sellout' %}is-active{% endif %}">
+                <a class="bv-submenu-link" href="/tenant/exports/sellout"><i class="fe fe-trending-up"></i><span>Sell Out</span></a>
               </li>
               <li class="{% if active_page == 'exports_csv_excel' %}is-active{% endif %}">
                 <a class="bv-submenu-link" href="/tenant/exports/csv-excel"><i class="fe fe-download"></i><span>{{ tt(request, 'csv_excel_short') }}</span></a>
@@ -908,6 +1122,7 @@
           {% set _manual_help_anchor_map = {
             'sales_documents': 'sales-documents',
             'purchase_documents': 'purchase-documents',
+            'expense_documents': 'operating-expenses',
             'warehouse_documents': 'warehouse-documents',
             'operating_expenses': 'operating-expenses',
             'cashflow': 'cash-transactions',
@@ -931,7 +1146,7 @@
             <p class="bv-page-subtitle">Executive KPIs και εικόνα εταιρείας από τα επιχειρησιακά κυκλώματα.</p>
             {% elif active_page == 'finance_dashboard' %}
             <p class="bv-page-subtitle">Ανάλυση απαιτήσεων, υποχρεώσεων και ταμειακών ροών.</p>
-            {% elif active_page in ['sales_documents', 'purchase_documents', 'warehouse_documents', 'operating_expenses', 'cashflow'] %}
+            {% elif active_page in ['sales_documents', 'purchase_documents', 'expense_documents', 'warehouse_documents', 'operating_expenses', 'cashflow'] %}
             <p class="bv-page-subtitle">Λίστα παραστατικών με ενιαία φίλτρα, αναζήτηση και σελιδοποίηση.</p>
             {% elif active_page in ['suppliers', 'customers'] %}
             <p class="bv-page-subtitle">Υπόλοιπα και ιστορικά στοιχεία με ενιαίο pattern πινάκων.</p>
@@ -939,7 +1154,7 @@
             <p class="bv-page-subtitle">Αναλυτικά KPIs, τάσεις και breakdowns σε συνεπή διάταξη.</p>
             {% elif active_page in ['compare_period', 'compare_branch', 'compare_category'] %}
             <p class="bv-page-subtitle">Συγκρίσεις περιόδων και διαστάσεων με κοινή παρουσίαση.</p>
-            {% elif active_page in ['exports_reports', 'exports_csv_excel'] %}
+            {% elif active_page in ['exports_reports', 'exports_csv_excel', 'exports_sellout'] %}
             <p class="bv-page-subtitle">Εξαγωγές αναφορών και αρχείων σε ενιαίο format.</p>
             {% endif %}
             {% if _manual_help_anchor %}
@@ -957,7 +1172,7 @@
         </div>
 
         {% set _hide_page_filters = hide_page_filters if hide_page_filters is defined else false %}
-        {% if active_page in ['dashboard', 'finance_dashboard', 'sales', 'sales_documents', 'purchases', 'purchase_documents', 'suppliers', 'warehouse_documents', 'operating_expenses', 'inventory', 'items', 'cashflow', 'customers', 'compare_period', 'compare_branch', 'compare_category', 'insights', 'analytics_receivables_payables', 'supplier_targets', 'exports_reports', 'exports_csv_excel'] and not _hide_page_filters %}
+        {% if active_page in ['dashboard', 'finance_dashboard', 'sales', 'pos', 'sales_documents', 'purchases', 'purchase_documents', 'expense_documents', 'suppliers', 'warehouse_documents', 'operating_expenses', 'inventory', 'items', 'cashflow', 'customers', 'compare_period', 'compare_branch', 'compare_category', 'insights', 'analytics_receivables_payables', 'supplier_targets', 'exports_reports', 'exports_csv_excel', 'exports_sellout'] and not _hide_page_filters %}
         <div class="card filter-card mb-3">
           <div class="card-header d-flex justify-content-between align-items-center">
             <h5 class="mb-0">{{ tt(request, 'filters') }}</h5>
@@ -1114,28 +1329,222 @@
       const isEl = lang !== 'en';
       const t = (el, en) => (isEl ? el : en);
       return [
-        { keys: ['τζιρος ημερας', 'day turnover', 'daily turnover'], title: t('Τζίρος Ημέρας', 'Daily Turnover'), what: t('Συνολική καθαρή αξία πωλήσεων για τη σημερινή ημέρα.', 'Total net sales value for today.'), formula: t('Άθροισμα καθαρής αξίας πωλήσεων (net_amount) για την ημέρα.', 'Sum of sales net amount for the day.') },
-        { keys: ['τζιρος εβδομαδας', 'week turnover', 'weekly turnover'], title: t('Τζίρος Εβδομάδας', 'Weekly Turnover'), what: t('Συνολική καθαρή αξία πωλήσεων από αρχή εβδομάδας μέχρι σήμερα.', 'Total net sales value from week start until today.'), formula: t('Άθροισμα net_amount στο διάστημα εβδομάδας.', 'Sum of net_amount for the selected week range.') },
-        { keys: ['τζιρος μηνα', 'month turnover', 'monthly turnover'], title: t('Τζίρος Μήνα', 'Monthly Turnover'), what: t('Συνολική καθαρή αξία πωλήσεων του μήνα.', 'Total net sales value for the month.'), formula: t('Άθροισμα net_amount στο μηνιαίο διάστημα.', 'Sum of net_amount in monthly range.') },
-        { keys: ['total turnover', 'συνολικος τζιρος', 'πωλησεις περιοδου'], title: t('Πωλήσεις Περιόδου', 'Period Sales'), what: t('Συνολικός τζίρος για το επιλεγμένο διάστημα.', 'Total turnover for selected period.'), formula: t('Άθροισμα net_amount για όλα τα παραστατικά πωλήσεων.', 'Sum of sales net_amount across all rows.') },
-        { keys: ['gross profit', 'μικτο κερδος'], title: t('Μικτό Κέρδος', 'Gross Profit'), what: t('Το μικτό αποτέλεσμα πωλήσεων (κέρδος πριν λειτουργικά έξοδα).', 'Gross sales result before operating expenses.'), formula: t('Μικτό Κέρδος = Πωλήσεις - Κόστος.', 'Gross Profit = Sales - Cost.') },
-        { keys: ['margin', 'margin %', 'περιθωριο', 'μεσο περιθωριο'], title: t('Περιθώριο %', 'Margin %'), what: t('Ποσοστό κερδοφορίας σε σχέση με τις πωλήσεις.', 'Profitability percentage over sales.'), formula: t('Περιθώριο % = (Πωλήσεις - Κόστος) / Πωλήσεις * 100.', 'Margin % = (Sales - Cost) / Sales * 100.') },
-        { keys: ['quantity sold', 'πωληθεισα ποσοτητα', 'ποσοτητα μηνα', 'units sold'], title: t('Πωληθείσα Ποσότητα', 'Sold Quantity'), what: t('Σύνολο τεμαχίων που πουλήθηκαν στο διάστημα.', 'Total sold units in selected period.'), formula: t('Άθροισμα qty από γραμμές πωλήσεων.', 'Sum of sales qty.') },
-        { keys: ['αγορες περιοδου', 'total purchases', 'purchase cost', 'purchased qty'], title: t('Αγορές Περιόδου', 'Period Purchases'), what: t('Συνολικό κόστος αγορών προμηθειών.', 'Total procurement value/cost in period.'), formula: t('Άθροισμα net/cost amount από fact_purchases.', 'Sum of purchases net/cost amount from fact_purchases.') },
-        { keys: ['ρυθμος αγορων πωλησεων', 'purchases to sales'], title: t('Ρυθμός Αγορών / Πωλήσεων', 'Purchases to Sales Ratio'), what: t('Δείχνει τι ποσοστό των πωλήσεων καλύπτει το κόστος αγορών.', 'Shows what share of sales is represented by purchase costs.'), formula: t('Λόγος = Αγορές Περιόδου / Πωλήσεις Περιόδου * 100.', 'Ratio = Period Purchases / Period Sales * 100.') },
-        { keys: ['ενεργα υποκαταστηματα', 'active branches'], title: t('Ενεργά Υποκαταστήματα', 'Active Branches'), what: t('Πλήθος υποκαταστημάτων με θετικό τζίρο στο διάστημα.', 'Count of branches with positive turnover in period.'), formula: t('Count(branch) όπου net_amount > 0.', 'Count(branch) where net_amount > 0.') },
-        { keys: ['συγκεντρωση κορυφαιου καταστηματος', 'top branch concentration', 'top branch share'], title: t('Συγκέντρωση Κορυφαίου Καταστήματος', 'Top Branch Concentration'), what: t('Το ποσοστό τζίρου που παράγει το #1 υποκατάστημα.', 'Turnover share generated by the #1 branch.'), formula: t('Top Branch Share = Τζίρος κορυφαίου / Συνολικός τζίρος * 100.', 'Top Branch Share = Top branch turnover / Total turnover * 100.') },
-        { keys: ['μεσος ημερησιος τζιρος', 'avg daily turnover'], title: t('Μέσος Ημερήσιος Τζίρος', 'Avg Daily Turnover'), what: t('Μέσος ημερήσιος τζίρος στο επιλεγμένο διάστημα.', 'Average daily turnover in selected period.'), formula: t('Μέσος = Συνολικός τζίρος / Πλήθος ημερών.', 'Average = Total turnover / Number of days.') },
-        { keys: ['μικτο κερδος ετους', 'gross profit year'], title: t('Μικτό Κέρδος Έτους', 'Year Gross Profit'), what: t('Μικτό κέρδος από αρχή έτους μέχρι σήμερα.', 'Gross profit from year start to current date.'), formula: t('Πωλήσεις YTD - Κόστος YTD.', 'Sales YTD - Cost YTD.') },
-        { keys: ['τζιρος 2025', 'τζιρος 2026', 'ytd vs full', 'full year', 'ytd'], title: t('Σύγκριση Ετών', 'Year Comparison'), what: t('Σύγκριση τζίρου τρέχοντος έτους με προηγούμενο (YTD ή full year).', 'Current year turnover compared with previous year (YTD or full year).'), formula: t('Δ% = (Τρέχον - Προηγούμενο) / Προηγούμενο * 100.', 'Delta% = (Current - Previous) / Previous * 100.') },
-        { keys: ['stock value', 'αξια αποθεματος'], title: t('Αξία Αποθέματος', 'Stock Value'), what: t('Τρέχουσα αποτίμηση αποθέματος σε αξία.', 'Current stock valuation amount.'), formula: t('Άθροισμα stock_value σε όλα τα είδη.', 'Sum of stock_value across all items.') },
-        { keys: ['qty on hand', 'ποσοτητα αποθεματος'], title: t('Ποσότητα Αποθέματος', 'Qty On Hand'), what: t('Συνολικά διαθέσιμα τεμάχια στην αποθήκη.', 'Total available units in stock.'), formula: t('Άθροισμα stock_qty.', 'Sum of stock_qty.') },
-        { keys: ['cost amount', 'κοστος αποθεματος'], title: t('Κόστος Αποθέματος', 'Inventory Cost'), what: t('Συνολικό λογιστικό κόστος του αποθέματος.', 'Total inventory book cost.'), formula: t('Άθροισμα cost_amount αποθέματος.', 'Sum of inventory cost_amount.') },
-        { keys: ['reserved qty', 'δεσμευμενη ποσοτητα'], title: t('Δεσμευμένη Ποσότητα', 'Reserved Quantity'), what: t('Ποσότητα που έχει δεσμευτεί και δεν είναι άμεσα διαθέσιμη.', 'Quantity reserved and not immediately available.'), formula: t('Άθροισμα reserved_qty.', 'Sum of reserved_qty.') },
-        { keys: ['cash in', 'εισροες'], title: t('Εισροές', 'Cash In'), what: t('Συνολικά χρηματικά ποσά που εισέρχονται.', 'Total incoming cash amount.'), formula: t('Άθροισμα ποσών τύπου inflow.', 'Sum of amounts with type inflow.') },
-        { keys: ['cash out', 'εκροες'], title: t('Εκροές', 'Cash Out'), what: t('Συνολικά χρηματικά ποσά που εξέρχονται.', 'Total outgoing cash amount.'), formula: t('Άθροισμα ποσών τύπου outflow.', 'Sum of amounts with type outflow.') },
-        { keys: ['net cash', 'καθαρη ροη'], title: t('Καθαρή Ροή', 'Net Cash'), what: t('Καθαρό αποτέλεσμα ροής στο διάστημα.', 'Net cash result for selected period.'), formula: t('Καθαρή Ροή = Εισροές - Εκροές.', 'Net Cash = Cash In - Cash Out.') },
-        { keys: ['entries', 'εγγραφες'], title: t('Εγγραφές', 'Entries'), what: t('Πλήθος εγγραφών ταμειακών κινήσεων.', 'Number of cashflow entries.'), formula: t('Count εγγραφών cashflow.', 'Count of cashflow rows.') }
+        {
+          keys: ['τζιρος ημερας', 'day turnover', 'daily turnover'],
+          title: t('Τζίρος Ημέρας', 'Daily Turnover'),
+          what: t('Συνολική καθαρή αξία πωλήσεων για την ημέρα.', 'Total net sales value for the day.'),
+          formula: t('Άθροισμα καθαρής αξίας πωλήσεων (net_value) για την επιλεγμένη ημερομηνία, με τα ενεργά φίλτρα.', 'Sum of sales net_value for the selected date, with active filters.')
+        },
+        {
+          keys: ['τζιρος εβδομαδας', 'week turnover', 'weekly turnover'],
+          title: t('Τζίρος Εβδομάδας', 'Weekly Turnover'),
+          what: t('Συνολική καθαρή αξία πωλήσεων από την αρχή της εβδομάδας έως την ημερομηνία φίλτρου.', 'Total net sales value from week start to the selected date.'),
+          formula: t('Άθροισμα net_value στο διάστημα [αρχή εβδομάδας, ημερομηνία “έως”] με τα ενεργά φίλτρα.', 'Sum of net_value in [week start, selected “to” date] with filters.')
+        },
+        {
+          keys: ['τζιρος μηνα', 'month turnover', 'monthly turnover'],
+          title: t('Τζίρος Μήνα', 'Monthly Turnover'),
+          what: t('Συνολική καθαρή αξία πωλήσεων του τρέχοντος μήνα (μέχρι την ημερομηνία “έως”).', 'Total net sales value for the current month (up to selected “to” date).'),
+          formula: t('Άθροισμα net_value στο διάστημα [αρχή μήνα, ημερομηνία “έως”].', 'Sum of net_value in [month start, selected “to” date].')
+        },
+        {
+          keys: ['τζιρος ytd', 'ytd turnover', 'ytd'],
+          title: t('Τζίρος (YTD)', 'Turnover (YTD)'),
+          what: t('Συνολική καθαρή αξία πωλήσεων από 01/01 έως την ημερομηνία φίλτρου.', 'Total net sales value from 01/01 up to the selected date.'),
+          formula: t('Άθροισμα net_value στο διάστημα [01/01, ημερομηνία “έως”] με φίλτρα.', 'Sum of net_value in [01/01, selected “to” date] with filters.')
+        },
+        {
+          keys: ['full year', 'full-year turnover', 'full year turnover', 'full year ytd', 'full year sales', 'full year revenue', 'full year turnover', 'full year'],
+          title: t('Τζίρος (Full Year)', 'Turnover (Full Year)'),
+          what: t('Συνολική καθαρή αξία πωλήσεων για ολόκληρο το έτος.', 'Total net sales value for the full year.'),
+          formula: t('Άθροισμα net_value στο διάστημα [01/01, 31/12] του έτους.', 'Sum of net_value in [01/01, 31/12] of the year.')
+        },
+        {
+          keys: ['ytd vs full', 'ytd vs full year', 'ytd vs full'],
+          title: t('Τζίρος (YTD vs FULL)', 'Turnover (YTD vs FULL)'),
+          what: t('Σύγκριση τζίρου YTD με το σύνολο του προηγούμενου έτους.', 'Comparison of YTD turnover vs previous full year.'),
+          formula: t('Δ% = (Τζίρος YTD - Τζίρος προηγ. full) / Τζίρος προηγ. full * 100.', 'Delta% = (YTD turnover - prev full year) / prev full year * 100.')
+        },
+        {
+          keys: ['total turnover', 'συνολικος τζιρος', 'πωλησεις περιοδου', 'πωλησεις'],
+          title: t('Πωλήσεις Περιόδου', 'Period Sales'),
+          what: t('Συνολικός τζίρος για το επιλεγμένο διάστημα.', 'Total turnover for selected period.'),
+          formula: t('Άθροισμα net_value για παραστατικά πωλήσεων στο [Από, Έως] και στα ενεργά φίλτρα.', 'Sum of sales net_value within [From, To] and active filters.')
+        },
+        {
+          keys: ['αγορες περιοδου', 'total purchases', 'purchase cost', 'purchased qty', 'αγορες'],
+          title: t('Αγορές Περιόδου', 'Period Purchases'),
+          what: t('Συνολικό κόστος αγορών προμηθειών στο διάστημα.', 'Total procurement cost in the period.'),
+          formula: t('Άθροισμα cost_amount/net_value για παραστατικά αγορών στο [Από, Έως].', 'Sum of cost_amount/net_value for purchase documents within [From, To].')
+        },
+        {
+          keys: ['μικτο κερδος περιοδου', 'gross profit period', 'gross profit'],
+          title: t('Μικτό Κέρδος Περιόδου', 'Period Gross Profit'),
+          what: t('Μικτό αποτέλεσμα πωλήσεων για το επιλεγμένο διάστημα.', 'Gross profit for the selected period.'),
+          formula: t('Μικτό Κέρδος = Πωλήσεις Περιόδου - Αγορές Περιόδου.', 'Gross Profit = Period Sales - Period Purchases.')
+        },
+        {
+          keys: ['margin', 'margin %', 'περιθωριο', 'μεσο περιθωριο'],
+          title: t('Μέσο Περιθώριο %', 'Average Margin %'),
+          what: t('Ποσοστό κερδοφορίας σε σχέση με τις πωλήσεις της περιόδου.', 'Profitability percentage relative to period sales.'),
+          formula: t('Περιθώριο % = (Πωλήσεις - Αγορές) / Πωλήσεις * 100.', 'Margin % = (Sales - Purchases) / Sales * 100.')
+        },
+        {
+          keys: ['ρυθμος αγορων πωλησεων', 'purchases to sales'],
+          title: t('Ρυθμός Αγορών / Πωλήσεων', 'Purchases to Sales Ratio'),
+          what: t('Δείχνει τι ποσοστό των πωλήσεων καλύπτει το κόστος αγορών.', 'Shows what share of sales is represented by purchase costs.'),
+          formula: t('Λόγος = Αγορές Περιόδου / Πωλήσεις Περιόδου * 100.', 'Ratio = Period Purchases / Period Sales * 100.')
+        },
+        {
+          keys: ['ενεργα υποκαταστηματα', 'active branches'],
+          title: t('Ενεργά Υποκαταστήματα', 'Active Branches'),
+          what: t('Πλήθος υποκαταστημάτων με θετικό τζίρο στο έτος (YTD).', 'Count of branches with positive turnover in the year (YTD).'),
+          formula: t('Count(υποκαταστήματα) όπου net_value(YTD) > 0.', 'Count(branches) where YTD net_value > 0.')
+        },
+        {
+          keys: ['συγκεντρωση κορυφαιου καταστηματος', 'top branch concentration', 'top branch share'],
+          title: t('Συγκέντρωση Κορυφαίου Καταστήματος', 'Top Branch Concentration'),
+          what: t('Το ποσοστό τζίρου που παράγει το #1 υποκατάστημα στο έτος.', 'Turnover share generated by the top branch in the year.'),
+          formula: t('Top Share = max(branch net_value YTD) / total net_value YTD * 100.', 'Top Share = max(branch net_value YTD) / total net_value YTD * 100.')
+        },
+        {
+          keys: ['μεσος ημερησιος τζιρος', 'avg daily turnover'],
+          title: t('Μέσος Ημερήσιος Τζίρος', 'Avg Daily Turnover'),
+          what: t('Μέσος ημερήσιος τζίρος στο επιλεγμένο διάστημα.', 'Average daily turnover in selected period.'),
+          formula: t('Μέσος = Πωλήσεις Περιόδου / Πλήθος ημερών (συμπεριλαμβανομένων).', 'Average = Period Sales / Number of days (inclusive).')
+        },
+        {
+          keys: ['μικτο κερδος ετους', 'gross profit year'],
+          title: t('Μικτό Κέρδος Έτους', 'Year Gross Profit'),
+          what: t('Μικτό κέρδος από αρχή έτους μέχρι σήμερα.', 'Gross profit from year start to current date.'),
+          formula: t('Μικτό Κέρδος YTD = Πωλήσεις YTD - Αγορές YTD.', 'YTD Gross Profit = Sales YTD - Purchases YTD.')
+        },
+        {
+          keys: ['ποσοτητα μηνα', 'quantity month', 'units sold', 'quantity sold', 'πωληθεισα ποσοτητα'],
+          title: t('Ποσότητα Μήνα', 'Monthly Quantity'),
+          what: t('Συνολικές μονάδες πωλήσεων για τον τρέχοντα μήνα.', 'Total sold units for the current month.'),
+          formula: t('Άθροισμα qty σε παραστατικά πωλήσεων στο [αρχή μήνα, “έως”].', 'Sum of sales qty in [month start, “to”].')
+        },
+        {
+          keys: ['stock value', 'αξια αποθεματος'],
+          title: t('Αξία Αποθέματος', 'Stock Value'),
+          what: t('Τρέχουσα αποτίμηση αποθέματος σε αξία.', 'Current stock valuation amount.'),
+          formula: t('Άθροισμα value_amount (ή stock_value) από το snapshot αποθήκης.', 'Sum of value_amount (or stock_value) from inventory snapshot.')
+        },
+        {
+          keys: ['qty on hand', 'ποσοτητα αποθεματος', 'ποσοτητα σε αποθεμα'],
+          title: t('Ποσότητα σε Απόθεμα', 'Qty On Hand'),
+          what: t('Συνολικά διαθέσιμα τεμάχια στην αποθήκη.', 'Total available units in stock.'),
+          formula: t('Άθροισμα qty_on_hand από το snapshot αποθήκης.', 'Sum of qty_on_hand from inventory snapshot.')
+        },
+        {
+          keys: ['cost amount', 'κοστος αποθεματος'],
+          title: t('Κόστος Αποθέματος', 'Inventory Cost'),
+          what: t('Συνολικό λογιστικό κόστος του αποθέματος.', 'Total inventory book cost.'),
+          formula: t('Άθροισμα cost_amount από το snapshot αποθήκης.', 'Sum of cost_amount from inventory snapshot.')
+        },
+        {
+          keys: ['reserved qty', 'δεσμευμενη ποσοτητα'],
+          title: t('Δεσμευμένη Ποσότητα', 'Reserved Quantity'),
+          what: t('Ποσότητα που έχει δεσμευτεί και δεν είναι άμεσα διαθέσιμη.', 'Quantity reserved and not immediately available.'),
+          formula: t('Άθροισμα qty_reserved από το snapshot αποθήκης.', 'Sum of qty_reserved from inventory snapshot.')
+        },
+        {
+          keys: ['total items', 'συνολο ειδων', 'total items count'],
+          title: t('Σύνολο Ειδών', 'Total Items'),
+          what: t('Πλήθος ειδών που υπάρχουν στο αρχείο ειδών.', 'Total number of items in the item master.'),
+          formula: t('Count(items) στο master ειδών για το tenant.', 'Count(items) in the item master for the tenant.')
+        },
+        {
+          keys: ['active items', 'ενεργα ειδη'],
+          title: t('Ενεργά Είδη', 'Active Items'),
+          what: t('Πλήθος ειδών που είναι ενεργά.', 'Number of items marked as active.'),
+          formula: t('Count(items) όπου status = ενεργό.', 'Count(items) where status = active.')
+        },
+        {
+          keys: ['inactive items', 'ανενεργα ειδη'],
+          title: t('Ανενεργά Είδη', 'Inactive Items'),
+          what: t('Πλήθος ειδών που είναι ανενεργά.', 'Number of items marked as inactive.'),
+          formula: t('Count(items) όπου status = ανενεργό.', 'Count(items) where status = inactive.')
+        },
+        {
+          keys: ['fast items', 'ταχυκινητα ειδη', 'fast-moving items'],
+          title: t('Ταχυκίνητα Είδη', 'Fast-Moving Items'),
+          what: t('Είδη με υψηλή κίνηση στο επιλεγμένο διάστημα.', 'Items with high movement in the selected period.'),
+          formula: t('Count(items) όπου πωλήσεις/ημέρα >= όριο “ταχυκίνητο”.', 'Count(items) where sales/day >= fast threshold.')
+        },
+        {
+          keys: ['slow items', 'αργοκινητα ειδη', 'slow-moving items'],
+          title: t('Αργοκίνητα Είδη', 'Slow-Moving Items'),
+          what: t('Είδη με χαμηλή κίνηση στο επιλεγμένο διάστημα.', 'Items with low movement in the selected period.'),
+          formula: t('Count(items) όπου πωλήσεις/ημέρα <= όριο “αργοκίνητο”.', 'Count(items) where sales/day <= slow threshold.')
+        },
+        {
+          keys: ['cash in', 'εισροες'],
+          title: t('Εισροές', 'Cash In'),
+          what: t('Συνολικά χρηματικά ποσά που εισέρχονται.', 'Total incoming cash amount.'),
+          formula: t('Άθροισμα ποσών τύπου inflow στο διάστημα.', 'Sum of inflow amounts in the period.')
+        },
+        {
+          keys: ['cash out', 'εκροες'],
+          title: t('Εκροές', 'Cash Out'),
+          what: t('Συνολικά χρηματικά ποσά που εξέρχονται.', 'Total outgoing cash amount.'),
+          formula: t('Άθροισμα ποσών τύπου outflow στο διάστημα.', 'Sum of outflow amounts in the period.')
+        },
+        {
+          keys: ['net cash', 'καθαρη ροη', 'καθαρη ταμειακη ροη'],
+          title: t('Καθαρή Ταμειακή Ροή', 'Net Cash Flow'),
+          what: t('Καθαρό αποτέλεσμα ροής στο διάστημα.', 'Net cash result for selected period.'),
+          formula: t('Καθαρή Ροή = Εισροές - Εκροές.', 'Net Cash = Cash In - Cash Out.')
+        },
+        {
+          keys: ['entries', 'εγγραφες', 'πληθος εγγραφων'],
+          title: t('Πλήθος Εγγραφών', 'Entries'),
+          what: t('Πλήθος εγγραφών/κινήσεων στο διάστημα.', 'Number of entries/transactions in the period.'),
+          formula: t('Count(rows) στο σχετικό stream (π.χ. cashflow).', 'Count(rows) in the relevant stream (e.g. cashflow).')
+        },
+        {
+          keys: ['συνολο εξοδων', 'total expenses'],
+          title: t('Σύνολο Εξόδων', 'Total Expenses'),
+          what: t('Καθαρές δαπάνες της περιόδου.', 'Net expenses of the period.'),
+          formula: t('Άθροισμα amount για παραστατικά εξόδων στο [Από, Έως].', 'Sum of expense amounts within [From, To].')
+        },
+        {
+          keys: ['εξοδα εσοδα', 'expense ratio', 'expenses to revenue'],
+          title: t('Έξοδα / Έσοδα', 'Expenses / Revenue'),
+          what: t('Δείχνει το ποσοστό εξόδων σε σχέση με τα έσοδα.', 'Shows expense ratio relative to revenue.'),
+          formula: t('Expense Ratio = Σύνολο Εξόδων / Πωλήσεις Περιόδου * 100.', 'Expense Ratio = Total Expenses / Period Sales * 100.')
+        },
+        {
+          keys: ['κατηγοριες', 'categories'],
+          title: t('Κατηγορίες', 'Categories'),
+          what: t('Πλήθος ενεργών κατηγοριών στο διάστημα.', 'Number of active categories in the period.'),
+          formula: t('Count(distinct category) στα έξοδα της περιόδου.', 'Count(distinct category) in expense records.')
+        },
+        {
+          keys: ['συνολικες απαιτησεις', 'receivables'],
+          title: t('Συνολικές Απαιτήσεις', 'Total Receivables'),
+          what: t('Συνολικό ανοικτό υπόλοιπο πελατών.', 'Total open customer receivables.'),
+          formula: t('Άθροισμα υπολοίπων πελατών από balances.', 'Sum of customer open balances.')
+        },
+        {
+          keys: ['ληξιπροθεσμες απαιτησεις', 'overdue receivables'],
+          title: t('Ληξιπρόθεσμες Απαιτήσεις', 'Overdue Receivables'),
+          what: t('Απαιτήσεις που έχουν ξεπεράσει την ημερομηνία λήξης.', 'Receivables past due date.'),
+          formula: t('Άθροισμα υπολοίπων με due_date < σήμερα και το ποσοστό τους.', 'Sum of balances with due_date < today and their ratio.')
+        },
+        {
+          keys: ['υποχρεωσεις προμηθευτων', 'payables'],
+          title: t('Υποχρεώσεις Προμηθευτών', 'Supplier Payables'),
+          what: t('Συνολικό ανοικτό υπόλοιπο προμηθευτών.', 'Total open supplier payables.'),
+          formula: t('Άθροισμα υπολοίπων προμηθευτών από balances.', 'Sum of supplier open balances.')
+        },
+        {
+          keys: ['discount %', 'εκπτωση', 'discount'],
+          title: t('Έκπτωση %', 'Discount %'),
+          what: t('Μέση αποτελεσματική έκπτωση σε είδη/τιμές.', 'Average effective discount on items/pricing.'),
+          formula: t('Μέσος όρος (Τιμή καταλόγου - Τιμή πώλησης) / Τιμή καταλόγου * 100.', 'Average (List Price - Sale Price) / List Price * 100.')
+        }
       ];
     }
 
@@ -1373,15 +1782,31 @@
     document.addEventListener('DOMContentLoaded', () => {
       const sidebarToggleBtn = document.getElementById('sidebarToggleBtn');
       const sidebarExpandMiniBtn = document.getElementById('sidebarExpandMiniBtn');
+      const bvBackdrop = document.getElementById('bvSidebarBackdrop');
       const SIDEBAR_KEY = 'bv_tenant_sidebar_collapsed';
+      function isMobile(){ return window.innerWidth < 768; }
+      function closeMobileSidebar(){
+        document.body.classList.remove('bv-mobile-sidebar-open');
+        if(bvBackdrop) bvBackdrop.classList.remove('active');
+      }
+      function openMobileSidebar(){
+        document.body.classList.add('bv-mobile-sidebar-open');
+        if(bvBackdrop) bvBackdrop.classList.add('active');
+      }
       function applySidebarState(collapsed) {
         document.body.classList.toggle('admin-sidebar-collapsed', !!collapsed);
       }
       const savedCollapsed = localStorage.getItem(SIDEBAR_KEY) === '1';
       applySidebarState(savedCollapsed);
+      if(bvBackdrop) bvBackdrop.addEventListener('click', closeMobileSidebar);
       if (sidebarToggleBtn && sidebarToggleBtn.dataset.bound !== '1') {
         sidebarToggleBtn.dataset.bound = '1';
         sidebarToggleBtn.addEventListener('click', () => {
+          if(isMobile()){
+            if(document.body.classList.contains('bv-mobile-sidebar-open')) closeMobileSidebar();
+            else openMobileSidebar();
+            return;
+          }
           const collapsedNow = !document.body.classList.contains('admin-sidebar-collapsed');
           applySidebarState(collapsedNow);
           localStorage.setItem(SIDEBAR_KEY, collapsedNow ? '1' : '0');
@@ -1390,10 +1815,18 @@
       if (sidebarExpandMiniBtn && sidebarExpandMiniBtn.dataset.bound !== '1') {
         sidebarExpandMiniBtn.dataset.bound = '1';
         sidebarExpandMiniBtn.addEventListener('click', () => {
+          if(isMobile()){ openMobileSidebar(); return; }
           applySidebarState(false);
           localStorage.setItem(SIDEBAR_KEY, '0');
         });
       }
+      window.addEventListener('resize', () => {
+        if(!isMobile()) closeMobileSidebar();
+      });
+      /* close mobile sidebar when any Bootstrap modal opens */
+      document.addEventListener('show.bs.modal', () => {
+        if(isMobile() || window.innerWidth < 992) closeMobileSidebar();
+      });
       document.querySelectorAll('[data-menu-group-toggle]').forEach((toggleBtn) => {
         if (toggleBtn.dataset.bound === '1') return;
         const groupKey = toggleBtn.getAttribute('data-menu-group-toggle');
@@ -1456,6 +1889,28 @@
       window.bvToDmyDate = bvToDmyDate;
       window.bvInitDmyDateInputs = bvInitDmyDateInputs;
 
+      function ensureMultiSelectSearch(root = document) {
+        root.querySelectorAll?.('.bv-multi-menu').forEach((menu) => {
+          const options = menu.querySelector('.bv-multi-options');
+          if (!options || menu.querySelector('input[type="text"], input[type="search"]')) return;
+          const controls = document.createElement('div');
+          controls.className = 'd-flex gap-2 mb-2 bv-multi-auto-search-row';
+          const input = document.createElement('input');
+          input.type = 'search';
+          input.className = 'form-control form-control-sm';
+          input.placeholder = 'Αναζήτηση...';
+          controls.appendChild(input);
+          menu.insertBefore(controls, options);
+          input.addEventListener('input', () => {
+            const needle = input.value.trim().toLowerCase();
+            options.querySelectorAll('.bv-multi-opt').forEach((row) => {
+              const text = (row.textContent || '').toLowerCase();
+              row.hidden = !!needle && !text.includes(needle);
+            });
+          });
+        });
+      }
+
       document.addEventListener('submit', (e) => {
         const form = e.target;
         if (!form || !form.querySelectorAll) return;
@@ -1466,6 +1921,7 @@
       });
 
       applyDateFormatGlobal();
+      ensureMultiSelectSearch();
       const globalDateBtn = document.getElementById('globalDateRangeBtn');
       const globalDateApplyBtn = document.getElementById('globalDateApplyBtn');
       const globalDateModalEl = document.getElementById('globalDateModal');
@@ -1604,17 +2060,17 @@
         if (!card) return '';
         const explicit = (card.dataset.kpiTitle || '').trim();
         if (explicit) return explicit;
-        const direct = card.querySelector(':scope > .kpi-title, :scope > .label');
+        const direct = card.querySelector(':scope > .kpi-title, :scope > .label, :scope > .mc-label');
         if (direct && (direct.textContent || '').trim()) return direct.textContent.trim();
-        const fallback = card.querySelector('.kpi-title, .label');
+        const fallback = card.querySelector('.kpi-title, .label, .mc-label');
         return (fallback?.textContent || '').trim();
       }
 
-      document.querySelectorAll('.bv-kpi-box, .bv-stat-strip').forEach((card) => {
+      document.querySelectorAll('.bv-kpi-box, .bv-stat-strip, .bv-metric-card').forEach((card) => {
         const title = getCardTitle(card);
         if (title) {
           card.dataset.kpiTitle = title;
-          const icon = card.querySelector('.kpi-icon');
+          const icon = card.querySelector('.kpi-icon, .mc-icon');
           if (icon) icon.dataset.kpiTitle = title;
         }
       });
@@ -1623,18 +2079,22 @@
         if (!kpiHelpModalEl || !card) return;
         const titleText = (trigger?.dataset?.kpiTitle || card?.dataset?.kpiTitle || getCardTitle(card) || '').trim();
         const info = resolveKpiHelp(titleText, kpiHelpLang);
-        if (kpiHelpTitle) kpiHelpTitle.textContent = info.title;
-        if (kpiHelpWhat) kpiHelpWhat.textContent = info.what;
-        if (kpiHelpFormula) kpiHelpFormula.textContent = info.formula;
+        const explicitTitle = (trigger?.dataset?.kpiTitle || card?.dataset?.kpiTitle || '').trim();
+        const explicitWhat = (trigger?.dataset?.kpiWhat || card?.dataset?.kpiWhat || '').trim();
+        const explicitFormula = (trigger?.dataset?.kpiFormula || card?.dataset?.kpiFormula || '').trim();
+        if (kpiHelpTitle) kpiHelpTitle.textContent = explicitTitle || info.title;
+        if (kpiHelpWhat) kpiHelpWhat.textContent = explicitWhat || info.what;
+        if (kpiHelpFormula) kpiHelpFormula.textContent = explicitFormula || info.formula;
         kpiHelpModal?.show?.(trigger || card);
       }
 
       document.addEventListener('click', (e) => {
-        const icon = e.target.closest('.bv-kpi-box .kpi-icon, .bv-stat-strip .kpi-icon');
+        const icon = e.target.closest('.bv-kpi-box .kpi-icon, .bv-stat-strip .kpi-icon, .bv-metric-card .mc-icon');
         if (icon) {
+          const card = icon.closest('.bv-kpi-box, .bv-stat-strip, .bv-metric-card');
+          if (card?.dataset?.intraday || card?.dataset?.weekly || card?.dataset?.monthly || card?.dataset?.ytd) return;
           e.preventDefault();
           e.stopPropagation();
-          const card = icon.closest('.bv-kpi-box, .bv-stat-strip');
           openKpiHelpForCard(card, icon);
           return;
         }
@@ -1676,6 +2136,7 @@
               if (node.nodeType === Node.TEXT_NODE) return;
               applyDateFormatGlobal(node);
               if (node.querySelectorAll) bvInitDmyDateInputs(node);
+              ensureMultiSelectSearch(node);
             });
           }
         }
@@ -1684,6 +2145,7 @@
     });
   </script>
   {% block scripts %}{% endblock %}
+
   <div class="app-version-badge">Version {{ app_version }}</div>
   <div class="powered-by-cloudon">{{ tt(request, 'powered_by') }}</div>
 </body>

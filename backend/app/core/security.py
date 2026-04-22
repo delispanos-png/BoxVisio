@@ -17,6 +17,9 @@ def audience_for_role(role: str) -> str:
     return AUDIENCE_ADMIN if role == 'cloudon_admin' else AUDIENCE_TENANT
 
 
+_ALLOWED_HOSTS = {'localhost', '127.0.0.1', '::1'}
+
+
 def expected_audience_for_host(host: str | None) -> str | None:
     if not host:
         return None
@@ -25,7 +28,10 @@ def expected_audience_for_host(host: str | None) -> str | None:
         return AUDIENCE_ADMIN
     if host_only == settings.tenant_portal_host.lower():
         return AUDIENCE_TENANT
-    return None
+    if host_only in _ALLOWED_HOSTS:
+        return None
+    # Unknown host: return a sentinel that forces audience mismatch rather than skipping verification
+    return '__reject__'
 
 
 def create_access_token(

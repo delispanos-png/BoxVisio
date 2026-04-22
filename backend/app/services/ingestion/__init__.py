@@ -7,7 +7,9 @@ from app.services.ingestion.queueing import (
     pop_tenant_job,
     push_dead_letter,
     release_tenant_lock,
+    tenant_delete_active_key,
     tenant_dlq_name,
+    tenant_lock_name,
     tenant_stop_key,
     tenant_queue_name,
 )
@@ -22,7 +24,9 @@ __all__ = [
     'process_job',
     'push_dead_letter',
     'release_tenant_lock',
+    'tenant_delete_active_key',
     'tenant_dlq_name',
+    'tenant_lock_name',
     'tenant_stop_key',
     'tenant_queue_name',
 ]

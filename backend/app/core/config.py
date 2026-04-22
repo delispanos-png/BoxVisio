@@ -75,9 +75,13 @@ class Settings(BaseSettings):
     celery_result_backend: str = 'redis://redis:6379/1'
     ingest_job_max_retries: int = 3
     ingest_retry_backoff_seconds: int = 5
-    ingest_job_timeout_seconds: int = 300
+    ingest_job_timeout_seconds: int = 900
     ingest_drain_max_jobs: int = 100
     ingest_stuck_heartbeat_seconds: int = 180
+    ingest_backfill_job_timeout_seconds: int = 7200
+    ingest_backfill_sales_chunk_days: int = 1
+    ingest_backfill_purchases_chunk_days: int = 1
+    ingest_backfill_inventory_chunk_days: int = 1
     ingest_auto_recover_enabled: bool = True
     ingest_auto_recover_interval_seconds: int = 60
     ingest_auto_recover_force_seconds: int = 600

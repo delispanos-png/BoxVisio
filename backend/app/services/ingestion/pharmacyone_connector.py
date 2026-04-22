@@ -56,6 +56,10 @@ class PharmacyOneSqlConnector(Connector):
         else:
             query_template = mapped_query or DEFAULT_GENERIC_EXPENSES_QUERY
 
+        params = context.connection_parameters if isinstance(context.connection_parameters, dict) else {}
+        auth_config = params.get('auth_config') if isinstance(params.get('auth_config'), dict) else {}
+        company_id = params.get('company_id') or params.get('company') or auth_config.get('company') or auth_config.get('COMPANY')
+
         rows = fetch_incremental_rows(
             connection_string=context.source_connection_string,
             query_template=query_template,
@@ -66,6 +70,8 @@ class PharmacyOneSqlConnector(Connector):
             last_sync_id=state.last_sync_id,
             from_date=(payload or {}).get('from_date'),
             to_date=(payload or {}).get('to_date'),
+            company_id=company_id,
+            limit=(payload or {}).get('limit') or settings.incremental_sync_limit,
             retries=settings.ingest_job_max_retries,
             retry_sleep_sec=settings.sqlserver_retry_sleep_seconds,
         )

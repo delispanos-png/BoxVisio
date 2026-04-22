@@ -709,8 +709,6 @@ function _bv_inventory_sql(cfg) {
   var iCat1 = _bv_col_expr("PC1", "CCC88POCAT1", ["NAME"], "''");
   var iCat2 = _bv_col_expr("PC2", "CCC88POCAT2", ["NAME"], "''");
   var iCat3 = _bv_col_expr("PC3", "CCC88POCAT3", ["NAME"], "''");
-  var iBrand = _bv_col_expr("I", "MTRL", ["MTRMARK"], "NULL");
-  var iManufacturer = _bv_col_expr("I", "MTRL", ["MTRMANFCTR"], "NULL");
   var iAltBarcodeExpr =
     "NULLIF(STUFF((SELECT ',' + CAST(MS.CODE AS VARCHAR(128)) " +
     "FROM MTRSUBSTITUTE MS " +
@@ -810,14 +808,6 @@ function _bv_inventory_sql(cfg) {
     "CAST(ISNULL(" +
     iCat3 +
     ", '') AS VARCHAR(255)) AS CATEGORY_3," +
-    "CAST(NULLIF(CAST(ISNULL(" +
-    iBrand +
-    ",0) AS VARCHAR(64)), '0') AS VARCHAR(64)) AS BRAND_EXTERNAL_ID," +
-    "CAST(ISNULL(MK.NAME, '') AS VARCHAR(255)) AS BRAND_NAME," +
-    "CAST(NULLIF(CAST(ISNULL(" +
-    iManufacturer +
-    ",0) AS VARCHAR(128)), '0') AS VARCHAR(128)) AS MANUFACTURER_CODE," +
-    "CAST(ISNULL(MF.NAME, '') AS VARCHAR(255)) AS MANUFACTURER_NAME," +
     "CAST(ISNULL(" +
     lQty +
     ",0) AS FLOAT) AS QTY," +
@@ -855,8 +845,6 @@ function _bv_inventory_sql(cfg) {
     lMtrl +
     " AND I.COMPANY=F.COMPANY " +
     "LEFT JOIN VAT VT ON VT.VAT = I.VAT " +
-    "LEFT JOIN MTRMARK MK ON MK.MTRMARK = I.MTRMARK AND MK.COMPANY = I.COMPANY " +
-    "LEFT JOIN MTRMANFCTR MF ON MF.MTRMANFCTR = I.MTRMANFCTR AND MF.COMPANY = I.COMPANY " +
     "LEFT JOIN CCC88POCAT1 PC1 ON PC1.CCC88POCAT1 = I.CCC88POCAT1 " +
     "LEFT JOIN CCC88POCAT2 PC2 ON PC2.CCC88POCAT2 = I.CCC88POCAT2 " +
     "LEFT JOIN CCC88POCAT3 PC3 ON PC3.CCC88POCAT3 = I.CCC88POCAT3 " +
@@ -939,14 +927,6 @@ function _bv_inventory_sql(cfg) {
     "CAST(ISNULL(" +
     iCat3 +
     ", '') AS VARCHAR(255)) AS CATEGORY_3," +
-    "CAST(NULLIF(CAST(ISNULL(" +
-    iBrand +
-    ",0) AS VARCHAR(64)), '0') AS VARCHAR(64)) AS BRAND_EXTERNAL_ID," +
-    "CAST(ISNULL(MK.NAME, '') AS VARCHAR(255)) AS BRAND_NAME," +
-    "CAST(NULLIF(CAST(ISNULL(" +
-    iManufacturer +
-    ",0) AS VARCHAR(128)), '0') AS VARCHAR(128)) AS MANUFACTURER_CODE," +
-    "CAST(ISNULL(MF.NAME, '') AS VARCHAR(255)) AS MANUFACTURER_NAME," +
     "CAST(ISNULL(" +
     lQty +
     ",0) AS FLOAT) AS QTY," +
@@ -984,8 +964,6 @@ function _bv_inventory_sql(cfg) {
     lMtrl +
     " AND I.COMPANY=F.COMPANY " +
     "LEFT JOIN VAT VT ON VT.VAT = I.VAT " +
-    "LEFT JOIN MTRMARK MK ON MK.MTRMARK = I.MTRMARK AND MK.COMPANY = I.COMPANY " +
-    "LEFT JOIN MTRMANFCTR MF ON MF.MTRMANFCTR = I.MTRMANFCTR AND MF.COMPANY = I.COMPANY " +
     "LEFT JOIN CCC88POCAT1 PC1 ON PC1.CCC88POCAT1 = I.CCC88POCAT1 " +
     "LEFT JOIN CCC88POCAT2 PC2 ON PC2.CCC88POCAT2 = I.CCC88POCAT2 " +
     "LEFT JOIN CCC88POCAT3 PC3 ON PC3.CCC88POCAT3 = I.CCC88POCAT3 " +
@@ -1015,7 +993,6 @@ function _bv_item_master_sql(cfg) {
   var soTypeExpr = _bv_col_expr("I", "MTRL", ["SODTYPE", "SOTYPE"], "0");
   var activeExpr = _bv_col_expr("I", "MTRL", ["ISACTIVE"], "1");
   var brandExpr = _bv_col_expr("I", "MTRL", ["MTRMARK"], "NULL");
-  var manufacturerExpr = _bv_col_expr("I", "MTRL", ["MTRMANFCTR"], "NULL");
   var cat1Expr = _bv_col_expr("PC1", "CCC88POCAT1", ["NAME"], "''");
   var cat2Expr = _bv_col_expr("PC2", "CCC88POCAT2", ["NAME"], "''");
   var cat3Expr = _bv_col_expr("PC3", "CCC88POCAT3", ["NAME"], "''");
@@ -1046,10 +1023,6 @@ function _bv_item_master_sql(cfg) {
     brandExpr +
     ", 0) AS VARCHAR(64)), '0') AS VARCHAR(64)) AS BRAND_EXTERNAL_ID," +
     "CAST(ISNULL(MK.NAME, '') AS VARCHAR(255)) AS BRAND_NAME," +
-    "CAST(NULLIF(CAST(ISNULL(" +
-    manufacturerExpr +
-    ", 0) AS VARCHAR(128)), '0') AS VARCHAR(128)) AS MANUFACTURER_CODE," +
-    "CAST(ISNULL(MF.NAME, '') AS VARCHAR(255)) AS MANUFACTURER_NAME," +
     "CAST(" + vatExpr + " AS DECIMAL(18,4)) AS VAT_RATE," +
     "CAST(ISNULL(VT.NAME, '') AS VARCHAR(255)) AS VAT_LABEL," +
     "CAST(ISNULL(" +
@@ -1071,7 +1044,6 @@ function _bv_item_master_sql(cfg) {
     ", 1) AS INT) AS IS_ACTIVE_SOURCE " +
     "FROM MTRL I " +
     "LEFT JOIN MTRMARK MK ON MK.MTRMARK = I.MTRMARK AND MK.COMPANY = I.COMPANY " +
-    "LEFT JOIN MTRMANFCTR MF ON MF.MTRMANFCTR = I.MTRMANFCTR AND MF.COMPANY = I.COMPANY " +
     "LEFT JOIN MTRGROUP MG ON MG.MTRGROUP = I.MTRGROUP AND MG.COMPANY = I.COMPANY " +
     "LEFT JOIN VAT VT ON VT.VAT = I.VAT " +
     "LEFT JOIN CCC88POCAT1 PC1 ON PC1.CCC88POCAT1 = I.CCC88POCAT1 " +
@@ -1668,10 +1640,6 @@ function _bv_inventory_record(ds) {
     item_name: _bv_text(_bv_field(ds, "ITEM_NAME", ""), ""),
     barcode: _bv_text(_bv_field(ds, "BARCODE", ""), ""),
     alternate_barcodes: _bv_text(_bv_field(ds, "ALTERNATE_BARCODES", ""), ""),
-    brand_external_id: _bv_text(_bv_field(ds, "BRAND_EXTERNAL_ID", ""), ""),
-    brand_name: _bv_text(_bv_field(ds, "BRAND_NAME", ""), ""),
-    manufacturer_code: _bv_text(_bv_field(ds, "MANUFACTURER_CODE", ""), ""),
-    manufacturer_name: _bv_text(_bv_field(ds, "MANUFACTURER_NAME", ""), ""),
     category_1: _bv_text(_bv_field(ds, "CATEGORY_1", ""), ""),
     category_2: _bv_text(_bv_field(ds, "CATEGORY_2", ""), ""),
     category_3: _bv_text(_bv_field(ds, "CATEGORY_3", ""), ""),
@@ -1694,8 +1662,6 @@ function _bv_item_master_record(ds) {
     softone_sotype: _bv_int(_bv_field(ds, "SOFTONE_SOTYPE", 0), 0, 0, 99999999),
     brand_external_id: _bv_text(_bv_field(ds, "BRAND_EXTERNAL_ID", ""), ""),
     brand_name: _bv_text(_bv_field(ds, "BRAND_NAME", ""), ""),
-    manufacturer_code: _bv_text(_bv_field(ds, "MANUFACTURER_CODE", ""), ""),
-    manufacturer_name: _bv_text(_bv_field(ds, "MANUFACTURER_NAME", ""), ""),
     category_1: _bv_text(_bv_field(ds, "CATEGORY_1", ""), ""),
     category_2: _bv_text(_bv_field(ds, "CATEGORY_2", ""), ""),
     category_3: _bv_text(_bv_field(ds, "CATEGORY_3", ""), ""),

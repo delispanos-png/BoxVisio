@@ -45,7 +45,7 @@ async def rate_limit_middleware(request: Request, call_next):
     if not _is_limited_path(path):
         return await call_next(request)
 
-    redis = Redis.from_url(settings.redis_url, decode_responses=True)
+    redis = getattr(request.app.state, 'redis', None) or Redis.from_url(settings.redis_url, decode_responses=True)
     subject = _resolve_limit_subject(request)
     bucket = _minute_bucket()
     key = f'rate:{subject}:{bucket}'
