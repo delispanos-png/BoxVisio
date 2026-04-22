@@ -3868,16 +3868,14 @@ async def admin_connections_recover_sync(
     tenant_id: int = Form(...),
     connector_type: str = Form(default='sql_connector'),
     source_page: str = Form(default='connections'),
-    from_date: str = Form(...),
-    to_date: str = Form(...),
+    from_date: str = Form(default=''),
+    to_date: str = Form(default=''),
     _: object = Depends(require_roles(RoleName.cloudon_admin)),
     db: AsyncSession = Depends(get_control_db),
 ):
     redirect_base = '/admin/data-sources' if source_page == 'data_sources' else '/admin/connections'
     tenant = (await db.execute(select(Tenant).where(Tenant.id == tenant_id))).scalar_one_or_none()
-    from_dt = _parse_date_or_none(from_date)
-    to_dt = _parse_date_or_none(to_date)
-    if tenant is None or from_dt is None or to_dt is None or from_dt > to_dt:
+    if tenant is None:
         return RedirectResponse(
             url=_connections_redirect_url(
                 redirect_base,
@@ -3887,6 +3885,8 @@ async def admin_connections_recover_sync(
             ),
             status_code=303,
         )
+    from_dt = _parse_date_or_none(from_date)
+    to_dt = _parse_date_or_none(to_date)
 
     redis = Redis.from_url(settings.redis_url, decode_responses=True)
     queue_left = int(queue_depth(tenant.slug))
@@ -3915,8 +3915,8 @@ async def admin_connections_recover_sync(
             entity_id=str(tenant.id),
             payload={
                 'queue_left': queue_left,
-                'requested_from_date': from_dt.isoformat(),
-                'requested_to_date': to_dt.isoformat(),
+                'requested_from_date': from_dt.isoformat() if from_dt else None,
+                'requested_to_date': to_dt.isoformat() if to_dt else None,
                 'cleared_lock': cleared_lock,
                 'cleared_throttle': cleared_throttle,
                 'cleared_stop': cleared_stop,
