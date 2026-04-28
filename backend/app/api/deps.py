@@ -280,7 +280,7 @@ async def get_tenant_db(
             tenant_id=int(tenant.id),
             domain=RuleDomain.kpi_participation_rules,
             stream=OperationalStream.sales_documents,
-            rule_key='turnover',
+            rule_key='sales_kpi_config',
             fallback_payload={},
         )
 

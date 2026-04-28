@@ -59,6 +59,27 @@ class PharmacyOneSqlConnector(Connector):
         params = context.connection_parameters if isinstance(context.connection_parameters, dict) else {}
         auth_config = params.get('auth_config') if isinstance(params.get('auth_config'), dict) else {}
         company_id = params.get('company_id') or params.get('company') or auth_config.get('company') or auth_config.get('COMPANY')
+        payload_data = payload or {}
+        explicit_limit = payload_data.get('limit')
+        effective_limit = max(
+            100,
+            int(
+                explicit_limit
+                or settings.sqlserver_default_fetch_limit
+                or settings.incremental_sync_limit
+                or 4000
+            ),
+        )
+        exhaustive_requested = payload_data.get('ensure_complete')
+        if exhaustive_requested is None:
+            exhaustive_requested = settings.sqlserver_incremental_exhaustive_fetch
+        exhaustive_mode = bool(exhaustive_requested)
+        if (
+            settings.sqlserver_period_sync_exhaustive_fetch
+            and payload_data.get('from_date')
+            and payload_data.get('to_date')
+        ):
+            exhaustive_mode = True
 
         rows = fetch_incremental_rows(
             connection_string=context.source_connection_string,
@@ -68,10 +89,12 @@ class PharmacyOneSqlConnector(Connector):
             date_column=context.date_column,
             last_sync_timestamp=state.last_sync_timestamp,
             last_sync_id=state.last_sync_id,
-            from_date=(payload or {}).get('from_date'),
-            to_date=(payload or {}).get('to_date'),
+            from_date=payload_data.get('from_date'),
+            to_date=payload_data.get('to_date'),
             company_id=company_id,
-            limit=(payload or {}).get('limit') or settings.incremental_sync_limit,
+            limit=effective_limit,
+            exhaustive=exhaustive_mode,
+            max_pages=settings.sqlserver_period_sync_max_pages,
             retries=settings.ingest_job_max_retries,
             retry_sleep_sec=settings.sqlserver_retry_sleep_seconds,
         )

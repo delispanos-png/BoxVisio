@@ -11,6 +11,10 @@ celery.conf.worker_concurrency = settings.celery_worker_concurrency
 celery.conf.worker_max_tasks_per_child = settings.celery_worker_max_tasks_per_child
 celery.conf.task_acks_late = True
 celery.conf.task_reject_on_worker_lost = True
+celery.conf.task_default_queue = 'default'
+celery.conf.task_default_exchange = 'default'
+celery.conf.task_default_routing_key = 'default'
+celery.conf.task_create_missing_queues = True
 celery.conf.broker_transport_options = {'visibility_timeout': 3600}
 celery.conf.task_routes = {
     'worker.tasks.ingest_sales_documents': {'queue': 'ingest'},
@@ -28,6 +32,10 @@ celery.conf.task_routes = {
     'worker.tasks.enqueue_external_ingest': {'queue': 'ingest'},
     'worker.tasks.enqueue_incremental_sync': {'queue': 'ingest'},
     'worker.tasks.enqueue_incremental_sync_all_tenants': {'queue': 'ingest'},
+    # Backfill fan-out should not wait behind tenant ingest jobs on the same queue.
+    # Run the planner on the default queue, then let it enqueue stream jobs to ingest.
+    'worker.tasks.enqueue_sql_backfill': {'queue': 'default'},
+    'worker.tasks.enqueue_pharmacyone_backfill': {'queue': 'default'},
     'worker.tasks.auto_recover_stuck_ingest': {'queue': 'ingest'},
     'worker.tasks.drain_tenant_ingest_queue': {'queue': 'ingest'},
     'worker.tasks.refresh_aggregates_for_entity': {'queue': 'ingest'},
@@ -44,7 +52,7 @@ celery.conf.beat_schedule = {
     },
     'incremental-sync-all-tenants': {
         'task': 'worker.tasks.enqueue_incremental_sync_all_tenants',
-        'schedule': timedelta(minutes=max(1, int(settings.incremental_sync_interval_minutes or 5))),
+        'schedule': timedelta(minutes=1),
         'kwargs': {
             'limit': int(settings.incremental_sync_limit or 500),
             'max_tenants': int(settings.incremental_sync_max_tenants_per_run or 100),
@@ -53,6 +61,10 @@ celery.conf.beat_schedule = {
     'auto-recover-stuck-ingest': {
         'task': 'worker.tasks.auto_recover_stuck_ingest',
         'schedule': timedelta(seconds=max(30, int(settings.ingest_auto_recover_interval_seconds or 60))),
+    },
+    'audit-sync-completeness': {
+        'task': 'worker.tasks.audit_sync_completeness',
+        'schedule': timedelta(minutes=30),
     },
 }
 

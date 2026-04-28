@@ -1,0 +1,197 @@
+{% extends "base_admin.html" %}
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mt-3 mb-3">
+  <div>
+    <h5 class="mb-0">Παραμετροποίηση Stream — <strong>{{ tenant.name }}</strong></h5>
+    <small class="text-muted">Ορίστε ποιά series συμμετέχουν στα KPI για κάθε ροή δεδομένων.</small>
+  </div>
+  <a href="/admin/tenants/{{ tenant.id }}/edit" class="btn btn-sm btn-outline-secondary">
+    <i class="fe fe-arrow-left"></i> Πελάτης
+  </a>
+</div>
+
+{% if request.query_params.get('saved') == '1' %}
+<div class="alert alert-success d-flex align-items-center mb-3">
+  <i class="fe fe-check-circle me-2"></i> Αποθηκεύτηκε επιτυχώς. Το KPI cache ανανεώθηκε.
+</div>
+{% endif %}
+
+{# Stream tab nav #}
+<ul class="nav nav-tabs mb-0" id="streamTabs">
+  {% for s in streams %}
+  <li class="nav-item">
+    <button class="nav-link {% if loop.first %}active{% endif %}"
+      data-bs-toggle="tab" data-bs-target="#tab-{{ s.key }}" type="button">
+      <i class="fe fe-{{ s.icon }} me-1"></i>{{ s.label }}
+      {% if s.excluded_count %}
+        <span class="badge bg-warning text-dark ms-1">{{ s.excluded_count }} εξαιρ.</span>
+      {% endif %}
+    </button>
+  </li>
+  {% endfor %}
+</ul>
+
+<div class="tab-content border border-top-0 rounded-bottom bg-white">
+  {% for s in streams %}
+  <div class="tab-pane fade {% if loop.first %}show active{% endif %} p-4" id="tab-{{ s.key }}">
+
+    {# Summary bar #}
+    <div class="row g-3 mb-4">
+      <div class="col-auto">
+        <div class="border rounded px-3 py-2 text-center" style="min-width:130px">
+          <div class="text-muted small">Σύνολο Εγγραφών</div>
+          <div class="fw-bold">{{ '{:,}'.format(s.total_rows) }}</div>
+        </div>
+      </div>
+      <div class="col-auto">
+        <div class="border rounded px-3 py-2 text-center" style="min-width:150px">
+          <div class="text-muted small">YTD Αξία</div>
+          <div class="fw-bold text-primary">{{ '{:,.2f}'.format(s.total_ytd) }}€</div>
+        </div>
+      </div>
+      <div class="col-auto">
+        <div class="border rounded px-3 py-2 text-center" style="min-width:130px">
+          <div class="text-muted small">Αποκλεισμένα</div>
+          <div class="fw-bold {% if s.excluded_count %}text-warning{% else %}text-success{% endif %}">
+            {{ s.excluded_count }} series
+          </div>
+        </div>
+      </div>
+      <div class="col-auto">
+        <div class="border rounded px-3 py-2 text-center" style="min-width:160px">
+          <div class="text-muted small">YTD Συμμετέχει</div>
+          <div class="fw-bold text-success">
+            {{ '{:,.2f}'.format(s.series | selectattr('included') | sum(attribute='ytd_value')) }}€
+          </div>
+        </div>
+      </div>
+      <div class="col-auto">
+        <div class="border rounded px-3 py-2 text-center" style="min-width:160px">
+          <div class="text-muted small">YTD Αποκλεισμένο</div>
+          <div class="fw-bold text-danger">
+            {{ '{:,.2f}'.format(s.series | rejectattr('included') | sum(attribute='ytd_value')) }}€
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {% if s.series %}
+    <form method="post" action="/admin/tenants/{{ tenant.id }}/stream-config">
+      <input type="hidden" name="stream_key" value="{{ s.key }}">
+
+      {# Hidden inputs so POST knows all series that exist #}
+      {% for row in s.series %}
+      <input type="hidden" name="series_known_{{ row.series }}__{{ row.doc_type }}" value="1">
+      {% endfor %}
+
+      <div class="d-flex align-items-center justify-content-between mb-2">
+        <h6 class="mb-0">Series <span class="text-muted fw-normal">({{ s.series | length }})</span></h6>
+        <div class="d-flex gap-2">
+          <button type="button" class="btn btn-sm btn-outline-success" onclick="setAll('{{ s.key }}', true)">
+            <i class="fe fe-check-square"></i> Όλα Ενεργά
+          </button>
+          <button type="button" class="btn btn-sm btn-outline-danger" onclick="setAll('{{ s.key }}', false)">
+            <i class="fe fe-square"></i> Όλα Ανενεργά
+          </button>
+          <button type="submit" class="btn btn-sm btn-primary">
+            <i class="fe fe-save"></i> Αποθήκευση
+          </button>
+        </div>
+      </div>
+
+      <div class="table-responsive">
+        <table class="table table-sm table-hover align-middle mb-3" id="tbl-{{ s.key }}">
+          <thead class="table-light">
+            <tr>
+              <th style="width:48px" class="text-center">Ενεργό</th>
+              <th>Series</th>
+              <th>Τύπος</th>
+              <th>Κωδικοί Συμπ.</th>
+              <th class="text-end">Εγγραφές</th>
+              <th class="text-end">YTD Αξία</th>
+              <th class="text-end">Σύνολο Αξία</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in s.series %}
+            <tr class="{% if not row.included %}table-warning{% endif %}">
+              <td class="text-center">
+                <div class="form-check form-switch d-flex justify-content-center mb-0">
+                  <input class="form-check-input stream-toggle" type="checkbox"
+                    id="chk-{{ s.key }}-{{ loop.index }}"
+                    name="series_include_{{ row.series }}__{{ row.doc_type }}"
+                    data-stream="{{ s.key }}"
+                    {% if row.included %}checked{% endif %}
+                    onchange="this.closest('tr').className = this.checked ? '' : 'table-warning'">
+                </div>
+              </td>
+              <td>
+                <span class="fw-semibold font-monospace">{{ row.series or '(κενό)' }}</span>
+              </td>
+              <td>
+                <span class="badge bg-light text-dark border">{{ row.doc_type or '—' }}</span>
+              </td>
+              <td>
+                {% for code in row.behavior_codes %}
+                  <span class="badge bg-secondary me-1" title="{{ behavior_labels.get(code, '') }}">{{ code }}</span>
+                {% else %}—
+                {% endfor %}
+              </td>
+              <td class="text-end text-muted small">{{ '{:,}'.format(row.rows) }}</td>
+              <td class="text-end fw-semibold {% if row.ytd_value < 0 %}text-danger{% endif %}">
+                {{ '{:,.2f}'.format(row.ytd_value) }}€
+              </td>
+              <td class="text-end text-muted small">{{ '{:,.2f}'.format(row.total_value) }}€</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="d-flex justify-content-between align-items-center pt-2 border-top">
+        <div class="text-muted small">
+          Αλλαγές ισχύουν αμέσως — το KPI cache ανανεώνεται αυτόματα κατά την αποθήκευση.
+        </div>
+        <button type="submit" class="btn btn-primary">
+          <i class="fe fe-save me-1"></i> Αποθήκευση {{ s.label }}
+        </button>
+      </div>
+    </form>
+
+    {# Behavior codes info panel #}
+    {% set beh_codes = s.series | map(attribute='behavior_codes') | sum(start=[]) | unique | list | sort %}
+    {% if beh_codes %}
+    <div class="mt-4 p-3 bg-light rounded border">
+      <div class="fw-semibold mb-2 text-muted small text-uppercase">
+        <i class="fe fe-info me-1"></i>Κωδικοί Συμπεριφοράς (TFPRMS) στο stream
+      </div>
+      <div class="d-flex flex-wrap gap-2">
+        {% for code in beh_codes %}
+        <div class="border rounded px-3 py-1 bg-white d-flex align-items-center gap-2">
+          <span class="badge bg-secondary">{{ code }}</span>
+          <span class="small">{{ behavior_labels.get(code, 'Άγνωστος') }}</span>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    {% else %}
+    <div class="text-center text-muted py-5">
+      <i class="fe fe-database" style="font-size:2rem;opacity:.3"></i>
+      <p class="mt-2">Δεν βρέθηκαν δεδομένα σε αυτό το stream.</p>
+    </div>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+
+<script>
+function setAll(streamKey, checked) {
+  document.querySelectorAll('#tab-' + streamKey + ' .stream-toggle').forEach(function(cb) {
+    cb.checked = checked;
+    cb.closest('tr').className = checked ? '' : 'table-warning';
+  });
+}
+</script>
+{% endblock %}

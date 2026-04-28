@@ -78,7 +78,7 @@ def begin_ingest_progress(
     return get_ingest_progress(tenant_slug)
 
 
-def update_ingest_progress(tenant_slug: str, *, status: str | None = None, error: str | None = None) -> dict[str, object]:
+def update_ingest_progress(tenant_slug: str, *, status: str | None = None, error: str | None = None, job_started: bool = False, job_completed: bool = False) -> dict[str, object]:
     redis = _redis()
     key = progress_key(tenant_slug)
     existing = redis.hgetall(key)
@@ -121,6 +121,10 @@ def update_ingest_progress(tenant_slug: str, *, status: str | None = None, error
         'progress_pct': str(pct),
         'updated_at': now,
     }
+    if job_completed:
+        update_map['last_job_completed_at'] = now
+    if job_started:
+        update_map['last_job_started_at'] = now
     if next_status in {'completed', 'stopped', 'failed'}:
         update_map.setdefault('completed_at', now)
     if error:

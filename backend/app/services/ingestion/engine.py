@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from datetime import date as date_cls, datetime
@@ -9,6 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.db.control_session import ControlSessionLocal
 from app.db.tenant_manager import get_tenant_db_session
 from app.models.control import OperationalStream, Tenant, TenantConnection
@@ -807,9 +809,28 @@ def _upsert_expense_stmt(fact: dict):
     )
 
 
+def _dedup_facts_by_external_id(facts: list[dict]) -> list[dict]:
+    # PostgreSQL raises CardinalityViolationError when ON CONFLICT DO UPDATE sees two rows
+    # with the same external_id in the same INSERT batch. Keep only the last occurrence
+    # (rows come sorted by updated_at ASC, so the last is the freshest).
+    seen: dict[str, dict] = {}
+    none_id_facts: list[dict] = []
+    for fact in facts:
+        eid = fact.get('external_id')
+        if eid is not None:
+            seen[eid] = fact
+        else:
+            none_id_facts.append(fact)
+    deduped_count = len(seen) + len(none_id_facts)
+    if deduped_count == len(facts):
+        return facts
+    return list(seen.values()) + none_id_facts
+
+
 def _build_fact_upsert_stmt(entity: str, facts: list[dict]):
     if not facts:
         return None
+    facts = _dedup_facts_by_external_id(facts)
 
     if entity == 'sales':
         ins = insert(FactSales).values(facts)
@@ -951,7 +972,9 @@ def _build_fact_upsert_stmt(entity: str, facts: list[dict]):
         )
 
     if entity == 'cashflows':
-        ins = insert(FactCashflow).values(facts)
+        valid_columns = set(FactCashflow.__table__.columns.keys())
+        sanitized_facts = [{k: v for k, v in fact.items() if k in valid_columns} for fact in facts]
+        ins = insert(FactCashflow).values(sanitized_facts)
         return ins.on_conflict_do_update(
             index_elements=['external_id'],
             set_={
@@ -1383,6 +1406,10 @@ async def _upsert_dims_from_row(
                 )
             ),
         }
+        if group:
+            item_values['group_id'] = await tenant_db.scalar(
+                select(DimGroup.id).where(DimGroup.external_id == str(group)[:64]).limit(1)
+            )
 
         ins = insert(DimItem).values(
             **item_values,
@@ -1428,6 +1455,7 @@ async def _upsert_dims_from_row(
                     'image_url': func.coalesce(ins.excluded.image_url, DimItem.image_url),
                     'discount_pct': func.coalesce(ins.excluded.discount_pct, DimItem.discount_pct),
                     'is_active_source': func.coalesce(ins.excluded.is_active_source, DimItem.is_active_source),
+                    'group_id': func.coalesce(ins.excluded.group_id, DimItem.group_id),
                 },
             )
         )
@@ -2184,11 +2212,22 @@ async def process_job(job: dict[str, Any]) -> dict[str, Any]:
     entity = STREAM_TO_ENTITY[stream]
     payload = job.get('payload') or {}
     fast_backfill_mode = bool(payload.get('backfill'))
+    bulk_upsert_enabled = bool(getattr(settings, 'sqlserver_bulk_upsert_enabled', True))
     bulk_fact_mode = (
-        fast_backfill_mode
+        bulk_upsert_enabled
         and connector_type in SQL_CONNECTOR_ALIASES
-        and entity in {'sales', 'purchases', 'inventory'}
+        and (fast_backfill_mode or bool(payload.get('ensure_complete')) or bool(payload.get('bulk_upsert')))
+        and entity in {
+            'sales',
+            'purchases',
+            'inventory',
+            'cashflows',
+            'supplier_balances',
+            'customer_balances',
+            'expenses',
+        }
     )
+    bulk_fact_batch_size = max(100, int(getattr(settings, 'sqlserver_bulk_upsert_batch_size', 1000) or 1000))
 
     connector = CONNECTORS.get(connector_type)
     if connector is None:
@@ -2277,12 +2316,20 @@ async def process_job(job: dict[str, Any]) -> dict[str, Any]:
         last_sync_timestamp=None if ignore_sync_state else initial_last_ts,
         last_sync_id=None if ignore_sync_state else initial_last_id,
     )
-    rows = connector.fetch_rows(stream=stream, entity=entity, context=context, state=inc_state, payload=payload)
+    # Connectors backed by pyodbc (SQL Server) execute synchronous blocking I/O.
+    # Running that in the event-loop thread freezes all coroutines (lock heartbeat,
+    # asyncio.wait_for timeout). Collect rows in a thread-pool executor so the
+    # event loop remains responsive while the SQL query and paging loop run.
+    _loop = asyncio.get_running_loop()
+    rows: list[dict[str, Any]] = await _loop.run_in_executor(
+        None,
+        lambda: list(connector.fetch_rows(stream=stream, entity=entity, context=context, state=inc_state, payload=payload)),
+    )
 
     processed = 0
     heartbeat_every_rows = 250
     commit_every_rows = 1000
-    fact_batch_size = 500 if bulk_fact_mode else 1
+    fact_batch_size = bulk_fact_batch_size if bulk_fact_mode else 1
     last_ts = None if ignore_sync_state else initial_last_ts
     last_id = None if ignore_sync_state else initial_last_id
     min_doc_date = None
@@ -2434,6 +2481,11 @@ async def process_job(job: dict[str, Any]) -> dict[str, Any]:
                     await _mark_staging_row_processed(tenant_db, stream=stream, stage_id=stage_id)
             except Exception as row_exc:
                 if not bulk_fact_mode:
+                    # Clear the failed statement/transaction state first so the
+                    # staging failure marker can be persisted reliably and the
+                    # worker does not cascade into an "InFailedSQLTransaction"
+                    # follow-up error that hides the original root cause.
+                    await tenant_db.rollback()
                     await _mark_staging_row_failed(
                         tenant_db,
                         stream=stream,
@@ -2454,12 +2506,13 @@ async def process_job(job: dict[str, Any]) -> dict[str, Any]:
 
             if rows_since_commit >= commit_every_rows:
                 await _flush_fact_batch()
-                sync_state.last_sync_timestamp = last_ts
-                sync_state.last_sync_id = last_id
-                if hasattr(sync_state, 'stream_code'):
-                    sync_state.stream_code = str(stream)
-                if hasattr(sync_state, 'source_connector_id'):
-                    sync_state.source_connector_id = str(connector_type)[:64]
+                if not ignore_sync_state:
+                    sync_state.last_sync_timestamp = last_ts
+                    sync_state.last_sync_id = last_id
+                    if hasattr(sync_state, 'stream_code'):
+                        sync_state.stream_code = str(stream)
+                    if hasattr(sync_state, 'source_connector_id'):
+                        sync_state.source_connector_id = str(connector_type)[:64]
                 await tenant_db.commit()
                 update_ingest_progress(tenant_slug, status='running')
                 rows_since_commit = 0
@@ -2467,12 +2520,13 @@ async def process_job(job: dict[str, Any]) -> dict[str, Any]:
                 update_ingest_progress(tenant_slug, status='running')
 
         await _flush_fact_batch()
-        sync_state.last_sync_timestamp = last_ts
-        sync_state.last_sync_id = last_id
-        if hasattr(sync_state, 'stream_code'):
-            sync_state.stream_code = str(stream)
-        if hasattr(sync_state, 'source_connector_id'):
-            sync_state.source_connector_id = str(connector_type)[:64]
+        if not ignore_sync_state:
+            sync_state.last_sync_timestamp = last_ts
+            sync_state.last_sync_id = last_id
+            if hasattr(sync_state, 'stream_code'):
+                sync_state.stream_code = str(stream)
+            if hasattr(sync_state, 'source_connector_id'):
+                sync_state.source_connector_id = str(connector_type)[:64]
 
         await tenant_db.commit()
 

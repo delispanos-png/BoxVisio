@@ -1,9 +1,9 @@
-from celery import Celery
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.celery_sender import make_celery_sender
 from app.db.control_session import get_control_db
 from app.models.control import PlanName, Tenant, TenantApiKey, TenantStatus
 from app.schemas.ingest import IngestBatchRequest
@@ -13,7 +13,7 @@ from app.services.ingestion.base import STREAM_TO_ENTITY
 from app.services.plan_rules import is_feature_enabled
 
 router = APIRouter(prefix='/v1/ingest', tags=['ingestion'])
-celery_client = Celery('ingest_sender', broker=settings.celery_broker_url)
+celery_client = make_celery_sender('ingest_sender')
 
 
 async def get_ingest_tenant(

@@ -1,14 +1,16 @@
+import json
 import secrets
 from datetime import datetime, timedelta
 from typing import Any
 
-from celery import Celery
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, EmailStr, Field
+from redis import Redis
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_roles
+from app.core.celery_sender import make_celery_sender
 from app.core.config import settings
 from app.db.control_session import get_control_db
 from app.db.tenant_manager import get_tenant_db_session
@@ -55,7 +57,7 @@ from app.services.intelligence_service import list_insights, list_rules as list_
 
 router = APIRouter(prefix='/v1/admin', tags=['admin'])
 
-celery_client = Celery('admin_sender', broker=settings.celery_broker_url)
+celery_client = make_celery_sender('admin_sender')
 DEFAULT_SQL_CONNECTOR = 'sql_connector'
 SQL_CONNECTOR_TYPES = (DEFAULT_SQL_CONNECTOR, 'pharmacyone_sql')
 
@@ -965,7 +967,7 @@ async def run_initial_backfill(
             'include_supplier_balances': bool(payload.include_supplier_balances),
             'include_customer_balances': bool(payload.include_customer_balances),
         },
-        queue='ingest',
+        queue='default',
     )
     return {'status': 'queued', 'tenant': tenant.slug, 'task_id': result.id}
 
@@ -1381,4 +1383,131 @@ async def resolve_tenant_rule(
         'stream': stream.value,
         'rule_key': rule_key,
         'resolved_payload': payload,
+    }
+
+
+@router.get('/tenants/{tenant_id}/sync/verification')
+async def get_tenant_sync_verification(
+    tenant_id: int,
+    _: object = Depends(require_roles(RoleName.cloudon_admin)),
+    db: AsyncSession = Depends(get_control_db),
+):
+    """
+    Return the latest post-sync verification result for a tenant.
+
+    Includes per-circuit coverage status, detected gaps, fill-rate warnings,
+    dead-letter counts, failed batches, and the number of recovery jobs enqueued.
+    Data comes from the Redis result written by verify_and_recover_tenant_sync
+    (TTL 48 h).  If no verification has run yet, last_verification is null.
+    """
+    from app.services.ingestion.queueing import tenant_queue_name, tenant_dlq_name
+
+    tenant = (await db.execute(select(Tenant).where(Tenant.id == tenant_id))).scalar_one_or_none()
+    if tenant is None:
+        raise HTTPException(status_code=404, detail='Tenant not found')
+
+    redis_client = Redis.from_url(settings.redis_url, decode_responses=True)
+
+    result_key = f'ingest:verify:{tenant.slug}:result'
+    guard_key = f'ingest:verify:{tenant.slug}:guard'
+
+    raw = redis_client.get(result_key)
+    last_verification: dict | None = None
+    if raw:
+        try:
+            last_verification = json.loads(raw)
+        except Exception:
+            last_verification = None
+
+    guard_ttl_remaining = redis_client.ttl(guard_key)
+    guard_active = guard_ttl_remaining > 0
+
+    queue_depth = int(redis_client.llen(tenant_queue_name(tenant.slug)))
+    dlq_depth = int(redis_client.llen(tenant_dlq_name(tenant.slug)))
+
+    progress_raw = redis_client.hgetall(f'ingest:progress:{tenant.slug}')
+
+    # Summarise circuit gap count from last result for quick admin scan.
+    gap_count = 0
+    circuits_with_gaps: list[str] = []
+    circuits_with_errors: list[str] = []
+    if last_verification:
+        for cname, cdata in (last_verification.get('circuits') or {}).items():
+            if isinstance(cdata, dict):
+                if cdata.get('gap_at_end') or cdata.get('gap_at_start'):
+                    circuits_with_gaps.append(cname)
+                    gap_count += 1
+                if not cdata.get('ok', True):
+                    circuits_with_errors.append(cname)
+
+    return {
+        'tenant_id': tenant_id,
+        'tenant_slug': tenant.slug,
+        'last_verification': last_verification,
+        'guard_active': guard_active,
+        'guard_ttl_remaining_seconds': max(0, guard_ttl_remaining),
+        'queue_depth': queue_depth,
+        'dlq_depth': dlq_depth,
+        'current_progress': {
+            'operation': progress_raw.get('operation'),
+            'status': progress_raw.get('status'),
+            'updated_at': progress_raw.get('updated_at'),
+            'last_error': progress_raw.get('last_error'),
+        },
+        'summary': {
+            'verification_status': (last_verification or {}).get('status'),
+            'verified_at': (last_verification or {}).get('verified_at'),
+            'gap_count': gap_count,
+            'circuits_with_gaps': circuits_with_gaps,
+            'circuits_with_errors': circuits_with_errors,
+            'recovery_jobs_enqueued': (last_verification or {}).get('recovery_jobs_enqueued', 0),
+        },
+    }
+
+
+class TenantVerifyRequest(BaseModel):
+    from_date: str = Field(..., description='ISO date YYYY-MM-DD — start of range to verify')
+    to_date: str = Field(..., description='ISO date YYYY-MM-DD — end of range to verify')
+
+
+@router.post('/tenants/{tenant_id}/sync/verify')
+async def trigger_tenant_historical_verification(
+    tenant_id: int,
+    body: TenantVerifyRequest,
+    _: object = Depends(require_roles(RoleName.cloudon_admin)),
+    db: AsyncSession = Depends(get_control_db),
+):
+    """
+    Explicitly trigger a full historical verification for a tenant.
+
+    This is the ONLY way to trigger historical gap detection and repair.
+    It is intentionally NOT called automatically by the 5-minute incremental sync.
+
+    The task runs as mode=backfill (admin_verify), scans the requested date range,
+    detects missing date chunks per circuit, and enqueues targeted recovery jobs
+    for the gaps.  A backfill guard key prevents duplicate runs within 20 minutes.
+    """
+    tenant = (await db.execute(select(Tenant).where(Tenant.id == tenant_id))).scalar_one_or_none()
+    if tenant is None:
+        raise HTTPException(status_code=404, detail='Tenant not found')
+
+    task = celery_client.send_task(
+        'worker.tasks.verify_and_recover_tenant_sync',
+        kwargs={
+            'tenant_slug': tenant.slug,
+            'operation': 'admin_verify',
+            'from_date_str': body.from_date,
+            'to_date_str': body.to_date,
+        },
+        queue='default',
+    )
+
+    return {
+        'status': 'queued',
+        'tenant_id': tenant_id,
+        'tenant_slug': tenant.slug,
+        'task_id': task.id,
+        'from_date': body.from_date,
+        'to_date': body.to_date,
+        'note': 'Full historical verification scheduled. Poll GET /sync/verification for results.',
     }

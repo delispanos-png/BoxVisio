@@ -428,6 +428,11 @@ body.azea-shell .bv-danger-zone .form-label {
   font-weight: 700;
 }
 
+body.azea-shell .bv-danger-zone > .card-header {
+  background: #fff5f5 !important;
+  border-bottom: 1px solid #fecaca !important;
+}
+
 body.azea-shell[data-theme='dark'] .bv-action-edit {
   color: #c7d2fe !important;
   border-color: #6366f1 !important;
@@ -455,6 +460,11 @@ body.azea-shell[data-theme='dark'] .bv-action-save {
 body.azea-shell[data-theme='dark'] .bv-danger-zone {
   border-color: #7f1d1d;
   background: linear-gradient(180deg, #1f1116 0%, #111827 100%);
+}
+
+body.azea-shell[data-theme='dark'] .bv-danger-zone > .card-header {
+  background: #1a0a0a !important;
+  border-bottom: 1px solid #7f1d1d !important;
 }
 
 body.azea-shell[data-theme='dark'] .btn-outline-secondary {

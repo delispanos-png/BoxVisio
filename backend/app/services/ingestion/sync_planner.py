@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date, timedelta
 from typing import Any
 
 from sqlalchemy import select
@@ -74,7 +75,10 @@ def _api_connection_supports_stream(conn: TenantConnection, stream: OperationalI
 
 
 def _candidate_sort_key(entry: dict[str, Any]) -> tuple[int, int]:
-    priority = {'api': 0, 'sql': 1, 'file': 2}
+    # Prefer SQL when multiple active connectors can serve the same stream.
+    # This keeps ingest deterministic and avoids accidental fallback to API
+    # connectors that may require extra runtime auth/session semantics.
+    priority = {'sql': 0, 'api': 1, 'file': 2}
     return (priority.get(str(entry.get('source_type') or ''), 9), int(entry.get('id') or 0))
 
 
@@ -129,6 +133,16 @@ async def plan_tenant_sync_jobs(
         if not preferred_rows:
             return []
         active_rows = preferred_rows
+    else:
+        # Global default policy:
+        # if a tenant has at least one active SQL SoftOne connector, plan all
+        # streams from SQL connectors only. This keeps runtime deterministic
+        # and avoids accidental API fallback on mixed connector tenants.
+        sql_rows = [
+            row for row in active_rows if str(row.connector_type or '').strip().lower() in SQL_CONNECTOR_ALIASES
+        ]
+        if sql_rows:
+            active_rows = sql_rows
 
     candidates: list[dict[str, Any]] = []
     for conn in active_rows:
@@ -167,6 +181,12 @@ async def plan_tenant_sync_jobs(
         sync_defaults = params.get('sync_defaults')
         if isinstance(sync_defaults, dict):
             payload = dict(sync_defaults)
+            lookback_days = payload.pop('lookback_days', None)
+            if lookback_days is not None and 'from_date' not in payload:
+                try:
+                    payload['from_date'] = (date.today() - timedelta(days=int(lookback_days))).isoformat()
+                except (TypeError, ValueError):
+                    pass
 
         jobs.append(
             {

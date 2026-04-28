@@ -1,4 +1,11 @@
 /*
+  Generated release snapshot for customer infrastructure.
+  Source: integrations/softone/boxvisio_bi_bridge.js
+  Release date: 2026-04-25
+  Bridge version: 1.2.3
+*/
+
+/*
   BoxVisio BI Bridge for SoftOne Advanced JavaScript
   Version: 1.2.3
 

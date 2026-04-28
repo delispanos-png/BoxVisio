@@ -78,15 +78,23 @@ from app.services.kpi_queries import (
     receivables_top_customers,
     stock_aging,
     normalize_inventory_item_classification_config,
+    pos_summary,
+    pos_branches,
+    pos_daily_trend,
+    pos_by_payment_method,
+    pos_by_category,
+    sales_intraday,
+    sales_daily_by_branch,
+    sales_monthly_by_branch,
 )
 from app.services.kpi_cache import get_or_set_cache
 from app.services.intelligence_service import acknowledge_insight, list_insights
-from celery import Celery
 from app.core.config import settings
+from app.core.celery_sender import make_celery_sender
 
 router = APIRouter(tags=['kpi'])
 logger = logging.getLogger(__name__)
-celery_client = Celery('kpi_sender', broker=settings.celery_broker_url)
+celery_client = make_celery_sender('kpi_sender')
 _DASHBOARD_CACHE_TTL_SECONDS = 45
 
 
@@ -124,6 +132,11 @@ class SupplierTargetCloneIn(BaseModel):
 
 def _default_from() -> date:
     return date.today() - timedelta(days=30)
+
+
+def _default_from_ytd() -> date:
+    today = date.today()
+    return date(today.year, 1, 1)
 
 
 def _default_to() -> date:
@@ -919,6 +932,128 @@ async def get_sales_filter_options(
         categories=categories,
         groups=groups,
     )
+
+
+@router.get('/v1/kpi/pos/summary')
+async def get_pos_summary(
+    date_from: date = Query(default_factory=_default_from, alias='from'),
+    date_to: date = Query(default_factory=_default_to, alias='to'),
+    branches: list[str] | None = Query(default=None),
+    tenant_db: AsyncSession = Depends(get_tenant_db),
+):
+    return await pos_summary(
+        tenant_db,
+        date_from=date_from,
+        date_to=date_to,
+        branches=branches,
+    )
+
+
+@router.get('/v1/kpi/pos/branches')
+async def get_pos_branches(
+    tenant_db: AsyncSession = Depends(get_tenant_db),
+):
+    return await pos_branches(tenant_db)
+
+
+@router.get('/v1/kpi/pos/daily-trend')
+async def get_pos_daily_trend(
+    date_from: date = Query(default_factory=_default_from, alias='from'),
+    date_to: date = Query(default_factory=_default_to, alias='to'),
+    branches: list[str] | None = Query(default=None),
+    tenant_db: AsyncSession = Depends(get_tenant_db),
+):
+    rows = await pos_daily_trend(
+        tenant_db,
+        date_from=date_from,
+        date_to=date_to,
+        branches=branches,
+    )
+    return [
+        {
+            'date': row.get('date'),
+            'receipts': row.get('receipts', 0),
+            'gross_value': row.get('value', 0),
+        }
+        for row in rows
+    ]
+
+
+@router.get('/v1/kpi/pos/by-payment-method')
+async def get_pos_by_payment_method(
+    date_from: date = Query(default_factory=_default_from, alias='from'),
+    date_to: date = Query(default_factory=_default_to, alias='to'),
+    branches: list[str] | None = Query(default=None),
+    tenant_db: AsyncSession = Depends(get_tenant_db),
+):
+    rows = await pos_by_payment_method(
+        tenant_db,
+        date_from=date_from,
+        date_to=date_to,
+        branches=branches,
+    )
+    return [
+        {
+            'payment_method': row.get('name', 'Μετρητά'),
+            'receipts': row.get('receipts', 0),
+            'gross_value': row.get('value', 0),
+            'pct': row.get('pct', 0),
+        }
+        for row in rows
+    ]
+
+
+@router.get('/v1/kpi/pos/by-category')
+async def get_pos_by_category(
+    date_from: date = Query(default_factory=_default_from, alias='from'),
+    date_to: date = Query(default_factory=_default_to, alias='to'),
+    branches: list[str] | None = Query(default=None),
+    tenant_db: AsyncSession = Depends(get_tenant_db),
+):
+    rows = await pos_by_category(
+        tenant_db,
+        date_from=date_from,
+        date_to=date_to,
+        branches=branches,
+    )
+    return [
+        {
+            'category': row.get('name', '—'),
+            'receipts': row.get('receipts', 0),
+            'gross_value': row.get('value', 0),
+            'pct': row.get('pct', 0),
+        }
+        for row in rows
+    ]
+
+
+@router.get('/v1/kpi/sales/intraday')
+async def get_sales_intraday(
+    day: date = Query(...),
+    branches: list[str] | None = Query(default=None),
+    tenant_db: AsyncSession = Depends(get_tenant_db),
+):
+    return await sales_intraday(tenant_db, day=day, branches=branches)
+
+
+@router.get('/v1/kpi/sales/weekly')
+async def get_sales_weekly(
+    week_from: date = Query(...),
+    week_to: date = Query(...),
+    branches: list[str] | None = Query(default=None),
+    tenant_db: AsyncSession = Depends(get_tenant_db),
+):
+    return await sales_daily_by_branch(tenant_db, date_from=week_from, date_to=week_to, branches=branches)
+
+
+@router.get('/v1/kpi/sales/ytd-monthly')
+async def get_sales_ytd_monthly(
+    ytd_from: date = Query(...),
+    ytd_to: date = Query(...),
+    branches: list[str] | None = Query(default=None),
+    tenant_db: AsyncSession = Depends(get_tenant_db),
+):
+    return await sales_monthly_by_branch(tenant_db, date_from=ytd_from, date_to=ytd_to, branches=branches)
 
 
 @router.get('/v1/kpi/sales/documents')
@@ -2136,7 +2271,7 @@ async def get_cashflow_trend_monthly(
 
 @router.get('/v1/kpi/cashflow/documents')
 async def get_cashflow_documents(
-    date_from: date = Query(default_factory=_default_from, alias='from'),
+    date_from: date = Query(default_factory=_default_from_ytd, alias='from'),
     date_to: date = Query(default_factory=_default_to, alias='to'),
     category: str | None = Query(default=None),
     branches: list[str] | None = Query(default=None),

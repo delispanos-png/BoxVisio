@@ -1,4 +1,11 @@
 /*
+  Generated release snapshot for customer infrastructure.
+  Source: integrations/softone/boxvisio_bi_bridge.js
+  Release date: 2026-04-24
+  Bridge version: 1.2.3
+*/
+
+/*
   BoxVisio BI Bridge for SoftOne Advanced JavaScript
   Version: 1.2.3
 
@@ -249,7 +256,6 @@ function _bv_require_client(obj) {
 function _bv_resolve_request(obj) {
   var r = {};
   r.company = _bv_int(obj && obj.company, _bv_int(X.SYS.COMPANY, 0, 1, 99999999), 1, 99999999);
-  // default limit=0 => no SQL TOP cap (deterministic full extraction by default)
   r.limit = _bv_int(obj && obj.limit, 0, 0, 200000);
   r.fromDate = _bv_norm_date(obj && obj.fromDate);
   r.toDate = _bv_norm_date(obj && obj.toDate);
@@ -376,7 +382,7 @@ function _bv_sales_sql(cfg) {
   var lVat = _bv_col_expr("L", "MTRLINES", ["VATAMNT", "TAXAMNT", "FPAAMNT", "LINEVAT", "LINETAX", "LINEVATAMNT", "LINETAXAMNT"], "NULL");
   var lGross = _bv_col_expr("L", "MTRLINES", ["GROSSVAL", "SUMAMNT", "TOTVAL", "LINEGROSS"], "NULL");
   var lCost = _bv_col_expr("L", "MTRLINES", ["COSTVAL", "COSTVALUE", "LCOST", "COST", "LINEVAL"], lNet);
-  var salesSign = "(CASE WHEN ISNULL(F.TFPRMS,0) IN (151,152,181) THEN -1 ELSE 1 END)";
+  var salesSign = "(CASE WHEN ISNULL(F.TFPRMS,0) IN (151,152,155,181) THEN -1 ELSE 1 END)";
   var docNetAbsTotal = "NULLIF(SUM(ABS(ISNULL(" + lNet + ",0))) OVER (PARTITION BY " + c.findoc + "),0)";
   var lineTaxAbs = "ABS(ISNULL(" + lVat + ",0))";
   var lineTaxDocAbsTotal = "SUM(" + lineTaxAbs + ") OVER (PARTITION BY " + c.findoc + ")";
@@ -407,9 +413,9 @@ function _bv_sales_sql(cfg) {
     c.sodtype +
     ",0)=13 AND ISNULL(" +
     c.sosource +
-    ",0)=1351 AND ISNULL(" +
+    ",0) IN (" + cfg.salesSourceCodes + ") AND ISNULL(" +
     c.soredir +
-    ",0) IN (0,10000) AND ISNULL(F.TFPRMS,0) IN (102,103,131,151,152,181)";
+    ",0) IN (0,10000) AND ISNULL(F.TFPRMS,0) IN (102,103,106,131,151,152,155,181)";
   if (cfg.fromDate !== "") whereSql += " AND " + c.trnDate + " >= " + _bv_sql_quote(cfg.fromDate);
   if (cfg.toDate !== "") whereSql += " AND " + c.trnDate + " < DATEADD(day,1," + _bv_sql_quote(cfg.toDate) + ")";
 
@@ -1383,15 +1389,15 @@ function _bv_customer_balances_sql(cfg) {
   var branchInfo = _bv_branch_info_expr(c);
   var customerBalanceSign =
     "(CASE " +
-    "WHEN ISNULL(F.SOSOURCE,0)=1351 AND ISNULL(F.SOREDIR,0) IN (0,10000) AND ISNULL(F.TFPRMS,0) IN (102,103,131) THEN ABS(ISNULL(" + c.sumAmount + ",0)) " +
-    "WHEN ISNULL(F.SOSOURCE,0)=1351 AND ISNULL(F.SOREDIR,0) IN (0,10000) AND ISNULL(F.TFPRMS,0) IN (151,152,181) THEN -ABS(ISNULL(" + c.sumAmount + ",0)) " +
+    "WHEN ISNULL(F.SOSOURCE,0)=1351 AND ISNULL(F.SOREDIR,0) IN (0,10000) AND ISNULL(F.TFPRMS,0) IN (102,103,106,131) THEN ABS(ISNULL(" + c.sumAmount + ",0)) " +
+    "WHEN ISNULL(F.SOSOURCE,0)=1351 AND ISNULL(F.SOREDIR,0) IN (0,10000) AND ISNULL(F.TFPRMS,0) IN (151,152,155,181) THEN -ABS(ISNULL(" + c.sumAmount + ",0)) " +
     "WHEN ISNULL(F.SOSOURCE,0) IN (1381,1413) THEN -ABS(ISNULL(" + c.sumAmount + ",0)) " +
     "ELSE ISNULL(" + c.sumAmount + ",0) END)";
 
   var whereSql =
     " WHERE F.COMPANY=" +
     cfg.company +
-    " AND F.SODTYPE=13 AND ((ISNULL(F.SOSOURCE,0)=1351 AND ISNULL(F.SOREDIR,0) IN (0,10000) AND ISNULL(F.TFPRMS,0) IN (102,103,131,151,152,181)) OR ISNULL(F.SOSOURCE,0) IN (1381,1413))";
+    " AND F.SODTYPE=13 AND ((ISNULL(F.SOSOURCE,0)=1351 AND ISNULL(F.SOREDIR,0) IN (0,10000) AND ISNULL(F.TFPRMS,0) IN (102,103,106,131,151,152,155,181)) OR ISNULL(F.SOSOURCE,0) IN (1381,1413))";
   if (cfg.toDate !== "") whereSql += " AND " + c.trnDate + " < DATEADD(day,1," + _bv_sql_quote(cfg.toDate) + ")";
 
   var sql =
@@ -1688,6 +1694,9 @@ function _bv_sales_record(ds) {
     vat_amount: _bv_num(_bv_field(ds, "VAT_AMOUNT", 0), 0),
     cost_amount: _bv_num(_bv_field(ds, "COST_AMOUNT", 0), 0)
   };
+  rec.kpi_net_value = rec.net_value;
+  rec.kpi_vat_amount = rec.vat_amount;
+  rec.kpi_gross_value = rec.gross_value;
   return _bv_attach_org_fields(_bv_attach_common_doc_fields(rec, ds), ds);
 }
 
@@ -1717,6 +1726,9 @@ function _bv_purchase_record(ds) {
     vat_amount: _bv_num(_bv_field(ds, "VAT_AMOUNT", 0), 0),
     cost_amount: _bv_num(_bv_field(ds, "COST_AMOUNT", 0), 0)
   };
+  rec.kpi_net_value = rec.net_value;
+  rec.kpi_vat_amount = rec.vat_amount;
+  rec.kpi_gross_value = rec.gross_value;
   return _bv_attach_org_fields(_bv_attach_common_doc_fields(rec, ds), ds);
 }
 
@@ -1758,6 +1770,7 @@ function _bv_inventory_record(ds) {
     financial_impact_type: financialFlag === true ? "expense" : financialFlag === false ? "quantity_only" : "unknown",
     financial_value_amount: financialFlag === true ? valueAmount : 0
   };
+  rec.kpi_net_value = rec.value_amount;
   return _bv_attach_org_fields(_bv_attach_common_doc_fields(rec, ds), ds);
 }
 
@@ -1806,6 +1819,7 @@ function _bv_cash_record(ds) {
     reference_no: _bv_text(_bv_field(ds, "REFERENCE_NO", ""), ""),
     notes: _bv_text(_bv_field(ds, "NOTES", ""), "")
   };
+  rec.kpi_net_value = rec.amount;
   return _bv_attach_org_fields(_bv_attach_common_doc_fields(rec, ds), ds);
 }
 
@@ -1832,6 +1846,7 @@ function _bv_supplier_balance_record(ds) {
     currency: "EUR",
     updated_at: _bv_text(_bv_field(ds, "UPDATED_AT", ""), "")
   };
+  rec.kpi_net_value = rec.open_balance;
   return _bv_attach_org_fields(rec, ds);
 }
 
@@ -1858,6 +1873,7 @@ function _bv_customer_balance_record(ds) {
     currency: "EUR",
     updated_at: _bv_text(_bv_field(ds, "UPDATED_AT", ""), "")
   };
+  rec.kpi_net_value = rec.open_balance;
   return _bv_attach_org_fields(rec, ds);
 }
 
@@ -1882,6 +1898,9 @@ function _bv_expense_record(ds) {
     amount_gross: _bv_num(_bv_field(ds, "AMOUNT_GROSS", 0), 0),
     currency: "EUR"
   };
+  rec.kpi_net_value = rec.amount_net;
+  rec.kpi_vat_amount = rec.amount_tax;
+  rec.kpi_gross_value = rec.amount_gross;
   return _bv_attach_org_fields(_bv_attach_common_doc_fields(rec, ds), ds);
 }
 
@@ -1890,13 +1909,22 @@ function _bv_query_records(sql, mapper) {
   return _bv_dataset_records(ds, mapper);
 }
 
-function _bv_stream_result(streamCode, records, sql, debugFlag) {
+function _bv_stream_result(streamCode, records, sql, debugFlag, cfg) {
+  var limitApplied = _bv_int(cfg && cfg.limit, 0, 0, 200000);
+  var isTruncated = limitApplied > 0 && records.length >= limitApplied;
   var out = {
     success: true,
     stream_code: streamCode,
     count: records.length,
-    records: records
+    records: records,
+    limit_applied: limitApplied,
+    from_date: _bv_text(cfg && cfg.fromDate, ""),
+    to_date: _bv_text(cfg && cfg.toDate, ""),
+    is_truncated: isTruncated
   };
+  if (isTruncated) {
+    out.warning = "Result count reached limit. Narrow date range or increase limit to avoid truncation.";
+  }
   if (debugFlag) out.sql = sql;
   return out;
 }
@@ -1907,7 +1935,7 @@ function GetSalesDocumentsForBI(obj) {
     var cfg = _bv_resolve_request(obj || {});
     var sql = _bv_sales_sql(cfg);
     var records = _bv_query_records(sql, _bv_sales_record);
-    return _bv_stream_result("sales_documents", records, sql, cfg.debug);
+    return _bv_stream_result("sales_documents", records, sql, cfg.debug, cfg);
   } catch (e) {
     return {
       success: false,
@@ -1923,7 +1951,7 @@ function GetPurchaseDocumentsForBI(obj) {
     var cfg = _bv_resolve_request(obj || {});
     var sql = _bv_purchases_sql(cfg);
     var records = _bv_query_records(sql, _bv_purchase_record);
-    return _bv_stream_result("purchase_documents", records, sql, cfg.debug);
+    return _bv_stream_result("purchase_documents", records, sql, cfg.debug, cfg);
   } catch (e) {
     return {
       success: false,
@@ -1939,7 +1967,7 @@ function GetInventoryDocumentsForBI(obj) {
     var cfg = _bv_resolve_request(obj || {});
     var sql = _bv_inventory_sql(cfg);
     var records = _bv_query_records(sql, _bv_inventory_record);
-    return _bv_stream_result("inventory_documents", records, sql, cfg.debug);
+    return _bv_stream_result("inventory_documents", records, sql, cfg.debug, cfg);
   } catch (e) {
     return {
       success: false,
@@ -1955,7 +1983,7 @@ function GetItemMasterForBI(obj) {
     var cfg = _bv_resolve_request(obj || {});
     var sql = _bv_item_master_sql(cfg);
     var records = _bv_query_records(sql, _bv_item_master_record);
-    return _bv_stream_result("item_master", records, sql, cfg.debug);
+    return _bv_stream_result("item_master", records, sql, cfg.debug, cfg);
   } catch (e) {
     return {
       success: false,
@@ -1971,7 +1999,7 @@ function GetCashTransactionsForBI(obj) {
     var cfg = _bv_resolve_request(obj || {});
     var sql = _bv_cash_sql(cfg);
     var records = _bv_query_records(sql, _bv_cash_record);
-    return _bv_stream_result("cash_transactions", records, sql, cfg.debug);
+    return _bv_stream_result("cash_transactions", records, sql, cfg.debug, cfg);
   } catch (e) {
     return {
       success: false,
@@ -1987,7 +2015,7 @@ function GetSupplierBalancesForBI(obj) {
     var cfg = _bv_resolve_request(obj || {});
     var sql = _bv_supplier_balances_sql(cfg);
     var records = _bv_query_records(sql, _bv_supplier_balance_record);
-    return _bv_stream_result("supplier_balances", records, sql, cfg.debug);
+    return _bv_stream_result("supplier_balances", records, sql, cfg.debug, cfg);
   } catch (e) {
     return {
       success: false,
@@ -2003,7 +2031,7 @@ function GetCustomerBalancesForBI(obj) {
     var cfg = _bv_resolve_request(obj || {});
     var sql = _bv_customer_balances_sql(cfg);
     var records = _bv_query_records(sql, _bv_customer_balance_record);
-    return _bv_stream_result("customer_balances", records, sql, cfg.debug);
+    return _bv_stream_result("customer_balances", records, sql, cfg.debug, cfg);
   } catch (e) {
     return {
       success: false,
@@ -2019,7 +2047,7 @@ function GetOperatingExpensesForBI(obj) {
     var cfg = _bv_resolve_request(obj || {});
     var sql = _bv_expenses_sql(cfg);
     var records = _bv_query_records(sql, _bv_expense_record);
-    return _bv_stream_result("operating_expenses", records, sql, cfg.debug);
+    return _bv_stream_result("operating_expenses", records, sql, cfg.debug, cfg);
   } catch (e) {
     return {
       success: false,
@@ -2045,30 +2073,37 @@ function GetAllForBI(obj) {
     if (cfg.includeSales) {
       out.streams.sales_documents = GetSalesDocumentsForBI(obj || {});
       if (!out.streams.sales_documents.success) out.success = false;
+      if (out.streams.sales_documents.is_truncated) out.warnings.push("sales_documents reached limit and may be truncated.");
     }
     if (cfg.includePurchases) {
       out.streams.purchase_documents = GetPurchaseDocumentsForBI(obj || {});
       if (!out.streams.purchase_documents.success) out.success = false;
+      if (out.streams.purchase_documents.is_truncated) out.warnings.push("purchase_documents reached limit and may be truncated.");
     }
     if (cfg.includeInventory) {
       out.streams.inventory_documents = GetInventoryDocumentsForBI(obj || {});
       if (!out.streams.inventory_documents.success) out.success = false;
+      if (out.streams.inventory_documents.is_truncated) out.warnings.push("inventory_documents reached limit and may be truncated.");
     }
     if (cfg.includeCashTransactions) {
       out.streams.cash_transactions = GetCashTransactionsForBI(obj || {});
       if (!out.streams.cash_transactions.success) out.success = false;
+      if (out.streams.cash_transactions.is_truncated) out.warnings.push("cash_transactions reached limit and may be truncated.");
     }
     if (cfg.includeSupplierBalances) {
       out.streams.supplier_balances = GetSupplierBalancesForBI(obj || {});
       if (!out.streams.supplier_balances.success) out.success = false;
+      if (out.streams.supplier_balances.is_truncated) out.warnings.push("supplier_balances reached limit and may be truncated.");
     }
     if (cfg.includeCustomerBalances) {
       out.streams.customer_balances = GetCustomerBalancesForBI(obj || {});
       if (!out.streams.customer_balances.success) out.success = false;
+      if (out.streams.customer_balances.is_truncated) out.warnings.push("customer_balances reached limit and may be truncated.");
     }
     if (cfg.includeOperatingExpenses) {
       out.streams.operating_expenses = GetOperatingExpensesForBI(obj || {});
       if (!out.streams.operating_expenses.success) out.success = false;
+      if (out.streams.operating_expenses.is_truncated) out.warnings.push("operating_expenses reached limit and may be truncated.");
     }
 
     if (
@@ -2168,7 +2203,6 @@ function HealthCheckBIBridge(obj) {
         SERIES: colsSeries
       },
       defaults: {
-        limit: 0,
         salesSourceCodes: "1351,11351",
         purchaseSourceCodes: "1251,1253",
         inventorySourceCodes: "1151",

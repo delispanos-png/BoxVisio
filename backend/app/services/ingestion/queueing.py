@@ -98,3 +98,28 @@ def allow_tenant_ingestion(tenant_slug: str, jobs_per_window: int | None = None,
     if current == 1:
         _redis().expire(key, window)
     return current <= limit
+
+
+# ── Circuit breaker ────────────────────────────────────────────────────────
+# Opened automatically when a permanent configuration error is detected
+# (missing connection, bad credentials).  Stays open until the admin fixes
+# the connection and either saves/tests it successfully or calls
+# close_ingest_circuit() explicitly.  Prevents endless drain storms.
+
+_CIRCUIT_KEY_FMT = 'ingest:circuit:{}'
+_CIRCUIT_TTL_SECONDS = 86400  # 24 h — re-check after fix
+
+
+def open_ingest_circuit(tenant_slug: str, reason: str) -> None:
+    _redis().set(_CIRCUIT_KEY_FMT.format(tenant_slug), reason[:500], ex=_CIRCUIT_TTL_SECONDS)
+
+
+def get_ingest_circuit_reason(tenant_slug: str) -> str | None:
+    val = _redis().get(_CIRCUIT_KEY_FMT.format(tenant_slug))
+    if not val:
+        return None
+    return (val if isinstance(val, str) else val.decode('utf-8', errors='replace')) or None
+
+
+def close_ingest_circuit(tenant_slug: str) -> None:
+    _redis().delete(_CIRCUIT_KEY_FMT.format(tenant_slug))

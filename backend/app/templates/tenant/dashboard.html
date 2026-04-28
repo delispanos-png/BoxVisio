@@ -425,7 +425,7 @@
   <div class="card-header d-flex align-items-center justify-content-between gap-2">
     <div>
       <h5 class="mb-0 fw-bold">Τζίρος Εταιρείας / Έτος</h5>
-      <div class="text-muted small mt-1">Μηνιαία εξέλιξη τρέχοντος και προηγούμενου έτους</div>
+      <div class="text-muted small mt-1">Μηνιαία εξέλιξη τρέχοντος και προηγούμενου έτους (Καθαρή αξία χωρίς ΦΠΑ)</div>
     </div>
   </div>
   <div class="card-body"><canvas id="companyTrendChart" height="110"></canvas></div>
@@ -1051,10 +1051,10 @@ async function reloadCentralDashboard(e){
     const trendY1 = Array.isArray(trend?.y1?.rows) ? trend.y1.rows : [];
     const trendY2 = Array.isArray(trend?.y2?.rows) ? trend.y2.rows : [];
 
-    const yearVal=toNum(year.net_value||year.turnover||0);
-    const prevYearVal=toNum(prevYear.net_value||prevYear.turnover||0);
-    const prevYearFullVal=toNum(prevYearFull.net_value||prevYearFull.turnover||0);
-    const periodSalesVal = toNum(periodSales.net_value || periodSales.turnover || 0);
+    const yearVal=toNum(year.net_value || 0);
+    const prevYearVal=toNum(prevYear.net_value || 0);
+    const prevYearFullVal=toNum(prevYearFull.net_value || 0);
+    const periodSalesVal = toNum(periodSales.net_value || 0);
     const periodPurchasesVal = toNum(purchasesPeriod.net_value || purchasesPeriod.cost_amount || purchasesPeriod.total_cost || 0);
     const yearPurchasesVal = toNum(purchasesYear.net_value || purchasesYear.cost_amount || purchasesYear.total_cost || 0);
     const selectedDays = Math.max(1, Math.floor((anchorDate - selectedFromDate) / 86400000) + 1);
@@ -1065,9 +1065,9 @@ async function reloadCentralDashboard(e){
     const yoy = prevYearVal>0 ? ((yearVal-prevYearVal)/prevYearVal)*100 : null;
     const fullDeltaPct = prevYearFullVal>0 ? ((yearVal-prevYearFullVal)/prevYearFullVal)*100 : null;
 
-    document.getElementById('kpiDay').textContent = money(day.net_value||day.turnover||0);
-    document.getElementById('kpiWeek').textContent = money(week.net_value||week.turnover||0);
-    document.getElementById('kpiMonth').textContent = money(month.net_value||month.turnover||0);
+    document.getElementById('kpiDay').textContent = money(day.net_value || 0);
+    document.getElementById('kpiWeek').textContent = money(week.net_value || 0);
+    document.getElementById('kpiMonth').textContent = money(month.net_value || 0);
     document.getElementById('kpiPrevYearLabel').textContent = String(prev1Year);
     document.getElementById('kpiYearLabel').textContent = String(currentYear);
     document.getElementById('kpiPrevYear').textContent = money(prevYearVal);

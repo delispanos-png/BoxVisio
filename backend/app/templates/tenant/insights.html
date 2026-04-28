@@ -125,6 +125,7 @@
 
 {% block scripts %}
 <script>
+const TENANT_SLUG = {{ (tenant.slug if tenant else '') | tojson }};
 let _insightRows = {};
 let _allRows = [];
 let _currentPage = 1;
@@ -461,6 +462,12 @@ document.getElementById('insightsPrevBtn').addEventListener('click', ()=>{ _curr
 document.getElementById('insightsNextBtn').addEventListener('click', ()=>{ _currentPage += 1; rerenderInsightsTable(); });
 window.addEventListener('load', () => {
   parseFromUrl();
+  if (TENANT_SLUG === 'pharmacy295') {
+    _allRows = [];
+    _currentPage = 1;
+    rerenderInsightsTable();
+    return;
+  }
   if (Array.isArray(_initialInsights) && _initialInsights.length > 0) {
     _allRows = _initialInsights;
     _currentPage = 1;

@@ -27,12 +27,17 @@ COLUMN_HINTS = {
 }
 
 
-def _connect(connection_string: str):
+def _connect(connection_string: str, query_timeout: int = 0):
     try:
         import pyodbc
     except Exception as exc:
         raise RuntimeError('pyodbc runtime is unavailable (missing unixODBC libraries)') from exc
-    return pyodbc.connect(connection_string.replace('{ODBC_DRIVER}', settings.odbc_driver), timeout=30)
+    conn = pyodbc.connect(connection_string.replace('{ODBC_DRIVER}', settings.odbc_driver), timeout=30)
+    # conn.timeout sets the per-statement query timeout (distinct from the login timeout above).
+    # pyodbc cursors do not expose a .timeout attribute, so hasattr(cur, 'timeout') is always False.
+    if query_timeout > 0:
+        conn.timeout = query_timeout
+    return conn
 
 
 def _quote_identifier(identifier: str) -> str:
@@ -232,6 +237,8 @@ def fetch_incremental_rows(
     to_date: datetime | None = None,
     company_id: str | int | None = None,
     limit: int | None = None,
+    exhaustive: bool = False,
+    max_pages: int = 10000,
     retries: int = 3,
     retry_sleep_sec: int = 2,
 ) -> Iterable[dict[str, Any]]:
@@ -239,56 +246,101 @@ def fetch_incremental_rows(
     to_date = _normalize_param_datetime(to_date)
     last_sync_timestamp = _normalize_param_datetime(last_sync_timestamp)
 
-    templated_query, template_params = _bind_template_params(
-        query_template,
-        from_date=from_date,
-        to_date=to_date,
-        last_sync_timestamp=last_sync_timestamp,
-        last_sync_id=last_sync_id,
-        company_id=company_id,
-    )
-    effective_query = _build_final_query(
-        templated_query,
-        incremental_column=incremental_column,
-        id_column=id_column,
-        date_column=date_column,
-        limit=limit,
-    )
-    last_id: Any = last_sync_id
-    if last_id is not None and str(last_id).isdigit():
-        last_id = int(last_id)
-    filter_params = [
-        from_date,
-        from_date,
-        to_date,
-        to_date,
-        last_sync_timestamp,
-        last_sync_timestamp,
-        last_sync_timestamp,
-        last_id,
-        last_id,
-    ]
-    params = template_params + filter_params
+    fetch_batch_size = max(100, int(settings.sqlserver_fetch_batch_size or 1000))
+    query_timeout = max(30, int(settings.sqlserver_query_timeout_seconds or 180))
+    page_limit = max(1, min(int(limit), 10000)) if limit is not None else None
+    cursor_ts = last_sync_timestamp
+    cursor_id: Any = last_sync_id
+    if cursor_id is not None and str(cursor_id).isdigit():
+        cursor_id = int(cursor_id)
+    total_pages = 0
 
-    fetch_batch_size = max(100, int(getattr(settings, 'sqlserver_fetch_batch_size', 1000) or 1000))
-    query_timeout = max(30, int(getattr(settings, 'sqlserver_query_timeout_seconds', 180) or 180))
+    def _row_value(row_dict: dict[str, Any], key: str) -> Any:
+        if key in row_dict:
+            return row_dict[key]
+        key_l = str(key).lower()
+        for k, v in row_dict.items():
+            if str(k).lower() == key_l:
+                return v
+        return None
 
-    for attempt in range(1, retries + 1):
+    conn = _connect(connection_string, query_timeout=query_timeout)
+    try:
+        while True:
+            total_pages += 1
+            if exhaustive and total_pages > max(1, int(max_pages)):
+                raise RuntimeError(f'max_pages exceeded while paging SQL rows (max_pages={max_pages})')
+
+            templated_query, template_params = _bind_template_params(
+                query_template,
+                from_date=from_date,
+                to_date=to_date,
+                last_sync_timestamp=cursor_ts,
+                last_sync_id=cursor_id,
+                company_id=company_id,
+            )
+            effective_query = _build_final_query(
+                templated_query,
+                incremental_column=incremental_column,
+                id_column=id_column,
+                date_column=date_column,
+                limit=page_limit,
+            )
+            filter_params = [
+                from_date,
+                from_date,
+                to_date,
+                to_date,
+                cursor_ts,
+                cursor_ts,
+                cursor_ts,
+                cursor_id,
+                cursor_id,
+            ]
+            params = template_params + filter_params
+            page_rows = 0
+            page_last_ts = cursor_ts
+            page_last_id = cursor_id
+
+            for attempt in range(1, retries + 1):
+                try:
+                    cur = conn.cursor()
+                    cur.execute(effective_query, *params)
+                    columns = [col[0] for col in cur.description]
+                    while True:
+                        rows = cur.fetchmany(fetch_batch_size)
+                        if not rows:
+                            break
+                        for row in rows:
+                            row_dict = dict(zip(columns, row))
+                            page_rows += 1
+                            page_last_ts = _row_value(row_dict, incremental_column)
+                            page_last_id = _row_value(row_dict, id_column)
+                            yield row_dict
+                    break
+                except Exception:
+                    if attempt >= retries:
+                        raise
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+                    time.sleep(retry_sleep_sec)
+                    conn = _connect(connection_string, query_timeout=query_timeout)
+
+            if not exhaustive or page_limit is None:
+                break
+            if page_rows < page_limit:
+                break
+            if page_last_ts == cursor_ts and page_last_id == cursor_id:
+                raise RuntimeError(
+                    'cursor did not advance while paging SQL rows '
+                    f'(inc={incremental_column}, id={id_column})'
+                )
+            cursor_ts = page_last_ts
+            cursor_id = page_last_id
+    finally:
         try:
-            with _connect(connection_string) as conn:
-                cur = conn.cursor()
-                if hasattr(cur, 'timeout'):
-                    cur.timeout = query_timeout
-                cur.execute(effective_query, *params)
-                columns = [col[0] for col in cur.description]
-                while True:
-                    rows = cur.fetchmany(fetch_batch_size)
-                    if not rows:
-                        break
-                    for row in rows:
-                        yield dict(zip(columns, row))
-            break
+            conn.close()
         except Exception:
-            if attempt >= retries:
-                raise
-            time.sleep(retry_sleep_sec)
+            pass

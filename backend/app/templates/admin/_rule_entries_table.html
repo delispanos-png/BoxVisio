@@ -1,0 +1,62 @@
+{% if entries %}
+<div class="table-responsive">
+  <table class="table table-sm table-hover align-middle mb-0">
+    <thead class="table-light">
+      <tr>
+        <th style="width:120px">Ruleset</th>
+        <th style="width:36px" class="text-center">Ενεργό</th>
+        <th>Rule Key</th>
+        <th style="width:180px">Payload JSON</th>
+        <th style="width:120px" class="text-muted small">Ενημέρωση</th>
+        <th style="width:90px"></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in entries %}
+      <tr class="{% if not row.is_active %}table-secondary text-muted{% endif %}">
+        <td>
+          <span class="badge bg-light text-dark border font-monospace small">{{ row.ruleset_code }}</span>
+        </td>
+        <td class="text-center">
+          {% if row.is_active %}
+            <span class="badge bg-success-subtle text-success border border-success-subtle">✓</span>
+          {% else %}
+            <span class="badge bg-secondary-subtle text-secondary border">✗</span>
+          {% endif %}
+        </td>
+        <td>
+          <span class="font-monospace fw-semibold">{{ row.rule_key }}</span>
+        </td>
+        <td>
+          <button class="btn btn-sm btn-outline-secondary py-0 px-2" onclick="togglePayload(this)">▼ JSON</button>
+          <pre class="payload-pre bg-light border rounded p-2 mt-1 mb-0 small font-monospace" style="display:none;max-height:200px;overflow:auto;white-space:pre-wrap;word-break:break-all;">{{ row.payload_json }}</pre>
+        </td>
+        <td class="text-muted small">
+          {% if row.updated_at %}{{ row.updated_at.strftime('%d/%m/%y %H:%M') }}{% else %}—{% endif %}
+        </td>
+        <td class="text-end">
+          <div class="d-flex gap-1 justify-content-end">
+            <button class="btn btn-sm btn-outline-primary py-0 px-2"
+              data-edit-rule='{{ {"id": row.id, "ruleset": row.ruleset_code, "stream": row.stream_label, "key": row.rule_key, "payload": row.payload_json, "active": row.is_active} | tojson }}'
+              onclick="editRuleFromBtn(this)"
+              title="Επεξεργασία">
+              <i class="fe fe-edit-2"></i>
+            </button>
+            <button class="btn btn-sm btn-outline-danger py-0 px-2"
+              onclick="deleteRule({{ row.id }}, {{ row.rule_key | tojson }})"
+              title="Διαγραφή">
+              <i class="fe fe-trash-2"></i>
+            </button>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="text-center text-muted py-4">
+  <i class="fe fe-inbox" style="font-size:1.8rem;opacity:.3"></i>
+  <p class="mt-2 mb-0 small">Δεν υπάρχουν εγγραφές σε αυτό το stream.</p>
+</div>
+{% endif %}

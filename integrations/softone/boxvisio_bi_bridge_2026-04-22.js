@@ -1,6 +1,13 @@
 /*
+  Generated release snapshot for customer infrastructure.
+  Source: integrations/softone/boxvisio_bi_bridge.js
+  Release date: 2026-04-22
+  Bridge version: 1.2.2
+*/
+
+/*
   BoxVisio BI Bridge for SoftOne Advanced JavaScript
-  Version: 1.2.3
+  Version: 1.2.2
 
   Purpose
   - Extract Sales, Purchases, Inventory, Cash, Balances, Expenses data directly from SoftOne tables.
@@ -21,7 +28,7 @@
       /s1services/JS/myWS/GetAllForBI
 */
 
-var BVBI_VERSION = "1.2.3";
+var BVBI_VERSION = "1.2.2";
 var _BVBI_COL_CACHE = {};
 
 function _bv_is_array(v) {
@@ -74,12 +81,6 @@ function _bv_norm_date(v) {
   if (s === "") return "";
   if (s.length >= 10) s = s.substr(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return "";
-  var y = parseInt(s.substr(0, 4), 10);
-  var m = parseInt(s.substr(5, 2), 10);
-  var d = parseInt(s.substr(8, 2), 10);
-  if (isNaN(y) || isNaN(m) || isNaN(d)) return "";
-  var dt = new Date(y, m - 1, d);
-  if (dt.getFullYear() !== y || dt.getMonth() + 1 !== m || dt.getDate() !== d) return "";
   return s;
 }
 
@@ -93,11 +94,6 @@ function _bv_int(v, fallbackValue, minValue, maxValue) {
   if (typeof minValue === "number" && n < minValue) n = minValue;
   if (typeof maxValue === "number" && n > maxValue) n = maxValue;
   return n;
-}
-
-function _bv_top_clause(limitValue) {
-  var n = _bv_int(limitValue, 0, 0, 200000);
-  return n > 0 ? "TOP " + n + " " : "";
 }
 
 function _bv_ds_first(ds) {
@@ -226,16 +222,11 @@ function _bv_parse_source_codes(raw, defaultsCsv) {
   }
 
   var clean = [];
-  var seen = {};
   for (i = 0; i < list.length; i++) {
     var x = _bv_text(list[i], "").replace(/\s+/g, "");
-    if (/^\d+$/.test(x) && !seen[x]) {
-      seen[x] = true;
-      clean.push(x);
-    }
+    if (/^\d+$/.test(x)) clean.push(x);
   }
 
-  if (clean.length > 200) clean = clean.slice(0, 200);
   if (clean.length === 0) return defaultsCsv;
   return clean.join(",");
 }
@@ -249,8 +240,7 @@ function _bv_require_client(obj) {
 function _bv_resolve_request(obj) {
   var r = {};
   r.company = _bv_int(obj && obj.company, _bv_int(X.SYS.COMPANY, 0, 1, 99999999), 1, 99999999);
-  // default limit=0 => no SQL TOP cap (deterministic full extraction by default)
-  r.limit = _bv_int(obj && obj.limit, 0, 0, 200000);
+  r.limit = _bv_int(obj && obj.limit, 4000, 1, 20000);
   r.fromDate = _bv_norm_date(obj && obj.fromDate);
   r.toDate = _bv_norm_date(obj && obj.toDate);
   r.debug = _bv_bool(obj && obj.debug, false);
@@ -267,7 +257,7 @@ function _bv_resolve_request(obj) {
   r.purchaseSourceCodes = _bv_parse_source_codes(obj && obj.purchaseSourceCodes, "1251,1253");
   r.inventorySourceCodes = _bv_parse_source_codes(obj && obj.inventorySourceCodes, "1151");
   r.inventoryItemSoType = _bv_int(obj && obj.inventoryItemSoType, 51, 1, 99999999);
-  r.cashSourceCodes = _bv_parse_source_codes(obj && obj.cashSourceCodes, "1261,1281,1381,1412,1413,1414,1415,1416,1481");
+  r.cashSourceCodes = _bv_parse_source_codes(obj && obj.cashSourceCodes, "1381,1281,1412,1413,1414,1481");
   r.supplierBalanceSourceCodes = _bv_parse_source_codes(
     obj && obj.supplierBalanceSourceCodes,
     "1251,1253,1261,1281,1412,1416,1653"
@@ -295,7 +285,6 @@ function _bv_findoc_common_exprs() {
     sosource: _bv_col_expr("F", "FINDOC", ["SOSOURCE"], "0"),
     soredir: _bv_col_expr("F", "FINDOC", ["SOREDIR"], "0"),
     sodtype: _bv_col_expr("F", "FINDOC", ["SODTYPE"], "0"),
-    tfprms: _bv_col_expr("F", "FINDOC", ["TFPRMS"], "0"),
     sumAmount: _bv_col_expr("F", "FINDOC", ["SUMAMNT", "NETAMNT", "TRNVAL", "VAL", "AMNT"], "0"),
     taxAmount: _bv_col_expr("F", "FINDOC", ["VATAMNT", "TAXAMNT", "FPAAMNT"], "0"),
     comments: _bv_col_expr("F", "FINDOC", ["COMMENTS", "REMARKS", "LCOMMENTS", "NOTES"], "''"),
@@ -354,8 +343,6 @@ function _bv_sales_sql(cfg) {
   var paymentCode = _bv_col_expr("PM", "PAYMENT", ["CODE"], "''");
   var paymentName = _bv_col_expr("PM", "PAYMENT", ["NAME"], "''");
   var sourceCreatedAt = _bv_col_expr("F", "FINDOC", ["SOTIME", "INSDATE"], "NULL");
-  var isCancel = _bv_col_expr("F", "FINDOC", ["ISCANCEL"], "0");
-  var finStates = _bv_col_expr("F", "FINDOC", ["FINSTATES"], "0");
   var itemGroup = _bv_col_expr("I", "MTRL", ["MTRGROUP"], "0");
   var groupName = _bv_col_expr("MG", "MTRGROUP", ["NAME"], "''");
   var paymentExpr =
@@ -364,13 +351,6 @@ function _bv_sales_sql(cfg) {
     ",''), NULLIF(" +
     paymentCode +
     ",''), NULLIF(CAST(ISNULL(F.PAYMENT,0) AS VARCHAR(128)),'0'), '')";
-  var documentStatusExpr =
-    "(CASE " +
-    "WHEN ISNULL(" + isCancel + ",0)=1 THEN N'Cancelled' " +
-    "WHEN ISNULL(" + finStates + ",0) IN (10) THEN N'Completed' " +
-    "WHEN ISNULL(" + finStates + ",0) IN (3,4,6) THEN N'Closed' " +
-    "WHEN ISNULL(" + finStates + ",0) IN (1,2) THEN N'Open' " +
-    "ELSE N'Open' END)";
   var lQty = _bv_col_expr("L", "MTRLINES", ["QTY1", "QTY"], "0");
   var lNet = _bv_col_expr("L", "MTRLINES", ["NETLINEVAL", "NETVAL", "NETAMNT", "LINEVAL"], "0");
   var lVat = _bv_col_expr("L", "MTRLINES", ["VATAMNT", "TAXAMNT", "FPAAMNT", "LINEVAT", "LINETAX", "LINEVATAMNT", "LINETAXAMNT"], "NULL");
@@ -395,9 +375,10 @@ function _bv_sales_sql(cfg) {
     ",0)) / " +
     docNetAbsTotal +
     ") ELSE 0 END)";
-  var grossExpr = "ABS(ISNULL(" + lNet + ",0)) + " + vatExpr;
+  var grossExpr = "ISNULL(" + lGross + ", ISNULL(" + lNet + ",0) + " + vatExpr + ")";
 
   var mdWhouse = _bv_col_expr("MD", "MTRDOC", ["WHOUSE"], "0");
+  var whName = _bv_col_expr("W", "WHOUSE", ["NAME"], "''");
   var whName = _bv_col_expr("W", "WHOUSE", ["NAME"], "''");
 
   var whereSql =
@@ -414,8 +395,9 @@ function _bv_sales_sql(cfg) {
   if (cfg.toDate !== "") whereSql += " AND " + c.trnDate + " < DATEADD(day,1," + _bv_sql_quote(cfg.toDate) + ")";
 
   var sql =
-    "SELECT " +
-    _bv_top_clause(cfg.limit) +
+    "SELECT TOP " +
+    cfg.limit +
+    " " +
     "CAST(" +
     c.findoc +
     " AS VARCHAR(40)) + '-' + CAST(ISNULL(" +
@@ -437,9 +419,6 @@ function _bv_sales_sql(cfg) {
     ",0) + ISNULL(" +
     c.soredir +
     ",0) AS VARCHAR(16)) AS DOCUMENT_TYPE," +
-    "CAST(" +
-    documentStatusExpr +
-    " AS VARCHAR(128)) AS DOCUMENT_STATUS," +
     "CONVERT(VARCHAR(10), " +
     c.trnDate +
     ", 23) AS DOC_DATE," +
@@ -581,13 +560,6 @@ function _bv_purchases_sql(cfg) {
   var lVat = _bv_col_expr("L", "MTRLINES", ["VATAMNT", "TAXAMNT", "FPAAMNT", "LINEVAT", "LINETAX", "LINEVATAMNT", "LINETAXAMNT"], "NULL");
   var lGross = _bv_col_expr("L", "MTRLINES", ["GROSSVAL", "SUMAMNT", "TOTVAL", "LINEGROSS"], "NULL");
   var lCost = _bv_col_expr("L", "MTRLINES", ["COSTVAL", "COSTVALUE", "LCOST", "COST", "LINEVAL"], lNet);
-  var lPrice = _bv_col_expr("L", "MTRLINES", ["PRICE", "PRICEM", "PRICELISTVALUE"], "NULL");
-  var disc1Pct = _bv_col_expr("L", "MTRLINES", ["DISC1PRC", "DISC1", "DISCOUNT1"], "NULL");
-  var disc2Pct = _bv_col_expr("L", "MTRLINES", ["DISC2PRC", "DISC2", "DISCOUNT2"], "NULL");
-  var disc3Pct = _bv_col_expr("L", "MTRLINES", ["DISC3PRC", "DISC3", "DISCOUNT3"], "NULL");
-  var grossLineExpr = "(ABS(ISNULL(" + lPrice + ",0)) * ABS(ISNULL(" + lQty + ",0)))";
-  var discAmtExpr = "(CASE WHEN " + lPrice + " IS NOT NULL AND " + grossLineExpr + " > ABS(ISNULL(" + lNet + ",0))" +
-    " THEN " + grossLineExpr + " - ABS(ISNULL(" + lNet + ",0)) ELSE 0 END)";
   var purchaseSign = "(CASE WHEN ISNULL(" + c.sosource + ",0)=1253 THEN -1 ELSE 1 END)";
   var expenseLikeSeriesExpr =
     "(ISNULL(" + c.series + ",0) IN (1001,1002,1003,1007,1009,1102,3201)" +
@@ -620,7 +592,6 @@ function _bv_purchases_sql(cfg) {
   var grossAbsExpr = "ISNULL(ABS(" + lGross + "), ABS(ISNULL(" + lNet + ",0)) + " + vatExpr + ")";
 
   var mdWhouse = _bv_col_expr("MD", "MTRDOC", ["WHOUSE"], "0");
-  var whName = _bv_col_expr("W", "WHOUSE", ["NAME"], "''");
 
   var whereSql =
     " WHERE F.COMPANY=" +
@@ -641,8 +612,9 @@ function _bv_purchases_sql(cfg) {
   if (cfg.toDate !== "") whereSql += " AND " + c.trnDate + " < DATEADD(day,1," + _bv_sql_quote(cfg.toDate) + ")";
 
   var sql =
-    "SELECT " +
-    _bv_top_clause(cfg.limit) +
+    "SELECT TOP " +
+    cfg.limit +
+    " " +
     "CAST(" +
     c.findoc +
     " AS VARCHAR(40)) + '-' + CAST(ISNULL(" +
@@ -725,12 +697,6 @@ function _bv_purchases_sql(cfg) {
     " * ABS(ISNULL(" +
     lCost +
     ",0)) AS FLOAT) AS COST_AMOUNT," +
-    "CAST(" +
-    purchaseSign +
-    " * (" + discAmtExpr + ") AS FLOAT) AS DISCOUNT_AMOUNT," +
-    "CAST(ISNULL(" + disc1Pct + ",NULL) AS FLOAT) AS DISCOUNT1_PCT," +
-    "CAST(ISNULL(" + disc2Pct + ",NULL) AS FLOAT) AS DISCOUNT2_PCT," +
-    "CAST(ISNULL(" + disc3Pct + ",NULL) AS FLOAT) AS DISCOUNT3_PCT," +
     "CAST(ISNULL(" +
     c.sosource +
     ",0) AS INT) AS SOURCE_MODULE_ID," +
@@ -816,8 +782,9 @@ function _bv_inventory_sql(cfg) {
   if (cfg.toDate !== "") adjustmentWhereSql += " AND " + c.trnDate + " < DATEADD(day,1," + _bv_sql_quote(cfg.toDate) + ")";
 
   var snapshotSql =
-    "SELECT " +
-    _bv_top_clause(cfg.limit) +
+    "SELECT TOP " +
+    cfg.limit +
+    " " +
     "CAST(" +
     c.findoc +
     " AS VARCHAR(40)) + '-' + CAST(ISNULL(" +
@@ -948,8 +915,9 @@ function _bv_inventory_sql(cfg) {
     " ASC";
 
   var adjustmentSql =
-    "SELECT " +
-    _bv_top_clause(cfg.limit) +
+    "SELECT TOP " +
+    cfg.limit +
+    " " +
     "CAST(" +
     c.findoc +
     " AS VARCHAR(40)) + '-' + CAST(ISNULL(" +
@@ -1099,8 +1067,9 @@ function _bv_item_master_sql(cfg) {
   var vatExpr = _bv_col_expr("I", "MTRL", ["VAT"], "NULL");
 
   var sql =
-    "SELECT " +
-    _bv_top_clause(cfg.limit) +
+    "SELECT TOP " +
+    cfg.limit +
+    " " +
     "CAST(ISNULL(" +
     codeExpr +
     ", I.MTRL) AS VARCHAR(128)) AS ITEM_CODE," +
@@ -1172,8 +1141,9 @@ function _bv_cash_sql(cfg) {
   if (cfg.toDate !== "") whereSql += " AND " + c.trnDate + " < DATEADD(day,1," + _bv_sql_quote(cfg.toDate) + ")";
 
   var sql =
-    "SELECT " +
-    _bv_top_clause(cfg.limit) +
+    "SELECT TOP " +
+    cfg.limit +
+    " " +
     "CAST(" +
     c.findoc +
     " AS VARCHAR(40)) AS EVENT_ID," +
@@ -1220,7 +1190,7 @@ function _bv_cash_sql(cfg) {
     ",'') AS VARCHAR(1024)) AS NOTES," +
     "CASE " +
     "WHEN F.SOSOURCE IN (1381,1413) THEN 'inflow' " +
-    "WHEN F.SOSOURCE IN (1281,1412,1416,1261) THEN 'outflow' " +
+    "WHEN F.SOSOURCE IN (1281,1412,1261) THEN 'outflow' " +
     "WHEN F.SOSOURCE IN (1414,1481) THEN 'transfer' " +
     "WHEN ISNULL(" +
     c.sodtype +
@@ -1239,7 +1209,7 @@ function _bv_cash_sql(cfg) {
     "WHEN F.SOSOURCE=1381 THEN 'customer_collections' " +
     "WHEN F.SOSOURCE=1413 THEN 'customer_transfers' " +
     "WHEN F.SOSOURCE=1281 THEN 'supplier_payments' " +
-    "WHEN F.SOSOURCE IN (1412,1416) THEN 'supplier_transfers' " +
+    "WHEN F.SOSOURCE=1412 THEN 'supplier_transfers' " +
     "WHEN F.SOSOURCE IN (1414,1481) THEN 'financial_accounts' " +
     "WHEN F.SOSOURCE=1261 THEN 'supplier_payments' " +
     "WHEN ISNULL(" +
@@ -1308,8 +1278,9 @@ function _bv_supplier_balances_sql(cfg) {
   if (cfg.toDate !== "") whereSql += " AND " + c.trnDate + " < DATEADD(day,1," + _bv_sql_quote(cfg.toDate) + ")";
 
   var sql =
-    "SELECT " +
-    _bv_top_clause(cfg.limit) +
+    "SELECT TOP " +
+    cfg.limit +
+    " " +
     "CAST(ISNULL(T.CODE, " +
     c.trdr +
     ") AS VARCHAR(64)) AS SUPPLIER_EXT_ID," +
@@ -1395,8 +1366,9 @@ function _bv_customer_balances_sql(cfg) {
   if (cfg.toDate !== "") whereSql += " AND " + c.trnDate + " < DATEADD(day,1," + _bv_sql_quote(cfg.toDate) + ")";
 
   var sql =
-    "SELECT " +
-    _bv_top_clause(cfg.limit) +
+    "SELECT TOP " +
+    cfg.limit +
+    " " +
     "CAST(ISNULL(T.CODE, " +
     c.trdr +
     ") AS VARCHAR(64)) AS CUSTOMER_EXT_ID," +
@@ -1491,8 +1463,9 @@ function _bv_expenses_sql(cfg) {
   if (cfg.toDate !== "") whereSql += " AND " + c.trnDate + " < DATEADD(day,1," + _bv_sql_quote(cfg.toDate) + ")";
 
   var sql1261 =
-    "SELECT " +
-    _bv_top_clause(cfg.limit) +
+    "SELECT TOP " +
+    cfg.limit +
+    " " +
     "CAST(" +
     c.findoc +
     " AS VARCHAR(40)) AS EVENT_ID," +
@@ -1574,8 +1547,9 @@ function _bv_expenses_sql(cfg) {
   if (cfg.toDate !== "") purchaseExpenseWhereSql += " AND " + c.trnDate + " < DATEADD(day,1," + _bv_sql_quote(cfg.toDate) + ")";
 
   var sqlPurchaseExpenses =
-    "SELECT " +
-    _bv_top_clause(cfg.limit) +
+    "SELECT TOP " +
+    cfg.limit +
+    " " +
     "CAST(" + c.findoc + " AS VARCHAR(40)) + '-' + CAST(ISNULL(" + lLineId + ",0) AS VARCHAR(40)) AS EVENT_ID," +
     "CAST(" + c.findoc + " AS VARCHAR(40)) AS DOCUMENT_ID," +
     "CAST(" + c.finCode + " AS VARCHAR(128)) AS DOCUMENT_NO," +
@@ -1663,7 +1637,6 @@ function _bv_sales_record(ds) {
     doc_date: _bv_text(_bv_field(ds, "DOC_DATE", ""), ""),
     updated_at: _bv_text(_bv_field(ds, "UPDATED_AT", ""), ""),
     document_type: _bv_text(_bv_field(ds, "DOCUMENT_TYPE", "sales"), "sales"),
-    document_status: _bv_text(_bv_field(ds, "DOCUMENT_STATUS", ""), ""),
     document_id: _bv_text(_bv_field(ds, "DOCUMENT_ID", ""), ""),
     document_no: _bv_text(_bv_field(ds, "DOCUMENT_NO", ""), ""),
     document_series: _bv_text(_bv_field(ds, "DOCUMENT_SERIES", ""), ""),
@@ -2168,12 +2141,11 @@ function HealthCheckBIBridge(obj) {
         SERIES: colsSeries
       },
       defaults: {
-        limit: 0,
         salesSourceCodes: "1351,11351",
         purchaseSourceCodes: "1251,1253",
         inventorySourceCodes: "1151",
         inventoryItemSoType: 51,
-        cashSourceCodes: "1261,1281,1381,1412,1413,1414,1415,1416,1481",
+        cashSourceCodes: "1381,1281,1412,1413,1414,1481",
         supplierBalanceSourceCodes: "1251,1253,1261,1281,1412,1416,1653",
         customerBalanceSourceCodes: "1351,1381,1413",
         expenseSourceCodes: "1261"

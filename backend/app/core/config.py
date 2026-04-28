@@ -90,11 +90,27 @@ class Settings(BaseSettings):
     incremental_sync_interval_minutes: int = 5
     incremental_sync_limit: int = 500
     incremental_sync_max_tenants_per_run: int = 100
+    ingest_recovery_enabled: bool = True
+    ingest_recovery_on_incremental: bool = True
+    ingest_recovery_on_backfill: bool = True
+    ingest_recovery_incremental_days: int = 2
+    ingest_recovery_chunk_days: int = 1
+    ingest_recovery_limit: int = 500
+    ingest_recovery_max_jobs: int = 5000
+    ingest_recovery_streams_csv: str = 'sales_documents,purchase_documents,inventory_documents,cash_transactions,operating_expenses'
     rate_limit_per_minute: int = 120
     ingest_tenant_lock_ttl_seconds: int = 300
     ingest_throttle_jobs_per_window: int = 120
     ingest_throttle_window_seconds: int = 60
     sqlserver_retry_sleep_seconds: int = 2
+    sqlserver_query_timeout_seconds: int = 600
+    sqlserver_fetch_batch_size: int = 1000
+    sqlserver_default_fetch_limit: int = 4000
+    sqlserver_incremental_exhaustive_fetch: bool = True
+    sqlserver_period_sync_exhaustive_fetch: bool = True
+    sqlserver_period_sync_max_pages: int = 20000
+    sqlserver_bulk_upsert_enabled: bool = True
+    sqlserver_bulk_upsert_batch_size: int = 200
 
     celery_worker_concurrency: int = 4
     celery_worker_prefetch_multiplier: int = 1

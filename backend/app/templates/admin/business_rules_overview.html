@@ -1,58 +1,145 @@
 {% extends "base_admin.html" %}
 {% block content %}
-<div class="card mt-3">
-  <div class="card-header">
-    <h5 class="mb-0">{{ tt(request, 'business_rules') }}</h5>
+<div class="d-flex align-items-center justify-content-between mt-3 mb-4">
+  <div>
+    <h5 class="mb-1">Κανόνες Επιχειρησιακής Λογικής</h5>
+    <small class="text-muted">Ρύθμιση χωρίς αλλαγές κώδικα — ισχύουν αμέσως για όλους τους tenants.</small>
+  </div>
+</div>
+
+<div class="row g-3 mb-4">
+
+  <div class="col-md-6 col-xl-4">
+    <div class="card h-100 border-0 shadow-sm">
+      <div class="card-body">
+        <div class="d-flex align-items-center gap-3 mb-3">
+          <div class="rounded p-2" style="background:#eef2ff"><i class="fe fe-file-text text-primary" style="font-size:1.4rem"></i></div>
+          <div>
+            <div class="fw-semibold">Document Types</div>
+            <div class="text-muted small">Τύποι παραστατικών (global)</div>
+          </div>
+        </div>
+        <p class="text-muted small mb-3">Τι σημαίνει κάθε TFPRMS κωδικός (131=απόδειξη, 181=επιστροφή) και πώς επηρεάζει έσοδα, κόστος, ποσότητες για <strong>όλους</strong> τους tenants.</p>
+        <div class="d-flex gap-2 flex-wrap">
+          <a class="btn btn-sm btn-primary" href="/admin/business-rules/document-type-rules"><i class="fe fe-settings me-1"></i>Διαχείριση</a>
+          <a class="btn btn-sm btn-outline-secondary" href="/admin/business-rules/document-type-rules/wizard"><i class="fe fe-navigation me-1"></i>Wizard</a>
+          <a class="btn btn-sm btn-outline-secondary" href="/admin/business-rules/document-type-rules/templates"><i class="fe fe-layers me-1"></i>Πρότυπα</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-6 col-xl-4">
+    <div class="card h-100 border-0 shadow-sm">
+      <div class="card-body">
+        <div class="d-flex align-items-center gap-3 mb-3">
+          <div class="rounded p-2" style="background:#f0fdf4"><i class="fe fe-git-merge" style="color:#16a34a;font-size:1.4rem"></i></div>
+          <div>
+            <div class="fw-semibold">Stream Rules</div>
+            <div class="text-muted small">Ανάθεση σε κυκλώματα</div>
+          </div>
+        </div>
+        <p class="text-muted small mb-3">Ποιά παραστατικά ανήκουν σε ποιο stream (πωλήσεις, αγορές, ταμείο, αποθήκη) βάσει SOSOURCE, SOREDIR και behavior codes.</p>
+        <a class="btn btn-sm btn-primary" href="/admin/business-rules/stream-mapping-rules"><i class="fe fe-settings me-1"></i>Διαχείριση</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-6 col-xl-4">
+    <div class="card h-100 border-0 shadow-sm">
+      <div class="card-body">
+        <div class="d-flex align-items-center gap-3 mb-3">
+          <div class="rounded p-2" style="background:#fefce8"><i class="fe fe-bar-chart-2" style="color:#ca8a04;font-size:1.4rem"></i></div>
+          <div>
+            <div class="fw-semibold">KPI Rules</div>
+            <div class="text-muted small">Συμμετοχή σε KPI</div>
+          </div>
+        </div>
+        <p class="text-muted small mb-3">Αν και πώς ένα παραστατικό μετράει στα KPI: include/exclude τζίρου, κόστους, ποσοτήτων, πρόσημα συμπεριφοράς.</p>
+        <a class="btn btn-sm btn-primary" href="/admin/business-rules/kpi-participation-rules"><i class="fe fe-settings me-1"></i>Διαχείριση</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-6 col-xl-4">
+    <div class="card h-100 border-0 shadow-sm">
+      <div class="card-body">
+        <div class="d-flex align-items-center gap-3 mb-3">
+          <div class="rounded p-2" style="background:#fdf4ff"><i class="fe fe-zap" style="color:#9333ea;font-size:1.4rem"></i></div>
+          <div>
+            <div class="fw-semibold">Insight Rules</div>
+            <div class="text-muted small">Κανόνες ειδοποιήσεων</div>
+          </div>
+        </div>
+        <p class="text-muted small mb-3">Thresholds, severity και ενεργοποίηση insight κανόνων ανά stream (μείωση margin, στόχοι, ανωμαλίες).</p>
+        <a class="btn btn-sm btn-primary" href="/admin/business-rules/intelligence-rules"><i class="fe fe-settings me-1"></i>Διαχείριση</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-6 col-xl-4">
+    <div class="card h-100 border-0 shadow-sm">
+      <div class="card-body">
+        <div class="d-flex align-items-center gap-3 mb-3">
+          <div class="rounded p-2" style="background:#fff7ed"><i class="fe fe-code" style="color:#ea580c;font-size:1.4rem"></i></div>
+          <div>
+            <div class="fw-semibold">Query Rules</div>
+            <div class="text-muted small">Source query mappings</div>
+          </div>
+        </div>
+        <p class="text-muted small mb-3">Global defaults και tenant overrides για source query mappings ανά stream — αντιστοίχιση πεδίων, fallback logic, sign fields.</p>
+        <a class="btn btn-sm btn-primary" href="/admin/business-rules/query-mapping"><i class="fe fe-settings me-1"></i>Διαχείριση</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-6 col-xl-4">
+    <div class="card h-100 border-0 shadow-sm">
+      <div class="card-body">
+        <div class="d-flex align-items-center gap-3 mb-3">
+          <div class="rounded p-2" style="background:#f0f9ff"><i class="fe fe-sliders" style="color:#0284c7;font-size:1.4rem"></i></div>
+          <div>
+            <div class="fw-semibold">Stream Config (ανά Tenant)</div>
+            <div class="text-muted small">Series παραμετροποίηση</div>
+          </div>
+        </div>
+        <p class="text-muted small mb-3">Ποιά series συμμετέχουν στα έσοδα, αγορές, ταμείο και έξοδα κάθε επιχείρησης — γραφικό UI με toggles ανά series.</p>
+        <a class="btn btn-sm btn-primary" href="/admin/tenants"><i class="fe fe-users me-1"></i>Επιλογή Tenant</a>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="card border-0 shadow-sm">
+  <div class="card-header bg-light border-0">
+    <h6 class="mb-0 text-muted"><i class="fe fe-info me-2"></i>Ιεραρχία Εφαρμογής Κανόνων</h6>
   </div>
   <div class="card-body">
-    <p class="text-muted mb-3">
-      Κεντρική ενότητα για τη ρύθμιση επιχειρησιακής λογικής ανά tenant χωρίς αλλαγές κώδικα.
-    </p>
-    <div class="row g-3">
-      <div class="col-md-6">
-        <a class="btn bv-action-btn bv-action-edit w-100" href="/admin/business-rules/document-type-rules">
-          <i class="fe fe-file-text"></i> {{ tt(request, 'business_rules_document_type_rules') }}
-        </a>
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+      <div class="text-center px-3 py-2 rounded" style="background:#eef2ff;min-width:120px">
+        <div class="fw-semibold text-primary small">Document Types</div>
+        <div class="text-muted" style="font-size:11px">Τύπος παραστατικού</div>
       </div>
-      <div class="col-md-6">
-        <a class="btn btn-outline-primary w-100" href="/admin/business-rules/document-type-rules/wizard">
-          <i class="fe fe-navigation"></i> Wizard Κανόνων Τύπων
-        </a>
+      <i class="fe fe-arrow-right text-muted"></i>
+      <div class="text-center px-3 py-2 rounded" style="background:#f0fdf4;min-width:120px">
+        <div class="fw-semibold text-success small">Stream Rules</div>
+        <div class="text-muted" style="font-size:11px">Σε ποιο κύκλωμα</div>
       </div>
-      <div class="col-md-6">
-        <a class="btn bv-action-btn bv-action-edit w-100" href="/admin/business-rules/stream-mapping-rules">
-          <i class="fe fe-git-merge"></i> {{ tt(request, 'business_rules_stream_mapping_rules') }}
-        </a>
+      <i class="fe fe-arrow-right text-muted"></i>
+      <div class="text-center px-3 py-2 rounded" style="background:#fefce8;min-width:120px">
+        <div class="fw-semibold small" style="color:#ca8a04">KPI Rules</div>
+        <div class="text-muted" style="font-size:11px">Πώς μετράει</div>
       </div>
-      <div class="col-md-6">
-        <a class="btn bv-action-btn bv-action-edit w-100" href="/admin/business-rules/kpi-participation-rules">
-          <i class="fe fe-bar-chart-2"></i> {{ tt(request, 'business_rules_kpi_participation_rules') }}
-        </a>
+      <i class="fe fe-arrow-right text-muted"></i>
+      <div class="text-center px-3 py-2 rounded" style="background:#f0f9ff;min-width:120px">
+        <div class="fw-semibold small" style="color:#0284c7">Stream Config</div>
+        <div class="text-muted" style="font-size:11px">Ποιά series (tenant)</div>
       </div>
-      <div class="col-md-6">
-        <a class="btn bv-action-btn bv-action-edit w-100" href="/admin/business-rules/intelligence-rules">
-          <i class="fe fe-zap"></i> {{ tt(request, 'business_rules_intelligence_rules') }}
-        </a>
-      </div>
-      <div class="col-md-6">
-        <a class="btn bv-action-btn bv-action-edit w-100" href="/admin/business-rules/query-mapping">
-          <i class="fe fe-code"></i> {{ tt(request, 'business_rules_query_mapping') }}
-        </a>
-      </div>
-      <div class="col-md-6">
-        <a class="btn bv-action-btn bv-action-edit w-100" href="/admin/business-rules/tenant-overrides">
-          <i class="fe fe-users"></i> {{ tt(request, 'tenant_overrides') }}
-        </a>
-      </div>
-      <div class="col-md-6">
-        <a class="btn btn-outline-secondary w-100" href="/admin/business-rules/document-type-rules/help">
-          <i class="fe fe-book-open"></i> Οδηγός Κανόνων Τύπων
-        </a>
-      </div>
-      <div class="col-md-6">
-        <a class="btn btn-outline-secondary w-100" href="/admin/business-rules/document-type-rules/templates">
-          <i class="fe fe-layers"></i> Πρότυπα SoftOne
-        </a>
+      <i class="fe fe-arrow-right text-muted"></i>
+      <div class="text-center px-3 py-2 rounded bg-light border" style="min-width:120px">
+        <div class="fw-semibold small text-muted">KPI Dashboard</div>
+        <div class="text-muted" style="font-size:11px">Αποτέλεσμα</div>
       </div>
     </div>
   </div>

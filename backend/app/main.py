@@ -42,7 +42,14 @@ from app.services.ingestion.queueing import tenant_dlq_name, tenant_queue_name
 configure_logging()
 init_sentry()
 
-app = FastAPI(title=settings.project_name, version=settings.app_version)
+_is_production = settings.environment.lower() not in {'dev', 'development', 'local'}
+app = FastAPI(
+    title=settings.project_name,
+    version=settings.app_version,
+    docs_url=None if _is_production else '/docs',
+    redoc_url=None if _is_production else '/redoc',
+    openapi_url=None if _is_production else '/openapi.json',
+)
 _redis_client = Redis.from_url(settings.redis_url, decode_responses=True)
 app.state.redis = _redis_client
 

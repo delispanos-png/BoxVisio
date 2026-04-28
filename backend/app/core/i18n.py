@@ -178,8 +178,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         'en': 'Central management of tenants, subscriptions, and data connections.',
     },
     'login_subtitle_tenant': {
-        'el': 'Πίνακας αποφάσεων για KPI πωλήσεων, συγκρίσεις και exports.',
-        'en': 'Decision dashboard for sales KPIs, comparisons, and exports.',
+        'el': 'Πραγματικός χρόνος KPIs · Τάσεις & συγκρίσεις · Αναλύσεις ανά κατηγορία, προμηθευτή & σημείο πώλησης · Exports & reports.',
+        'en': 'Real-time KPIs · Trends & comparisons · Breakdown by category, supplier & location · Exports & reports.',
     },
     'login_redirect_hint': {
         'el': 'Μετά το login γίνεται redirect αυτόματα στο σωστό dashboard ανά ρόλο και host.',

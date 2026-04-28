@@ -56,13 +56,16 @@
   .pos-pm-pct { font-size: 12px; font-weight: 700; color: #64748b; white-space: nowrap; }
   .pos-empty { border: 1px dashed #cbd5e1; border-radius: 12px; padding: 20px; color: #64748b; text-align: center; background: #f8fafc; font-weight: 600; }
   .pos-today-badge { font-size: 11px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; border-radius: 999px; padding: 3px 9px; background: #dbeafe; color: #1e40af; border: 1px solid #bfdbfe; }
+  .pos-clickable-icon { cursor: pointer; }
+  .pos-breakdown-modal .modal-dialog { max-width: 1180px; }
+  .pos-breakdown-modal .modal-body { padding: 1.25rem 1.5rem; }
 </style>
 
 <!-- KPI Cards Row -->
 <div class="row row-cols-2 row-cols-xl-4 g-3 mb-3 pos-kpi-row">
   <div class="col">
-    <div class="bv-metric-card" style="--mc-color:#3b82f6">
-      <div class="mc-icon"><i class="fe fe-file-text"></i></div>
+    <div class="bv-metric-card" style="--mc-color:#3b82f6" data-pos-payment-breakdown="true">
+      <div class="mc-icon pos-clickable-icon" title="Αναλυτικά ανά τρόπο πληρωμής"><i class="fe fe-file-text"></i></div>
       <div class="mc-label">Αποδείξεις Περιόδου</div>
       <div id="kpiReceipts" class="mc-value">—</div>
       <div class="mc-meta d-flex align-items-center gap-2">
@@ -72,8 +75,8 @@
     </div>
   </div>
   <div class="col">
-    <div class="bv-metric-card" style="--mc-color:#22c55e">
-      <div class="mc-icon"><i class="fe fe-trending-up"></i></div>
+    <div class="bv-metric-card" style="--mc-color:#22c55e" data-pos-gross-breakdown="true">
+      <div class="mc-icon pos-clickable-icon" title="Αναλυτικά ανά ομάδα ειδών"><i class="fe fe-trending-up"></i></div>
       <div class="mc-label">Σύνολο Εισπράξεων</div>
       <div id="kpiGrossValue" class="mc-value">—</div>
       <div class="mc-meta d-flex align-items-center gap-2">
@@ -129,10 +132,10 @@
 
 <!-- Row 2: Category + Payment Method -->
 <div class="row g-3 mb-3">
-  <div class="col-12 col-xl-7">
+  <div class="col-12">
     <div class="card border-0 shadow-sm pos-chart-card">
       <div class="card-header">
-        <h6 class="mb-0"><i class="fe fe-grid me-1"></i> Έσοδα ανά Κατηγορία</h6>
+        <h6 class="mb-0"><i class="fe fe-grid me-1"></i> Έσοδα ανά Ομάδα Ειδών</h6>
       </div>
       <div class="card-body">
         <div class="pos-chart-wrap">
@@ -141,42 +144,56 @@
       </div>
     </div>
   </div>
-  <div class="col-12 col-xl-5">
-    <div class="card border-0 shadow-sm pos-chart-card">
-      <div class="card-header d-flex align-items-center justify-content-between">
-        <h6 class="mb-0"><i class="fe fe-credit-card me-1"></i> Εισπράξεις ανά Τρόπο Πληρωμής</h6>
+</div>
+
+<div class="modal fade bv-modal bv-modal--responsive pos-breakdown-modal" id="posGrossBreakdownModal" tabindex="-1" aria-hidden="true" data-bv-modal="true" data-bv-close-on-backdrop="true">
+  <div class="modal-dialog modal-xl">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <h6 class="modal-title fw-bold mb-0" id="posGrossBreakdownTitle" style="font-size:1rem;color:#0f172a;">Αναλυτικά ανά Ομάδα Ειδών</h6>
+          <div id="posGrossBreakdownSubtitle" style="font-size:.78rem;color:#64748b;"></div>
+        </div>
+        <button type="button" class="btn btn-outline-primary btn-sm" data-bs-dismiss="modal">
+          <i class="fe fe-x me-1"></i> Κλείσιμο
+        </button>
       </div>
-      <div class="card-body">
-        <div id="posPaymentList">
-          <div class="pos-empty">Φόρτωση...</div>
+      <div class="modal-body">
+        <div class="table-responsive">
+          <table class="table table-hover mb-0 pos-table">
+            <thead>
+              <tr>
+                <th class="ps-3">Ομάδα Ειδών</th>
+                <th class="text-end">Αξία (€)</th>
+                <th class="text-end">Μερίδιο %</th>
+                <th class="pe-3" style="min-width:160px">Διανομή</th>
+              </tr>
+            </thead>
+            <tbody id="posGrossBreakdownTbody">
+              <tr><td colspan="4" class="text-center text-muted py-4">Φόρτωση...</td></tr>
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
   </div>
 </div>
 
-<!-- Row 3: Category table -->
-<div class="row g-3 mb-3">
-  <div class="col-12">
-    <div class="card border-0 shadow-sm">
-      <div class="card-header">
-        <h6 class="mb-0"><i class="fe fe-list me-1"></i> Αναλυτικά ανά Κατηγορία</h6>
+<div class="modal fade bv-modal bv-modal--responsive pos-breakdown-modal" id="posPaymentBreakdownModal" tabindex="-1" aria-hidden="true" data-bv-modal="true" data-bv-close-on-backdrop="true">
+  <div class="modal-dialog modal-xl">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <h6 class="modal-title fw-bold mb-0" id="posPaymentBreakdownTitle" style="font-size:1rem;color:#0f172a;">Εισπράξεις ανά Τρόπο Πληρωμής</h6>
+          <div id="posPaymentBreakdownSubtitle" style="font-size:.78rem;color:#64748b;"></div>
+        </div>
+        <button type="button" class="btn btn-outline-primary btn-sm" data-bs-dismiss="modal">
+          <i class="fe fe-x me-1"></i> Κλείσιμο
+        </button>
       </div>
-      <div class="card-body p-0">
-        <div class="table-responsive">
-          <table class="table table-hover mb-0 pos-table" id="posCategoryTable">
-            <thead>
-              <tr>
-                <th class="ps-3">Κατηγορία</th>
-                <th class="text-end">Αξία (€)</th>
-                <th class="text-end">Μερίδιο %</th>
-                <th class="pe-3" style="min-width:160px">Διανομή</th>
-              </tr>
-            </thead>
-            <tbody id="posCategoryTbody">
-              <tr><td colspan="4" class="text-center text-muted py-4">Φόρτωση...</td></tr>
-            </tbody>
-          </table>
+      <div class="modal-body">
+        <div id="posPaymentBreakdownList">
+          <div class="pos-empty">Φόρτωση...</div>
         </div>
       </div>
     </div>
@@ -219,6 +236,10 @@ const CATEGORY_COLORS = [
 
 let trendChartInst = null;
 let categoryChartInst = null;
+let posGrossBreakdownModal = null;
+let posPaymentBreakdownModal = null;
+let currentCategoryData = [];
+let currentPaymentData = [];
 
 function destroyChart(inst){ if(inst){ try{ inst.destroy(); }catch(e){} } }
 
@@ -352,7 +373,11 @@ function renderCategoryChart(data){
 }
 
 function renderPaymentList(data){
-  const wrap = document.getElementById('posPaymentList');
+  renderPaymentListInto(data, 'posPaymentBreakdownList');
+}
+
+function renderPaymentListInto(data, targetId){
+  const wrap = document.getElementById(targetId);
   if(!wrap) return;
   if(!data.length){ wrap.innerHTML='<div class="pos-empty">Δεν υπάρχουν δεδομένα</div>'; return; }
   const total = data.reduce((s, r) => s + r.gross_value, 0);
@@ -373,8 +398,8 @@ function renderPaymentList(data){
   }).join('');
 }
 
-function renderCategoryTable(data){
-  const tbody = document.getElementById('posCategoryTbody');
+function renderCategoryTable(data, tbodyId){
+  const tbody = document.getElementById(tbodyId);
   if(!tbody) return;
   const total = data.reduce((s, r) => s + r.gross_value, 0);
   if(!data.length){
@@ -395,6 +420,70 @@ function renderCategoryTable(data){
       </td>
     </tr>`;
   }).join('');
+}
+
+function updateGrossBreakdownSubtitle(){
+  const subtitle = document.getElementById('posGrossBreakdownSubtitle');
+  if(!subtitle) return;
+  const params = posFiltersToParams();
+  const from = params.get('from') || '';
+  const to = params.get('to') || '';
+  const branchCount = params.getAll('branches').length;
+  const dateLabel = from && to ? `${from} → ${to}` : 'Τρέχουσα περίοδος';
+  subtitle.textContent = branchCount ? `${dateLabel} · ${branchCount} υποκαταστήματα` : dateLabel;
+}
+
+function updatePaymentBreakdownSubtitle(){
+  const subtitle = document.getElementById('posPaymentBreakdownSubtitle');
+  if(!subtitle) return;
+  const params = posFiltersToParams();
+  const from = params.get('from') || '';
+  const to = params.get('to') || '';
+  const branchCount = params.getAll('branches').length;
+  const dateLabel = from && to ? `${from} → ${to}` : 'Τρέχουσα περίοδος';
+  subtitle.textContent = branchCount ? `${dateLabel} · ${branchCount} υποκαταστήματα` : dateLabel;
+}
+
+function openGrossBreakdownModal(){
+  const el = document.getElementById('posGrossBreakdownModal');
+  if(!el) return;
+  if(!posGrossBreakdownModal){
+    if(window.BVModalSystem?.create){
+      posGrossBreakdownModal = window.BVModalSystem.create(el, { closeOnBackdrop: true, keyboard: true });
+    } else if(window.bootstrap?.Modal){
+      posGrossBreakdownModal = window.bootstrap.Modal.getOrCreateInstance(el);
+    }
+  }
+  updateGrossBreakdownSubtitle();
+  renderCategoryTable(currentCategoryData, 'posGrossBreakdownTbody');
+  if(posGrossBreakdownModal?.show){
+    posGrossBreakdownModal.show();
+    return;
+  }
+  el.style.display = 'flex';
+  el.classList.add('show');
+  document.body.classList.add('modal-open');
+}
+
+function openPaymentBreakdownModal(){
+  const el = document.getElementById('posPaymentBreakdownModal');
+  if(!el) return;
+  if(!posPaymentBreakdownModal){
+    if(window.BVModalSystem?.create){
+      posPaymentBreakdownModal = window.BVModalSystem.create(el, { closeOnBackdrop: true, keyboard: true });
+    } else if(window.bootstrap?.Modal){
+      posPaymentBreakdownModal = window.bootstrap.Modal.getOrCreateInstance(el);
+    }
+  }
+  updatePaymentBreakdownSubtitle();
+  renderPaymentListInto(currentPaymentData, 'posPaymentBreakdownList');
+  if(posPaymentBreakdownModal?.show){
+    posPaymentBreakdownModal.show();
+    return;
+  }
+  el.style.display = 'flex';
+  el.classList.add('show');
+  document.body.classList.add('modal-open');
 }
 
 function showError(msg){
@@ -433,8 +522,12 @@ async function loadAll(){
 
     renderTrendChart(trendData);
     renderCategoryChart(categoryData);
-    renderPaymentList(paymentData);
-    renderCategoryTable(categoryData);
+    currentPaymentData = Array.isArray(paymentData) ? paymentData : [];
+    renderPaymentList(currentPaymentData);
+    currentCategoryData = Array.isArray(categoryData) ? categoryData : [];
+    renderCategoryTable(currentCategoryData, 'posGrossBreakdownTbody');
+    updateGrossBreakdownSubtitle();
+    updatePaymentBreakdownSubtitle();
   } catch(e) {
     showError('Σφάλμα κατά τη φόρτωση δεδομένων. Παρακαλώ δοκιμάστε ξανά.');
     console.error(e);
@@ -532,6 +625,18 @@ async function loadBranchOptions(){
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
+  document.querySelector('[data-pos-payment-breakdown] .mc-icon')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+    openPaymentBreakdownModal();
+  });
+  document.querySelector('[data-pos-gross-breakdown] .mc-icon')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+    openGrossBreakdownModal();
+  });
   initPosBranchesMulti();
   await loadBranchOptions();
   await loadAll();

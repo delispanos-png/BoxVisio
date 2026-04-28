@@ -61,6 +61,11 @@ db_pool_overflow = Gauge('cloudon_db_pool_overflow', 'DB pool overflow size', ['
 tenant_engine_cache_size = Gauge('cloudon_tenant_engine_cache_size', 'Current tenant engine cache size')
 ingest_queue_depth = Gauge('cloudon_ingest_queue_depth', 'Current ingest queue depth per tenant', ['tenant'])
 ingest_dlq_depth = Gauge('cloudon_ingest_dlq_depth', 'Current DLQ depth per tenant', ['tenant'])
+sync_field_fill_pct = Gauge(
+    'cloudon_sync_field_fill_pct',
+    'Completeness percentage for critical synced fields',
+    ['tenant', 'dataset', 'field'],
+)
 
 
 def render_metrics() -> tuple[bytes, str]:

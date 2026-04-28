@@ -9,7 +9,6 @@ from pathlib import Path
 from urllib.parse import urlencode
 from uuid import UUID
 
-from celery import Celery
 from fastapi import APIRouter, Depends, Form, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
@@ -19,6 +18,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, get_request_tenant, get_tenant_db, require_roles
+from app.core.celery_sender import make_celery_sender
 from app.core.config import settings
 from app.core.i18n import normalize_lang, tt
 from app.core.security import (
@@ -80,6 +80,7 @@ from app.services.sqlserver_connector import (
     test_connection,
 )
 from app.services.provisioning_wizard import run_tenant_provisioning_wizard
+from app.services.ingestion.queueing import close_ingest_circuit
 from app.services.ingestion import enqueue_tenant_job
 from app.services.ingestion.base import ALL_OPERATIONAL_STREAMS, STREAM_TO_ENTITY, normalize_stream_name, normalize_stream_values
 from app.services.ingestion.progress import begin_ingest_progress, clear_ingest_progress, get_ingest_progress, queue_depth, update_ingest_progress
@@ -103,7 +104,7 @@ templates = Jinja2Templates(
 templates.env.globals.setdefault('tt', tt)
 templates.env.globals.setdefault('app_version', settings.app_version)
 templates.env.globals.setdefault('project_name', settings.project_name)
-celery_client = Celery('ui_sender', broker=settings.celery_broker_url)
+celery_client = make_celery_sender('ui_sender')
 logger = logging.getLogger(__name__)
 
 
@@ -813,7 +814,7 @@ _BUSINESS_RULE_STREAM_LABEL_BY_VALUE: dict[str, str] = {
 
 _RULE_DOMAIN_LABEL_BY_VALUE: dict[str, str] = {
     RuleDomain.document_type_rules.value: 'Κανόνες Τύπων Παραστατικών',
-    RuleDomain.source_mapping.value: 'Κανόνες Κυκλωμάτων / Query Mapping',
+    RuleDomain.source_mapping.value: 'Κανόνες Κυκλωμάτων / Query Rules',
     RuleDomain.kpi_participation_rules.value: 'Κανόνες Συμμετοχής KPI',
     RuleDomain.intelligence_threshold_rules.value: 'Κανόνες Insights',
 }
@@ -1482,6 +1483,7 @@ async def _render_business_rules_page(
             'rulesets': rulesets,
             'entries': entry_rows,
             'saved': request.query_params.get('saved') == '1',
+            'deleted': request.query_params.get('deleted') == '1',
             'error_message': request.query_params.get('error') or '',
             'initial_ruleset_code': (rulesets[0].code if rulesets else 'softone_default_v1'),
         },
@@ -2025,6 +2027,7 @@ async def _connections_template_context(
     resolved_form.setdefault('supplier_balances_query_template', DEFAULT_GENERIC_SUPPLIER_BALANCES_QUERY)
     resolved_form.setdefault('customer_balances_query_template', DEFAULT_GENERIC_CUSTOMER_BALANCES_QUERY)
     resolved_form.setdefault('stream_field_mapping_json', '{}')
+    resolved_form.setdefault('stream_api_endpoint_json', '{}')
     resolved_form.setdefault('is_active', True)
     resolved_form.setdefault('supported_streams', default_supported)
     resolved_form.setdefault('has_saved_password', False)
@@ -2093,6 +2096,7 @@ async def _connections_template_context(
                     'cost_column': conn.cost_column or 'CostValue',
                     'qty_column': conn.qty_column or 'Qty',
                     'stream_field_mapping_json': json.dumps(conn.stream_field_mapping or {}, ensure_ascii=False, indent=2),
+                    'stream_api_endpoint_json': json.dumps(conn.stream_api_endpoint or {}, ensure_ascii=False, indent=2),
                     'has_saved_password': bool(conn.enc_payload),
                     'supported_streams': _normalize_stream_selection(
                         conn.supported_streams if isinstance(conn.supported_streams, list) else None,
@@ -2131,10 +2135,14 @@ async def _connections_template_context(
 def _parse_date_or_none(raw: str | None):
     if not raw:
         return None
-    try:
-        return date.fromisoformat(raw)
-    except ValueError:
-        return None
+    raw = str(raw).strip()
+    for fmt in ('%Y-%m-%d', '%d/%m/%Y', '%d-%m-%Y', '%Y/%m/%d'):
+        try:
+            from datetime import datetime as _dt
+            return _dt.strptime(raw, fmt).date()
+        except ValueError:
+            continue
+    return None
 
 
 def _connections_redirect_url(
@@ -3077,6 +3085,11 @@ async def admin_connections_test(
             conn.last_test_ok_at = datetime.utcnow()
             conn.last_test_error = None
             await db.commit()
+        # Successful test — close any open circuit breaker for this tenant so
+        # the drain will resume once the connection is saved and a sync triggered.
+        _test_tenant = (await db.execute(select(Tenant).where(Tenant.id == tenant_id))).scalar_one_or_none()
+        if _test_tenant:
+            close_ingest_circuit(str(_test_tenant.slug))
     except Exception as exc:
         result = {'status': 'error', 'message': 'Connection test failed. Verify host/port/db/user/pass and firewall allowlist.'}
         if conn is not None:
@@ -3294,6 +3307,7 @@ async def admin_connections_save(
     supplier_balances_query_template: str = Form(default=DEFAULT_GENERIC_SUPPLIER_BALANCES_QUERY),
     customer_balances_query_template: str = Form(default=DEFAULT_GENERIC_CUSTOMER_BALANCES_QUERY),
     stream_field_mapping_json: str = Form(default='{}'),
+    stream_api_endpoint_json: str = Form(default='{}'),
     enabled_streams: list[str] = Form(default=[]),
     updated_at_column: str = Form(default='UpdatedAt'),
     incremental_column: str = Form(default=''),
@@ -3307,6 +3321,7 @@ async def admin_connections_save(
     qty_column: str = Form(default='Qty'),
     selected_schema: str = Form(default=''),
     selected_object: str = Form(default=''),
+    sync_interval_minutes: int = Form(default=5),
     _: object = Depends(require_roles(RoleName.cloudon_admin)),
     db: AsyncSession = Depends(get_control_db),
 ):
@@ -3398,7 +3413,13 @@ async def admin_connections_save(
         }
     )
     conn.stream_field_mapping = _coerce_stream_field_mapping_from_json(stream_field_mapping_json)
+    _api_ep = _coerce_stream_field_mapping_from_json(stream_api_endpoint_json)
+    if _api_ep:
+        conn.stream_api_endpoint = _api_ep
+    existing_params = conn.connection_parameters if isinstance(conn.connection_parameters, dict) else {}
+    preserved_keys = {'sync_defaults', 'company_id', 'auth_config', 'enable_operating_expenses'}
     conn.connection_parameters = {
+        **{k: v for k, v in existing_params.items() if k in preserved_keys},
         'connector_type': connector_type,
         'source_type': conn.source_type,
         'host': host,
@@ -3406,6 +3427,7 @@ async def admin_connections_save(
         'database': database,
         'username': username,
         'options': options_map,
+        'sync_interval_minutes': max(1, sync_interval_minutes),
     }
     conn.last_test_error = None
 
@@ -3436,6 +3458,11 @@ async def admin_connections_save(
         )
     )
     await db.commit()
+    # Saving a connection means the admin has fixed or updated credentials —
+    # clear any open circuit breaker so the next sync attempt is allowed through.
+    _save_tenant = (await db.execute(select(Tenant).where(Tenant.id == tenant_id))).scalar_one_or_none()
+    if _save_tenant:
+        close_ingest_circuit(str(_save_tenant.slug))
     return RedirectResponse(
         url=_connections_redirect_url(
             redirect_base,
@@ -3611,7 +3638,7 @@ async def admin_connections_backfill(
             status='queued',
             total_jobs=0,
             start_queue_depth=queue_depth(tenant.slug),
-            target_queue_depth=queue_depth(tenant.slug),
+            target_queue_depth=0,
             from_date=from_dt.isoformat(),
             to_date=to_dt.isoformat(),
             chunk_days=selected_chunk_days,
@@ -3623,10 +3650,11 @@ async def admin_connections_backfill(
                 'from_date_str': from_dt.isoformat(),
                 'to_date_str': to_dt.isoformat(),
                 'chunk_days': selected_chunk_days,
+                'limit': selected_chunk_records,
                 'include_purchases': bool(include_purchases),
                 'operation': 'backfill',
             },
-            queue='ingest',
+            queue='default',
         )
 
     db.add(
@@ -3897,6 +3925,16 @@ async def admin_connections_recover_sync(
     task_id = None
     action = 'noop'
     if queue_left > 0:
+        begin_ingest_progress(
+            tenant_slug=tenant.slug,
+            operation='recovery_sync',
+            status='queued',
+            total_jobs=queue_left,
+            start_queue_depth=queue_left,
+            target_queue_depth=0,
+            from_date=from_dt.isoformat() if from_dt else None,
+            to_date=to_dt.isoformat() if to_dt else None,
+        )
         task = celery_client.send_task(
             'worker.tasks.drain_tenant_ingest_queue',
             kwargs={'tenant_slug': tenant.slug},
@@ -4860,7 +4898,7 @@ async def admin_business_rules_stream_mapping(
         active_page='business_rules_stream_mapping',
         title='title_business_rules_stream_mapping',
         page_label_key='business_rules_stream_mapping_rules',
-        page_description='Ορισμός κανόνων ανάθεσης παραστατικών στα επιχειρησιακά κυκλώματα (sales/purchases/inventory/cash/balances).',
+        page_description='Ορισμός κανόνων ανάθεσης παραστατικών στα επιχειρησιακά κυκλώματα (sales/purchases/inventory/cash/operating_expenses/supplier_balances/customer_balances).',
     )
 
 
@@ -4911,7 +4949,7 @@ async def admin_business_rules_query_mapping(
         active_page='business_rules_query_mapping',
         title='title_business_rules_query_mapping',
         page_label_key='business_rules_query_mapping',
-        page_description='Global defaults και tenant overrides για source query mappings ανά επιχειρησιακό stream.',
+        page_description='Global defaults και tenant overrides για source query mappings ανά επιχειρησιακό stream (sales/purchases/inventory/cash/operating_expenses/supplier_balances/customer_balances).',
     )
 
 
@@ -5002,6 +5040,274 @@ async def admin_business_rules_tenant_overrides(
             {'href': '/admin/business-rules', 'label_key': 'business_rules'},
             {'href': '/admin/tenants', 'label_key': 'tenants'},
         ],
+    )
+
+
+# ---------------------------------------------------------------------------
+# Stream Config — per-tenant series / behavior-code parameterisation
+# ---------------------------------------------------------------------------
+
+_STREAM_BEHAVIOR_LABELS: dict[int, str] = {
+    102: 'Τιμολόγιο Πώλησης',
+    103: 'Δελτίο Αποστολής',
+    131: 'Απόδειξη Λιανικής (POS)',
+    151: 'Πιστωτικό Τιμολόγιο Α',
+    152: 'Πιστωτικό Τιμολόγιο Β',
+    181: 'Επιστροφή / Πίστωση',
+    201: 'Παραγγελία Πώλησης',
+    401: 'Τιμολόγιο Αγοράς',
+    402: 'Τιμολόγιο Αγοράς (2)',
+    411: 'Πιστωτικό Αγοράς',
+    431: 'Δελτίο Αποστολής Αγοράς',
+    451: 'Παραγγελία Αγοράς',
+}
+
+_STREAM_DEFS = [
+    {
+        'key': 'sales',
+        'label': 'Πωλήσεις',
+        'icon': 'trending-up',
+        'operational_stream': 'sales_documents',
+        'fact_table': 'fact_sales',
+        'amount_col': 'net_value',
+        'rule_key': 'turnover',
+    },
+    {
+        'key': 'purchases',
+        'label': 'Αγορές',
+        'icon': 'shopping-cart',
+        'operational_stream': 'purchase_documents',
+        'fact_table': 'fact_purchases',
+        'amount_col': 'net_value',
+        'rule_key': 'purchase_turnover',
+    },
+    {
+        'key': 'cashflows',
+        'label': 'Ταμείο',
+        'icon': 'dollar-sign',
+        'operational_stream': 'cash_transactions',
+        'fact_table': 'fact_cashflows',
+        'amount_col': 'amount',
+        'rule_key': 'cashflow_config',
+    },
+    {
+        'key': 'expenses',
+        'label': 'Έξοδα',
+        'icon': 'credit-card',
+        'operational_stream': 'operating_expenses',
+        'fact_table': 'fact_expenses',
+        'amount_col': 'amount',
+        'rule_key': 'expense_config',
+    },
+]
+
+
+async def _discover_stream_series(tenant_db: AsyncSession, fact_table: str, amount_col: str) -> list[dict]:
+    has_series = fact_table in {'fact_sales', 'fact_purchases', 'fact_expenses'}
+    has_payload = fact_table in {'fact_sales', 'fact_purchases'}
+    year_start = date.today().replace(month=1, day=1)
+
+    if has_series and has_payload:
+        sql = text(f"""
+            SELECT
+                COALESCE(document_series, '') AS series,
+                COALESCE(document_type, '') AS doc_type,
+                COALESCE((source_payload_json->>'source_transaction_type_id')::int, 0) AS behavior_code,
+                COUNT(*) AS rows,
+                ROUND(COALESCE(SUM({amount_col}), 0)::numeric, 2) AS total_value,
+                ROUND(COALESCE(SUM(CASE WHEN doc_date >= :year_start THEN {amount_col} ELSE 0 END), 0)::numeric, 2) AS ytd_value
+            FROM {fact_table}
+            GROUP BY 1, 2, 3
+            ORDER BY ABS(SUM(COALESCE({amount_col}, 0))) DESC
+        """)
+    elif has_series:
+        sql = text(f"""
+            SELECT
+                COALESCE(document_series, '') AS series,
+                COALESCE(document_type, '') AS doc_type,
+                0 AS behavior_code,
+                COUNT(*) AS rows,
+                ROUND(COALESCE(SUM({amount_col}), 0)::numeric, 2) AS total_value,
+                ROUND(COALESCE(SUM(CASE WHEN doc_date >= :year_start THEN {amount_col} ELSE 0 END), 0)::numeric, 2) AS ytd_value
+            FROM {fact_table}
+            GROUP BY 1, 2
+            ORDER BY ABS(SUM(COALESCE({amount_col}, 0))) DESC
+        """)
+    else:
+        sql = text(f"""
+            SELECT
+                '' AS series,
+                COALESCE(document_type, '') AS doc_type,
+                0 AS behavior_code,
+                COUNT(*) AS rows,
+                ROUND(COALESCE(SUM({amount_col}), 0)::numeric, 2) AS total_value,
+                ROUND(COALESCE(SUM(CASE WHEN transaction_date >= :year_start THEN {amount_col} ELSE 0 END), 0)::numeric, 2) AS ytd_value
+            FROM {fact_table}
+            GROUP BY 2
+            ORDER BY ABS(SUM(COALESCE({amount_col}, 0))) DESC
+        """)
+
+    try:
+        rows = (await tenant_db.execute(sql, {'year_start': year_start})).fetchall()
+    except Exception:
+        return []
+
+    result: dict[str, dict] = {}
+    for row in rows:
+        key = (str(row.series), str(row.doc_type))
+        if key not in result:
+            result[key] = {
+                'series': str(row.series),
+                'doc_type': str(row.doc_type),
+                'behavior_codes': [],
+                'rows': 0,
+                'total_value': 0.0,
+                'ytd_value': 0.0,
+            }
+        result[key]['rows'] += int(row.rows)
+        result[key]['total_value'] = round(float(result[key]['total_value']) + float(row.total_value), 2)
+        result[key]['ytd_value'] = round(float(result[key]['ytd_value']) + float(row.ytd_value), 2)
+        code = int(row.behavior_code or 0)
+        if code and code not in result[key]['behavior_codes']:
+            result[key]['behavior_codes'].append(code)
+
+    return sorted(result.values(), key=lambda x: abs(x['ytd_value']), reverse=True)
+
+
+def _excluded_series_set(rule_override: object | None) -> set[str]:
+    if rule_override is None:
+        return set()
+    payload = rule_override.payload_json or {}
+    series_rules = payload.get('series_rules') or []
+    return {str(r['series']) for r in series_rules if isinstance(r, dict) and not r.get('include_turnover', True)}
+
+
+@router.get('/admin/tenants/{tenant_id}/stream-config', response_class=HTMLResponse)
+async def admin_tenant_stream_config_get(
+    request: Request,
+    tenant_id: int,
+    _: object = Depends(require_roles(RoleName.cloudon_admin)),
+    db: AsyncSession = Depends(get_control_db),
+):
+    tenant = (await db.execute(select(Tenant).where(Tenant.id == tenant_id))).scalar_one_or_none()
+    if tenant is None:
+        return RedirectResponse(url='/admin/tenants?reason=not_found', status_code=303)
+
+    streams_data = []
+    async for tenant_db in get_tenant_db_session(
+        tenant_key=str(tenant.id),
+        db_name=tenant.db_name,
+        db_user=tenant.db_user,
+        db_password=tenant.db_password,
+    ):
+        for sdef in _STREAM_DEFS:
+            rule = (await db.execute(
+                select(TenantRuleOverride).where(
+                    TenantRuleOverride.tenant_id == tenant_id,
+                    TenantRuleOverride.domain == RuleDomain.kpi_participation_rules,
+                    TenantRuleOverride.stream == sdef['operational_stream'],
+                    TenantRuleOverride.rule_key == sdef['rule_key'],
+                )
+            )).scalar_one_or_none()
+
+            excluded = _excluded_series_set(rule)
+            series_rows = await _discover_stream_series(tenant_db, sdef['fact_table'], sdef['amount_col'])
+            for s in series_rows:
+                s['included'] = s['series'] not in excluded
+
+            payload = (rule.payload_json or {}) if rule else {}
+            streams_data.append({
+                **sdef,
+                'series': series_rows,
+                'rule_exists': rule is not None,
+                'excluded_count': len(excluded),
+                'payload': payload,
+                'total_rows': sum(s['rows'] for s in series_rows),
+                'total_ytd': round(sum(s['ytd_value'] for s in series_rows), 2),
+            })
+        break
+
+    return templates.TemplateResponse(
+        'admin/stream_config.html',
+        {
+            'request': request,
+            'tenant': tenant,
+            'streams': streams_data,
+            'behavior_labels': _STREAM_BEHAVIOR_LABELS,
+            'active_page': 'tenants',
+            'title': f'Stream Config — {tenant.name}',
+        },
+    )
+
+
+@router.post('/admin/tenants/{tenant_id}/stream-config', response_class=HTMLResponse)
+async def admin_tenant_stream_config_post(
+    request: Request,
+    tenant_id: int,
+    _: object = Depends(require_roles(RoleName.cloudon_admin)),
+    db: AsyncSession = Depends(get_control_db),
+):
+    tenant = (await db.execute(select(Tenant).where(Tenant.id == tenant_id))).scalar_one_or_none()
+    if tenant is None:
+        return RedirectResponse(url='/admin/tenants?reason=not_found', status_code=303)
+
+    form = await request.form()
+    stream_key = str(form.get('stream_key') or 'sales')
+    sdef = next((s for s in _STREAM_DEFS if s['key'] == stream_key), _STREAM_DEFS[0])
+
+    # Collect checked series from form: series_include_{series}_{doctype} = "on"
+    all_series_keys = [k for k in form if k.startswith('series_include_')]
+    included_series: set[str] = set()
+    for k in all_series_keys:
+        parts = k[len('series_include_'):].split('__', 1)
+        if parts:
+            included_series.add(parts[0])
+
+    # All known series for this stream (we need to know which exist)
+    excluded_from_form_keys = [k for k in form if k.startswith('series_known_')]
+    all_known_series: set[str] = set()
+    for k in excluded_from_form_keys:
+        parts = k[len('series_known_'):].split('__', 1)
+        if parts:
+            all_known_series.add(parts[0])
+
+    # Build series_rules: only for explicitly excluded (known but not included)
+    excluded_series = all_known_series - included_series
+    new_series_rules = [{'series': s, 'include_turnover': False} for s in sorted(excluded_series)]
+
+    # Load existing rule to preserve branch_adjustments and other fields
+    rule = (await db.execute(
+        select(TenantRuleOverride).where(
+            TenantRuleOverride.tenant_id == tenant_id,
+            TenantRuleOverride.domain == RuleDomain.kpi_participation_rules,
+            TenantRuleOverride.stream == sdef['operational_stream'],
+            TenantRuleOverride.rule_key == sdef['rule_key'],
+        )
+    )).scalar_one_or_none()
+
+    if rule is None:
+        rule = TenantRuleOverride(
+            tenant_id=tenant_id,
+            domain=RuleDomain.kpi_participation_rules,
+            stream=sdef['operational_stream'],
+            rule_key=sdef['rule_key'],
+            override_mode='merge',
+            payload_json={},
+            is_active=True,
+        )
+        db.add(rule)
+
+    existing_payload = dict(rule.payload_json or {})
+    existing_payload['series_rules'] = new_series_rules
+    rule.payload_json = existing_payload
+    rule.updated_at = datetime.utcnow()
+    await db.commit()
+
+    await invalidate_tenant_cache(str(tenant.id))
+
+    return RedirectResponse(
+        url=f'/admin/tenants/{tenant_id}/stream-config?saved=1&stream={stream_key}',
+        status_code=303,
     )
 
 
@@ -5272,6 +5578,31 @@ async def admin_business_rules_global_rule_upsert(
     )
     await db.commit()
     return RedirectResponse(url=f'{redirect_to}?saved=1', status_code=303)
+
+
+@router.post('/admin/business-rules/global-rule/delete')
+async def admin_business_rules_global_rule_delete(
+    entry_id: int = Form(...),
+    redirect_to: str = Form(default='/admin/business-rules'),
+    _: object = Depends(require_roles(RoleName.cloudon_admin)),
+    db: AsyncSession = Depends(get_control_db),
+):
+    redirect_base = redirect_to if str(redirect_to or '').startswith('/admin/') else '/admin/business-rules'
+    entry = (await db.execute(select(GlobalRuleEntry).where(GlobalRuleEntry.id == entry_id))).scalar_one_or_none()
+    if entry is None:
+        return RedirectResponse(url=f'{redirect_base}?error=Ο+κανόνας+δεν+βρέθηκε', status_code=303)
+    db.add(
+        AuditLog(
+            tenant_id=None,
+            action='business_rule_global_delete_ui',
+            entity_type='global_rule_entry',
+            entity_id=str(entry_id),
+            payload={'domain': entry.domain.value, 'stream': entry.stream.value, 'rule_key': entry.rule_key},
+        )
+    )
+    await db.delete(entry)
+    await db.commit()
+    return RedirectResponse(url=f'{redirect_base}?deleted=1', status_code=303)
 
 
 @router.get('/admin/users', response_class=HTMLResponse)
@@ -6044,11 +6375,11 @@ async def _render_tenant_cashflow_dashboard(
 ):
     feature_flags = await _tenant_navigation_context(tenant)
     to_date = date.today()
-    from_date = to_date - timedelta(days=30)
     normalized_category = _normalize_cashflow_category(raw_category)
     is_known_category = normalized_category in _CASHFLOW_CATEGORY_LABEL_KEY_MAP
     is_accounts_mode = normalized_category == 'financial_accounts'
     is_documents_mode = is_known_category and not is_accounts_mode
+    from_date = date(to_date.year, 1, 1) if is_documents_mode else (to_date - timedelta(days=30))
     template_name = (
         'tenant/cashflow_accounts_dashboard.html'
         if is_accounts_mode

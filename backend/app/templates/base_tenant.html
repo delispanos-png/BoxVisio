@@ -57,7 +57,7 @@
       overflow-y: auto;
       overflow-x: hidden;
       -webkit-overflow-scrolling: touch;
-      padding-bottom: 84px;
+      padding-bottom: 8px;
     }
     .tenant-shell .left-sidebar .menu.main-sidebar .list {
       height: auto !important;
@@ -88,11 +88,17 @@
       border: 0;
       background: transparent;
       cursor: pointer;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      font-size: 0.78rem;
+      font-weight: 700;
     }
     .azea-shell .main-sidebar .list .bv-menu-group .bv-group-arrow {
-      margin-left: auto;
-      font-size: 13px;
+      margin-left: 0;
+      margin-right: 6px;
+      font-size: 12px;
       transition: transform .2s ease;
+      flex-shrink: 0;
     }
     .azea-shell .main-sidebar .list .bv-menu-group.open .bv-group-arrow {
       transform: rotate(180deg);
@@ -118,6 +124,8 @@
       font-weight: 600;
       font-size: 14px;
       color: var(--menu-text) !important;
+      text-transform: none;
+      letter-spacing: normal;
     }
     .azea-shell .main-sidebar .list .bv-submenu .bv-menu-group.active .bv-group-toggle,
     .azea-shell .main-sidebar .list .bv-submenu .bv-menu-group .bv-group-toggle:hover {
@@ -351,36 +359,43 @@
       background: transparent;
       border-bottom: 1px solid var(--panel-border);
     }
-    .powered-by-cloudon {
-      position: fixed;
-      left: 16px;
-      bottom: 12px;
-      z-index: 1100;
-      pointer-events: none;
-      font-size: 11px;
-      font-weight: 700;
-      letter-spacing: .6px;
-      color: #4b5563;
-      background: rgba(255, 255, 255, 0.92);
-      padding: 4px 8px;
-      border-radius: 999px;
-      border: 1px solid #e5e7eb;
+    .sidebar-foot {
+      flex: 0 0 auto;
+      border-top: 1px solid rgba(148,163,184,0.15);
+      padding: 10px 14px;
+      display: flex;
+      align-items: center;
+      gap: 0;
+      overflow: hidden;
     }
-    .app-version-badge {
-      position: fixed;
-      left: 16px;
-      bottom: 44px;
-      z-index: 1100;
-      pointer-events: none;
-      font-size: 11px;
-      font-weight: 700;
-      letter-spacing: .6px;
-      color: #4b5563;
-      background: rgba(255, 255, 255, 0.92);
-      padding: 4px 8px;
-      border-radius: 999px;
-      border: 1px solid #e5e7eb;
+    .bottom-meta {
+      display: flex;
+      align-items: center;
+      width: 100%;
+      background: rgba(0,0,0,0.06);
+      border-radius: 8px;
+      overflow: hidden;
     }
+    .bottom-meta-item {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      padding: 5px 10px;
+      font-size: 10.5px;
+      font-family: "Segoe UI", "Noto Sans", sans-serif;
+      letter-spacing: 0.3px;
+      color: #94a3b8;
+      white-space: nowrap;
+      flex: 1;
+      justify-content: center;
+    }
+    .bottom-meta-item + .bottom-meta-item {
+      border-left: 1px solid rgba(148,163,184,0.2);
+    }
+    .bottom-meta-item svg { opacity: 0.55; flex-shrink: 0; }
+    .bottom-meta-item strong { color: #64748b; font-weight: 600; }
+    /* kept for back-compat */
+    .powered-by-cloudon, .app-version-badge { display: none; }
     .kpi-card-modern .delta {
       font-size: 12px;
       font-weight: 600;
@@ -589,6 +604,15 @@
       color: #e5e7eb !important;
       border-color: #334155 !important;
     }
+    body[data-theme='dark'] .bottom-meta {
+      background: rgba(255,255,255,0.05);
+    }
+    body[data-theme='dark'] .bottom-meta-item {
+      color: #64748b;
+    }
+    body[data-theme='dark'] .bottom-meta-item strong {
+      color: #94a3b8;
+    }
     body[data-theme='dark'] .powered-by-cloudon {
       background: rgba(15, 23, 42, 0.92);
       border-color: #334155;
@@ -789,10 +813,10 @@
         {% set _operational_stream_open = active_page in _operational_stream_pages or (active_page == 'cashflow' and _cashflow_is_stream) %}
         {% set _dashboard_pages = ['dashboard', 'finance_dashboard', 'insights'] %}
         {% set _dashboard_open = active_page in _dashboard_pages %}
-        {% set _analytics_open = active_page in ['sales', 'pos', 'purchases', 'inventory', 'items', 'analytics_receivables_payables', 'supplier_targets'] or (active_page == 'cashflow' and not _cashflow_is_stream) %}
+        {% set _analytics_open = active_page in ['sales', 'pos', 'purchases', 'inventory', 'items', 'analytics_receivables_payables', 'supplier_targets', 'exports_sellout'] or (active_page == 'cashflow' and not _cashflow_is_stream) %}
         {% set _comparison_pages = ['compare_period', 'compare_branch', 'compare_category'] %}
         {% set _comparison_open = active_page in _comparison_pages %}
-        {% set _exports_open = active_page in ['exports_reports', 'exports_csv_excel', 'exports_sellout'] %}
+        {% set _exports_open = active_page in ['exports_reports', 'exports_csv_excel'] %}
         <ul class="list">
           {% if _show_dashboard_group %}
           <li class="nav-item bv-menu-group {% if _dashboard_open %}active open{% endif %}">
@@ -803,9 +827,9 @@
               data-menu-group-open="{{ '1' if _dashboard_open else '0' }}"
               aria-expanded="{{ 'true' if _dashboard_open else 'false' }}"
             >
+              <i class="fe fe-chevron-down bv-group-arrow"></i>
               <i class="fe fe-home sidemenu-icon"></i>
               <span class="sidemenu-label">{{ tt(request, 'dashboard_section') }}</span>
-              <i class="fe fe-chevron-down bv-group-arrow"></i>
             </button>
             <ul class="bv-submenu" data-menu-group="tenant-dashboard">
               {% if _menu_dashboard_executive %}
@@ -845,9 +869,9 @@
               data-menu-group-open="{{ '1' if _operational_stream_open else '0' }}"
               aria-expanded="{{ 'true' if _operational_stream_open else 'false' }}"
             >
+              <i class="fe fe-chevron-down bv-group-arrow"></i>
               <i class="fe fe-activity sidemenu-icon"></i>
               <span class="sidemenu-label">{{ tt(request, 'operational_streams_menu') }}</span>
-              <i class="fe fe-chevron-down bv-group-arrow"></i>
             </button>
             <ul class="bv-submenu" data-menu-group="operational-streams">
               {% if _menu_stream_sales %}
@@ -897,9 +921,9 @@
                   data-menu-group-open="{{ '1' if active_page == 'cashflow' and _cashflow_is_stream else '0' }}"
                   aria-expanded="{{ 'true' if active_page == 'cashflow' and _cashflow_is_stream else 'false' }}"
                 >
+                  <i class="fe fe-chevron-down bv-group-arrow"></i>
                   <i class="fe fe-credit-card"></i>
                   <span>{{ tt(request, 'cash_transactions_short') }}</span>
-                  <i class="fe fe-chevron-down bv-group-arrow"></i>
                 </button>
                 <ul class="bv-submenu bv-submenu--nested" data-menu-group="operational-cash-transactions">
                   <li class="{% if _cashflow_category == 'customer_collections' %}is-active{% endif %}">
@@ -964,9 +988,9 @@
               data-menu-group-open="{{ '1' if _analytics_open else '0' }}"
               aria-expanded="{{ 'true' if _analytics_open else 'false' }}"
             >
+              <i class="fe fe-chevron-down bv-group-arrow"></i>
               <i class="fe fe-pie-chart sidemenu-icon"></i>
               <span class="sidemenu-label">{{ tt(request, 'analytics_menu') }}</span>
-              <i class="fe fe-chevron-down bv-group-arrow"></i>
             </button>
             <ul class="bv-submenu" data-menu-group="tenant-analytics">
               {% if _menu_analytics_sales %}
@@ -975,6 +999,9 @@
               </li>
               <li class="{% if active_page == 'pos' %}is-active{% endif %}">
                 <a class="bv-submenu-link" href="/tenant/pos"><i class="fe fe-shopping-bag"></i><span>Φυσικό Σημείο</span></a>
+              </li>
+              <li class="{% if active_page == 'exports_sellout' %}is-active{% endif %}">
+                <a class="bv-submenu-link" href="/tenant/exports/sellout"><i class="fe fe-trending-up"></i><span>Sell Out</span></a>
               </li>
               {% endif %}
               {% if _menu_analytics_purchases %}
@@ -1018,9 +1045,9 @@
               data-menu-group-open="{{ '1' if _comparison_open else '0' }}"
               aria-expanded="{{ 'true' if _comparison_open else 'false' }}"
             >
+              <i class="fe fe-chevron-down bv-group-arrow"></i>
               <i class="fe fe-repeat sidemenu-icon"></i>
               <span class="sidemenu-label">{{ tt(request, 'comparisons_menu') }}</span>
-              <i class="fe fe-chevron-down bv-group-arrow"></i>
             </button>
             <ul class="bv-submenu" data-menu-group="tenant-comparisons">
               <li class="{% if active_page == 'compare_period' %}is-active{% endif %}">
@@ -1047,16 +1074,13 @@
               data-menu-group-open="{{ '1' if _exports_open else '0' }}"
               aria-expanded="{{ 'true' if _exports_open else 'false' }}"
             >
+              <i class="fe fe-chevron-down bv-group-arrow"></i>
               <i class="fe fe-download sidemenu-icon"></i>
               <span class="sidemenu-label">{{ tt(request, 'exports_menu') }}</span>
-              <i class="fe fe-chevron-down bv-group-arrow"></i>
             </button>
             <ul class="bv-submenu" data-menu-group="tenant-exports">
               <li class="{% if active_page == 'exports_reports' %}is-active{% endif %}">
                 <a class="bv-submenu-link" href="/tenant/exports/reports"><i class="fe fe-file-text"></i><span>{{ tt(request, 'reports_short') }}</span></a>
-              </li>
-              <li class="{% if active_page == 'exports_sellout' %}is-active{% endif %}">
-                <a class="bv-submenu-link" href="/tenant/exports/sellout"><i class="fe fe-trending-up"></i><span>Sell Out</span></a>
               </li>
               <li class="{% if active_page == 'exports_csv_excel' %}is-active{% endif %}">
                 <a class="bv-submenu-link" href="/tenant/exports/csv-excel"><i class="fe fe-download"></i><span>{{ tt(request, 'csv_excel_short') }}</span></a>
@@ -1065,6 +1089,22 @@
           </li>
           {% endif %}
         </ul>
+      </div>
+      <div class="sidebar-foot">
+        <div class="bottom-meta">
+          <div class="bottom-meta-item">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>
+            </svg>
+            <span>v<strong>{{ app_version }}</strong></span>
+          </div>
+          <div class="bottom-meta-item">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
+            </svg>
+            <span>{{ tt(request, 'powered_by') }}</span>
+          </div>
+        </div>
       </div>
     </aside>
   </section>
@@ -1150,11 +1190,11 @@
             <p class="bv-page-subtitle">Λίστα παραστατικών με ενιαία φίλτρα, αναζήτηση και σελιδοποίηση.</p>
             {% elif active_page in ['suppliers', 'customers'] %}
             <p class="bv-page-subtitle">Υπόλοιπα και ιστορικά στοιχεία με ενιαίο pattern πινάκων.</p>
-            {% elif active_page in ['sales', 'purchases', 'inventory', 'items', 'analytics_receivables_payables', 'supplier_targets'] %}
+            {% elif active_page in ['sales', 'purchases', 'inventory', 'items', 'analytics_receivables_payables', 'supplier_targets', 'exports_sellout', 'pos'] %}
             <p class="bv-page-subtitle">Αναλυτικά KPIs, τάσεις και breakdowns σε συνεπή διάταξη.</p>
             {% elif active_page in ['compare_period', 'compare_branch', 'compare_category'] %}
             <p class="bv-page-subtitle">Συγκρίσεις περιόδων και διαστάσεων με κοινή παρουσίαση.</p>
-            {% elif active_page in ['exports_reports', 'exports_csv_excel', 'exports_sellout'] %}
+            {% elif active_page in ['exports_reports', 'exports_csv_excel'] %}
             <p class="bv-page-subtitle">Εξαγωγές αναφορών και αρχείων σε ενιαίο format.</p>
             {% endif %}
             {% if _manual_help_anchor %}
@@ -1195,7 +1235,97 @@
         </div>
       </div>
 
-      <div class="modal fade bv-modal bv-modal--responsive bv-modal--sm" id="globalDateModal" tabindex="-1" aria-hidden="true" data-bv-modal="true" data-bv-close-on-backdrop="true">
+      <style>
+        .bv-date-range-modal .modal-dialog {
+          max-width: 900px;
+        }
+        .bv-date-range-layout {
+          display: grid;
+          grid-template-columns: 180px minmax(0, 1fr);
+          gap: 14px;
+        }
+        .bv-date-presets {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+        }
+        .bv-date-presets .btn {
+          justify-content: flex-start;
+          text-align: left;
+        }
+        .bv-date-presets .btn.is-active {
+          background: #0ea5e9;
+          border-color: #0ea5e9;
+          color: #fff;
+        }
+        .bv-date-calendar-head {
+          display: flex;
+          gap: 8px;
+          align-items: center;
+          margin-bottom: 8px;
+        }
+        .bv-date-calendar-head .form-select {
+          min-width: 92px;
+        }
+        .bv-date-calendars {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 12px;
+        }
+        .bv-date-calendar {
+          border: 1px solid #e2e8f0;
+          border-radius: 12px;
+          padding: 10px;
+          background: #fff;
+        }
+        .bv-date-weekdays,
+        .bv-date-days {
+          display: grid;
+          grid-template-columns: repeat(7, minmax(0, 1fr));
+          gap: 4px;
+        }
+        .bv-date-weekdays span {
+          font-size: 12px;
+          text-align: center;
+          color: #64748b;
+          font-weight: 700;
+          padding: 4px 0;
+        }
+        .bv-date-day {
+          border: 1px solid transparent;
+          border-radius: 8px;
+          height: 30px;
+          background: transparent;
+          font-size: 13px;
+          color: #0f172a;
+        }
+        .bv-date-day:hover {
+          border-color: #bae6fd;
+          background: #f0f9ff;
+        }
+        .bv-date-day.is-out {
+          color: #94a3b8;
+        }
+        .bv-date-day.is-start,
+        .bv-date-day.is-end {
+          background: #0ea5e9;
+          color: #fff;
+          border-color: #0ea5e9;
+        }
+        .bv-date-day.is-in-range {
+          background: #e0f2fe;
+          border-color: #bae6fd;
+        }
+        @media (max-width: 991.98px) {
+          .bv-date-range-layout {
+            grid-template-columns: 1fr;
+          }
+          .bv-date-calendars {
+            grid-template-columns: 1fr;
+          }
+        }
+      </style>
+      <div class="modal fade bv-modal bv-modal--responsive bv-date-range-modal" id="globalDateModal" tabindex="-1" aria-hidden="true" data-bv-modal="true" data-bv-close-on-backdrop="true">
         <div class="modal-dialog modal-dialog-centered">
           <div class="modal-content">
             <div class="modal-header">
@@ -1203,29 +1333,55 @@
               <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
-              <div class="mb-3">
-                <label class="form-label mb-1">Γρήγορη επιλογή περιόδου</label>
-                <select class="form-select" id="globalDatePreset">
-                  <option value="">Χειροκίνητη επιλογή</option>
-                  <option value="today">Σήμερα</option>
-                  <option value="yesterday">Χθες</option>
-                  <option value="current_week">Τρέχουσα εβδομάδα</option>
-                  <option value="previous_week">Προηγ/νη εβδομάδα</option>
-                  <option value="current_month">Τρέχων μήνας</option>
-                  <option value="previous_month">Προηγ/νος μήνας</option>
-                  <option value="current_year">Τρέχον έτος</option>
-                  <option value="previous_year">Προηγούμενο έτος</option>
-                  <option value="two_years_ago">Πριν 2 έτη</option>
-                </select>
-              </div>
-              <div class="row g-2">
-                <div class="col-12 col-md-6">
-                  <label class="form-label mb-1">{{ tt(request, 'from') }}</label>
-                  <input type="text" class="form-control" id="globalDateFrom" data-date-format="dmy" placeholder="ηη/μμ/εεεε" inputmode="numeric">
+              <div class="bv-date-range-layout">
+                <div class="bv-date-presets">
+                  <button type="button" class="btn btn-light btn-sm" data-global-preset="today">Σήμερα</button>
+                  <button type="button" class="btn btn-light btn-sm" data-global-preset="yesterday">Χθες</button>
+                  <button type="button" class="btn btn-light btn-sm" data-global-preset="current_week">Τρέχουσα εβδομάδα</button>
+                  <button type="button" class="btn btn-light btn-sm" data-global-preset="previous_week">Προηγ/νη εβδομάδα</button>
+                  <button type="button" class="btn btn-light btn-sm" data-global-preset="current_month">Τρέχων μήνας</button>
+                  <button type="button" class="btn btn-light btn-sm" data-global-preset="previous_month">Προηγ/νος μήνας</button>
+                  <button type="button" class="btn btn-light btn-sm" data-global-preset="current_year">Τρέχον έτος</button>
+                  <button type="button" class="btn btn-light btn-sm" data-global-preset="previous_year">Προηγούμενο έτος</button>
+                  <button type="button" class="btn btn-light btn-sm" data-global-preset="two_years_ago">Πριν 2 έτη</button>
                 </div>
-                <div class="col-12 col-md-6">
-                  <label class="form-label mb-1">{{ tt(request, 'to') }}</label>
-                  <input type="text" class="form-control" id="globalDateTo" data-date-format="dmy" placeholder="ηη/μμ/εεεε" inputmode="numeric">
+                <div>
+                  <div class="row g-2 mb-2">
+                    <div class="col-12 col-md-6">
+                      <label class="form-label mb-1">{{ tt(request, 'from') }}</label>
+                      <input type="text" class="form-control" id="globalDateFrom" data-date-format="dmy" placeholder="ηη/μμ/εεεε" inputmode="numeric">
+                    </div>
+                    <div class="col-12 col-md-6">
+                      <label class="form-label mb-1">{{ tt(request, 'to') }}</label>
+                      <input type="text" class="form-control" id="globalDateTo" data-date-format="dmy" placeholder="ηη/μμ/εεεε" inputmode="numeric">
+                    </div>
+                  </div>
+                  <div class="bv-date-calendars">
+                    <div class="bv-date-calendar">
+                      <div class="bv-date-calendar-head">
+                        <button type="button" class="btn btn-outline-secondary btn-sm" data-cal-nav="left-prev"><i class="fe fe-chevron-left"></i></button>
+                        <select id="globalCalLeftMonth" class="form-select form-select-sm"></select>
+                        <select id="globalCalLeftYear" class="form-select form-select-sm"></select>
+                        <button type="button" class="btn btn-outline-secondary btn-sm" data-cal-nav="left-next"><i class="fe fe-chevron-right"></i></button>
+                      </div>
+                      <div class="bv-date-weekdays">
+                        <span>Su</span><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span>
+                      </div>
+                      <div class="bv-date-days" id="globalCalLeftDays"></div>
+                    </div>
+                    <div class="bv-date-calendar">
+                      <div class="bv-date-calendar-head">
+                        <button type="button" class="btn btn-outline-secondary btn-sm" data-cal-nav="right-prev"><i class="fe fe-chevron-left"></i></button>
+                        <select id="globalCalRightMonth" class="form-select form-select-sm"></select>
+                        <select id="globalCalRightYear" class="form-select form-select-sm"></select>
+                        <button type="button" class="btn btn-outline-secondary btn-sm" data-cal-nav="right-next"><i class="fe fe-chevron-right"></i></button>
+                      </div>
+                      <div class="bv-date-weekdays">
+                        <span>Su</span><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span>
+                      </div>
+                      <div class="bv-date-days" id="globalCalRightDays"></div>
+                    </div>
+                  </div>
                 </div>
               </div>
               <div class="small text-muted mt-2">Η περίοδος θα εφαρμοστεί στα φίλτρα της τρέχουσας σελίδας. Μετά μπορείς να αλλάξεις μεμονωμένα όποιο πεδίο θέλεις.</div>
@@ -1927,7 +2083,13 @@
       const globalDateModalEl = document.getElementById('globalDateModal');
       const globalDateFromEl = document.getElementById('globalDateFrom');
       const globalDateToEl = document.getElementById('globalDateTo');
-      const globalDatePresetEl = document.getElementById('globalDatePreset');
+      const globalDatePresetButtons = Array.from(globalDateModalEl?.querySelectorAll('[data-global-preset]') || []);
+      const globalCalLeftMonthEl = document.getElementById('globalCalLeftMonth');
+      const globalCalLeftYearEl = document.getElementById('globalCalLeftYear');
+      const globalCalRightMonthEl = document.getElementById('globalCalRightMonth');
+      const globalCalRightYearEl = document.getElementById('globalCalRightYear');
+      const globalCalLeftDaysEl = document.getElementById('globalCalLeftDays');
+      const globalCalRightDaysEl = document.getElementById('globalCalRightDays');
       const globalDateModal = globalDateModalEl
         ? (
           window.BVModalSystem?.create(globalDateModalEl, { closeOnBackdrop: true, keyboard: true, focusTrap: true, restoreFocus: true })
@@ -1936,6 +2098,16 @@
             : null)
         )
         : null;
+      const globalDatePickerState = {
+        fromIso: '',
+        toIso: '',
+        leftYear: 0,
+        leftMonth: 0,
+        rightYear: 0,
+        rightMonth: 0,
+        selectingPart: 'from',
+        preset: '',
+      };
 
       function openGlobalDateModal(triggerEl) {
         globalDateModal?.show?.(triggerEl);
@@ -1949,6 +2121,33 @@
         if (!(dateObj instanceof Date)) return '';
         return `${String(dateObj.getDate()).padStart(2, '0')}/${String(dateObj.getMonth() + 1).padStart(2, '0')}/${dateObj.getFullYear()}`;
       }
+      const GLOBAL_MONTH_LABELS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+      function isoFromDateObj(dateObj) {
+        if (!(dateObj instanceof Date)) return '';
+        return `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`;
+      }
+
+      function dateObjFromIso(iso) {
+        if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return null;
+        const [y, m, d] = iso.split('-').map(Number);
+        return new Date(y, m - 1, d);
+      }
+
+      function shiftMonthYear(year, month, delta) {
+        const base = new Date(year, month, 1);
+        base.setMonth(base.getMonth() + delta);
+        return { year: base.getFullYear(), month: base.getMonth() };
+      }
+
+      function updatePresetButtonState(activePreset) {
+        globalDatePresetButtons.forEach((btn) => {
+          const on = btn.dataset.globalPreset === activePreset && !!activePreset;
+          btn.classList.toggle('is-active', on);
+          btn.classList.toggle('btn-primary', on);
+          btn.classList.toggle('btn-light', !on);
+        });
+      }
 
       function startOfWeekMonday(dateObj) {
         const d = new Date(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate());
@@ -1958,8 +2157,7 @@
         return d;
       }
 
-      function applyPresetRange(preset) {
-        if (!globalDateFromEl || !globalDateToEl || !preset) return;
+      function getPresetRange(preset) {
         const today = new Date();
         const end = new Date(today.getFullYear(), today.getMonth(), today.getDate());
         let start = new Date(end.getFullYear(), end.getMonth(), end.getDate());
@@ -1993,44 +2191,268 @@
           start = new Date(end.getFullYear() - 2, 0, 1);
           to = new Date(end.getFullYear() - 2, 11, 31);
         } else {
-          return;
+          return null;
         }
+        return { start, to };
+      }
 
-        globalDateFromEl.value = dmyFromDate(start);
-        globalDateToEl.value = dmyFromDate(to);
+      function applyRangeToPicker(startDate, endDate, preset) {
+        if (!globalDateFromEl || !globalDateToEl) return;
+        const startIso = isoFromDateObj(startDate);
+        const endIso = isoFromDateObj(endDate);
+        if (!startIso || !endIso) return;
+        if (startIso <= endIso) {
+          globalDatePickerState.fromIso = startIso;
+          globalDatePickerState.toIso = endIso;
+        } else {
+          globalDatePickerState.fromIso = endIso;
+          globalDatePickerState.toIso = startIso;
+        }
+        globalDatePickerState.selectingPart = 'to';
+        globalDatePickerState.preset = preset || '';
+        const leftBase = dateObjFromIso(globalDatePickerState.fromIso) || new Date();
+        globalDatePickerState.leftYear = leftBase.getFullYear();
+        globalDatePickerState.leftMonth = leftBase.getMonth();
+        const rightBase = shiftMonthYear(globalDatePickerState.leftYear, globalDatePickerState.leftMonth, 1);
+        globalDatePickerState.rightYear = rightBase.year;
+        globalDatePickerState.rightMonth = rightBase.month;
+        globalDateFromEl.value = bvToDmyDate(globalDatePickerState.fromIso);
+        globalDateToEl.value = bvToDmyDate(globalDatePickerState.toIso);
         bvInitDmyDateInputs(globalDateModalEl || document);
+        updatePresetButtonState(globalDatePickerState.preset);
+        renderGlobalCalendars();
+      }
+
+      function applyPresetRange(preset) {
+        const range = getPresetRange(preset);
+        if (!range) return;
+        applyRangeToPicker(range.start, range.to, preset);
+      }
+
+      function setCalendarSelectOptions(monthEl, yearEl, monthValue, yearValue) {
+        if (!monthEl || !yearEl) return;
+        if (!monthEl.options.length) {
+          GLOBAL_MONTH_LABELS.forEach((name, idx) => {
+            const opt = document.createElement('option');
+            opt.value = String(idx);
+            opt.textContent = name;
+            monthEl.appendChild(opt);
+          });
+        }
+        monthEl.value = String(monthValue);
+
+        const nowYear = new Date().getFullYear();
+        const minYear = nowYear - 10;
+        const maxYear = nowYear + 1;
+        if (!yearEl.options.length) {
+          for (let y = minYear; y <= maxYear; y += 1) {
+            const opt = document.createElement('option');
+            opt.value = String(y);
+            opt.textContent = String(y);
+            yearEl.appendChild(opt);
+          }
+        }
+        if (!Array.from(yearEl.options).some((opt) => Number(opt.value) === yearValue)) {
+          const opt = document.createElement('option');
+          opt.value = String(yearValue);
+          opt.textContent = String(yearValue);
+          yearEl.appendChild(opt);
+          const sorted = Array.from(yearEl.options).sort((a, b) => Number(a.value) - Number(b.value));
+          yearEl.innerHTML = '';
+          sorted.forEach((opt) => yearEl.appendChild(opt));
+        }
+        yearEl.value = String(yearValue);
+      }
+
+      function dayClassNames(iso, inMonth) {
+        const out = ['bv-date-day'];
+        if (!inMonth) out.push('is-out');
+        if (globalDatePickerState.fromIso && iso === globalDatePickerState.fromIso) out.push('is-start');
+        if (globalDatePickerState.toIso && iso === globalDatePickerState.toIso) out.push('is-end');
+        if (
+          globalDatePickerState.fromIso &&
+          globalDatePickerState.toIso &&
+          iso > globalDatePickerState.fromIso &&
+          iso < globalDatePickerState.toIso
+        ) out.push('is-in-range');
+        return out.join(' ');
+      }
+
+      function renderCalendarGrid(targetEl, year, month) {
+        if (!targetEl) return;
+        const firstDay = new Date(year, month, 1);
+        const startDay = firstDay.getDay();
+        const gridStart = new Date(year, month, 1 - startDay);
+        const html = [];
+        for (let i = 0; i < 42; i += 1) {
+          const d = new Date(gridStart.getFullYear(), gridStart.getMonth(), gridStart.getDate() + i);
+          const iso = isoFromDateObj(d);
+          const inMonth = d.getMonth() === month;
+          html.push(`<button type="button" class="${dayClassNames(iso, inMonth)}" data-date="${iso}" data-in-month="${inMonth ? '1' : '0'}">${d.getDate()}</button>`);
+        }
+        targetEl.innerHTML = html.join('');
+      }
+
+      function renderGlobalCalendars() {
+        setCalendarSelectOptions(globalCalLeftMonthEl, globalCalLeftYearEl, globalDatePickerState.leftMonth, globalDatePickerState.leftYear);
+        setCalendarSelectOptions(globalCalRightMonthEl, globalCalRightYearEl, globalDatePickerState.rightMonth, globalDatePickerState.rightYear);
+        renderCalendarGrid(globalCalLeftDaysEl, globalDatePickerState.leftYear, globalDatePickerState.leftMonth);
+        renderCalendarGrid(globalCalRightDaysEl, globalDatePickerState.rightYear, globalDatePickerState.rightMonth);
+      }
+
+      function pickGlobalCalendarDate(iso) {
+        if (!iso) return;
+        globalDatePickerState.preset = '';
+        if (globalDatePickerState.selectingPart === 'from' || !globalDatePickerState.fromIso) {
+          globalDatePickerState.fromIso = iso;
+          if (globalDatePickerState.toIso && iso > globalDatePickerState.toIso) {
+            globalDatePickerState.toIso = iso;
+          }
+          globalDatePickerState.selectingPart = 'to';
+        } else {
+          if (iso < globalDatePickerState.fromIso) {
+            globalDatePickerState.toIso = globalDatePickerState.fromIso;
+            globalDatePickerState.fromIso = iso;
+          } else {
+            globalDatePickerState.toIso = iso;
+          }
+          globalDatePickerState.selectingPart = 'from';
+        }
+        globalDateFromEl.value = bvToDmyDate(globalDatePickerState.fromIso);
+        globalDateToEl.value = bvToDmyDate(globalDatePickerState.toIso);
+        bvInitDmyDateInputs(globalDateModalEl || document);
+        updatePresetButtonState('');
+        renderGlobalCalendars();
+      }
+
+      function initGlobalPickerFromInputs(fromDmy, toDmy) {
+        const now = new Date();
+        const nowIso = isoFromDateObj(now);
+        const toIso = bvToIsoDate(toDmy) || nowIso;
+        const yearMatch = String(bvToDmyDate(toIso)).match(/(\d{4})$/);
+        const seedYear = yearMatch ? Number(yearMatch[1]) : now.getFullYear();
+        const fromIso = bvToIsoDate(fromDmy) || `${seedYear}-01-01`;
+        globalDatePickerState.fromIso = fromIso <= toIso ? fromIso : toIso;
+        globalDatePickerState.toIso = fromIso <= toIso ? toIso : fromIso;
+        globalDatePickerState.selectingPart = 'from';
+        globalDatePickerState.preset = '';
+        const leftBase = dateObjFromIso(globalDatePickerState.fromIso) || now;
+        globalDatePickerState.leftYear = leftBase.getFullYear();
+        globalDatePickerState.leftMonth = leftBase.getMonth();
+        const rightBase = shiftMonthYear(globalDatePickerState.leftYear, globalDatePickerState.leftMonth, 1);
+        globalDatePickerState.rightYear = rightBase.year;
+        globalDatePickerState.rightMonth = rightBase.month;
+        globalDateFromEl.value = bvToDmyDate(globalDatePickerState.fromIso);
+        globalDateToEl.value = bvToDmyDate(globalDatePickerState.toIso);
+        bvInitDmyDateInputs(globalDateModalEl || document);
+        updatePresetButtonState('');
+        renderGlobalCalendars();
+      }
+
+      function findFormDateRangeInputs() {
+        const form = findPrimaryFilterForm();
+        const allDateInputs = Array.from(form?.querySelectorAll?.('input[data-date-format="dmy"], input[name], input[id]') || [])
+          .filter((el) => {
+            const key = `${el.name || ''} ${el.id || ''}`.toLowerCase();
+            return el.hasAttribute('data-date-format') || /(from|to|snapshot|as_of|date|asof)/.test(key);
+          });
+        const fromInput = allDateInputs.find((el) => isFromField(el)) || allDateInputs[0];
+        const toInput = allDateInputs.find((el) => isToField(el)) || allDateInputs[1] || allDateInputs[0];
+        return { fromInput, toInput };
+      }
+
+      function openGlobalDateRangePicker(triggerEl) {
+        const rangeInputs = findFormDateRangeInputs();
+        const defaultFrom = bvToDmyDate(rangeInputs.fromInput?.value || '');
+        const defaultTo = bvToDmyDate(rangeInputs.toInput?.value || '');
+        initGlobalPickerFromInputs(defaultFrom, defaultTo);
+        openGlobalDateModal(triggerEl);
+      }
+
+      function bindDateInputsToRangePicker() {
+        const { fromInput, toInput } = findFormDateRangeInputs();
+        [fromInput, toInput].forEach((input) => {
+          if (!input || input.dataset.bvDateRangeBound === '1') return;
+          input.dataset.bvDateRangeBound = '1';
+          input.addEventListener('click', (e) => {
+            e.preventDefault();
+            openGlobalDateRangePicker(input);
+          });
+        });
       }
 
       if (globalDateBtn && globalDateFromEl && globalDateToEl) {
         globalDateBtn.addEventListener('click', () => {
-          const form = findPrimaryFilterForm();
-          const allDateInputs = Array.from(form?.querySelectorAll?.('input[data-date-format="dmy"], input[name], input[id]') || [])
-            .filter((el) => {
-              const key = `${el.name || ''} ${el.id || ''}`.toLowerCase();
-              return el.hasAttribute('data-date-format') || /(from|to|snapshot|as_of|date|asof)/.test(key);
-            });
-          const fromInput = allDateInputs.find((el) => isFromField(el)) || allDateInputs[0];
-          const toInput = allDateInputs.find((el) => isToField(el)) || allDateInputs[1] || allDateInputs[0];
-          const defaultFrom = bvToDmyDate(fromInput?.value || '');
-          const defaultTo = bvToDmyDate(toInput?.value || '');
-          const now = new Date();
-          const nowDmy = `${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()}`;
-          const toSeed = defaultTo || nowDmy;
-          const yearMatch = String(toSeed).match(/(\d{4})$/);
-          const seedYear = yearMatch ? yearMatch[1] : String(now.getFullYear());
-          const fromSeed = defaultFrom || `01/01/${seedYear}`;
-          globalDateFromEl.value = fromSeed;
-          globalDateToEl.value = toSeed;
-          if (globalDatePresetEl) globalDatePresetEl.value = '';
-          bvInitDmyDateInputs(globalDateModalEl || document);
-          openGlobalDateModal(globalDateBtn);
+          openGlobalDateRangePicker(globalDateBtn);
         });
       }
-      if (globalDatePresetEl) {
-        globalDatePresetEl.addEventListener('change', () => {
-          applyPresetRange(globalDatePresetEl.value);
+      bindDateInputsToRangePicker();
+      globalDatePresetButtons.forEach((btn) => {
+        btn.addEventListener('click', () => {
+          applyPresetRange(btn.dataset.globalPreset || '');
         });
-      }
+      });
+      globalDateModalEl?.querySelectorAll('[data-cal-nav]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const nav = btn.dataset.calNav || '';
+          if (nav === 'left-prev') {
+            const next = shiftMonthYear(globalDatePickerState.leftYear, globalDatePickerState.leftMonth, -1);
+            globalDatePickerState.leftYear = next.year;
+            globalDatePickerState.leftMonth = next.month;
+          } else if (nav === 'left-next') {
+            const next = shiftMonthYear(globalDatePickerState.leftYear, globalDatePickerState.leftMonth, 1);
+            globalDatePickerState.leftYear = next.year;
+            globalDatePickerState.leftMonth = next.month;
+          } else if (nav === 'right-prev') {
+            const next = shiftMonthYear(globalDatePickerState.rightYear, globalDatePickerState.rightMonth, -1);
+            globalDatePickerState.rightYear = next.year;
+            globalDatePickerState.rightMonth = next.month;
+          } else if (nav === 'right-next') {
+            const next = shiftMonthYear(globalDatePickerState.rightYear, globalDatePickerState.rightMonth, 1);
+            globalDatePickerState.rightYear = next.year;
+            globalDatePickerState.rightMonth = next.month;
+          }
+          renderGlobalCalendars();
+        });
+      });
+      globalCalLeftMonthEl?.addEventListener('change', () => {
+        globalDatePickerState.leftMonth = Number(globalCalLeftMonthEl.value || 0);
+        renderGlobalCalendars();
+      });
+      globalCalLeftYearEl?.addEventListener('change', () => {
+        globalDatePickerState.leftYear = Number(globalCalLeftYearEl.value || 0);
+        renderGlobalCalendars();
+      });
+      globalCalRightMonthEl?.addEventListener('change', () => {
+        globalDatePickerState.rightMonth = Number(globalCalRightMonthEl.value || 0);
+        renderGlobalCalendars();
+      });
+      globalCalRightYearEl?.addEventListener('change', () => {
+        globalDatePickerState.rightYear = Number(globalCalRightYearEl.value || 0);
+        renderGlobalCalendars();
+      });
+      globalCalLeftDaysEl?.addEventListener('click', (e) => {
+        const btn = e.target.closest('button[data-date]');
+        if (!btn) return;
+        pickGlobalCalendarDate(btn.dataset.date || '');
+      });
+      globalCalRightDaysEl?.addEventListener('click', (e) => {
+        const btn = e.target.closest('button[data-date]');
+        if (!btn) return;
+        pickGlobalCalendarDate(btn.dataset.date || '');
+      });
+      globalDateFromEl?.addEventListener('change', () => {
+        const iso = bvToIsoDate(globalDateFromEl.value);
+        if (!iso) return;
+        const endIso = bvToIsoDate(globalDateToEl?.value || '') || iso;
+        applyRangeToPicker(dateObjFromIso(iso), dateObjFromIso(endIso), '');
+      });
+      globalDateToEl?.addEventListener('change', () => {
+        const iso = bvToIsoDate(globalDateToEl.value);
+        if (!iso) return;
+        const startIso = bvToIsoDate(globalDateFromEl?.value || '') || iso;
+        applyRangeToPicker(dateObjFromIso(startIso), dateObjFromIso(iso), '');
+      });
       if (globalDateApplyBtn && globalDateFromEl && globalDateToEl) {
         globalDateApplyBtn.addEventListener('click', () => {
           applyGlobalDateRange(globalDateFromEl.value, globalDateToEl.value);
@@ -2137,6 +2559,7 @@
               applyDateFormatGlobal(node);
               if (node.querySelectorAll) bvInitDmyDateInputs(node);
               ensureMultiSelectSearch(node);
+              bindDateInputsToRangePicker();
             });
           }
         }
@@ -2146,7 +2569,59 @@
   </script>
   {% block scripts %}{% endblock %}
 
-  <div class="app-version-badge">Version {{ app_version }}</div>
-  <div class="powered-by-cloudon">{{ tt(request, 'powered_by') }}</div>
+  <script>
+  (function () {
+    var IDLE_MS = 30 * 60 * 1000;
+    var WARN_MS = 25 * 60 * 1000;
+    var warnTimer, logoutTimer, warnEl;
+
+    function buildWarning() {
+      var el = document.createElement('div');
+      el.id = 'bv-idle-warning';
+      el.style.cssText = [
+        'position:fixed;bottom:24px;right:24px;z-index:99999',
+        'background:#fff;border:1px solid #e5e7eb;border-radius:10px',
+        'box-shadow:0 4px 24px rgba(0,0,0,.13);padding:20px 24px',
+        'max-width:320px;font-family:inherit;font-size:14px',
+        'display:none',
+      ].join(';');
+      el.innerHTML =
+        '<div style="font-weight:600;margin-bottom:8px;color:#111827">Αδράνεια session</div>' +
+        '<div style="color:#6b7280;margin-bottom:14px">Θα αποσυνδεθείτε αυτόματα σε <strong id="bv-idle-countdown">5</strong> λεπτά λόγω αδράνειας.</div>' +
+        '<button id="bv-idle-stay" style="background:#6f42c1;color:#fff;border:none;border-radius:6px;padding:7px 16px;cursor:pointer;font-size:13px">Παραμονή</button>';
+      document.body.appendChild(el);
+      el.querySelector('#bv-idle-stay').addEventListener('click', reset);
+      return el;
+    }
+
+    function showWarning() {
+      if (!warnEl) warnEl = buildWarning();
+      var remaining = 5;
+      warnEl.querySelector('#bv-idle-countdown').textContent = remaining;
+      warnEl.style.display = 'block';
+      var tick = setInterval(function () {
+        remaining -= 1;
+        var span = warnEl && warnEl.querySelector('#bv-idle-countdown');
+        if (span) span.textContent = remaining;
+        if (remaining <= 0) clearInterval(tick);
+      }, 60000);
+    }
+
+    function reset() {
+      clearTimeout(warnTimer);
+      clearTimeout(logoutTimer);
+      if (warnEl) warnEl.style.display = 'none';
+      warnTimer = setTimeout(showWarning, WARN_MS);
+      logoutTimer = setTimeout(function () { window.location.href = '/logout'; }, IDLE_MS);
+    }
+
+    ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart', 'click'].forEach(function (ev) {
+      document.addEventListener(ev, reset, { passive: true });
+    });
+
+    reset();
+  })();
+  </script>
+
 </body>
 </html>

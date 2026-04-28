@@ -355,41 +355,113 @@ Regenerate insights:
   - keep visible UI version aligned with deployed code
 - This is now part of release hygiene, not optional follow-up work.
 
-## 19. Observability
+## 19. Latest KPI + Ingest Update (2026-04-22)
+- Sales dashboard chart support was completed at API/query level for three timeline views:
+  - intraday hourly sales
+  - weekly daily sales by branch
+  - YTD monthly sales by branch
+- New KPI endpoints added in `backend/app/api/kpi.py`:
+  - `GET /v1/kpi/sales/intraday?day=YYYY-MM-DD&branches[]=...`
+  - `GET /v1/kpi/sales/weekly?week_from=YYYY-MM-DD&week_to=YYYY-MM-DD&branches[]=...`
+  - `GET /v1/kpi/sales/ytd-monthly?ytd_from=YYYY-MM-DD&ytd_to=YYYY-MM-DD&branches[]=...`
+- New query functions added in `backend/app/services/kpi_queries.py`:
+  - `sales_intraday`
+  - `sales_daily_by_branch`
+  - `sales_monthly_by_branch`
+- Output contract:
+  - all three return `data` plus branch label mapping in `branches`
+  - daily/monthly responses also return the full axis list (`dates` or `months`) so the frontend can render empty gaps consistently
+- Dashboard failure mode resolved:
+  - before this change, the three chart requests failed because the corresponding endpoints did not exist
+  - query implementation also required ORM attribute correction from `DimBranch.ext_id` to `DimBranch.external_id`
+
+### 19.1 ERP Time Semantics for Intraday
+- `fact_sales.source_created_at` is now populated from the ERP source query, not BI ingestion time.
+- `backend/querypacks/pharmacyone/facts/sales_facts.sql` now selects:
+  - `CAST(ISNULL(F.SOTIME, F.INSDATE) AS datetime2) AS source_created_at`
+- Business meaning:
+  - prefer `SOTIME` as the actual SoftOne sales completion time
+  - fallback to `INSDATE` when `SOTIME` is null
+  - never use BI import time for intraday analysis
+- `sales_intraday` groups sales by `EXTRACT(hour FROM source_created_at)` and `branch_ext_id`
+- Fallback behavior:
+  - if no `source_created_at` exists for the requested day, the API returns branch totals on synthetic hour `12`
+  - this keeps the chart non-empty while signaling missing ERP time precision
+
+### 19.2 QueryPack Runtime Precedence
+- Query resolution for ingestion is not based only on the filesystem querypack.
+- Effective precedence is:
+  1. `tenant_connections.stream_query_mapping[stream]`
+  2. connector template fields such as `sales_query_template`
+  3. default packaged querypack
+- Operational implication:
+  - updating `backend/querypacks/pharmacyone/facts/sales_facts.sql` does not guarantee runtime usage if `stream_query_mapping` already contains a stale cached query
+  - the safe operator path is the admin action `Apply Default QueryPack`, which refreshes the connection mapping consistently
+- Runtime correction performed for tenant connection `id=3`:
+  - `stream_query_mapping['sales_documents']` was updated to match the current `sales_query_template`
+  - this was a direct control-DB repair, not a migration
+
+### 19.3 Backfill and Incremental Sync Rule
+- `_build_final_query` applies both:
+  - date-range filtering
+  - incremental sync filtering based on `sync_state`
+- Consequence:
+  - a normal date-window backfill does not automatically re-read already-synced rows
+  - to repopulate a field for existing rows, jobs must run with `ignore_sync_state: true`
+- This rule was required for `source_created_at` historical correction because the normal incremental path filtered rows by `UPDDATE > last_sync_ts`
+
+### 19.4 Admin Backfill Progress Fix
+- Admin connection backfill progress previously marked runs as completed too early.
+- Root cause in `backend/app/api/ui.py`:
+  - `target_queue_depth` was initialized to the current queue depth instead of zero
+- Correct behavior now:
+  - `start_queue_depth` = current queue size when the backfill begins
+  - `target_queue_depth` = `0`
+  - progress reaches completion only when the tenant ingest queue is drained
+- User-visible effect:
+  - `QueryPack And Initial Backfill` no longer reports immediate completion with zero processed rows while jobs are still running
+
+## 20. Observability
 - Structured JSON logging
 - `/health`, `/ready`
 - `/metrics` (restricted)
 - Pool stats metrics for control/tenant engines
 - Queue/worker health via Docker + Celery
 
-## 20. Backup & Restore Strategy
+## 21. Backup & Restore Strategy
 - Nightly backups for `bi_control` + each tenant DB
 - Retention policy and restore drill required
 - Validate restore into clean environment before production changes
 
-## 21. Troubleshooting
-### 20.1 Inventory/Cashflow page error
+## 22. Troubleshooting
+### 22.1 Inventory/Cashflow page error
 - check plan/source gating (`enterprise` + `pharmacyone`)
 - check API logs (`docker logs cloudon_bi-api-1`)
 - verify tenant DB has facts/aggregates
 
-### 20.2 Empty charts
+### 22.2 Empty charts
 - verify filter date range
 - verify aggregate refresh after ingestion/seed
 - inspect endpoint JSON directly
 
-### 20.3 Wrong language text
+### 22.3 Intraday chart has no hourly spread
+- verify `fact_sales.source_created_at` is populated for the selected date
+- confirm the active connection is using the refreshed querypack, not stale `stream_query_mapping` SQL
+- if backfilling existing dates, verify the job used `ignore_sync_state: true`
+- if ERP time is unavailable for that date, the API will return totals on fallback hour `12`
+
+### 22.4 Wrong language text
 - add/update key in `i18n.py`
 - replace hardcoded template text with `tt(request, 'key')`
 - restart `api`
 
-## 17. Change Control
+## 23. Change Control
 For each change:
 1. patch code
 2. restart affected service
 3. validate endpoint + UI
 
-## 21. Integration References
+## 24. Integration References
 - `INTEGRATION_GUIDE.md`
 - `INTEGRATION_EXAMPLES.md`
 - `DATA_STRUCTURE_OVERVIEW.md`
@@ -400,7 +472,7 @@ For each change:
 - `DATA_STRUCTURE_SUPPLIER_BALANCES.md`
 - `DATA_STRUCTURE_CUSTOMER_BALANCES.md`
 
-## 22. User Manual + Context Help (2026-03-08)
+## 25. User Manual + Context Help (2026-03-08)
 - Added tenant user manual route and page:
   - UI route: `/tenant/manual`
   - template: `backend/app/templates/tenant/user_manual.html`
@@ -445,7 +517,7 @@ For each change:
 4. confirm logs have no traceback
 5. document in changelog/runbook
 
-## 18. Current Notes
+## 26. Current Notes
 - Movers chart now uses:
   - fast movers from sales quantities
   - real purchases quantities for same items/period/filters

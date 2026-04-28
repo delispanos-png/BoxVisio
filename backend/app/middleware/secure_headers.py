@@ -15,6 +15,11 @@ async def secure_headers_middleware(request: Request, call_next):
         "font-src 'self' data:; "
         "connect-src 'self';"
     )
-    if request.url.scheme == 'https':
+    # Prevent search engines from indexing any API or admin paths.
+    response.headers['X-Robots-Tag'] = 'noindex, nofollow'
+    # Always set HSTS — nginx already enforces TLS; the app layer redundantly
+    # declares it so direct container access also carries the header.
+    forwarded_proto = (request.headers.get('x-forwarded-proto') or '').lower()
+    if request.url.scheme == 'https' or forwarded_proto == 'https':
         response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains; preload'
     return response

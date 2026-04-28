@@ -1,97 +1,210 @@
 {% extends "base_admin.html" %}
 {% block content %}
-<div class="card mt-3">
-  <div class="card-header d-flex justify-content-between align-items-center">
-    <h5 class="mb-0">{{ tt(request, page_label_key) }}</h5>
-    <span class="badge bg-primary">{{ domain_label }}</span>
+
+{# ── Header ─────────────────────────────────────────────────────────────── #}
+<div class="d-flex align-items-start justify-content-between mt-3 mb-3 gap-2 flex-wrap">
+  <div>
+    <div class="d-flex align-items-center gap-2 mb-1">
+      <h5 class="mb-0">{{ tt(request, page_label_key) }}</h5>
+      <span class="badge bg-secondary-subtle text-secondary border">{{ domain_label }}</span>
+    </div>
+    <small class="text-muted">{{ page_description }}</small>
   </div>
-  <div class="card-body">
-    <p class="text-muted mb-3">{{ page_description }}</p>
+  <div class="d-flex gap-2">
+    <button class="btn btn-sm btn-primary" data-bs-toggle="collapse" data-bs-target="#addRulePanel" aria-expanded="false">
+      <i class="fe fe-plus me-1"></i>Νέος Κανόνας
+    </button>
+    <a class="btn btn-sm btn-outline-secondary" href="/admin/business-rules">
+      <i class="fe fe-arrow-left me-1"></i>Πίσω
+    </a>
+  </div>
+</div>
 
-    {% if saved %}
-      <div class="alert alert-success">Η αποθήκευση ολοκληρώθηκε.</div>
-    {% endif %}
-    {% if error_message %}
-      <div class="alert alert-danger">{{ error_message }}</div>
-    {% endif %}
+{# ── Alerts ──────────────────────────────────────────────────────────────── #}
+{% if saved %}
+<div class="alert alert-success d-flex align-items-center mb-3">
+  <i class="fe fe-check-circle me-2"></i>Αποθηκεύτηκε επιτυχώς.
+</div>
+{% endif %}
+{% if deleted %}
+<div class="alert alert-warning d-flex align-items-center mb-3">
+  <i class="fe fe-trash-2 me-2"></i>Ο κανόνας διαγράφηκε.
+</div>
+{% endif %}
+{% if error_message %}
+<div class="alert alert-danger mb-3">{{ error_message }}</div>
+{% endif %}
 
-    <div class="border rounded p-3 mb-4">
-      <h6 class="mb-3">Νέος / Ενημέρωση Κανόνα</h6>
-      <form method="post" action="/admin/business-rules/global-rule/upsert" class="row g-2">
+{# ── Add/Edit Rule Panel (collapsed by default) ────────────────────────── #}
+<div class="collapse mb-3" id="addRulePanel">
+  <div class="card border-primary shadow-sm">
+    <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+      <span><i class="fe fe-edit-2 me-2"></i><span id="panelTitle">Νέος Κανόνας</span></span>
+      <button type="button" class="btn-close btn-close-white btn-sm" data-bs-toggle="collapse" data-bs-target="#addRulePanel"></button>
+    </div>
+    <div class="card-body">
+      <form method="post" action="/admin/business-rules/global-rule/upsert" id="ruleForm">
         <input type="hidden" name="domain_value" value="{{ domain_value }}">
         <input type="hidden" name="active_page" value="{{ active_page }}">
-        <input type="hidden" name="redirect_to" value="{{ request.url.path }}">
+        <input type="hidden" name="redirect_to" value="{{ request.url.path }}?saved=1">
+        <input type="hidden" name="edit_id" id="editId" value="">
 
-        <div class="col-md-3">
-          <label class="form-label">Ruleset</label>
-          <input class="form-control" name="ruleset_code" value="{{ initial_ruleset_code or 'softone_default_v1' }}" required>
-        </div>
-        <div class="col-md-3">
-          <label class="form-label">Stream</label>
-          <select class="form-select" name="stream_value" required>
-            {% for stream in stream_options %}
-              <option value="{{ stream.value }}">{{ stream.label }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        <div class="col-md-4">
-          <label class="form-label">Rule Key</label>
-          <input class="form-control" name="rule_key" placeholder="π.χ. SALES_INVOICE_INCLUDE" required>
-        </div>
-        <div class="col-md-2">
-          <label class="form-label">Ενεργό</label>
-          <select class="form-select" name="is_active">
-            <option value="1">Ναι</option>
-            <option value="0">Όχι</option>
-          </select>
-        </div>
-        <div class="col-12">
-          <label class="form-label">Payload JSON</label>
-          <textarea class="form-control font-monospace" name="payload_json" rows="4">{}</textarea>
-          <div class="form-text">Παράδειγμα: {"include_revenue": true, "sign": 1}</div>
-        </div>
-        <div class="col-12 d-flex gap-2">
-          <button class="btn bv-action-btn bv-action-save" type="submit">
-            <i class="fe fe-save"></i> Αποθήκευση
-          </button>
-          <a class="btn btn-outline-secondary" href="/admin/business-rules">
-            <i class="fe fe-arrow-left"></i> Επιστροφή
-          </a>
+        <div class="row g-3">
+          <div class="col-md-3">
+            <label class="form-label fw-semibold">Ruleset <span class="text-danger">*</span></label>
+            <input class="form-control font-monospace" name="ruleset_code" id="fieldRuleset"
+              value="{{ initial_ruleset_code or 'softone_default_v1' }}" required
+              placeholder="softone_default_v1">
+            <div class="form-text">Το ruleset στο οποίο ανήκει ο κανόνας.</div>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label fw-semibold">Stream <span class="text-danger">*</span></label>
+            <select class="form-select" name="stream_value" id="fieldStream" required>
+              {% for stream in stream_options %}
+                <option value="{{ stream.value }}">{{ stream.label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label fw-semibold">Rule Key <span class="text-danger">*</span></label>
+            <input class="form-control font-monospace" name="rule_key" id="fieldRuleKey"
+              placeholder="π.χ. SALES_INCLUDE_REVENUE" required>
+            <div class="form-text">Μοναδικό αναγνωριστικό κανόνα εντός ruleset+stream.</div>
+          </div>
+          <div class="col-md-2">
+            <label class="form-label fw-semibold">Ενεργό</label>
+            <select class="form-select" name="is_active" id="fieldActive">
+              <option value="1">✓ Ναι</option>
+              <option value="0">✗ Όχι</option>
+            </select>
+          </div>
+          <div class="col-12">
+            <label class="form-label fw-semibold">Payload JSON <span class="text-danger">*</span></label>
+            <textarea class="form-control font-monospace" name="payload_json" id="fieldPayload"
+              rows="6" placeholder='{"include_revenue": true, "amount_sign": 1}'>{}</textarea>
+            <div class="form-text">Βάλε έγκυρο JSON. Τα πεδία εξαρτώνται από το domain.</div>
+          </div>
+          <div class="col-12 d-flex gap-2">
+            <button class="btn btn-primary" type="submit">
+              <i class="fe fe-save me-1"></i>Αποθήκευση
+            </button>
+            <button type="button" class="btn btn-outline-secondary" onclick="resetForm()">
+              <i class="fe fe-x me-1"></i>Καθαρισμός
+            </button>
+          </div>
         </div>
       </form>
     </div>
-
-    <h6 class="mb-2">Υπάρχοντες Κανόνες</h6>
-    {% if entries %}
-      <div class="table-responsive">
-        <table class="table table-hover align-middle bv-unified-table" data-bv-admin-table="1">
-          <thead>
-            <tr>
-              <th>Ruleset</th>
-              <th>Stream</th>
-              <th>Rule Key</th>
-              <th>Ενεργό</th>
-              <th>Payload</th>
-              <th>Ενημέρωση</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for row in entries %}
-              <tr>
-                <td>{{ row.ruleset_code }}</td>
-                <td>{{ row.stream_label }}</td>
-                <td><code>{{ row.rule_key }}</code></td>
-                <td>{% if row.is_active %}Ναι{% else %}Όχι{% endif %}</td>
-                <td><pre class="mb-0 small">{{ row.payload_json }}</pre></td>
-                <td>{{ row.updated_at or '-' }}</td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    {% else %}
-      <div class="alert alert-info mb-0">Δεν υπάρχουν κανόνες για αυτό το domain ακόμη.</div>
-    {% endif %}
   </div>
 </div>
+
+{# ── Stream tabs ─────────────────────────────────────────────────────────── #}
+{% set streams_with_entries = entries | map(attribute='stream_label') | unique | list %}
+{% set all_streams = stream_options | map(attribute='label') | list %}
+
+{% if entries %}
+  {# Group entries by stream #}
+  {% set ns = namespace(grouped={}) %}
+  {% for row in entries %}
+    {% set sl = row.stream_label %}
+    {% if sl not in ns.grouped %}
+      {% set _ = ns.grouped.update({sl: []}) %}
+    {% endif %}
+    {% set _ = ns.grouped[sl].append(row) %}
+  {% endfor %}
+
+  <ul class="nav nav-tabs mb-0" id="streamTabs">
+    <li class="nav-item">
+      <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-all" type="button">
+        Όλα <span class="badge bg-secondary ms-1">{{ entries | length }}</span>
+      </button>
+    </li>
+    {% for stream_label, rows in ns.grouped.items() %}
+    <li class="nav-item">
+      <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-{{ loop.index }}" type="button">
+        {{ stream_label }} <span class="badge bg-secondary ms-1">{{ rows | length }}</span>
+      </button>
+    </li>
+    {% endfor %}
+  </ul>
+
+  <div class="tab-content border border-top-0 rounded-bottom bg-white p-3 mb-3">
+    {# All tab #}
+    <div class="tab-pane fade show active" id="tab-all">
+      {% include "admin/_rule_entries_table.html" with context %}
+    </div>
+    {# Per stream tabs #}
+    {% for stream_label, stream_rows in ns.grouped.items() %}
+    <div class="tab-pane fade" id="tab-{{ loop.index }}">
+      {% set entries = stream_rows %}
+      {% include "admin/_rule_entries_table.html" with context %}
+    </div>
+    {% endfor %}
+  </div>
+
+{% else %}
+  <div class="card border-0 shadow-sm">
+    <div class="card-body text-center py-5 text-muted">
+      <i class="fe fe-inbox" style="font-size:2.5rem;opacity:.3"></i>
+      <p class="mt-3 mb-2">Δεν υπάρχουν κανόνες για αυτό το domain ακόμη.</p>
+      <button class="btn btn-sm btn-primary" data-bs-toggle="collapse" data-bs-target="#addRulePanel">
+        <i class="fe fe-plus me-1"></i>Προσθήκη πρώτου κανόνα
+      </button>
+    </div>
+  </div>
+{% endif %}
+
+<script>
+function editRuleFromBtn(btn) {
+  const d = JSON.parse(btn.dataset.editRule);
+  editRule(d.id, d.ruleset, d.stream, d.key, d.payload, d.active);
+}
+
+function editRule(id, ruleset, stream, ruleKey, payload, isActive) {
+  document.getElementById('panelTitle').textContent = 'Επεξεργασία: ' + ruleKey;
+  document.getElementById('editId').value = id;
+  document.getElementById('fieldRuleset').value = ruleset;
+  document.getElementById('fieldRuleKey').value = ruleKey;
+  document.getElementById('fieldPayload').value = typeof payload === 'string' ? payload : JSON.stringify(payload, null, 2);
+  document.getElementById('fieldActive').value = isActive ? '1' : '0';
+
+  const streamSel = document.getElementById('fieldStream');
+  for (let opt of streamSel.options) {
+    if (opt.textContent.trim() === stream) { opt.selected = true; break; }
+  }
+
+  const panel = document.getElementById('addRulePanel');
+  if (!panel.classList.contains('show')) {
+    new bootstrap.Collapse(panel, { toggle: false }).show();
+  }
+  panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function resetForm() {
+  document.getElementById('panelTitle').textContent = 'Νέος Κανόνας';
+  document.getElementById('editId').value = '';
+  document.getElementById('fieldRuleKey').value = '';
+  document.getElementById('fieldPayload').value = '{}';
+  document.getElementById('fieldActive').value = '1';
+}
+
+function deleteRule(id, ruleKey) {
+  if (!confirm(`Διαγραφή κανόνα "${ruleKey}";`)) return;
+  const form = document.createElement('form');
+  form.method = 'post';
+  form.action = '/admin/business-rules/global-rule/delete';
+  form.innerHTML = `<input name="entry_id" value="${id}">
+                    <input name="redirect_to" value="${window.location.pathname}">`;
+  document.body.appendChild(form);
+  form.submit();
+}
+
+function togglePayload(btn) {
+  const pre = btn.closest('td').querySelector('.payload-pre');
+  if (!pre) return;
+  const hidden = pre.style.display === 'none';
+  pre.style.display = hidden ? '' : 'none';
+  btn.textContent = hidden ? '▲ Απόκρυψη' : '▼ JSON';
+}
+</script>
 {% endblock %}

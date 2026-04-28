@@ -9,8 +9,9 @@ from urllib.parse import quote_plus
 
 from celery import current_app, shared_task
 from redis import Redis
-from sqlalchemy import select, text
+from sqlalchemy import create_engine, select, text
 from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.db.control_session import ControlSessionLocal
@@ -33,6 +34,7 @@ from app.observability.metrics import (
     ingest_jobs_total,
     ingest_jobs_tenant_total,
     ingest_retries_total,
+    sync_field_fill_pct,
     sync_duration_seconds,
 )
 from app.services.ingestion import (
@@ -49,10 +51,20 @@ from app.services.ingestion import (
     tenant_stop_key,
     tenant_queue_name,
 )
+from app.services.ingestion.queueing import (
+    close_ingest_circuit,
+    get_ingest_circuit_reason,
+    open_ingest_circuit,
+)
 from app.services.ingestion.base import ALL_OPERATIONAL_STREAMS, ENTITY_TO_STREAM, STREAM_TO_ENTITY, normalize_stream_name
+from app.services.ingestion.completeness_audit import (
+    check_recent_batch_health,
+    collect_tenant_sync_completeness,
+    verify_tenant_sync_window,
+)
 from app.services.ingestion.engine import persist_dead_letter
 from app.services.ingestion.progress import begin_ingest_progress, queue_depth, update_ingest_progress
-from app.services.ingestion.sync_planner import plan_tenant_sync_jobs
+from app.services.ingestion.sync_planner import SQL_CONNECTOR_ALIASES, plan_tenant_sync_jobs
 from app.services.intelligence_service import generate_daily_insights
 from app.services.kpi_cache import invalidate_tenant_cache
 
@@ -91,6 +103,184 @@ def _iter_date_chunks(from_date: date, to_date: date, chunk_days: int):
         chunk_end = min(current + timedelta(days=step - 1), to_date)
         yield current, chunk_end
         current = chunk_end + timedelta(days=1)
+
+
+def _parse_iso_date(value: Any) -> date | None:
+    text = str(value or '').strip()
+    if not text:
+        return None
+    try:
+        return date.fromisoformat(text[:10])
+    except Exception:
+        return None
+
+
+def _recovery_streams() -> list[str]:
+    raw = str(getattr(settings, 'ingest_recovery_streams_csv', '') or '').strip()
+    if not raw:
+        raw = 'sales_documents,purchase_documents,inventory_documents,cash_transactions,operating_expenses'
+    streams: list[str] = []
+    seen: set[str] = set()
+    for token in raw.split(','):
+        normalized = normalize_stream_name(token)
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        streams.append(normalized)
+    return streams
+
+
+def _resolve_recovery_window_from_progress(progress: dict[str, str]) -> tuple[date, date] | None:
+    if not bool(getattr(settings, 'ingest_recovery_enabled', True)):
+        return None
+
+    operation = str(progress.get('operation') or '').strip().lower()
+    is_backfill = 'backfill' in operation
+    is_incremental = operation.startswith('incremental_sync')
+
+    if is_backfill and not bool(getattr(settings, 'ingest_recovery_on_backfill', True)):
+        return None
+    if is_incremental and not bool(getattr(settings, 'ingest_recovery_on_incremental', True)):
+        return None
+    if not is_backfill and not is_incremental:
+        return None
+
+    if is_backfill:
+        from_date = _parse_iso_date(progress.get('from_date'))
+        to_date = _parse_iso_date(progress.get('to_date'))
+        if to_date is None:
+            return None
+        if from_date is None:
+            from_date = to_date
+        if from_date > to_date:
+            from_date, to_date = to_date, from_date
+        return from_date, to_date
+
+    days = max(1, int(getattr(settings, 'ingest_recovery_incremental_days', 2) or 2))
+    to_date = date.today()
+    from_date = to_date - timedelta(days=days - 1)
+    return from_date, to_date
+
+
+def _resolve_tenant_primary_connector(tenant_id: int) -> str | None:
+    """
+    Return the connector type to use when enqueuing recovery jobs.
+    Mirrors sync_planner priority: SQL connectors beat API/file.
+    Returns None when no active connection exists — callers must guard against this
+    to avoid enqueuing jobs that will immediately fail with 'No connection' errors.
+    Falls back to 'sql_connector' only when the control DB is unreachable (transient).
+    """
+    control_engine = create_engine(settings.control_database_url_sync, future=True)
+    try:
+        with Session(control_engine) as ctrl_session:
+            rows = ctrl_session.execute(
+                select(TenantConnection)
+                .where(
+                    TenantConnection.tenant_id == tenant_id,
+                    TenantConnection.is_active.is_(True),
+                )
+                .order_by(TenantConnection.id.asc())
+            ).scalars().all()
+    except Exception:
+        return 'sql_connector'  # control DB unreachable — optimistic fallback for transient errors
+    finally:
+        control_engine.dispose()
+
+    if not rows:
+        return None  # no active connection — do not enqueue recovery jobs
+    for row in rows:
+        ct = str(row.connector_type or '').strip().lower()
+        if ct in SQL_CONNECTOR_ALIASES:
+            return ct
+    return str(rows[0].connector_type or '').strip().lower() or None
+
+
+# ── Drain scheduling deduplication ────────────────────────────────────────
+# A Redis key with a short TTL ensures at most ONE drain task is pending per
+# tenant at any time.  Without this, concurrent drain tasks (throttle loop,
+# retry loop, recovery sweep) each schedule another drain independently,
+# causing exponential growth in queued drain tasks.
+
+_DRAIN_SCHED_KEY_FMT = 'ingest:drain:sched:{}'
+
+
+def _try_schedule_drain(
+    redis_client: Any,
+    tenant_slug: str,
+    countdown: int = 1,
+    max_jobs: int = 50,
+    queue: str = 'ingest',
+) -> bool:
+    """Schedule a drain only if no drain is already pending for this tenant.
+
+    Returns True if a new drain was scheduled, False if one was already queued.
+    The caller should set next_drain_scheduled = True when this returns True.
+    """
+    sched_key = _DRAIN_SCHED_KEY_FMT.format(tenant_slug)
+    ttl = max(countdown + 30, 60)
+    if not redis_client.set(sched_key, '1', nx=True, ex=ttl):
+        return False  # drain already pending — skip duplicate
+    drain_tenant_ingest_queue.apply_async(
+        kwargs={'tenant_slug': tenant_slug, 'max_jobs': max_jobs},
+        countdown=countdown,
+        queue=queue,
+    )
+    return True
+
+
+def _enqueue_recovery_sweep_jobs(
+    tenant_slug: str,
+    *,
+    from_date: date,
+    to_date: date,
+    fallback_limit: int,
+    connector: str = 'sql_connector',
+) -> dict[str, Any]:
+    if from_date > to_date:
+        return {'jobs': 0, 'streams': [], 'from_date': from_date.isoformat(), 'to_date': to_date.isoformat()}
+
+    streams = _recovery_streams()
+    if not streams:
+        return {'jobs': 0, 'streams': [], 'from_date': from_date.isoformat(), 'to_date': to_date.isoformat()}
+
+    chunk_days = max(1, int(getattr(settings, 'ingest_recovery_chunk_days', 1) or 1))
+    effective_limit = max(100, int(getattr(settings, 'ingest_recovery_limit', fallback_limit) or fallback_limit))
+    max_jobs = max(1, int(getattr(settings, 'ingest_recovery_max_jobs', 5000) or 5000))
+
+    jobs = 0
+    stopped_early = False
+    for chunk_from, chunk_to in _iter_date_chunks(from_date, to_date, chunk_days):
+        for stream in streams:
+            if jobs >= max_jobs:
+                stopped_early = True
+                break
+            payload = {
+                'from_date': chunk_from.isoformat(),
+                'to_date': chunk_to.isoformat(),
+                'ignore_sync_state': True,
+                'backfill': True,
+                'recovery_check': True,
+                'limit': effective_limit,
+            }
+            enqueue_tenant_job(
+                tenant_slug,
+                _default_job(connector, stream, tenant_slug, payload=payload),
+            )
+            jobs += 1
+        if stopped_early:
+            break
+
+    return {
+        'jobs': jobs,
+        'streams': streams,
+        'connector': connector,
+        'from_date': from_date.isoformat(),
+        'to_date': to_date.isoformat(),
+        'chunk_days': chunk_days,
+        'limit': effective_limit,
+        'max_jobs': max_jobs,
+        'stopped_early': stopped_early,
+    }
 
 
 def _clear_tenant_runtime_queue_state(
@@ -176,6 +366,12 @@ def _parse_iso_datetime(value: str | None) -> datetime | None:
         return datetime.fromisoformat(text)
     except Exception:
         return None
+
+
+def _age_seconds(now: datetime, dt: datetime | None, default: int = 0) -> int:
+    if dt is None:
+        return default
+    return max(0, int((now - dt).total_seconds()))
 
 
 def _tenant_slug_from_task_kwargs(task_kwargs: Any) -> str | None:
@@ -282,24 +478,30 @@ def auto_recover_stuck_ingest() -> dict:
         if updated_at is None:
             skipped.append({'tenant': tenant_slug, 'reason': 'missing_updated_at'})
             continue
-        heartbeat_age_seconds = max(0, int((now - updated_at).total_seconds()))
+        heartbeat_age_seconds = _age_seconds(now, updated_at)
 
         active = active_drain_tasks.get(tenant_slug, [])
         active_ages = [int(t.get('age_seconds')) for t in active if isinstance(t.get('age_seconds'), int)]
         max_active_age_seconds = max(active_ages) if active_ages else None
         processed_jobs = int(raw.get('processed_jobs') or 0)
         has_lock = bool(redis.get(tenant_lock_name(tenant_slug)))
-        # Fast-recover mode:
-        # If drain appears active but progress heartbeat is stale and no job has been
-        # processed yet, recover earlier instead of waiting full force_after_seconds.
-        # This avoids long "0/N jobs" stalls caused by stale locks or hung first job.
-        fast_recover_after = max(stale_after_seconds + 30, 210)
-        allow_early_recover = processed_jobs <= 0 and heartbeat_age_seconds >= fast_recover_after
+        # last_job_completed_at / last_job_started_at are set only on actual job events,
+        # never by the heartbeat — so they reveal stalls the heartbeat would otherwise mask.
+        last_job_completed_dt = _parse_iso_datetime(raw.get('last_job_completed_at'))
+        last_job_started_dt = _parse_iso_datetime(raw.get('last_job_started_at'))
+        job_progress_age_seconds = _age_seconds(now, last_job_completed_dt, default=heartbeat_age_seconds)
+        # A job is "in flight" when it was started more recently than the last completion.
+        job_in_flight = (
+            last_job_started_dt is not None
+            and (last_job_completed_dt is None or last_job_started_dt > last_job_completed_dt)
+        )
+        current_job_age_seconds = _age_seconds(now, last_job_started_dt) if job_in_flight else 0
+
         # Ultra-early recover:
         # If the queue is non-empty, nothing has been processed yet, there is no active
         # drain task, but a tenant lock still exists, we are almost certainly stuck
         # behind a stale lock left behind by a crashed/aborted drain attempt.
-        orphan_lock_recover_after = 45
+        orphan_lock_recover_after = max(stale_after_seconds, 180)
         allow_orphan_lock_recover = (
             processed_jobs <= 0
             and not active
@@ -307,18 +509,46 @@ def auto_recover_stuck_ingest() -> dict:
             and heartbeat_age_seconds >= orphan_lock_recover_after
         )
 
+        # A fresh heartbeat means the asyncio event loop is running — the SQL query is
+        # executing in run_in_executor (a thread) and will eventually be cancelled by
+        # asyncio.wait_for or by pyodbc conn.timeout. Treat it as alive up to force_after_seconds.
+        heartbeat_fresh = heartbeat_age_seconds < stale_after_seconds
+
+        # Fast-recover: job was picked up but the event loop appears stuck (heartbeat stale).
+        # If the heartbeat is fresh, the loop is alive — the SQL runs in a thread and may
+        # legitimately take longer than stale_after_seconds (e.g. inventory snapshot scans).
+        # Only trigger early recovery when heartbeat has gone stale (loop blocked or dead).
+        fast_recover_after = max(stale_after_seconds + 30, 210)
+        allow_early_recover = (
+            processed_jobs <= 0
+            and (
+                (job_in_flight and current_job_age_seconds >= stale_after_seconds and not heartbeat_fresh)
+                or heartbeat_age_seconds >= fast_recover_after
+            )
+        )
         active_is_making_progress = (
             active
             and processed_jobs > 0
-            and heartbeat_age_seconds < stale_after_seconds
+            and job_progress_age_seconds < stale_after_seconds
+            and (
+                not job_in_flight
+                or current_job_age_seconds < stale_after_seconds
+                or (heartbeat_fresh and current_job_age_seconds < force_after_seconds)
+            )
         )
+        # Force-recover only when the *current job* has been running past the absolute ceiling.
+        # Using drain-task age (max_active_age_seconds) was wrong: a drain that processes many
+        # jobs over 17+ minutes is healthy — its Celery task age is not a stuck-job signal.
+        force_by_age = job_in_flight and current_job_age_seconds >= force_after_seconds
 
-        if active_is_making_progress:
+        if active_is_making_progress and not force_by_age:
             skipped.append(
                 {
                     'tenant': tenant_slug,
                     'reason': 'active_drain_progressing',
                     'heartbeat_age_seconds': heartbeat_age_seconds,
+                    'job_progress_age_seconds': job_progress_age_seconds,
+                    'current_job_age_seconds': current_job_age_seconds,
                     'max_active_age_seconds': max_active_age_seconds,
                     'processed_jobs': processed_jobs,
                     'force_after_seconds': force_after_seconds,
@@ -326,12 +556,29 @@ def auto_recover_stuck_ingest() -> dict:
             )
             continue
 
-        if active and (max_active_age_seconds is None or (max_active_age_seconds < force_after_seconds and not allow_early_recover)):
+        # A job is "stuck" only when the current job exceeds stale_after_seconds AND
+        # either the heartbeat has gone stale (worker dead) or the job exceeded force_after_seconds.
+        # A fresh heartbeat with a slow-but-alive SQL query is not a stuck job.
+        job_stuck = (
+            job_in_flight
+            and current_job_age_seconds >= stale_after_seconds
+            and (not heartbeat_fresh or current_job_age_seconds >= force_after_seconds)
+        )
+        # within_grace: the drain has not yet exceeded its tolerance window.
+        # Use job_progress_age (time since last job completed) rather than drain-task age
+        # (max_active_age_seconds) so a drain that has processed many jobs over a long
+        # period is not force-killed simply because its Celery task is "old".
+        within_grace = (
+            job_progress_age_seconds < force_after_seconds
+        ) and not allow_early_recover and not job_stuck
+
+        if active and within_grace:
             skipped.append(
                 {
                     'tenant': tenant_slug,
                     'reason': 'active_drain_running',
                     'heartbeat_age_seconds': heartbeat_age_seconds,
+                    'current_job_age_seconds': current_job_age_seconds,
                     'max_active_age_seconds': max_active_age_seconds,
                     'processed_jobs': processed_jobs,
                     'fast_recover_after': fast_recover_after,
@@ -354,6 +601,13 @@ def auto_recover_stuck_ingest() -> dict:
             )
             continue
 
+        # Skip tenants whose circuit breaker is open — their connection is broken
+        # and re-launching a drain will only re-trigger the same permanent failures.
+        _circuit = get_ingest_circuit_reason(tenant_slug)
+        if _circuit:
+            skipped.append({'tenant': tenant_slug, 'reason': 'circuit_open', 'circuit': _circuit[:100]})
+            continue
+
         terminated_tasks = 0
         if active:
             for task_meta in active:
@@ -368,21 +622,24 @@ def auto_recover_stuck_ingest() -> dict:
 
         cleared_lock = int(redis.delete(f'lock:ingest:{tenant_slug}'))
         cleared_throttle = int(redis.delete(f'throttle:ingest:{tenant_slug}'))
-        task = drain_tenant_ingest_queue.apply_async(kwargs={'tenant_slug': tenant_slug}, queue='ingest')
+        _try_schedule_drain(redis, tenant_slug, 0, 50, queue='ingest')
+        task_id_logged = 'dedup_scheduled'
         update_ingest_progress(
             tenant_slug,
             status='running',
-            error=f'auto_recovery_triggered_heartbeat_{heartbeat_age_seconds}s',
+            error=f'auto_recovery_triggered_job_age_{current_job_age_seconds}s_heartbeat_{heartbeat_age_seconds}s',
         )
         recovered.append(
             {
                 'tenant': tenant_slug,
                 'queue_left': queue_left,
                 'heartbeat_age_seconds': heartbeat_age_seconds,
+                'job_progress_age_seconds': job_progress_age_seconds,
+                'current_job_age_seconds': current_job_age_seconds,
                 'terminated_tasks': terminated_tasks,
                 'cleared_lock': cleared_lock,
                 'cleared_throttle': cleared_throttle,
-                'drain_task_id': task.id,
+                'drain_task_id': task_id_logged,
             }
         )
         logger.warning(
@@ -420,9 +677,11 @@ def auto_recover_stuck_ingest() -> dict:
                     )
                 continue
 
+            if get_ingest_circuit_reason(tenant_slug):
+                continue  # broken connection — don't revive
             cleared_lock = int(redis.delete(lock_key))
             cleared_throttle = int(redis.delete(f'throttle:ingest:{tenant_slug}'))
-            task = drain_tenant_ingest_queue.apply_async(kwargs={'tenant_slug': tenant_slug}, queue='ingest')
+            _try_schedule_drain(redis, tenant_slug, 0, 50, queue='ingest')
             begin_ingest_progress(
                 tenant_slug=tenant_slug,
                 operation='incremental_sync_recovery',
@@ -438,7 +697,7 @@ def auto_recover_stuck_ingest() -> dict:
                     'reason': 'orphan_lock_with_queue',
                     'cleared_lock': cleared_lock,
                     'cleared_throttle': cleared_throttle,
-                    'drain_task_id': task.id,
+                    'drain_task_id': 'dedup_scheduled',
                 }
             )
             logger.warning(
@@ -458,6 +717,421 @@ def auto_recover_stuck_ingest() -> dict:
         'recovered_count': len(recovered),
         'recovered': recovered,
         'skipped': skipped[:max(1, max_recoveries)],
+    }
+
+
+@shared_task(
+    name='worker.tasks.audit_sync_completeness',
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_kwargs={'max_retries': 3},
+)
+def audit_sync_completeness() -> dict:
+    checked = 0
+    warnings: list[dict[str, object]] = []
+    control_engine = create_engine(settings.control_database_url_sync, future=True)
+    try:
+        with Session(control_engine) as control_session:
+            tenants = control_session.execute(
+                select(Tenant).where(Tenant.status != TenantStatus.terminated)
+            ).scalars().all()
+    finally:
+        control_engine.dispose()
+
+    for tenant in tenants:
+        tenant_engine = create_engine(
+            settings.tenant_database_url_template_sync.format(
+                user=tenant.db_user,
+                password=tenant.db_password,
+                db_name=tenant.db_name,
+            ),
+            future=True,
+        )
+        try:
+            audit = collect_tenant_sync_completeness(tenant_engine)
+        finally:
+            tenant_engine.dispose()
+
+        checked += 1
+        metric_map = {
+            ('items', 'softone_sotype'): audit['items']['sotype_fill_pct'],
+            ('items', 'group_id'): audit['items']['group_id_fill_pct'],
+            ('sales', 'document_type'): audit['sales']['document_type_fill_pct'],
+            ('sales', 'document_status'): audit['sales']['document_status_fill_pct'],
+            ('sales', 'payment_method'): audit['sales']['payment_method_fill_pct'],
+            ('sales', 'source_created_at'): audit['sales']['source_created_at_fill_pct'],
+            ('sales', 'channel_ext_id'): audit['sales']['channel_ext_id_fill_pct'],
+            ('sales', 'group_ext_id'): audit['sales']['group_ext_id_fill_pct'],
+        }
+        for (dataset, field), pct in metric_map.items():
+            sync_field_fill_pct.labels(tenant=tenant.slug, dataset=dataset, field=field).set(float(pct))
+
+        if audit['sales']['total'] > 0 and float(audit['sales']['document_status_fill_pct']) < 95.0:
+            warnings.append(
+                {
+                    'tenant': tenant.slug,
+                    'issue': 'sales_document_status_low_fill',
+                    'fill_pct': audit['sales']['document_status_fill_pct'],
+                    'max_doc_date': audit['sales']['max_doc_date'],
+                }
+            )
+        if audit['items']['total'] > 0 and float(audit['items']['group_id_fill_pct']) < 80.0:
+            warnings.append(
+                {
+                    'tenant': tenant.slug,
+                    'issue': 'item_group_id_low_fill',
+                    'fill_pct': audit['items']['group_id_fill_pct'],
+                }
+            )
+
+    if warnings:
+        logger.warning('sync_completeness_warnings=%s', json.dumps(warnings, ensure_ascii=False))
+    return {'status': 'ok', 'checked': checked, 'warnings': warnings}
+
+
+def _build_tenant_sync_engine(tenant: Tenant):
+    return create_engine(
+        settings.tenant_database_url_template_sync.format(
+            user=tenant.db_user,
+            password=tenant.db_password,
+            db_name=tenant.db_name,
+        ),
+        future=True,
+    )
+
+
+def _load_tenant_sync(tenant_slug: str) -> Tenant | None:
+    control_engine = create_engine(settings.control_database_url_sync, future=True)
+    try:
+        with Session(control_engine) as ctrl_session:
+            return ctrl_session.execute(
+                select(Tenant).where(Tenant.slug == tenant_slug)
+            ).scalar_one_or_none()
+    finally:
+        control_engine.dispose()
+
+
+@shared_task(
+    name='worker.tasks.verify_and_recover_tenant_sync',
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_kwargs={'max_retries': 2},
+)
+def verify_and_recover_tenant_sync(
+    tenant_slug: str,
+    operation: str = '',
+    from_date_str: str = '',
+    to_date_str: str = '',
+    connector: str = '',
+) -> dict:
+    """
+    Post-sync verification with two distinct modes selected by operation type.
+
+    INCREMENTAL mode (5-minute automatic syncs):
+      - Lightweight batch-health check only: queries ingest_batches + ingest_dead_letter
+        for the current drain window (~30 min look-back).
+      - Does NOT scan historical date ranges or fact tables.
+      - Does NOT enqueue historical recovery jobs.
+      - On failure: re-enqueues ONE incremental sync job (picks up from last_sync_timestamp
+        in the sync_state table). Max incremental retries: ingest_verify_incr_max_retries.
+
+    BACKFILL mode (manual backfill / initial sync / admin-triggered verification):
+      - Full date-coverage check via verify_tenant_sync_window().
+      - Gap detection and fill-rate analysis.
+      - On gap: enqueues recovery sweep for the missing sub-range ONLY (not a full re-sync).
+
+    Both modes use separate Redis guard keys so an incremental guard never blocks a
+    backfill verification and vice-versa.
+
+    Logged events: sync_completed, verification_started, verification_passed,
+    verification_failed, missing_chunks_detected, retry_enqueued, retry_exhausted.
+    Result stored in Redis at ingest:verify:{slug}:result (TTL 48 h).
+    """
+    is_backfill = any(k in operation.lower() for k in ('backfill', 'initial', 'admin_verify'))
+    mode = 'backfill' if is_backfill else 'incremental'
+
+    result_ttl = 172800  # 48 h
+    redis = Redis.from_url(settings.redis_url, decode_responses=True)
+
+    # Separate guard keys per mode so they never interfere.
+    guard_key = f'ingest:verify:{tenant_slug}:{mode}:guard'
+    result_key = f'ingest:verify:{tenant_slug}:result'
+
+    if mode == 'incremental':
+        # ── INCREMENTAL path ───────────────────────────────────────────────────
+        # Guard: at most one incremental check per guard window (default 10 min).
+        incr_guard_ttl = max(60, int(getattr(settings, 'ingest_verify_incr_guard_ttl_seconds', 600) or 600))
+        if not redis.set(guard_key, '1', nx=True, ex=incr_guard_ttl):
+            return {'status': 'skipped', 'tenant': tenant_slug, 'mode': mode, 'reason': 'verify_guard_active'}
+
+        # Look back across the recent drain window only.
+        lookback_minutes = max(5, int(getattr(settings, 'ingest_verify_incr_lookback_minutes', 30) or 30))
+        since = datetime.utcnow() - timedelta(minutes=lookback_minutes)
+
+        logger.info('verification_started tenant=%s mode=incremental since=%s', tenant_slug, since.isoformat())
+
+        tenant = _load_tenant_sync(tenant_slug)
+        if tenant is None:
+            logger.error('verification_started tenant=%s mode=incremental — tenant not found', tenant_slug)
+            return {'status': 'error', 'tenant': tenant_slug, 'mode': mode, 'reason': 'tenant_not_found'}
+
+        tenant_engine = _build_tenant_sync_engine(tenant)
+        try:
+            health = check_recent_batch_health(tenant_engine, since=since)
+        finally:
+            tenant_engine.dispose()
+
+        passed = not health['has_failures']
+
+        if not passed:
+            # Count and cap incremental retries to avoid infinite loops.
+            retry_count_key = f'ingest:verify:{tenant_slug}:incr_retry_count'
+            max_incr_retries = max(1, int(getattr(settings, 'ingest_verify_incr_max_retries', 3) or 3))
+            current_retries = int(redis.get(retry_count_key) or 0)
+
+            if current_retries >= max_incr_retries:
+                logger.warning(
+                    'retry_exhausted tenant=%s mode=incremental retries=%s/%s failed_batches=%s dead_letters=%s',
+                    tenant_slug, current_retries, max_incr_retries,
+                    len(health['failed_batches']), health['pending_dead_letters'],
+                )
+            else:
+                redis.incr(retry_count_key)
+                redis.expire(retry_count_key, 3600)  # Reset counter after 1 h of no failures
+                # Re-trigger one incremental sync. It uses sync_state.last_sync_timestamp
+                # to resume from the correct point — no historical data is touched.
+                enqueue_incremental_sync.apply_async(
+                    kwargs={'tenant_slug': tenant_slug},
+                    countdown=max(10, int(getattr(settings, 'ingest_verify_incr_retry_backoff_seconds', 30) or 30) * (current_retries + 1)),
+                    queue='ingest',
+                )
+                logger.warning(
+                    'retry_enqueued tenant=%s mode=incremental attempt=%s/%s failed_batches=%s dead_letters=%s',
+                    tenant_slug, current_retries + 1, max_incr_retries,
+                    len(health['failed_batches']), health['pending_dead_letters'],
+                )
+            logger.warning(
+                'verification_failed tenant=%s mode=incremental since=%s failed_batches=%s dead_letters=%s',
+                tenant_slug, since.isoformat(),
+                len(health['failed_batches']), health['pending_dead_letters'],
+            )
+        else:
+            # Reset retry counter on success.
+            redis.delete(f'ingest:verify:{tenant_slug}:incr_retry_count')
+            logger.info(
+                'verification_passed tenant=%s mode=incremental since=%s',
+                tenant_slug, since.isoformat(),
+            )
+
+        result_payload: dict = {
+            'tenant': tenant_slug,
+            'mode': mode,
+            'operation': operation,
+            'verified_at': datetime.utcnow().isoformat(),
+            'status': 'passed' if passed else 'failed',
+            'incremental_since': since.isoformat(),
+            'failed_batches': health['failed_batches'],
+            'pending_dead_letters': health['pending_dead_letters'],
+        }
+        redis.set(result_key, json.dumps(result_payload, ensure_ascii=False, default=str), ex=result_ttl)
+
+        return {
+            'status': 'ok',
+            'tenant': tenant_slug,
+            'mode': mode,
+            'verification_status': 'passed' if passed else 'failed',
+            'failed_batches': len(health['failed_batches']),
+            'pending_dead_letters': health['pending_dead_letters'],
+        }
+
+    # ── BACKFILL / ADMIN VERIFY path ──────────────────────────────────────────
+    # Guard: at most one backfill verification per guard window (default 20 min).
+    backfill_guard_ttl = max(60, int(getattr(settings, 'ingest_verify_guard_ttl_seconds', 1200) or 1200))
+    if not redis.set(guard_key, '1', nx=True, ex=backfill_guard_ttl):
+        return {'status': 'skipped', 'tenant': tenant_slug, 'mode': mode, 'reason': 'verify_guard_active'}
+
+    gap_tolerance_days = max(0, int(getattr(settings, 'ingest_verify_gap_tolerance_days', 3) or 3))
+    fill_pct_threshold = max(0.0, float(getattr(settings, 'ingest_verify_fill_pct_threshold', 80.0) or 80.0))
+
+    verify_to = _parse_iso_date(to_date_str) or date.today()
+    verify_from = _parse_iso_date(from_date_str) or verify_to
+
+    logger.info(
+        'verification_started tenant=%s mode=backfill operation=%s from=%s to=%s',
+        tenant_slug, operation, verify_from.isoformat(), verify_to.isoformat(),
+    )
+
+    tenant = _load_tenant_sync(tenant_slug)
+    if tenant is None:
+        logger.error('verification_started tenant=%s mode=backfill — tenant not found', tenant_slug)
+        return {'status': 'error', 'tenant': tenant_slug, 'mode': mode, 'reason': 'tenant_not_found'}
+
+    # Use the connector passed by the drain when available; otherwise resolve from control DB.
+    recovery_connector: str | None = connector.strip() if connector.strip() else _resolve_tenant_primary_connector(tenant.id)
+    if not recovery_connector:
+        logger.warning(
+            'verify_and_recover_skipped tenant=%s reason=no_active_connection',
+            tenant_slug,
+        )
+        return {'status': 'skipped', 'tenant': tenant_slug, 'mode': mode, 'reason': 'no_active_connection'}
+
+    tenant_engine = _build_tenant_sync_engine(tenant)
+    try:
+        window_data = verify_tenant_sync_window(
+            tenant_engine,
+            from_date=verify_from,
+            to_date=verify_to,
+            gap_tolerance_days=gap_tolerance_days,
+        )
+        global_audit = collect_tenant_sync_completeness(tenant_engine)
+    finally:
+        tenant_engine.dispose()
+
+    gaps: list[dict] = []
+    fill_warnings: list[dict] = []
+    recovery_from: date | None = None
+    recovery_to: date | None = None
+
+    for circuit, cdata in window_data['circuits'].items():
+        if not cdata.get('ok', True):
+            logger.warning(
+                'verification_circuit_error tenant=%s circuit=%s error=%s',
+                tenant_slug, circuit, cdata.get('error', ''),
+            )
+            continue
+
+        if cdata.get('gap_at_end') and cdata.get('suggested_gap_from') and cdata.get('suggested_gap_to'):
+            gf = _parse_iso_date(cdata['suggested_gap_from'])
+            gt = _parse_iso_date(cdata['suggested_gap_to'])
+            if gf and gt:
+                gaps.append({
+                    'circuit': circuit,
+                    'stream': cdata.get('stream', ''),
+                    'type': 'end_gap',
+                    'lag_days': (verify_to - date.fromisoformat(cdata['max_date'][:10])).days if cdata.get('max_date') else None,
+                    'gap_from': gf.isoformat(),
+                    'gap_to': gt.isoformat(),
+                })
+                recovery_from = gf if recovery_from is None else min(recovery_from, gf)
+                recovery_to = gt if recovery_to is None else max(recovery_to, gt)
+
+        if cdata.get('gap_at_start'):
+            logger.info(
+                'missing_chunks_detected tenant=%s circuit=%s type=start_gap min_date=%s expected_from=%s',
+                tenant_slug, circuit, cdata.get('min_date'), verify_from.isoformat(),
+            )
+
+        if int(cdata.get('null_ext_id_count') or 0) > 0:
+            logger.warning(
+                'verification_failed tenant=%s circuit=%s issue=null_external_id count=%s',
+                tenant_slug, circuit, cdata['null_ext_id_count'],
+            )
+
+    sales_total = global_audit['sales']['total']
+    if sales_total > 0:
+        for field, pct_key in [
+            ('document_status', 'document_status_fill_pct'),
+            ('payment_method', 'payment_method_fill_pct'),
+        ]:
+            pct = float(global_audit['sales'].get(pct_key) or 100.0)
+            if pct < fill_pct_threshold:
+                fill_warnings.append({'circuit': 'sales', 'field': field, 'fill_pct': pct})
+                logger.warning(
+                    'verification_failed tenant=%s mode=backfill circuit=sales field=%s fill_pct=%.1f threshold=%.1f',
+                    tenant_slug, field, pct, fill_pct_threshold,
+                )
+
+    if window_data['dead_letters']:
+        logger.warning(
+            'verification_failed tenant=%s mode=backfill dead_letters=%s',
+            tenant_slug, json.dumps(window_data['dead_letters'], ensure_ascii=False),
+        )
+    if window_data['failed_batches']:
+        logger.warning(
+            'verification_failed tenant=%s mode=backfill failed_batches=%s',
+            tenant_slug, json.dumps(window_data['failed_batches'], ensure_ascii=False),
+        )
+
+    recovery_jobs_queued = 0
+    if gaps and recovery_from is not None and recovery_to is not None:
+        logger.warning(
+            'missing_chunks_detected tenant=%s mode=backfill gaps=%s recovery_from=%s recovery_to=%s',
+            tenant_slug, json.dumps(gaps, ensure_ascii=False),
+            recovery_from.isoformat(), recovery_to.isoformat(),
+        )
+        if bool(getattr(settings, 'ingest_recovery_enabled', True)):
+            recovery_meta = _enqueue_recovery_sweep_jobs(
+                tenant_slug,
+                from_date=recovery_from,
+                to_date=recovery_to,
+                fallback_limit=max(100, int(getattr(settings, 'incremental_sync_limit', 500) or 500)),
+                connector=recovery_connector,
+            )
+            recovery_jobs_queued = int(recovery_meta.get('jobs') or 0)
+            if recovery_jobs_queued > 0:
+                # Reset progress so the UI shows accurate counts for the recovery phase
+                # and the next drain's verify runs in incremental (lightweight) mode.
+                _current_depth = int(redis.llen(tenant_queue_name(tenant_slug)))
+                begin_ingest_progress(
+                    tenant_slug=tenant_slug,
+                    operation='incremental_sync_recovery',
+                    status='queued',
+                    total_jobs=recovery_jobs_queued,
+                    start_queue_depth=_current_depth,
+                    target_queue_depth=max(0, _current_depth - recovery_jobs_queued),
+                    from_date=recovery_from.isoformat(),
+                    to_date=recovery_to.isoformat(),
+                )
+                _try_schedule_drain(redis, tenant_slug, 5, 50, queue='ingest')
+                logger.warning(
+                    'retry_enqueued tenant=%s mode=backfill jobs=%s recovery_from=%s recovery_to=%s',
+                    tenant_slug, recovery_jobs_queued,
+                    recovery_from.isoformat(), recovery_to.isoformat(),
+                )
+            else:
+                logger.warning('retry_exhausted tenant=%s mode=backfill reason=no_jobs_from_recovery_sweep', tenant_slug)
+
+    passed = not gaps and not fill_warnings and not window_data['dead_letters'] and not window_data['failed_batches']
+    if passed:
+        logger.info(
+            'verification_passed tenant=%s mode=backfill operation=%s from=%s to=%s circuits=%s',
+            tenant_slug, operation, verify_from.isoformat(), verify_to.isoformat(),
+            list(window_data['circuits'].keys()),
+        )
+    else:
+        logger.warning(
+            'verification_failed tenant=%s mode=backfill operation=%s from=%s to=%s gaps=%s fill_warnings=%s',
+            tenant_slug, operation, verify_from.isoformat(), verify_to.isoformat(),
+            len(gaps), len(fill_warnings),
+        )
+
+    result_payload = {
+        'tenant': tenant_slug,
+        'mode': mode,
+        'operation': operation,
+        'connector': recovery_connector,
+        'from_date': verify_from.isoformat(),
+        'to_date': verify_to.isoformat(),
+        'verified_at': datetime.utcnow().isoformat(),
+        'status': 'passed' if passed else 'failed',
+        'circuits': window_data['circuits'],
+        'items_total': window_data['items_total'],
+        'gaps': gaps,
+        'fill_warnings': fill_warnings,
+        'dead_letters': window_data['dead_letters'],
+        'failed_batches': window_data['failed_batches'],
+        'recovery_jobs_enqueued': recovery_jobs_queued,
+    }
+    redis.set(result_key, json.dumps(result_payload, ensure_ascii=False, default=str), ex=result_ttl)
+
+    return {
+        'status': 'ok',
+        'tenant': tenant_slug,
+        'mode': mode,
+        'verification_status': 'passed' if passed else 'failed',
+        'gaps': len(gaps),
+        'fill_warnings': len(fill_warnings),
+        'recovery_jobs_queued': recovery_jobs_queued,
     }
 
 
@@ -656,9 +1330,11 @@ async def _enqueue_incremental_sync_all_tenants(
 
     effective_limit = max(100, int(limit or settings.incremental_sync_limit or 500))
     cap = max(1, int(max_tenants or settings.incremental_sync_max_tenants_per_run or 100))
+    global_interval_minutes = max(1, int(getattr(settings, 'incremental_sync_interval_minutes', 5) or 5))
     queued = 0
     skipped = 0
     tenants_checked = 0
+    now = datetime.utcnow()
 
     async with ControlSessionLocal() as control_db:
         tenants = (
@@ -677,7 +1353,7 @@ async def _enqueue_incremental_sync_all_tenants(
             # Queue only for tenants with at least one active connector.
             active_conn = (
                 await control_db.execute(
-                    select(TenantConnection.id).where(
+                    select(TenantConnection).where(
                         TenantConnection.tenant_id == tenant.id,
                         TenantConnection.is_active.is_(True),
                     ).limit(1)
@@ -686,6 +1362,20 @@ async def _enqueue_incremental_sync_all_tenants(
             if not active_conn:
                 skipped += 1
                 continue
+
+            # Per-tenant sync interval: read from connection_parameters, fall back to global.
+            params = active_conn.connection_parameters if isinstance(active_conn.connection_parameters, dict) else {}
+            tenant_interval_minutes = int(params.get('sync_interval_minutes') or global_interval_minutes)
+            tenant_interval_minutes = max(1, tenant_interval_minutes)
+
+            # Skip if last sync completed more recently than the tenant's interval.
+            last_sync = active_conn.last_sync_at
+            if last_sync is not None:
+                elapsed_seconds = (now - last_sync).total_seconds()
+                if elapsed_seconds < tenant_interval_minutes * 60:
+                    skipped += 1
+                    continue
+
             result = await _enqueue_incremental_sync(tenant_slug=tenant.slug, limit=effective_limit)
             if str(result.get('status')) in {'queued', 'resumed'}:
                 queued += 1
@@ -708,6 +1398,8 @@ def enqueue_pharmacyone_backfill(
     from_date_str: str,
     to_date_str: str,
     chunk_days: int = 7,
+    limit: int | None = None,
+    include_sales: bool = True,
     include_purchases: bool = True,
     include_inventory: bool = True,
     include_cashflows: bool = True,
@@ -730,7 +1422,7 @@ def enqueue_pharmacyone_backfill(
     jobs = 0
     queue_before = queue_depth(tenant_slug)
     stream_flags = {
-        'sales_documents': True,
+        'sales_documents': bool(include_sales),
         'purchase_documents': bool(include_purchases),
         'inventory_documents': bool(include_inventory),
         'cash_transactions': bool(include_cashflows),
@@ -740,6 +1432,7 @@ def enqueue_pharmacyone_backfill(
     }
     balance_streams = {'supplier_balances', 'customer_balances'}
     base_chunk_days = max(1, int(chunk_days))
+    effective_limit = max(100, int(limit or settings.incremental_sync_limit or 500))
     sales_chunk_cap = max(1, int(getattr(settings, 'ingest_backfill_sales_chunk_days', 1) or 1))
     purchases_chunk_cap = max(1, int(getattr(settings, 'ingest_backfill_purchases_chunk_days', 1) or 1))
     inventory_chunk_cap = max(1, int(getattr(settings, 'ingest_backfill_inventory_chunk_days', 1) or 1))
@@ -777,6 +1470,8 @@ def enqueue_pharmacyone_backfill(
                 'to_date': chunk_to.isoformat(),
                 'ignore_sync_state': True,
                 'backfill': True,
+                'limit': effective_limit,
+                'ensure_complete': True,
             }
             enqueue_tenant_job(
                 tenant_slug,
@@ -791,6 +1486,8 @@ def enqueue_pharmacyone_backfill(
         'to_date': to_date.isoformat(),
         'ignore_sync_state': True,
         'backfill': True,
+        'ensure_complete': True,
+        'limit': effective_limit,
     }
     for stream in ('supplier_balances', 'customer_balances'):
         if stream_flags.get(stream):
@@ -836,6 +1533,8 @@ def enqueue_sql_backfill(
     from_date_str: str,
     to_date_str: str,
     chunk_days: int = 7,
+    limit: int | None = None,
+    include_sales: bool = True,
     include_purchases: bool = True,
     include_inventory: bool = True,
     include_cashflows: bool = True,
@@ -854,6 +1553,8 @@ def enqueue_sql_backfill(
         from_date_str=from_date_str,
         to_date_str=to_date_str,
         chunk_days=chunk_days,
+        limit=limit,
+        include_sales=include_sales,
         include_purchases=include_purchases,
         include_inventory=include_inventory,
         include_cashflows=include_cashflows,
@@ -1393,13 +2094,32 @@ async def _drain_tenant_ingest_queue(tenant_slug: str, max_jobs: int) -> dict:
         sync_duration_seconds.labels(task='drain_tenant_ingest_queue', entity='all', status='lock_contended').observe(0)
         return {'status': 'skipped', 'tenant': tenant_slug, 'reason': 'lock_contended'}
 
+    # We're now the active drain — clear the "pending" marker so future scheduling
+    # can set it again if this drain triggers a retry or throttle.
+    redis_sync_pre = Redis.from_url(settings.redis_url, decode_responses=True)
+    redis_sync_pre.delete(_DRAIN_SCHED_KEY_FMT.format(tenant_slug))
+
+    # Circuit breaker: permanent connection errors block all processing until
+    # the admin fixes the connection (saving/testing clears the circuit).
+    circuit_reason = get_ingest_circuit_reason(tenant_slug)
+    if circuit_reason:
+        release_tenant_lock(tenant_slug, lock_token)
+        update_ingest_progress(tenant_slug, status='error', error=f'circuit_open: {circuit_reason[:200]}')
+        logger.warning('ingest_circuit_open_skip tenant=%s reason=%s', tenant_slug, circuit_reason[:200])
+        sync_duration_seconds.labels(task='drain_tenant_ingest_queue', entity='all', status='circuit_open').observe(0)
+        return {'status': 'circuit_open', 'tenant': tenant_slug, 'reason': circuit_reason}
+
     processed = 0
     failures = 0
+    permanent_failures = 0  # config errors that must not be retried or recovery-swept
     aggregates_refreshed = 0
     throttled = 0
+    recovery_jobs_queued = 0
     next_drain_scheduled = False
     stopped_by_user = False
+    processed_recovery_jobs = False
     backfill_entity_ranges: dict[str, dict[str, str]] = {}
+    drain_connector = 'sql_connector'  # updated from actual jobs; SQL beats API per sync_planner policy
     redis = Redis.from_url(settings.redis_url, decode_responses=True)
     stop_key = tenant_stop_key(tenant_slug)
     lock_refresh_interval = max(10, min(60, lock_ttl // 6))
@@ -1440,8 +2160,15 @@ async def _drain_tenant_ingest_queue(tenant_slug: str, max_jobs: int) -> dict:
             job = pop_tenant_job(tenant_slug)
             if not job:
                 break
+            job_payload = job.get('payload') or {}
+            if bool(job_payload.get('recovery_check')):
+                processed_recovery_jobs = True
 
             connector = str(job.get('connector') or 'unknown')
+            # Track primary connector: SQL beats API, mirrors sync_planner priority.
+            if connector not in {'unknown', ''}:
+                if connector in SQL_CONNECTOR_ALIASES or drain_connector not in SQL_CONNECTOR_ALIASES:
+                    drain_connector = connector
             stream = normalize_stream_name(job.get('stream'))
             if stream is None:
                 stream = ENTITY_TO_STREAM.get(str(job.get('entity') or '').strip())  # type: ignore[arg-type]
@@ -1452,20 +2179,16 @@ async def _drain_tenant_ingest_queue(tenant_slug: str, max_jobs: int) -> dict:
                 ingest_jobs_total.labels(connector=connector, entity=metric_entity, status='throttled').inc()
                 ingest_jobs_tenant_total.labels(tenant=tenant_slug, connector=connector, entity=metric_entity, status='throttled').inc()
                 enqueue_tenant_job(tenant_slug, job)
-                drain_tenant_ingest_queue.apply_async(
-                    kwargs={'tenant_slug': tenant_slug, 'max_jobs': max_jobs},
-                    countdown=settings.ingest_throttle_window_seconds,
-                )
-                next_drain_scheduled = True
+                if _try_schedule_drain(redis, tenant_slug, settings.ingest_throttle_window_seconds, max_jobs):
+                    next_drain_scheduled = True
                 break
 
             # Heartbeat progress as soon as a job is picked, so UI reflects active work
             # even when an external request takes long before completion.
-            update_ingest_progress(tenant_slug, status='running')
+            update_ingest_progress(tenant_slug, status='running', job_started=True)
 
             try:
                 started = time.perf_counter()
-                job_payload = job.get('payload') or {}
                 is_backfill_job = bool(job_payload.get('backfill'))
                 # SQL backfills can legitimately run much longer per chunk.
                 # Keep a higher ceiling to avoid repeated timeout/retry loops.
@@ -1525,7 +2248,7 @@ async def _drain_tenant_ingest_queue(tenant_slug: str, max_jobs: int) -> dict:
                             to_date_str=max_doc_date,
                         )
                         aggregates_refreshed += 1
-                update_ingest_progress(tenant_slug, status='running')
+                update_ingest_progress(tenant_slug, status='running', job_completed=True)
             except Exception as exc:
                 if bool(redis.get(stop_key)):
                     stopped_by_user = True
@@ -1548,16 +2271,33 @@ async def _drain_tenant_ingest_queue(tenant_slug: str, max_jobs: int) -> dict:
                     'error': str(exc),
                 }
 
-                if attempt <= max_retries:
+                # Permanent configuration errors must not be retried — retrying would
+                # fill the DLQ with thousands of identical failures and cause drain storms.
+                _exc_str = str(exc)
+                _permanent_error = isinstance(exc, RuntimeError) and any(
+                    m in _exc_str for m in (
+                        'No SQL Server mapping found',
+                        'Tenant not found',
+                        'No connection configured',
+                        'missing clientID',      # SoftOne login/authenticate failed — bad credentials config
+                        'Missing clientID',      # SoftOne API-level auth rejection
+                    )
+                )
+                if _permanent_error:
+                    permanent_failures += 1
+                    open_ingest_circuit(tenant_slug, str(exc)[:500])
+                    logger.error(
+                        'ingest_circuit_opened tenant=%s reason=%s',
+                        tenant_slug, str(exc)[:200],
+                    )
+
+                if attempt <= max_retries and not _permanent_error:
                     job['attempt'] = attempt
                     enqueue_tenant_job(tenant_slug, job)
                     ingest_retries_total.labels(connector=connector, entity=metric_entity).inc()
                     retry_delay = max(settings.ingest_retry_backoff_seconds * attempt, 1)
-                    drain_tenant_ingest_queue.apply_async(
-                        kwargs={'tenant_slug': tenant_slug, 'max_jobs': max_jobs},
-                        countdown=retry_delay,
-                    )
-                    next_drain_scheduled = True
+                    if _try_schedule_drain(redis, tenant_slug, retry_delay, max_jobs):
+                        next_drain_scheduled = True
                 else:
                     push_dead_letter(tenant_slug, dead_letter_payload)
                     ingest_dead_letters_total.labels(connector=connector, entity=metric_entity).inc()
@@ -1585,16 +2325,54 @@ async def _drain_tenant_ingest_queue(tenant_slug: str, max_jobs: int) -> dict:
                 'failures': failures,
                 'throttled': throttled,
                 'aggregates_refreshed': aggregates_refreshed,
+                'recovery_jobs_queued': recovery_jobs_queued,
                 'remaining_jobs': remaining_jobs,
                 'next_drain_scheduled': False,
             }
         if remaining_jobs > 0 and not next_drain_scheduled:
-            drain_tenant_ingest_queue.apply_async(
-                kwargs={'tenant_slug': tenant_slug, 'max_jobs': max_jobs},
-                countdown=1,
-            )
-            next_drain_scheduled = True
-        elif remaining_jobs == 0 and backfill_entity_ranges:
+            if _try_schedule_drain(redis, tenant_slug, 1, max_jobs):
+                next_drain_scheduled = True
+        elif remaining_jobs == 0 and not processed_recovery_jobs and permanent_failures == 0:
+            progress_snapshot = redis.hgetall(f'ingest:progress:{tenant_slug}')
+            recovery_window = _resolve_recovery_window_from_progress(progress_snapshot)
+            if recovery_window is not None:
+                recovery_meta = _enqueue_recovery_sweep_jobs(
+                    tenant_slug,
+                    from_date=recovery_window[0],
+                    to_date=recovery_window[1],
+                    fallback_limit=max(100, int(getattr(settings, 'incremental_sync_limit', 500) or 500)),
+                    connector=drain_connector,
+                )
+                recovery_jobs_queued = int(recovery_meta.get('jobs') or 0)
+                if recovery_jobs_queued > 0:
+                    remaining_jobs = int(redis.llen(tenant_queue_name(tenant_slug)))
+                    if remaining_jobs > 0:
+                        logger.info(
+                            'ingest_recovery_sweep_enqueued tenant=%s jobs=%s from=%s to=%s streams=%s chunk_days=%s',
+                            tenant_slug,
+                            recovery_jobs_queued,
+                            recovery_meta.get('from_date'),
+                            recovery_meta.get('to_date'),
+                            ','.join(recovery_meta.get('streams') or []),
+                            recovery_meta.get('chunk_days'),
+                        )
+                        # Reset progress so the UI reflects the recovery phase correctly,
+                        # and block the upcoming verify from double-adding the same jobs.
+                        _backfill_guard_ttl = max(60, int(getattr(settings, 'ingest_verify_guard_ttl_seconds', 1200) or 1200))
+                        redis.set(f'ingest:verify:{tenant_slug}:backfill:guard', '1', ex=_backfill_guard_ttl)
+                        begin_ingest_progress(
+                            tenant_slug=tenant_slug,
+                            operation='incremental_sync_recovery',
+                            status='queued',
+                            total_jobs=recovery_jobs_queued,
+                            start_queue_depth=remaining_jobs,
+                            target_queue_depth=max(0, remaining_jobs - recovery_jobs_queued),
+                            from_date=recovery_meta.get('from_date'),
+                            to_date=recovery_meta.get('to_date'),
+                        )
+                        if _try_schedule_drain(redis, tenant_slug, 1, max_jobs):
+                            next_drain_scheduled = True
+        if remaining_jobs == 0 and backfill_entity_ranges:
             for agg_entity, agg_range in backfill_entity_ranges.items():
                 refresh_aggregates_for_entity.delay(
                     tenant_slug=tenant_slug,
@@ -1605,6 +2383,27 @@ async def _drain_tenant_ingest_queue(tenant_slug: str, max_jobs: int) -> dict:
                 aggregates_refreshed += 1
         update_ingest_progress(tenant_slug, status='running' if remaining_jobs > 0 else 'completed')
 
+        if remaining_jobs == 0 and permanent_failures == 0:
+            # Schedule post-sync verification for every completed sync.
+            # Skip when all failures were permanent config errors — the verify task
+            # would re-queue the same jobs that will immediately fail again.
+            # The verify task has its own guard key (default TTL 20 min) so it
+            # self-limits during high-frequency incremental runs.
+            _prog = redis.hgetall(f'ingest:progress:{tenant_slug}')
+            _op = str(_prog.get('operation') or '').strip().lower()
+            logger.info('sync_completed tenant=%s operation=%s processed=%s failures=%s', tenant_slug, _op, processed, failures)
+            verify_and_recover_tenant_sync.apply_async(
+                kwargs={
+                    'tenant_slug': tenant_slug,
+                    'operation': _op,
+                    'from_date_str': str(_prog.get('from_date') or ''),
+                    'to_date_str': str(_prog.get('to_date') or ''),
+                    'connector': drain_connector,
+                },
+                countdown=30,
+                queue='default',
+            )
+
         sync_duration_seconds.labels(task='drain_tenant_ingest_queue', entity='all', status='ok').observe(time.perf_counter() - drain_start)
         return {
             'status': 'ok',
@@ -1613,6 +2412,7 @@ async def _drain_tenant_ingest_queue(tenant_slug: str, max_jobs: int) -> dict:
             'failures': failures,
             'throttled': throttled,
             'aggregates_refreshed': aggregates_refreshed,
+            'recovery_jobs_queued': recovery_jobs_queued,
             'remaining_jobs': remaining_jobs,
             'next_drain_scheduled': next_drain_scheduled,
         }

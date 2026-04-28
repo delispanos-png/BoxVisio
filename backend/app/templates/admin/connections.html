@@ -1,646 +1,1409 @@
 {% extends "base_admin.html" %}
 {% block content %}
-<div class="card mt-3">
-  <div class="card-body">
-    <h5 class="mb-2">{{ tt(request, 'sqlserver_connection') }}</h5>
-    <p class="text-muted mb-3">
-      {{ tt(request, 'allowlist_helper') }} <b>{{ server_public_ip or 'SET SERVER_PUBLIC_IP IN ENV' }}</b> {{ tt(request, 'on_sqlserver_port') }} <b>{{ sqlserver_port }}</b> {{ tt(request, 'default_1433') }}
-    </p>
-    <div class="alert alert-info mb-3">
-      <strong>Πώς δουλεύει:</strong> 1) Συμπλήρωσε σύνδεση SQL, 2) Πάτησε <b>Έλεγχος Σύνδεσης</b>, 3) Πάτησε <b>Discovery</b> για πίνακες/στήλες,
-      4) όρισε mapping και <b>Αποθήκευση Mapping Profile</b>.
-    </div>
-    {% if result %}
-      <div class="alert {% if result.status == 'ok' %}alert-success{% else %}alert-danger{% endif %}">
-        {{ result.message }}
-      </div>
-    {% endif %}
-    {% if request.query_params.get('delete_data') == '1' %}
-      <div class="alert alert-success">
-        Η διαγραφή δεδομένων μπήκε στην ουρά. Όταν ολοκληρωθεί, τρέξε Initial Backfill από το πάνω πλαίσιο.
-      </div>
-    {% elif request.query_params.get('delete_data') == '0' %}
-      <div class="alert alert-danger">
-        Αποτυχία διαγραφής. Έλεγξε την επιβεβαίωση (RESET) και το διάστημα ημερομηνιών.
-      </div>
-    {% endif %}
-    {% if request.query_params.get('recover') == '1' %}
-      <div class="alert alert-warning">
-        Εκτελέστηκε recovery της διαδικασίας συγχρονισμού (unlock + resume).
-      </div>
-    {% elif request.query_params.get('recover') == '0' %}
-      <div class="alert alert-danger">
-        Αποτυχία recovery διαδικασίας.
-      </div>
-    {% endif %}
-    {% if request.query_params.get('backfill') == '1' %}
-      <div class="alert alert-success">
-        Το initial backfill μπήκε στην ουρά.
-      </div>
-    {% elif request.query_params.get('backfill') == '0' %}
-      <div class="alert alert-danger">
-        Αποτυχία εκκίνησης backfill. Έλεγξε ημερομηνίες και ότι υπάρχει τουλάχιστον μία ενεργή μέθοδος συγχρονισμού.
-      </div>
-    {% endif %}
-    {% if request.query_params.get('stop_sync') == '1' %}
-      <div class="alert alert-warning">
-        Ο συγχρονισμός σταμάτησε για το επιλεγμένο tenant.
-      </div>
-    {% elif request.query_params.get('stop_sync') == '0' %}
-      <div class="alert alert-danger">
-        Αποτυχία stop sync.
-      </div>
-    {% endif %}
-    <form method="post" action="/admin/connections/test" class="row g-2">
-      <input type="hidden" name="source_page" value="{{ active_page or 'connections' }}">
-      <div class="col-12">
-        <div class="border rounded p-3 h-100">
-          <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-1">
-            <h6 class="mb-0">Βήμα 1: Στοιχεία Σύνδεσης</h6>
-            <button class="btn btn-sm bv-action-btn bv-action-save" type="submit" formaction="/admin/connections/save">
-              <i class="fe fe-save"></i> Save Connection
-            </button>
-          </div>
-          <div class="small text-muted mb-3">Δώσε credentials του SQL Server πελάτη (readonly user προτείνεται). Οι ρυθμίσεις αποθηκεύονται ανά tenant + connector.</div>
-          <div class="row g-2">
-            <div class="col-md-3">
-              <label class="form-label">{{ tt(request, 'tenant') }}</label>
-              <select class="form-select" name="tenant_id" required>
-                {% for t in tenants %}
-                  <option value="{{ t.id }}" {% if form_values.tenant_id == t.id %}selected{% endif %}>{{ t.name }} ({{ t.slug }})</option>
-                {% endfor %}
-              </select>
-            </div>
-            <div class="col-md-3">
-              <label class="form-label">Connector</label>
-              <select class="form-select" name="connector_type">
-                <option value="sql_connector" {% if (form_values.connector_type or 'sql_connector') == 'sql_connector' %}selected{% endif %}>SQL Connector</option>
-                <option value="pharmacyone_sql" {% if form_values.connector_type == 'pharmacyone_sql' %}selected{% endif %}>SQL Connector (old key)</option>
-                <option value="external_api" {% if form_values.connector_type == 'external_api' %}selected{% endif %}>External API Connector</option>
-                <option value="file_import" {% if form_values.connector_type == 'file_import' %}selected{% endif %}>File Import Connector</option>
-              </select>
-            </div>
-            <div class="col-md-2">
-              <label class="form-label">Source Type</label>
-              <select class="form-select" name="source_type">
-                <option value="sql" {% if (form_values.source_type or 'sql') == 'sql' %}selected{% endif %}>sql</option>
-                <option value="api" {% if form_values.source_type == 'api' %}selected{% endif %}>api</option>
-                <option value="file" {% if form_values.source_type == 'file' %}selected{% endif %}>file</option>
-              </select>
-            </div>
-            <div class="col-md-2 d-flex align-items-end">
-              <div class="form-check form-switch mb-2">
-                <input class="form-check-input" type="checkbox" role="switch" name="is_active" id="connectorIsActive" value="true" {% if form_values.is_active %}checked{% endif %}>
-                <label class="form-check-label" for="connectorIsActive">Μέθοδος ενεργή</label>
-              </div>
-            </div>
-            <div class="col-md-3"><label class="form-label">{{ tt(request, 'host') }}</label><input class="form-control" name="host" value="{{ form_values.host or '' }}" placeholder="sql.customer.local ή 1.2.3.4" required></div>
-            <div class="col-md-1"><label class="form-label">{{ tt(request, 'port') }}</label><input class="form-control" name="port" value="{{ form_values.port or '1433' }}" required></div>
-            <div class="col-md-2"><label class="form-label">{{ tt(request, 'database') }}</label><input class="form-control" name="database" value="{{ form_values.database or '' }}" placeholder="BV_PharmacyXXX" required></div>
-            <div class="col-md-1"><label class="form-label">{{ tt(request, 'username') }}</label><input class="form-control" name="username" value="{{ form_values.username or '' }}" required></div>
-            <div class="col-md-2">
-              <label class="form-label">{{ tt(request, 'password') }}</label>
-              <input class="form-control" type="password" name="password" {% if not form_values.has_saved_password %}required{% endif %} autocomplete="new-password" placeholder="{% if form_values.has_saved_password %}********{% endif %}">
-              <div class="form-text">
-                {% if form_values.has_saved_password %}
-                  Υπάρχει αποθηκευμένο password. Άφησέ το κενό για να μην αλλάξει.
-                {% else %}
-                  Δεν υπάρχει αποθηκευμένο password. Συμπλήρωσέ το για αποθήκευση.
-                {% endif %}
-              </div>
-            </div>
-            <div class="col-md-12">
-              <label class="form-label">{{ tt(request, 'options') }}</label>
-              <input class="form-control" name="options" value="{{ form_values.options or 'Encrypt=yes;TrustServerCertificate=yes' }}">
-              <div class="form-text">Format: key=value;key2=value2 (π.χ. Encrypt=yes;TrustServerCertificate=yes)</div>
-            </div>
-          </div>
-        </div>
-      </div>
+<style>
+/* ──────────────────────────────────────────────────────────
+   BV Connection Wizard — scoped styles
+   ────────────────────────────────────────────────────────── */
+.bv-conn-wrap          { display:flex; gap:1.5rem; align-items:flex-start; }
+.bv-conn-main          { flex:1; min-width:0; }
+.bv-conn-aside         { width:232px; flex-shrink:0; position:sticky; top:76px; }
 
-      <div class="col-12">
-        <div class="border rounded p-3 h-100">
-          <h6 class="mb-1">Βήμα 2: Discovery (πίνακες/στήλες)</h6>
-          <div class="small text-muted mb-3">Χρησιμοποίησε αυτό το βήμα για να βρεις σωστό schema/table πριν ορίσεις queries.</div>
-          <div class="row g-2">
-            <div class="col-md-3"><label class="form-label">{{ tt(request, 'discovery_schema') }}</label><input class="form-control" name="selected_schema" value="{{ form_values.selected_schema or '' }}" placeholder="dbo"></div>
-            <div class="col-md-4"><label class="form-label">{{ tt(request, 'discovery_object') }}</label><input class="form-control" name="selected_object" value="{{ form_values.selected_object or '' }}" placeholder="SalesLines / PurchaseLines"></div>
-          </div>
-        </div>
-      </div>
+/* Progress track */
+.bv-steps-track        { display:flex; align-items:flex-start; margin-bottom:2.25rem; }
+.bv-steps-track .step  { display:flex; flex-direction:column; align-items:center; flex:1; position:relative; }
+.bv-steps-track .step:not(:last-child)::after {
+  content:''; position:absolute; top:18px; left:calc(50% + 20px);
+  right:calc(-50% + 20px); height:2px; background:#e5e7eb; z-index:0; transition:background .3s;
+}
+.bv-steps-track .step.done:not(:last-child)::after { background:#10b981; }
+.bv-step-dot {
+  width:36px; height:36px; border-radius:50%; border:2px solid #d1d5db;
+  display:flex; align-items:center; justify-content:center; font-size:.8rem;
+  font-weight:700; color:#9ca3af; background:var(--panel-bg,#fff);
+  cursor:pointer; z-index:1; transition:all .2s; flex-shrink:0; user-select:none;
+}
+.bv-step-dot svg { width:14px; height:14px; }
+.step.active  .bv-step-dot { background:#6366f1; border-color:#6366f1; color:#fff; box-shadow:0 0 0 4px rgba(99,102,241,.15); }
+.step.done    .bv-step-dot { background:#10b981; border-color:#10b981; color:#fff; }
+.step.accessible .bv-step-dot { border-color:#6366f1; color:#6366f1; }
+.bv-step-lbl { font-size:.68rem; font-weight:500; color:#9ca3af; margin-top:.4rem; text-align:center; line-height:1.2; white-space:nowrap; }
+.step.active  .bv-step-lbl { color:#6366f1; font-weight:700; }
+.step.done    .bv-step-lbl { color:#10b981; }
 
-      <div class="col-12">
-        <div class="form-check form-switch mt-1">
-          <input class="form-check-input" type="checkbox" id="enableQueryEdit">
-          <label class="form-check-label" for="enableQueryEdit">{{ tt(request, 'enable_query_editing') }}</label>
-        </div>
-      </div>
+/* Step panels */
+.bv-step-panel         { display:none; animation:bvFadeIn .18s ease; }
+.bv-step-panel.active  { display:block; }
+@keyframes bvFadeIn { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:none} }
 
-      <div class="col-12">
-        <div class="border rounded p-3 h-100">
-          <h6 class="mb-1">Βήμα 3: Query Templates</h6>
-          <div class="small text-muted mb-3">Κάθε connector δηλώνει ρητά σε ποια επιχειρησιακά κυκλώματα κάνει ingest και με ποιο query ανά stream.</div>
-          <div class="row g-2 mb-3">
-            <div class="col-12">
-              <label class="form-label">Ενεργά επιχειρησιακά κυκλώματα</label>
-              <div class="d-flex flex-wrap gap-3">
-                {% for opt in stream_options %}
-                  <div class="form-check">
-                    <input class="form-check-input" type="checkbox" name="enabled_streams" id="stream_{{ opt.value }}" value="{{ opt.value }}" {% if opt.value in (form_values.enabled_streams or []) %}checked{% endif %}>
-                    <label class="form-check-label" for="stream_{{ opt.value }}">{{ opt.label }}</label>
-                  </div>
-                {% endfor %}
-              </div>
-            </div>
-          </div>
-          <div class="row g-2">
-            <div class="col-md-12"><label class="form-label">{{ tt(request, 'sales_query_template') }}</label><textarea class="form-control qp-editable" name="sales_query_template" rows="3" readonly>{{ form_values.sales_query_template or 'SELECT TOP 5000 * FROM dbo.SalesLines' }}</textarea></div>
-            <div class="col-md-12"><label class="form-label">{{ tt(request, 'purchases_query_template') }}</label><textarea class="form-control qp-editable" name="purchases_query_template" rows="3" readonly>{{ form_values.purchases_query_template or 'SELECT TOP 5000 * FROM dbo.PurchaseLines' }}</textarea></div>
-            <div class="col-md-12"><label class="form-label">Template Query Παραστατικών Αποθήκης</label><textarea class="form-control qp-editable" name="inventory_query_template" rows="3" readonly>{{ form_values.inventory_query_template or 'SELECT TOP 5000 * FROM dbo.InventorySnapshots' }}</textarea></div>
-            <div class="col-md-12"><label class="form-label">Template Query Ταμειακών Συναλλαγών</label><textarea class="form-control qp-editable" name="cashflow_query_template" rows="3" readonly>{{ form_values.cashflow_query_template or 'SELECT TOP 5000 * FROM dbo.CashflowEntries' }}</textarea></div>
-            <div class="col-md-12"><label class="form-label">Template Query Ανοιχτών Υπολοίπων Προμηθευτών</label><textarea class="form-control qp-editable" name="supplier_balances_query_template" rows="3" readonly>{{ form_values.supplier_balances_query_template or 'SELECT TOP 5000 * FROM dbo.SupplierBalances' }}</textarea></div>
-            <div class="col-md-12"><label class="form-label">Template Query Ανοιχτών Υπολοίπων Πελατών</label><textarea class="form-control qp-editable" name="customer_balances_query_template" rows="3" readonly>{{ form_values.customer_balances_query_template or 'SELECT TOP 5000 * FROM dbo.CustomerBalances' }}</textarea></div>
-            <div class="col-md-12">
-              <label class="form-label">Field Mapping JSON (source -> canonical)</label>
-              <textarea class="form-control qp-editable font-monospace" name="stream_field_mapping_json" rows="6" readonly>{{ form_values.stream_field_mapping_json or '{}' }}</textarea>
-              <div class="form-text">Παράδειγμα: {"sales_documents":{"doc_date":"HMER","item_code":"KOD","net_value":"AXIA"}}</div>
-            </div>
-          </div>
-        </div>
-      </div>
+/* Source-type cards (Step 0) */
+.bv-src-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(165px,1fr)); gap:1rem; }
+.bv-src-card {
+  border:2px solid var(--bs-border-color,#e5e7eb); border-radius:12px;
+  padding:1.25rem 1rem; cursor:pointer; transition:all .2s; text-align:center;
+  background:var(--panel-bg,#fff); user-select:none;
+}
+.bv-src-card:hover           { border-color:#6366f1; box-shadow:0 0 0 3px rgba(99,102,241,.1); }
+.bv-src-card.selected        { border-color:#6366f1; background:rgba(99,102,241,.05); }
+.bv-src-card.disabled        { opacity:.45; cursor:not-allowed; pointer-events:none; }
+.bv-src-icon {
+  width:48px; height:48px; border-radius:12px; display:flex;
+  align-items:center; justify-content:center; margin:0 auto .75rem;
+  font-size:1.4rem;
+}
+.bv-src-icon.sql  { background:#dbeafe; color:#1d4ed8; }
+.bv-src-icon.api  { background:#dcfce7; color:#16a34a; }
+.bv-src-icon.file { background:#fef9c3; color:#a16207; }
+.bv-src-icon.soon { background:#f3f4f6; color:#9ca3af; }
+.bv-src-card h6   { font-size:.85rem; font-weight:700; margin:.25rem 0 .2rem; }
+.bv-src-card p    { font-size:.72rem; color:#6b7280; margin:0; }
+.bv-src-badge     { font-size:.65rem; padding:.15rem .5rem; border-radius:999px; font-weight:600; margin-bottom:.4rem; display:inline-block; }
 
-      <div class="col-12">
-        <div class="border rounded p-3 h-100">
-          <h6 class="mb-1">Βήμα 4: Mapping Στηλών</h6>
-          <div class="small text-muted mb-3">Αντιστοίχισε τις στήλες του πελάτη στα canonical πεδία BI.</div>
-          <div class="row g-2">
-            <div class="col-md-3"><label class="form-label">Incremental Timestamp Column</label><input class="form-control" name="updated_at_column" value="{{ form_values.updated_at_column or 'UpdatedAt' }}" placeholder="UpdatedAt"></div>
-            <div class="col-md-3"><label class="form-label">Incremental ID Column</label><input class="form-control" name="id_column" value="{{ form_values.id_column or 'LineId' }}" placeholder="LineId"></div>
-            <div class="col-md-3"><label class="form-label">Document Date Column</label><input class="form-control" name="date_column" value="{{ form_values.date_column or 'DocDate' }}" placeholder="DocDate"></div>
-            <div class="col-md-3"><label class="form-label">Branch Column</label><input class="form-control" name="branch_column" value="{{ form_values.branch_column or 'branch_external_id' }}" placeholder="branch_external_id"></div>
-            <div class="col-md-3"><label class="form-label">Item Column</label><input class="form-control" name="item_column" value="{{ form_values.item_column or 'item_external_id' }}" placeholder="item_external_id"></div>
-            <div class="col-md-3"><label class="form-label">Net Amount Column</label><input class="form-control" name="net_amount_column" value="{{ form_values.net_amount_column or 'net_amount' }}" placeholder="net_amount"></div>
-            <div class="col-md-3"><label class="form-label">Cost Amount Column</label><input class="form-control" name="cost_column" value="{{ form_values.cost_column or 'cost_amount' }}" placeholder="cost_amount"></div>
-            <div class="col-md-3"><label class="form-label">Quantity Column</label><input class="form-control" name="qty_column" value="{{ form_values.qty_column or 'qty' }}" placeholder="qty"></div>
-          </div>
-        </div>
-      </div>
+/* Advanced toggle */
+.bv-adv-toggle { font-size:.78rem; color:#6366f1; cursor:pointer; display:inline-flex; align-items:center; gap:.3rem; user-select:none; }
+.bv-adv-toggle svg { transition:transform .2s; }
+.bv-adv-toggle.open svg { transform:rotate(90deg); }
+.bv-adv-body  { display:none; margin-top:.75rem; padding:.75rem; background:rgba(0,0,0,.02); border-radius:8px; border:1px solid var(--bs-border-color,#e5e7eb); }
+.bv-adv-body.show { display:block; }
 
-      <div class="col-12 d-flex flex-wrap gap-2 mt-2">
-        <button class="btn bv-action-btn bv-action-edit" type="submit" formaction="/admin/connections/discovery"><i class="fe fe-search"></i> {{ tt(request, 'discovery') }}</button>
-        <button class="btn bv-action-btn bv-action-toggle" type="submit"><i class="fe fe-link"></i> {{ tt(request, 'test_connection') }}</button>
-        <button class="btn bv-action-btn bv-action-save" type="submit" formaction="/admin/connections/save"><i class="fe fe-save"></i> {{ tt(request, 'save_mapping_profile') }}</button>
-      </div>
-    </form>
+/* Inline test/discovery result */
+.bv-result-panel { border-radius:10px; padding:1rem 1.25rem; margin-top:1rem; }
+.bv-result-panel.ok   { background:#f0fdf4; border:1px solid #bbf7d0; }
+.bv-result-panel.err  { background:#fef2f2; border:1px solid #fecaca; }
+.bv-result-panel.info { background:#f0f9ff; border:1px solid #bae6fd; }
+.bv-result-icon { width:36px; height:36px; border-radius:50%; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+.bv-result-icon.ok  { background:#dcfce7; color:#16a34a; }
+.bv-result-icon.err { background:#fee2e2; color:#dc2626; }
+.bv-result-icon.info { background:#e0f2fe; color:#0284c7; }
+
+/* Quick-actions sidebar */
+.bv-quick-panel { border:1px solid var(--bs-border-color,#e5e7eb); border-radius:12px; overflow:hidden; background:var(--panel-bg,#fff); }
+.bv-quick-hd    { background:#6366f1; color:#fff; padding:.6rem 1rem; font-size:.78rem; font-weight:700; letter-spacing:.03em; }
+.bv-quick-body  { padding:.75rem; }
+.bv-q-btn       { display:flex; align-items:center; gap:.55rem; width:100%; padding:.5rem .75rem; border-radius:8px; border:1px solid var(--bs-border-color,#e5e7eb); background:var(--panel-bg,#fff); font-size:.78rem; font-weight:500; color:var(--bs-body-color,#374151); cursor:pointer; margin-bottom:.4rem; transition:all .15s; text-decoration:none; }
+.bv-q-btn:hover { background:#f5f3ff; border-color:#6366f1; color:#6366f1; }
+.bv-q-btn.primary { background:#6366f1; color:#fff; border-color:#6366f1; }
+.bv-q-btn.primary:hover { background:#4f46e5; }
+.bv-q-btn.danger  { color:#dc2626; border-color:#fca5a5; }
+.bv-q-btn.danger:hover { background:#fef2f2; }
+.bv-q-btn svg { width:14px; height:14px; flex-shrink:0; }
+.bv-q-sep  { border:none; border-top:1px solid var(--bs-border-color,#e5e7eb); margin:.5rem 0; }
+.bv-status-row { display:flex; align-items:center; justify-content:space-between; font-size:.72rem; padding:.2rem 0; }
+.bv-status-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+.bv-status-dot.ok  { background:#10b981; }
+.bv-status-dot.err { background:#ef4444; }
+.bv-status-dot.unk { background:#9ca3af; }
+.bv-status-dot.run { background:#f59e0b; animation:bvPulse 1s infinite; }
+@keyframes bvPulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+/* Section header inside step */
+.bv-sec-hd { display:flex; align-items:center; gap:.6rem; margin-bottom:1rem; }
+.bv-sec-icon { width:32px; height:32px; border-radius:8px; display:flex; align-items:center; justify-content:center; }
+.bv-sec-icon svg { width:16px; height:16px; }
+.bv-sec-icon.purple { background:#ede9fe; color:#7c3aed; }
+.bv-sec-icon.blue   { background:#dbeafe; color:#2563eb; }
+.bv-sec-icon.green  { background:#dcfce7; color:#16a34a; }
+.bv-sec-icon.amber  { background:#fef3c7; color:#d97706; }
+.bv-sec-icon.red    { background:#fee2e2; color:#dc2626; }
+
+/* Wizard nav */
+.bv-wiz-nav { display:flex; align-items:center; justify-content:space-between; margin-top:1.5rem; padding-top:1.25rem; border-top:1px solid var(--bs-border-color,#e5e7eb); }
+
+/* Helper text under field */
+.bv-field-hint { font-size:.7rem; color:#9ca3af; margin-top:.2rem; }
+.bv-field-example { font-size:.7rem; color:#6b7280; font-family:monospace; background:rgba(0,0,0,.04); padding:.1rem .35rem; border-radius:4px; }
+
+/* Stream toggle row */
+.bv-stream-row { display:flex; align-items:center; justify-content:space-between; padding:.45rem .6rem; border-radius:8px; border:1px solid var(--bs-border-color,#e5e7eb); margin-bottom:.35rem; background:var(--panel-bg,#fff); }
+.bv-stream-row .badge { font-size:.65rem; }
+
+/* Mapping table */
+.bv-map-grid { display:grid; grid-template-columns:1fr 1fr; gap:.65rem; }
+@media(max-width:768px) { .bv-map-grid { grid-template-columns:1fr; } .bv-conn-aside { display:none; } }
+
+/* Connection table row clickable */
+.bv-conn-tbl tr[data-tid] { cursor:pointer; }
+.bv-conn-tbl tr[data-tid]:hover td { background:rgba(99,102,241,.04); }
+
+/* Danger zone accent — needs body.azea-shell prefix + !important to beat global card-header rule */
+body.azea-shell .bv-danger-zone > .card-header { background:#fff5f5 !important; border-bottom:1px solid #fecaca !important; }
+</style>
+
+{% set fv = form_values %}
+{% set src_type = fv.source_type or 'sql' %}
+{% set conn_type = fv.connector_type or 'sql_connector' %}
+{% set is_api = src_type == 'api' %}
+{% set is_file = src_type == 'file' %}
+{% set is_sql = not is_api and not is_file %}
+{% set has_saved = fv.has_saved_password %}
+{% set initial_step = 0 if not has_saved and not fv.host else 1 %}
+
+{# ── Flash messages ── #}
+{% if result %}
+<div class="alert {% if result.status == 'ok' %}alert-success{% else %}alert-danger{% endif %} alert-dismissible fade show d-flex align-items-center gap-2 mb-3" role="alert">
+  <i data-feather="{% if result.status == 'ok' %}check-circle{% else %}alert-triangle{% endif %}"></i>
+  <span>{{ result.message }}</span>
+  <button type="button" class="btn-close ms-auto" data-bs-dismiss="alert"></button>
+</div>
+{% endif %}
+{% for qp, cls, msg in [
+  ('saved',       'success', 'Η σύνδεση αποθηκεύτηκε.'),
+  ('applied',     'success', 'Εφαρμόστηκε το default querypack.'),
+  ('backfill',    'success', 'Το initial backfill μπήκε στην ουρά.'),
+  ('recover',     'warning', 'Εκτελέστηκε recovery της διαδικασίας (unlock + resume).'),
+  ('stop_sync',   'warning', 'Ο συγχρονισμός σταμάτησε.'),
+  ('delete_data', 'success', 'Η διαγραφή δεδομένων μπήκε στην ουρά.'),
+] %}
+  {% if request.query_params.get(qp) == '1' %}
+  <div class="alert alert-{{ cls }} alert-dismissible fade show d-flex gap-2 mb-3">
+    <i data-feather="info"></i><span>{{ msg }}</span>
+    <button type="button" class="btn-close ms-auto" data-bs-dismiss="alert"></button>
+  </div>
+  {% endif %}
+{% endfor %}
+{% for qp in ['saved','applied','backfill','recover','stop_sync','delete_data'] %}
+  {% if request.query_params.get(qp) == '0' %}
+  <div class="alert alert-danger alert-dismissible fade show d-flex gap-2 mb-3">
+    <i data-feather="alert-triangle"></i><span>Αποτυχία λειτουργίας — έλεγξε τις τιμές και ξαναδοκίμασε.</span>
+    <button type="button" class="btn-close ms-auto" data-bs-dismiss="alert"></button>
+  </div>
+  {% endif %}
+{% endfor %}
+
+{# ── Page header ── #}
+<div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+  <div>
+    <h4 class="fw-bold mb-0">Connection Setup</h4>
+    <p class="text-muted small mb-0">Configure, test and manage data source connections — SQL, API, files.</p>
+  </div>
+  <div class="d-flex align-items-center gap-2">
+    <label class="small fw-semibold text-muted mb-0">Tenant</label>
+    <select class="form-select form-select-sm" style="width:200px" id="globalTenantSelect">
+      {% for t in tenants %}
+      <option value="{{ t.id }}" {% if t.id == fv.tenant_id %}selected{% endif %}>{{ t.name }} ({{ t.slug }})</option>
+      {% endfor %}
+    </select>
+    <label class="small fw-semibold text-muted mb-0">Connector</label>
+    <select class="form-select form-select-sm" style="width:175px" id="globalConnectorSelect">
+      <option value="sql_connector"  {% if conn_type=='sql_connector'  %}selected{% endif %}>SQL Connector</option>
+      <option value="pharmacyone_sql"{% if conn_type=='pharmacyone_sql'%}selected{% endif %}>SQL (legacy key)</option>
+      <option value="external_api"   {% if conn_type=='external_api'   %}selected{% endif %}>External API</option>
+      <option value="file_import"    {% if conn_type=='file_import'    %}selected{% endif %}>File Import</option>
+    </select>
   </div>
 </div>
 
-<div class="card mt-3">
-  <div class="card-body">
-    <h5 class="mb-3">{{ tt(request, 'querypack_backfill') }}</h5>
-    <div class="row g-3">
-      <div class="col-lg-6">
-        <form method="post" action="/admin/connections/apply-pack" class="row g-2">
-          <input type="hidden" name="source_page" value="{{ active_page or 'connections' }}">
-          <input type="hidden" name="connector_type" value="{{ form_values.connector_type or 'sql_connector' }}">
-          <div class="col-md-8">
-            <label class="form-label">{{ tt(request, 'tenant') }}</label>
-            <select class="form-select" name="tenant_id" required>
-              {% for t in tenants %}
-                <option value="{{ t.id }}" {% if form_values.tenant_id == t.id %}selected{% endif %}>{{ t.name }} ({{ t.slug }})</option>
-              {% endfor %}
-            </select>
-          </div>
-          <div class="col-md-4 d-flex align-items-end">
-            <button class="btn btn-primary w-100" type="submit"><i class="fe fe-download-cloud"></i>{{ tt(request, 'apply_default_querypack') }}</button>
-          </div>
-        </form>
-      </div>
-      <div class="col-lg-6">
-        <form method="post" action="/admin/connections/backfill" class="row g-2">
-          <input type="hidden" name="source_page" value="{{ active_page or 'connections' }}">
-          <input type="hidden" name="connector_type" value="{{ form_values.connector_type or 'sql_connector' }}">
-          <div class="col-md-4">
-            <label class="form-label">{{ tt(request, 'tenant') }}</label>
-            <select class="form-select" name="tenant_id" required>
-              {% for t in tenants %}
-                <option value="{{ t.id }}" {% if form_values.tenant_id == t.id %}selected{% endif %}>{{ t.name }} ({{ t.slug }})</option>
-              {% endfor %}
-            </select>
-          </div>
-          <div class="col-md-3">
-            <label class="form-label">{{ tt(request, 'from') }}</label>
-            <input class="form-control" type="text" name="from_date" data-date-format="dmy" placeholder="ηη/μμ/εεεε" inputmode="numeric" required>
-          </div>
-          <div class="col-md-3">
-            <label class="form-label">{{ tt(request, 'to') }}</label>
-            <input class="form-control" type="text" name="to_date" data-date-format="dmy" placeholder="ηη/μμ/εεεε" inputmode="numeric" required>
-          </div>
-          <div class="col-md-2">
-            <label class="form-label">{{ tt(request, 'chunk_records') }}</label>
-            <input class="form-control" type="number" min="100" max="10000" step="100" name="chunk_records" value="1000">
-          </div>
-          <div class="col-12 d-flex align-items-center gap-2">
-            <input class="form-check-input" type="checkbox" name="include_purchases" id="includePurchases" checked>
-            <label class="form-check-label" for="includePurchases">{{ tt(request, 'include_purchases') }}</label>
-            <button id="recoverSyncBtn" class="btn bv-action-btn bv-action-edit ms-auto" type="submit" formaction="/admin/connections/recover-sync" formnovalidate>
-              <i class="fe fe-refresh-cw"></i> Recovery Sync
-            </button>
-            <button id="stopSyncBtn" class="btn bv-action-btn bv-action-delete" type="submit" formaction="/admin/connections/stop-sync" formnovalidate>
-              <i class="fe fe-stop-circle"></i> Stop Sync
-            </button>
-            <button class="btn bv-action-btn bv-action-save" type="submit"><i class="fe fe-play-circle"></i>{{ tt(request, 'initial_backfill') }}</button>
-          </div>
-          <div class="col-12">
-            <div class="small fw-semibold mb-1">Πρόοδος κατεβάσματος δεδομένων</div>
-            <div class="progress" style="height: 18px;">
-              <div id="backfillProgressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-primary" role="progressbar" style="width: 0%">0%</div>
-            </div>
-            <div id="backfillProgressText" class="form-text">Δεν υπάρχει ενεργή διαδικασία.</div>
-            <div id="backfillRangeText" class="form-text text-muted"
-                 data-last-from="{{ last_backfill.payload.get('from_date') if last_backfill and last_backfill.payload else '' }}"
-                 data-last-to="{{ last_backfill.payload.get('to_date') if last_backfill and last_backfill.payload else '' }}"
-                 data-last-at="{{ last_backfill.created_at if last_backfill else '' }}">
-              {% if last_backfill and last_backfill.payload %}
-                Τελευταίο Backfill: {{ last_backfill.payload.get('from_date') or '-' }} → {{ last_backfill.payload.get('to_date') or '-' }}
-              {% else %}
-                Τελευταίο Backfill: - 
-              {% endif %}
-            </div>
-          </div>
-        </form>
-      </div>
-    </div>
-  </div>
-</div>
-
-<div class="card mt-3 bv-danger-zone">
-  <div class="card-body">
-    <h5 class="mb-2 d-flex align-items-center gap-2">
-      <span class="badge bg-danger-subtle text-danger border border-danger-subtle">Danger Zone</span>
-      <span>Delete Tenant Data (No Sync)</span>
-    </h5>
-    <p class="text-muted mb-3">
-      Διαγράφει δεδομένα tenant χωρίς sync. Με κενές ημερομηνίες κάνει πλήρη διαγραφή, με Από/Έως κάνει διαγραφή μόνο για το διάστημα.
-    </p>
-    <form method="post" action="/admin/connections/delete-data" class="row g-3 align-items-end">
-      <input type="hidden" name="source_page" value="{{ active_page or 'connections' }}">
-      <input type="hidden" name="connector_type" value="{{ form_values.connector_type or 'sql_connector' }}">
-      <div class="col-xl-3 col-md-6">
-        <label class="form-label">{{ tt(request, 'tenant') }}</label>
-        <select class="form-select" name="tenant_id" required>
-          {% for t in tenants %}
-            <option value="{{ t.id }}" {% if form_values.tenant_id == t.id %}selected{% endif %}>{{ t.name }} ({{ t.slug }})</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="col-xl-2 col-md-6">
-        <label class="form-label">{{ tt(request, 'from') }}</label>
-        <input class="form-control" type="text" name="delete_from_date" data-date-format="dmy" placeholder="ηη/μμ/εεεε" inputmode="numeric">
-      </div>
-      <div class="col-xl-2 col-md-6">
-        <label class="form-label">{{ tt(request, 'to') }}</label>
-        <input class="form-control" type="text" name="delete_to_date" data-date-format="dmy" placeholder="ηη/μμ/εεεε" inputmode="numeric">
-      </div>
-      <div class="col-12">
-        <div class="form-check">
-          <input class="form-check-input" type="checkbox" name="delete_all" id="deleteAllDataToggle" checked>
-          <label class="form-check-label" for="deleteAllDataToggle">
-            Πλήρης διαγραφή όλων των δεδομένων (χωρίς ημερομηνιακό διάστημα)
-          </label>
-        </div>
-      </div>
-      <div class="col-12">
-        <div class="form-text">
-          Αν το αφήσεις ενεργό, γίνεται πλήρης διαγραφή. Αν το κλείσεις, μπορείς να ορίσεις Από/Έως για διαγραφή μόνο στο διάστημα.
-        </div>
-      </div>
-      <div class="col-12">
-        <div class="form-check">
-          <input class="form-check-input" type="checkbox" name="include_notifications" id="includeNotificationsDelete" checked>
-          <label class="form-check-label" for="includeNotificationsDelete">
-            Διαγραφή ειδοποιήσεων (insights / insight runs)
-          </label>
-        </div>
-      </div>
-      <div class="col-xl-3 col-md-6">
-        <label class="form-label">Type RESET to confirm</label>
-        <input class="form-control" type="text" name="confirm_text" placeholder="RESET" required>
-      </div>
-      <div class="col-12 d-flex justify-content-end">
-        <button class="btn bv-action-btn bv-action-delete" type="submit">
-          <i class="fe fe-alert-triangle"></i> Delete Tenant Data
-        </button>
-      </div>
-      <div class="col-12">
-        <div class="small fw-semibold mb-1">Πρόοδος διαγραφής δεδομένων</div>
-        <div class="progress" style="height: 18px;">
-          <div id="resetProgressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-danger" role="progressbar" style="width: 0%">0%</div>
-        </div>
-        <div id="resetProgressText" class="form-text">Δεν υπάρχει ενεργή διαδικασία.</div>
-      </div>
-    </form>
-  </div>
-</div>
-
-{% if discovery %}
-<div class="card mt-3">
-  <div class="card-body">
-    <h5 class="mb-3">{{ tt(request, 'discovery_results') }}</h5>
-    {% if discovery.objects %}
-    <div class="table-responsive mb-3">
-      <table class="table table-sm table-hover bv-unified-table" data-bv-admin-table="1">
-        <thead><tr><th>{{ tt(request, 'schema') }}</th><th>{{ tt(request, 'object') }}</th><th>{{ tt(request, 'type') }}</th></tr></thead>
-        <tbody>
-          {% for o in discovery.objects %}
-          <tr>
-            <td>{{ o.schema }}</td>
-            <td>{{ o.name }}</td>
-            <td>{{ o.type }}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-    {% endif %}
-
-    {% if discovery.columns %}
-    <h6>{{ tt(request, 'columns') }} {{ discovery.selected_schema }}.{{ discovery.selected_object }}</h6>
-    <div class="table-responsive mb-3">
-      <table class="table table-sm table-striped bv-unified-table" data-bv-admin-table="1">
-        <thead><tr><th>{{ tt(request, 'name') }}</th><th>{{ tt(request, 'type') }}</th><th>{{ tt(request, 'tags') }}</th></tr></thead>
-        <tbody>
-          {% for c in discovery.columns %}
-          <tr>
-            <td>{{ c.name }}</td>
-            <td>{{ c.data_type }}</td>
-            <td>{{ c.tags|join(', ') }}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-    {% endif %}
-
-    {% if discovery.sample_rows %}
-    <h6>{{ tt(request, 'sample_rows_top5') }}</h6>
-    <pre class="bg-light p-2 border rounded small">{{ discovery.sample_rows | tojson(indent=2) }}</pre>
-    {% endif %}
-  </div>
+{# ── Allowlist helper ── #}
+{% if server_public_ip or sqlserver_port %}
+<div class="alert alert-info py-2 small mb-3 d-flex align-items-center gap-2">
+  <i data-feather="shield" style="width:15px;height:15px;flex-shrink:0"></i>
+  <span>Allowlist <strong>{{ server_public_ip or 'SET SERVER_PUBLIC_IP' }}</strong> on port <strong>{{ sqlserver_port or '1433' }}</strong> in the client firewall.</span>
 </div>
 {% endif %}
 
-<div class="card mt-3">
+{# ══════════════════════════════════════════════════════════
+   MAIN WIZARD
+   ══════════════════════════════════════════════════════════ #}
+<div class="bv-conn-wrap">
+<div class="bv-conn-main">
+
+{# ── Step Progress ── #}
+<div class="bv-steps-track" id="bvStepsTrack">
+  {% for idx, lbl in [(0,'Connector'),(1,'Setup'),(2,'Test'),(3,'Discovery'),(4,'Mapping')] %}
+  <div class="step" id="bv-step-pill-{{ idx }}" onclick="bvGoTo({{ idx }})">
+    <div class="bv-step-dot" id="bv-dot-{{ idx }}">{{ idx }}</div>
+    <span class="bv-step-lbl">{{ lbl }}</span>
+  </div>
+  {% endfor %}
+</div>
+
+{# ──────────────────────────────────────────────────────────
+   MASTER FORM — wraps steps 1‑4
+   All buttons that need the form data use formaction.
+   ────────────────────────────────────────────────────────── #}
+<form method="post" action="/admin/connections/test" id="bvMainForm" autocomplete="off">
+<input type="hidden" name="source_page"     value="{{ active_page or 'connections' }}">
+<input type="hidden" name="connector_type"  value="{{ conn_type }}" id="hConnType">
+<input type="hidden" name="source_type"     value="{{ src_type }}"  id="hSrcType">
+<input type="hidden" name="selected_schema" value="{{ fv.selected_schema or '' }}" id="hSchema">
+<input type="hidden" name="selected_object" value="{{ fv.selected_object or '' }}" id="hObject">
+
+{# ═══════════ STEP 0 — Select Connector Type ═══════════ #}
+<div class="bv-step-panel card shadow-sm" id="bv-panel-0">
   <div class="card-body">
-    <h5 class="mb-3">{{ tt(request, 'connections') }}</h5>
+    <div class="bv-sec-hd mb-3">
+      <div class="bv-sec-icon purple"><i data-feather="layers"></i></div>
+      <div>
+        <h6 class="mb-0 fw-bold">Select data source type</h6>
+        <p class="text-muted small mb-0">Choose how this tenant's data reaches CloudOn BI.</p>
+      </div>
+    </div>
+
+    <div class="bv-src-grid mb-4">
+
+      <div class="bv-src-card {% if conn_type in ('sql_connector','pharmacyone_sql') and is_sql %}selected{% endif %}"
+           data-connector="sql_connector" data-srctype="sql" onclick="bvSelectSource(this)">
+        <div class="bv-src-icon sql"><i data-feather="database"></i></div>
+        <span class="bv-src-badge bg-primary-subtle text-primary border border-primary-subtle">Recommended</span>
+        <h6>SQL Server</h6>
+        <p>Direct connection via pyodbc to Microsoft SQL Server. Maximum fidelity &amp; speed.</p>
+      </div>
+
+      <div class="bv-src-card {% if conn_type=='external_api' %}selected{% endif %}"
+           data-connector="external_api" data-srctype="api" onclick="bvSelectSource(this)">
+        <div class="bv-src-icon api"><i data-feather="cloud"></i></div>
+        <h6>External API</h6>
+        <p>HTTP/REST API connector. For ERP systems without direct DB access.</p>
+      </div>
+
+      <div class="bv-src-card {% if conn_type=='file_import' %}selected{% endif %}"
+           data-connector="file_import" data-srctype="file" onclick="bvSelectSource(this)">
+        <div class="bv-src-icon file"><i data-feather="upload"></i></div>
+        <h6>File Import</h6>
+        <p>Upload CSV/Excel files for one-time or scheduled data loads.</p>
+      </div>
+
+      <div class="bv-src-card disabled">
+        <div class="bv-src-icon soon"><i data-feather="zap"></i></div>
+        <span class="bv-src-badge bg-secondary-subtle text-secondary border border-secondary-subtle">Coming soon</span>
+        <h6>Webhook / Push</h6>
+        <p>Real-time push from ERP to BI via webhook endpoint.</p>
+      </div>
+
+    </div>
+
+    <div id="bvSrcTypeNote" class="bv-result-panel info d-flex align-items-center gap-3 mb-0">
+      <div class="bv-result-icon info"><i data-feather="info"></i></div>
+      <div>
+        <div class="fw-semibold small" id="bvSrcTypeNoteTitle">Select a connector above</div>
+        <div class="small text-muted" id="bvSrcTypeNoteBody">Each connector type has different setup steps and configuration options.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ═══════════ STEP 1 — Connection Setup ═══════════ #}
+<div class="bv-step-panel card shadow-sm" id="bv-panel-1">
+  <div class="card-body">
+    <div class="bv-sec-hd">
+      <div class="bv-sec-icon blue"><i data-feather="link-2"></i></div>
+      <div>
+        <h6 class="mb-0 fw-bold" id="step1Heading">Connection Credentials</h6>
+        <p class="text-muted small mb-0" id="step1Sub">Enter the server connection details.</p>
+      </div>
+    </div>
+
+    {# Tenant + Active toggle #}
+    <div class="row g-2 mb-3">
+      <div class="col-md-6">
+        <label class="form-label fw-semibold">Tenant <span class="text-danger">*</span></label>
+        <select class="form-select" name="tenant_id" id="formTenantSelect" required>
+          {% for t in tenants %}
+          <option value="{{ t.id }}" {% if t.id == fv.tenant_id %}selected{% endif %}>{{ t.name }} ({{ t.slug }})</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-6 d-flex align-items-end pb-1">
+        <div class="form-check form-switch mb-0">
+          <input class="form-check-input" type="checkbox" role="switch" name="is_active" id="swIsActive" value="true" {% if fv.is_active %}checked{% endif %}>
+          <label class="form-check-label" for="swIsActive">Connector active (used in scheduled syncs)</label>
+        </div>
+      </div>
+    </div>
+
+    {# ── SQL fields ── #}
+    <div id="sqlFields" class="{% if not is_sql %}d-none{% endif %}">
+      <div class="row g-2 mb-2">
+        <div class="col-md-6">
+          <label class="form-label fw-semibold">Host / IP <span class="text-danger">*</span></label>
+          <input class="form-control" name="host" id="fHost" placeholder="sql.customer.local or 1.2.3.4" value="{{ fv.host or '' }}" {% if is_sql %}required{% endif %}>
+          <div class="bv-field-hint">Hostname or IP address of the SQL Server instance.</div>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label fw-semibold">Port</label>
+          <input class="form-control" name="port" id="fPort" placeholder="1433" value="{{ fv.port or '1433' }}" type="number">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label fw-semibold">Database <span class="text-danger">*</span></label>
+          <input class="form-control" name="database" id="fDatabase" placeholder="BV_Pharmacy295" value="{{ fv.database or '' }}" {% if is_sql %}required{% endif %}>
+        </div>
+      </div>
+      <div class="row g-2 mb-2">
+        <div class="col-md-5">
+          <label class="form-label fw-semibold">Username <span class="text-danger">*</span></label>
+          <input class="form-control" name="username" id="fUsername" placeholder="sa_readonly" value="{{ fv.username or '' }}" {% if is_sql %}required{% endif %}>
+          <div class="bv-field-hint">Use a read-only SQL login when possible.</div>
+        </div>
+        <div class="col-md-5">
+          <label class="form-label fw-semibold">Password {% if not has_saved %}<span class="text-danger">*</span>{% endif %}</label>
+          <div class="input-group">
+            <input class="form-control" type="password" name="password" id="fPassword" autocomplete="new-password"
+                   placeholder="{% if has_saved %}Leave blank to keep current{% else %}Enter password{% endif %}"
+                   {% if is_sql and not has_saved %}required{% endif %}>
+            <button class="btn btn-outline-secondary" type="button" id="btnTogglePwd" title="Show/hide" onclick="bvTogglePwd()">
+              <i data-feather="eye" style="width:14px;height:14px"></i>
+            </button>
+          </div>
+          {% if has_saved %}
+          <div class="bv-field-hint text-success"><i data-feather="lock" style="width:11px;height:11px"></i> Credentials saved. Leave blank to keep.</div>
+          {% else %}
+          <div class="bv-field-hint text-warning"><i data-feather="alert-circle" style="width:11px;height:11px"></i> No saved credentials — required.</div>
+          {% endif %}
+        </div>
+        <div class="col-md-2 d-flex align-items-end pb-1">
+          <button class="btn btn-sm btn-outline-primary w-100" type="button" onclick="bvGoTo(2)">
+            <i data-feather="zap" style="width:12px;height:12px"></i> Test →
+          </button>
+        </div>
+      </div>
+
+      {# Advanced SQL options #}
+      <div class="mt-2 mb-1">
+        <span class="bv-adv-toggle" id="advToggle" onclick="bvToggleAdv()">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><polyline points="9 18 15 12 9 6"/></svg>
+          Advanced options
+        </span>
+      </div>
+      <div class="bv-adv-body" id="advBody">
+        <div class="row g-2">
+          <div class="col-md-3">
+            <label class="form-label small fw-semibold">Encrypt</label>
+            <select class="form-select form-select-sm" id="adv_encrypt" onchange="bvSyncOptions()">
+              <option value="yes">Yes (recommended)</option>
+              <option value="no">No</option>
+            </select>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label small fw-semibold">Trust Server Certificate</label>
+            <select class="form-select form-select-sm" id="adv_trust" onchange="bvSyncOptions()">
+              <option value="yes">Yes</option>
+              <option value="no">No (strict TLS)</option>
+            </select>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label small fw-semibold">Login Timeout (s)</label>
+            <input class="form-control form-control-sm" type="number" id="adv_login_timeout" value="30" onchange="bvSyncOptions()">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label small fw-semibold">Query Timeout (s)</label>
+            <input class="form-control form-control-sm" type="number" id="adv_query_timeout" value="0" onchange="bvSyncOptions()">
+          </div>
+        </div>
+        <div class="mt-2">
+          <label class="form-label small fw-semibold">Raw options string</label>
+          <input class="form-control form-control-sm font-monospace" name="options" id="fOptions" value="{{ fv.options or 'Encrypt=yes;TrustServerCertificate=yes' }}" placeholder="Encrypt=yes;TrustServerCertificate=yes">
+          <div class="bv-field-hint">key=value;key2=value2 — advanced fields above sync automatically.</div>
+        </div>
+      </div>
+    </div>{# end sqlFields #}
+
+    {# ── API fields ── #}
+    <div id="apiFields" class="{% if not is_api %}d-none{% endif %}">
+      {# Hidden dummy values for SQL fields that the backend requires but aren't relevant for API #}
+      <input type="hidden" name="host"     id="fHostApi"     value="{{ fv.host or '' }}">
+      <input type="hidden" name="port"     id="fPortApi"     value="{{ fv.port or '443' }}">
+      <input type="hidden" name="database" id="fDatabaseApi" value="{{ fv.database or 'api' }}">
+      <input type="hidden" name="options"  id="fOptionsApi"  value="{{ fv.options or '' }}">
+
+      <div class="row g-2 mb-2">
+        <div class="col-md-8">
+          <label class="form-label fw-semibold">Base URL <span class="text-danger">*</span></label>
+          <input class="form-control" id="fApiBaseUrl" placeholder="https://api.client.com/v1"
+                 value="{{ fv.host or '' }}" oninput="document.getElementById('fHostApi').value=this.value" {% if is_api %}required{% endif %}>
+          <div class="bv-field-hint">Root URL of the API. Endpoints are mapped per stream in Step 3.</div>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label fw-semibold">Auth Type</label>
+          <select class="form-select" id="fApiAuthType">
+            <option value="api_key">API Key</option>
+            <option value="bearer">Bearer Token</option>
+            <option value="basic">Basic Auth</option>
+          </select>
+        </div>
+      </div>
+      <div class="row g-2 mb-2">
+        <div class="col-md-5">
+          <label class="form-label fw-semibold">Client ID / App Name</label>
+          <input class="form-control" name="username" placeholder="client_id or app name" value="{{ fv.username or '' }}">
+        </div>
+        <div class="col-md-5">
+          <label class="form-label fw-semibold">API Key / Secret {% if not has_saved %}<span class="text-danger">*</span>{% endif %}</label>
+          <input class="form-control" type="password" name="password" autocomplete="new-password"
+                 placeholder="{% if has_saved %}Leave blank to keep current{% else %}API key or secret{% endif %}">
+          {% if has_saved %}
+          <div class="bv-field-hint text-success"><i data-feather="lock" style="width:11px;height:11px"></i> Secret saved.</div>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="mt-2">
+        <span class="bv-adv-toggle" onclick="bvToggleAdv()">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><polyline points="9 18 15 12 9 6"/></svg>
+          Advanced API options
+        </span>
+        <div class="bv-adv-body" id="advBodyApi">
+          <div class="row g-2">
+            <div class="col-md-6">
+              <label class="form-label small fw-semibold">Custom request headers (JSON)</label>
+              <textarea class="form-control form-control-sm font-monospace" rows="2" placeholder='{"X-API-Version":"2","Accept":"application/json"}'></textarea>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small fw-semibold">Rate limit (req/min)</label>
+              <input class="form-control form-control-sm" type="number" placeholder="60">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small fw-semibold">Request timeout (s)</label>
+              <input class="form-control form-control-sm" type="number" value="30">
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>{# end apiFields #}
+
+    {# ── File fields ── #}
+    <div id="fileFields" class="{% if not is_file %}d-none{% endif %}">
+      <input type="hidden" name="host"     value="{{ fv.host or 'file' }}">
+      <input type="hidden" name="port"     value="{{ fv.port or '0' }}">
+      <input type="hidden" name="database" value="{{ fv.database or 'file' }}">
+      <input type="hidden" name="username" value="{{ fv.username or 'file' }}">
+      <input type="hidden" name="options"  value="">
+      <div class="row g-2 mb-2">
+        <div class="col-md-4">
+          <label class="form-label fw-semibold">File Type</label>
+          <select class="form-select">
+            <option value="csv">CSV</option>
+            <option value="xlsx">Excel (.xlsx)</option>
+            <option value="tsv">TSV</option>
+          </select>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label fw-semibold">Delimiter</label>
+          <input class="form-control" placeholder=",">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label fw-semibold">Encoding</label>
+          <select class="form-select">
+            <option>UTF-8</option>
+            <option>Windows-1253</option>
+            <option>ISO-8859-7</option>
+          </select>
+        </div>
+      </div>
+      <div class="bv-result-panel info">
+        <span class="small"><i data-feather="info" style="width:13px;height:13px"></i> File import: upload files via the <strong>File Imports</strong> section. This connection record stores the format configuration.</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ═══════════ STEP 2 — Test Connection ═══════════ #}
+<div class="bv-step-panel card shadow-sm" id="bv-panel-2">
+  <div class="card-body">
+    <div class="bv-sec-hd">
+      <div class="bv-sec-icon green"><i data-feather="zap"></i></div>
+      <div>
+        <h6 class="mb-0 fw-bold">Test Connection</h6>
+        <p class="text-muted small mb-0">Validate credentials and check server reachability before continuing.</p>
+      </div>
+    </div>
+
+    <div class="d-flex flex-wrap gap-2 mb-3">
+      <button class="btn bv-action-btn bv-action-toggle" type="submit">
+        <i class="fe fe-link"></i> Run Connection Test
+      </button>
+      <span class="small text-muted align-self-center">Tests the current credentials. Results appear below.</span>
+    </div>
+
+    {% if result %}
+    <div class="bv-result-panel {% if result.status == 'ok' %}ok{% else %}err{% endif %} d-flex align-items-start gap-3">
+      <div class="bv-result-icon {% if result.status == 'ok' %}ok{% else %}err{% endif %}">
+        <i data-feather="{% if result.status == 'ok' %}check{% else %}x{% endif %}"></i>
+      </div>
+      <div>
+        <div class="fw-semibold small">{{ 'Connection successful' if result.status == 'ok' else 'Connection failed' }}</div>
+        <div class="small text-muted mt-1">{{ result.message }}</div>
+        {% if result.status != 'ok' %}
+        <div class="small mt-2 p-2 bg-white rounded border">
+          <strong>What to check:</strong>
+          <ul class="mb-0 ps-3 mt-1">
+            <li>Firewall / allowlist for <code>{{ server_public_ip or 'server IP' }}</code> on port <code>{{ sqlserver_port or '1433' }}</code></li>
+            <li>SQL Server accepting remote connections (TCP/IP enabled)</li>
+            <li>Username &amp; password correct</li>
+            <li>Database name matches exactly (case-sensitive)</li>
+          </ul>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+    {% else %}
+    <div class="bv-result-panel info d-flex align-items-center gap-3">
+      <div class="bv-result-icon info"><i data-feather="activity"></i></div>
+      <div>
+        <div class="fw-semibold small">No test result yet</div>
+        <div class="small text-muted">Click <em>Run Connection Test</em> above. The page will reload with the result.</div>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{# ═══════════ STEP 3 — Discovery & Streams ═══════════ #}
+<div class="bv-step-panel card shadow-sm" id="bv-panel-3">
+  <div class="card-body">
+    <div class="bv-sec-hd">
+      <div class="bv-sec-icon amber"><i data-feather="search"></i></div>
+      <div>
+        <h6 class="mb-0 fw-bold">Discovery &amp; Stream Selection</h6>
+        <p class="text-muted small mb-0">Browse the source schema and enable the business circuits to sync.</p>
+      </div>
+    </div>
+
+    {# SQL discovery #}
+    <div id="sqlDiscovery" class="{% if is_api or is_file %}d-none{% endif %} mb-3">
+      <label class="form-label fw-semibold small">Schema / Table discovery</label>
+      <div class="input-group" style="max-width:520px">
+        <span class="input-group-text small">Schema</span>
+        <input class="form-control" id="discSchema" placeholder="dbo" value="{{ fv.selected_schema or '' }}" style="max-width:110px">
+        <span class="input-group-text small">Table / View</span>
+        <input class="form-control" id="discObject" placeholder="SalesLines" value="{{ fv.selected_object or '' }}">
+        <button class="btn bv-action-btn bv-action-edit" type="submit" formaction="/admin/connections/discovery" onclick="bvSyncDiscovery()">
+          <i class="fe fe-search"></i> Discover
+        </button>
+      </div>
+      <div class="bv-field-hint">Leave blank to list all objects. Fill both to inspect columns &amp; get sample rows.</div>
+    </div>
+
+    {# API stream endpoints #}
+    <div id="apiDiscovery" class="{% if not is_api %}d-none{% endif %} mb-3">
+      <label class="form-label fw-semibold small">API endpoint URLs per stream</label>
+      <p class="text-muted small">Map each business circuit to the API path. Leave blank to skip that stream.</p>
+      {% set streams_labels = [
+        ('sales_documents',      'Sales Documents'),
+        ('purchase_documents',   'Purchase Documents'),
+        ('inventory_documents',  'Inventory / Stock'),
+        ('cash_transactions',    'Cash Transactions'),
+        ('supplier_balances',    'Supplier Balances'),
+        ('customer_balances',    'Customer Balances'),
+        ('operating_expenses',   'Operating Expenses'),
+      ] %}
+      {% set api_eps = fv.stream_api_endpoint_json | default('{}') %}
+      {% for sval, slbl in streams_labels %}
+      <div class="input-group input-group-sm mb-1" style="max-width:600px">
+        <span class="input-group-text" style="width:155px;font-size:.72rem">{{ slbl }}</span>
+        <input class="form-control font-monospace" name="stream_api_ep_{{ sval }}"
+               placeholder="/{{ sval.replace('_documents','').replace('_','-') }}"
+               value="">
+      </div>
+      {% endfor %}
+      <div class="bv-field-hint">Relative paths are resolved against the Base URL. Full URLs also accepted.</div>
+    </div>
+
+    {# Discovery results (server-rendered) #}
+    {% if discovery %}
+    <div class="mb-3">
+      {% if discovery.objects %}
+      <div class="d-flex align-items-center gap-2 mb-2">
+        <span class="badge bg-primary-subtle text-primary border border-primary-subtle">{{ discovery.objects|length }} objects found</span>
+        <input class="form-control form-control-sm" id="discFilter" placeholder="Filter objects…" oninput="bvFilterDisc(this.value)" style="max-width:220px">
+      </div>
+      <div class="table-responsive" style="max-height:260px;overflow-y:auto">
+        <table class="table table-sm table-hover mb-0" id="discObjTable">
+          <thead class="table-light sticky-top"><tr><th>Schema</th><th>Object</th><th>Type</th><th></th></tr></thead>
+          <tbody>
+          {% for o in discovery.objects %}
+          <tr onclick="bvPickDiscoveryObj('{{ o.schema }}','{{ o.name }}')" style="cursor:pointer">
+            <td class="small">{{ o.schema }}</td>
+            <td class="small fw-semibold">{{ o.name }}</td>
+            <td class="small text-muted">{{ o.type }}</td>
+            <td><button type="button" class="btn btn-xs btn-outline-primary" style="font-size:.65rem;padding:.1rem .4rem" onclick="bvPickDiscoveryObj('{{ o.schema }}','{{ o.name }}')">Use</button></td>
+          </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
+      {% if discovery.columns %}
+      <h6 class="mt-3 small fw-bold">Columns — {{ discovery.selected_schema }}.{{ discovery.selected_object }}</h6>
+      <div class="table-responsive" style="max-height:220px;overflow-y:auto">
+        <table class="table table-sm table-striped mb-0">
+          <thead class="table-light sticky-top"><tr><th>Column</th><th>Type</th><th>Tags</th></tr></thead>
+          <tbody>
+          {% for c in discovery.columns %}
+          <tr><td class="small font-monospace">{{ c.name }}</td><td class="small text-muted">{{ c.data_type }}</td><td class="small">{{ c.tags|join(', ') if c.tags else '' }}</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
+      {% if discovery.sample_rows %}
+      <details class="mt-2">
+        <summary class="small text-muted" style="cursor:pointer">Sample rows (top 5)</summary>
+        <pre class="bg-light p-2 border rounded small mt-1" style="max-height:200px;overflow:auto">{{ discovery.sample_rows | tojson(indent=2) }}</pre>
+      </details>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    {# ── Enabled streams ── #}
+    <div class="bv-sec-hd mt-2 mb-2">
+      <div class="bv-sec-icon green" style="width:24px;height:24px"><i data-feather="toggle-right" style="width:12px;height:12px"></i></div>
+      <span class="fw-semibold small">Business circuits to sync</span>
+    </div>
+    {% for opt in stream_options %}
+    <div class="bv-stream-row">
+      <label class="d-flex align-items-center gap-2 mb-0 w-100" for="stream_{{ opt.value }}" style="cursor:pointer">
+        <input class="form-check-input m-0" type="checkbox" name="enabled_streams" id="stream_{{ opt.value }}" value="{{ opt.value }}"
+               {% if opt.value in (fv.enabled_streams or []) %}checked{% endif %}>
+        <span class="small fw-medium">{{ opt.label }}</span>
+      </label>
+      {% if opt.value in ('supplier_balances','customer_balances') %}
+      <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle">Snapshot</span>
+      {% else %}
+      <span class="badge bg-primary-subtle text-primary border border-primary-subtle">Incremental</span>
+      {% endif %}
+    </div>
+    {% endfor %}
+
+  </div>
+</div>
+
+{# ═══════════ STEP 4 — Mapping & Save ═══════════ #}
+<div class="bv-step-panel card shadow-sm" id="bv-panel-4">
+  <div class="card-body">
+    <div class="bv-sec-hd">
+      <div class="bv-sec-icon purple"><i data-feather="sliders"></i></div>
+      <div>
+        <h6 class="mb-0 fw-bold">Column Mapping &amp; Query Templates</h6>
+        <p class="text-muted small mb-0">Map source columns to canonical BI fields and configure query templates.</p>
+      </div>
+    </div>
+
+    {# Column mapping — SQL only #}
+    <div id="sqlMappingSection" class="{% if is_api or is_file %}d-none{% endif %}">
+      <label class="form-label fw-semibold small">Column mapping — source column names</label>
+      <div class="bv-map-grid mb-3">
+        <div>
+          <label class="form-label small">Incremental Timestamp Column</label>
+          <input class="form-control form-control-sm font-monospace" name="updated_at_column" value="{{ fv.updated_at_column or 'UpdatedAt' }}" placeholder="UpdatedAt">
+          <div class="bv-field-hint">Column the connector uses for incremental sync cursor.</div>
+        </div>
+        <div>
+          <label class="form-label small">Document ID Column</label>
+          <input class="form-control form-control-sm font-monospace" name="id_column" value="{{ fv.id_column or 'LineId' }}" placeholder="LineId">
+          <div class="bv-field-hint">Unique row/line identifier (used for upsert deduplication).</div>
+        </div>
+        <div>
+          <label class="form-label small">Document Date Column</label>
+          <input class="form-control form-control-sm font-monospace" name="date_column" value="{{ fv.date_column or 'DocDate' }}" placeholder="DocDate">
+        </div>
+        <div>
+          <label class="form-label small">Branch / Store Column</label>
+          <input class="form-control form-control-sm font-monospace" name="branch_column" value="{{ fv.branch_column or 'BranchCode' }}" placeholder="BranchCode">
+        </div>
+        <div>
+          <label class="form-label small">Item / SKU Column</label>
+          <input class="form-control form-control-sm font-monospace" name="item_column" value="{{ fv.item_column or 'ItemCode' }}" placeholder="ItemCode">
+        </div>
+        <div>
+          <label class="form-label small">Net Amount Column</label>
+          <input class="form-control form-control-sm font-monospace" name="net_amount_column" value="{{ fv.net_amount_column or 'NetValue' }}" placeholder="NetValue">
+        </div>
+        <div>
+          <label class="form-label small">Cost Amount Column</label>
+          <input class="form-control form-control-sm font-monospace" name="cost_column" value="{{ fv.cost_column or 'CostValue' }}" placeholder="CostValue">
+        </div>
+        <div>
+          <label class="form-label small">Quantity Column</label>
+          <input class="form-control form-control-sm font-monospace" name="qty_column" value="{{ fv.qty_column or 'Qty' }}" placeholder="Qty">
+        </div>
+      </div>
+    </div>
+
+    {# Query templates — collapsible #}
+    <div class="mt-2 mb-2">
+      <div class="form-check form-switch d-inline-flex align-items-center gap-2">
+        <input class="form-check-input" type="checkbox" id="enableQueryEdit" role="switch">
+        <label class="form-check-label small fw-semibold" for="enableQueryEdit">Edit query templates</label>
+      </div>
+      <span class="text-muted small ms-2">Templates are locked by default to prevent accidental changes.</span>
+    </div>
+
+    {% for qname, qlabel in [
+      ('sales_query_template',             'Sales Lines'),
+      ('purchases_query_template',         'Purchase Lines'),
+      ('inventory_query_template',         'Inventory / Stock'),
+      ('cashflow_query_template',          'Cash Transactions'),
+      ('supplier_balances_query_template', 'Supplier Balances'),
+      ('customer_balances_query_template', 'Customer Balances'),
+    ] %}
+    <div class="mb-2">
+      <label class="form-label small fw-semibold">{{ qlabel }}</label>
+      <textarea class="form-control form-control-sm qp-editable font-monospace" name="{{ qname }}" rows="2" readonly style="resize:vertical">{{ fv[qname] or '' }}</textarea>
+    </div>
+    {% endfor %}
+
+    <div class="mt-3">
+      <label class="form-label small fw-semibold">Field Mapping JSON <span class="text-muted fw-normal">(source → canonical)</span></label>
+      <textarea class="form-control form-control-sm font-monospace qp-editable" name="stream_field_mapping_json" rows="5" readonly>{{ fv.stream_field_mapping_json or '{}' }}</textarea>
+      <div class="bv-field-hint">Format: <span class="bv-field-example">{"sales_documents":{"doc_date":"HMER","item_code":"KOD"}}</span></div>
+    </div>
+
+    {# API: stream_api_endpoint_json #}
+    <div id="apiEndpointJson" class="mt-3 {% if not is_api %}d-none{% endif %}">
+      <label class="form-label small fw-semibold">API Endpoints JSON <span class="text-muted fw-normal">(stream → URL)</span></label>
+      <textarea class="form-control form-control-sm font-monospace" name="stream_api_endpoint_json" rows="5">{{ fv.stream_api_endpoint_json or '{}' }}</textarea>
+      <div class="bv-field-hint">Format: <span class="bv-field-example">{"sales_documents":"/sales","purchase_documents":"/purchases"}</span></div>
+    </div>
+
+    {# Sync interval #}
+    <div class="mt-3 pt-3 border-top">
+      <label class="form-label small fw-semibold">Sync Interval (minutes)</label>
+      <input class="form-control form-control-sm" type="number" min="1" max="60" name="sync_interval_minutes"
+             value="{{ (fv.connection_parameters or {}).get('sync_interval_minutes', 5) }}"
+             placeholder="5" style="max-width:120px">
+      <div class="bv-field-hint">Πόσο συχνά γίνεται incremental sync για αυτόν τον connector. Default: 5 λεπτά.</div>
+    </div>
+
+    {# Apply querypack #}
+    <div class="d-flex flex-wrap gap-2 mt-3 pt-3 border-top">
+      <button class="btn bv-action-btn bv-action-save" type="submit" formaction="/admin/connections/save">
+        <i class="fe fe-save"></i> Save Connection
+      </button>
+      <button class="btn bv-action-btn bv-action-edit" type="submit" formaction="/admin/connections/apply-pack">
+        <i class="fe fe-download-cloud"></i> Apply Default Querypack
+      </button>
+    </div>
+  </div>
+</div>
+
+{# ── Wizard navigation ── #}
+<div class="bv-wiz-nav">
+  <button type="button" class="btn btn-outline-secondary btn-sm" id="bvBtnBack" onclick="bvGoTo(bvCurrentStep-1)" style="display:none">
+    <i data-feather="arrow-left" style="width:14px;height:14px"></i> Back
+  </button>
+  <span></span>
+  <button type="button" class="btn btn-primary btn-sm" id="bvBtnNext" onclick="bvGoTo(bvCurrentStep+1)" style="display:none">
+    Next <i data-feather="arrow-right" style="width:14px;height:14px"></i>
+  </button>
+</div>
+
+</form>{# end bvMainForm #}
+
+{# ══════════════════════════════════════════════════════════
+   BACKFILL & SYNC OPERATIONS CARD
+   ══════════════════════════════════════════════════════════ #}
+<div class="card mt-3 shadow-sm">
+  <div class="card-header d-flex align-items-center gap-2 py-2">
+    <i data-feather="play-circle" style="width:16px;height:16px;color:#6366f1"></i>
+    <strong class="small">Data Load &amp; Sync Operations</strong>
+    <button class="btn btn-sm btn-link ms-auto p-0 text-muted" type="button" data-bs-toggle="collapse" data-bs-target="#bvSyncOps">
+      <i data-feather="chevron-down" style="width:14px;height:14px"></i>
+    </button>
+  </div>
+  <div class="collapse show" id="bvSyncOps">
+  <div class="card-body">
+    <div class="row g-3">
+      {# Apply querypack #}
+      <div class="col-lg-4">
+        <div class="p-3 border rounded h-100">
+          <div class="d-flex align-items-center gap-2 mb-2">
+            <i data-feather="download-cloud" style="width:16px;height:16px;color:#6366f1"></i>
+            <span class="small fw-bold">Apply Default Querypack</span>
+          </div>
+          <p class="text-muted small mb-2">Load the standard query templates for the selected ERP schema.</p>
+          <form method="post" action="/admin/connections/apply-pack">
+            <input type="hidden" name="source_page" value="{{ active_page or 'connections' }}">
+            <input type="hidden" name="connector_type" value="{{ conn_type }}">
+            <select class="form-select form-select-sm mb-2" name="tenant_id">
+              {% for t in tenants %}<option value="{{ t.id }}" {% if t.id == fv.tenant_id %}selected{% endif %}>{{ t.name }}</option>{% endfor %}
+            </select>
+            <button class="btn btn-sm btn-primary w-100" type="submit">Apply Querypack</button>
+          </form>
+        </div>
+      </div>
+
+      {# Initial backfill #}
+      <div class="col-lg-8">
+        <div class="p-3 border rounded h-100">
+          <div class="d-flex align-items-center gap-2 mb-2">
+            <i data-feather="download" style="width:16px;height:16px;color:#10b981"></i>
+            <span class="small fw-bold">Initial / Recovery Backfill</span>
+          </div>
+          <form method="post" action="/admin/connections/backfill" id="backfillForm">
+            <input type="hidden" name="source_page" value="{{ active_page or 'connections' }}">
+            <input type="hidden" name="connector_type" value="{{ conn_type }}">
+            <div class="row g-2 mb-2">
+              <div class="col-md-4">
+                <label class="form-label small fw-semibold">Tenant</label>
+                <select class="form-select form-select-sm" name="tenant_id" id="backfillTenantSelect">
+                  {% for t in tenants %}<option value="{{ t.id }}" {% if t.id == fv.tenant_id %}selected{% endif %}>{{ t.name }}</option>{% endfor %}
+                </select>
+              </div>
+              <div class="col-md-3">
+                <label class="form-label small fw-semibold">From</label>
+                <input class="form-control form-control-sm" type="text" name="from_date" data-date-format="dmy" placeholder="dd/mm/yyyy" inputmode="numeric" required>
+              </div>
+              <div class="col-md-3">
+                <label class="form-label small fw-semibold">To</label>
+                <input class="form-control form-control-sm" type="text" name="to_date" data-date-format="dmy" placeholder="dd/mm/yyyy" inputmode="numeric" required>
+              </div>
+              <div class="col-md-2">
+                <label class="form-label small fw-semibold">Chunk (rows)</label>
+                <input class="form-control form-control-sm" type="number" min="100" max="10000" step="100" name="chunk_records" value="1000">
+              </div>
+            </div>
+            <div class="d-flex flex-wrap align-items-center gap-2">
+              <div class="form-check mb-0">
+                <input class="form-check-input" type="checkbox" name="include_purchases" id="includePurchases" checked>
+                <label class="form-check-label small" for="includePurchases">Include purchases</label>
+              </div>
+              <button id="recoverSyncBtn" class="btn btn-sm btn-outline-secondary ms-auto" type="submit" formaction="/admin/connections/recover-sync" formnovalidate>
+                <i class="fe fe-refresh-cw"></i> Recovery Sync
+              </button>
+              <button id="bvStopBtn" class="btn btn-sm btn-outline-danger" type="submit" formaction="/admin/connections/stop-sync" formnovalidate>
+                <i class="fe fe-stop-circle"></i> Stop
+              </button>
+              <button class="btn btn-sm btn-success" type="submit">
+                <i class="fe fe-play-circle"></i> Start Backfill
+              </button>
+            </div>
+          </form>
+
+          {# Backfill progress #}
+          <div class="mt-3 pt-2 border-top">
+            <div class="d-flex align-items-center justify-content-between mb-1">
+              <span class="small fw-semibold">Sync progress</span>
+              <span class="small text-muted" id="backfillProgressText">Idle</span>
+            </div>
+            <div class="progress" style="height:8px">
+              <div id="backfillProgressBar" class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width:0%"></div>
+            </div>
+            <div class="small text-muted mt-1" id="backfillRangeText">
+              {% if last_backfill and last_backfill.payload %}Last: {{ last_backfill.payload.get('from_date','-') }} → {{ last_backfill.payload.get('to_date','-') }}{% else %}No previous backfill recorded.{% endif %}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  </div>
+</div>
+
+{# ══════════════════════════════════════════════════════════
+   CONNECTIONS TABLE
+   ══════════════════════════════════════════════════════════ #}
+<div class="card mt-3 shadow-sm">
+  <div class="card-header d-flex align-items-center gap-2 py-2">
+    <i data-feather="list" style="width:16px;height:16px;color:#6366f1"></i>
+    <strong class="small">All Connections</strong>
+    <span class="badge bg-secondary-subtle text-secondary border ms-1">{{ connections|length }}</span>
+    <button class="btn btn-sm btn-link ms-auto p-0 text-muted" type="button" data-bs-toggle="collapse" data-bs-target="#bvConnTable">
+      <i data-feather="chevron-down" style="width:14px;height:14px"></i>
+    </button>
+  </div>
+  <div class="collapse show" id="bvConnTable">
+  <div class="card-body p-0">
     <div class="table-responsive">
-      <table class="table table-hover bv-unified-table" data-bv-admin-table="1">
-        <thead><tr><th>ID</th><th>{{ tt(request, 'tenant_id') }}</th><th>Connector</th><th>Source Type</th><th>Active</th><th>Enabled Streams</th><th>{{ tt(request, 'encrypted') }}</th><th>{{ tt(request, 'incremental') }}</th><th>{{ tt(request, 'last_test_ok') }}</th><th>{{ tt(request, 'last_test_error') }}</th><th>{{ tt(request, 'sync_status') }}</th><th>{{ tt(request, 'last_sync') }}</th></tr></thead>
+      <table class="table table-hover table-sm mb-0 bv-conn-tbl">
+        <thead class="table-light">
+          <tr>
+            <th class="ps-3">ID</th><th>Tenant</th><th>Connector</th><th>Type</th>
+            <th>Active</th><th>Streams</th><th>Creds</th><th>Last Test</th>
+            <th>Sync Status</th><th>Last Sync</th>
+          </tr>
+        </thead>
         <tbody>
           {% for c in connections %}
-          <tr>
-            <td>{{ c.id }}</td>
-            <td>{{ c.tenant_id }}</td>
-            <td>{{ c.connector_type }}</td>
-            <td>{{ c.source_type or '-' }}</td>
+          <tr data-tid="{{ c.tenant_id }}" data-ct="{{ c.connector_type }}"
+              onclick="bvLoadConnection('{{ c.tenant_id }}','{{ c.connector_type }}')" title="Click to edit">
+            <td class="ps-3 text-muted small">{{ c.id }}</td>
+            <td class="small fw-semibold">{{ c.tenant_id }}</td>
+            <td class="small">
+              <span class="badge bg-light text-dark border" style="font-size:.65rem">{{ c.connector_type | replace('_',' ') }}</span>
+            </td>
+            <td class="small text-muted">{{ c.source_type or '-' }}</td>
             <td>
               {% if c.is_active %}
-                <span class="badge bg-success-subtle text-success border border-success-subtle">active</span>
+              <span class="badge bg-success-subtle text-success border border-success-subtle" style="font-size:.65rem">active</span>
               {% else %}
-                <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle">inactive</span>
+              <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle" style="font-size:.65rem">inactive</span>
               {% endif %}
             </td>
-            <td>{{ (c.enabled_streams or []) | join(', ') if c.enabled_streams else '-' }}</td>
-            <td>{% if c.enc_payload %}{{ tt(request, 'yes') }}{% else %}{{ tt(request, 'no') }}{% endif %}</td>
-            <td>{{ c.incremental_column }}</td>
-            <td>{{ c.last_test_ok_at or '-' }}</td>
-            <td>{{ c.last_test_error or '-' }}</td>
-            <td>{{ c.sync_status }}</td>
-            <td>{{ c.last_sync_at or '-' }}</td>
+            <td class="small text-muted" style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{ (c.enabled_streams or []) | join(', ') }}">
+              {{ (c.enabled_streams or []) | join(', ') or '-' }}
+            </td>
+            <td class="small">
+              {% if c.enc_payload %}<span class="text-success">✓</span>{% else %}<span class="text-danger">✗</span>{% endif %}
+            </td>
+            <td class="small">
+              {% if c.last_test_ok_at %}
+              <span class="text-success">{{ c.last_test_ok_at.strftime('%d/%m %H:%M') }}</span>
+              {% elif c.last_test_error %}
+              <span class="text-danger" title="{{ c.last_test_error[:120] }}">Failed</span>
+              {% else %}<span class="text-muted">—</span>{% endif %}
+            </td>
+            <td>
+              {% if c.sync_status == 'running' %}
+              <span class="badge bg-primary-subtle text-primary border border-primary-subtle" style="font-size:.65rem">running</span>
+              {% elif c.sync_status == 'completed' %}
+              <span class="badge bg-success-subtle text-success border border-success-subtle" style="font-size:.65rem">completed</span>
+              {% elif c.sync_status in ('failed','error') %}
+              <span class="badge bg-danger-subtle text-danger border border-danger-subtle" style="font-size:.65rem">failed</span>
+              {% else %}
+              <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle" style="font-size:.65rem">{{ c.sync_status or 'never' }}</span>
+              {% endif %}
+            </td>
+            <td class="small text-muted">{{ c.last_sync_at.strftime('%d/%m %H:%M') if c.last_sync_at else '—' }}</td>
           </tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
   </div>
+  </div>
 </div>
 
+{# ══════════════════════════════════════════════════════════
+   DANGER ZONE
+   ══════════════════════════════════════════════════════════ #}
+<div class="card mt-3 shadow-sm bv-danger-zone">
+  <div class="card-header d-flex align-items-center gap-2 py-2">
+    <i data-feather="alert-triangle" style="width:16px;height:16px;color:#dc2626"></i>
+    <span class="badge bg-danger" style="font-size:.65rem">DANGER</span>
+    <strong class="small text-danger">Delete Tenant Data</strong>
+    <button class="btn btn-sm btn-link ms-auto p-0 text-muted" type="button" data-bs-toggle="collapse" data-bs-target="#bvDangerZone">
+      <i data-feather="chevron-down" style="width:14px;height:14px"></i>
+    </button>
+  </div>
+  <div class="collapse show" id="bvDangerZone">
+  <div class="card-body">
+    <p class="text-muted small mb-3">Permanently deletes tenant data from the BI database. Use only for full resets or correcting data range issues. <strong class="text-danger">This cannot be undone.</strong></p>
+    <form method="post" action="/admin/connections/delete-data" id="deleteDataForm">
+      <input type="hidden" name="source_page" value="{{ active_page or 'connections' }}">
+      <input type="hidden" name="connector_type" value="{{ conn_type }}">
+      <div class="row g-3 align-items-end">
+        <div class="col-md-4">
+          <label class="form-label small fw-semibold">Tenant</label>
+          <select class="form-select form-select-sm" name="tenant_id">
+            {% for t in tenants %}<option value="{{ t.id }}" {% if t.id == fv.tenant_id %}selected{% endif %}>{{ t.name }} ({{ t.slug }})</option>{% endfor %}
+          </select>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label small fw-semibold">From (optional)</label>
+          <input class="form-control form-control-sm" type="text" name="delete_from_date" data-date-format="dmy" placeholder="dd/mm/yyyy" id="delFromDate">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label small fw-semibold">To (optional)</label>
+          <input class="form-control form-control-sm" type="text" name="delete_to_date" data-date-format="dmy" placeholder="dd/mm/yyyy" id="delToDate">
+        </div>
+        <div class="col-12">
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="delete_all" id="deleteAllToggle" checked>
+            <label class="form-check-label small" for="deleteAllToggle"><strong>Full delete</strong> — erase all data (ignores date range)</label>
+          </div>
+          <div class="form-check mt-1">
+            <input class="form-check-input" type="checkbox" name="include_notifications" id="includeNotif" checked>
+            <label class="form-check-label small" for="includeNotif">Also delete insights &amp; notifications</label>
+          </div>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label small fw-semibold text-danger">Type RESET to confirm</label>
+          <input class="form-control form-control-sm" type="text" name="confirm_text" placeholder="RESET" required>
+        </div>
+        <div class="col-12 d-flex justify-content-between align-items-center">
+          <button class="btn btn-danger btn-sm" type="submit">
+            <i data-feather="trash-2" style="width:14px;height:14px"></i> Delete Tenant Data
+          </button>
+        </div>
+      </div>
+
+      <div class="mt-3 pt-2 border-top">
+        <div class="d-flex align-items-center justify-content-between mb-1">
+          <span class="small fw-semibold text-danger">Delete progress</span>
+          <span class="small text-muted" id="resetProgressText">Idle</span>
+        </div>
+        <div class="progress" style="height:8px">
+          <div id="resetProgressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-danger" role="progressbar" style="width:0%"></div>
+        </div>
+      </div>
+    </form>
+  </div>
+  </div>
+</div>
+
+</div>{# end bv-conn-main #}
+
+{# ══════════════════════════════════════════════════════════
+   SIDEBAR — Quick Actions + Status
+   ══════════════════════════════════════════════════════════ #}
+<div class="bv-conn-aside d-none d-xl-block">
+  <div class="bv-quick-panel mb-3">
+    <div class="bv-quick-hd">Quick Actions</div>
+    <div class="bv-quick-body">
+      <button class="bv-q-btn primary" onclick="document.getElementById('bvMainForm').submit()">
+        <i data-feather="link"></i> Test Connection
+      </button>
+      <button class="bv-q-btn" onclick="bvSubmitAs('/admin/connections/save')">
+        <i data-feather="save"></i> Save Connection
+      </button>
+      <button class="bv-q-btn" onclick="bvGoTo(3)">
+        <i data-feather="search"></i> Run Discovery
+      </button>
+      <hr class="bv-q-sep">
+      <button class="bv-q-btn" onclick="bvGoTo(4)">
+        <i data-feather="sliders"></i> Edit Mapping
+      </button>
+      <button class="bv-q-btn" onclick="bvSubmitAs('/admin/connections/apply-pack')">
+        <i data-feather="download-cloud"></i> Apply Querypack
+      </button>
+      <hr class="bv-q-sep">
+      <button class="bv-q-btn danger" onclick="document.getElementById('bvStopBtn').click()">
+        <i data-feather="stop-circle"></i> Stop Sync
+      </button>
+    </div>
+  </div>
+
+  <div class="bv-quick-panel">
+    <div class="bv-quick-hd">Connection Status</div>
+    <div class="bv-quick-body">
+      <div class="bv-status-row">
+        <span class="text-muted" style="font-size:.7rem">Connector</span>
+        <span class="small fw-semibold">{{ conn_type | replace('_',' ') | title }}</span>
+      </div>
+      <div class="bv-status-row">
+        <span class="text-muted" style="font-size:.7rem">Active</span>
+        {% if fv.is_active %}
+        <span class="d-flex align-items-center gap-1"><span class="bv-status-dot ok"></span><span class="small">Yes</span></span>
+        {% else %}
+        <span class="d-flex align-items-center gap-1"><span class="bv-status-dot unk"></span><span class="small">No</span></span>
+        {% endif %}
+      </div>
+      <div class="bv-status-row">
+        <span class="text-muted" style="font-size:.7rem">Last test</span>
+        {% for c in connections %}{% if c.tenant_id == fv.tenant_id and c.connector_type == conn_type %}
+        {% if c.last_test_ok_at %}
+        <span class="d-flex align-items-center gap-1"><span class="bv-status-dot ok"></span><span class="small">{{ c.last_test_ok_at.strftime('%d/%m %H:%M') }}</span></span>
+        {% elif c.last_test_error %}
+        <span class="d-flex align-items-center gap-1"><span class="bv-status-dot err"></span><span class="small text-danger">Failed</span></span>
+        {% else %}
+        <span class="small text-muted">Not tested</span>
+        {% endif %}
+        {% endif %}{% endfor %}
+      </div>
+      <div class="bv-status-row">
+        <span class="text-muted" style="font-size:.7rem">Sync status</span>
+        {% for c in connections %}{% if c.tenant_id == fv.tenant_id and c.connector_type == conn_type %}
+        <span class="small fw-semibold">{{ c.sync_status or '-' }}</span>
+        {% endif %}{% endfor %}
+      </div>
+      <div class="bv-status-row">
+        <span class="text-muted" style="font-size:.7rem">Credentials</span>
+        {% if has_saved %}
+        <span class="d-flex align-items-center gap-1"><span class="bv-status-dot ok"></span><span class="small">Saved</span></span>
+        {% else %}
+        <span class="d-flex align-items-center gap-1"><span class="bv-status-dot err"></span><span class="small text-warning">Missing</span></span>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+</div>{# end bv-conn-wrap #}
+
+{# ══════════════════════════════════════════════════════════
+   JAVASCRIPT
+   ══════════════════════════════════════════════════════════ #}
 <script>
-  (function () {
-    const connectionForm = document.querySelector('form[action="/admin/connections/test"]');
-    const connectionTenantSelect = connectionForm ? connectionForm.querySelector('select[name="tenant_id"]') : null;
-    const connectionConnectorSelect = connectionForm ? connectionForm.querySelector('select[name="connector_type"]') : null;
-    const sourcePageInput = connectionForm ? connectionForm.querySelector('input[name="source_page"]') : null;
-    function reloadConnectionProfile() {
-      if (!connectionTenantSelect || !connectionConnectorSelect) return;
-      const basePath = sourcePageInput && sourcePageInput.value === 'data_sources'
-        ? '/admin/data-sources'
-        : '/admin/connections';
-      const qs = new URLSearchParams(window.location.search || '');
-      qs.set('tenant_id', connectionTenantSelect.value);
-      qs.set('connector_type', connectionConnectorSelect.value);
-      window.location.href = basePath + '?' + qs.toString();
-    }
-    if (connectionTenantSelect) {
-      connectionTenantSelect.addEventListener('change', reloadConnectionProfile);
-    }
-    if (connectionConnectorSelect) {
-      connectionConnectorSelect.addEventListener('change', reloadConnectionProfile);
-    }
+(function () {
+'use strict';
 
-    const toggle = document.getElementById('enableQueryEdit');
-    if (toggle) {
-      const targets = document.querySelectorAll('.qp-editable');
-      toggle.addEventListener('change', function () {
-        targets.forEach(function (el) { el.readOnly = !toggle.checked; });
-      });
-    }
+/* ── Wizard state ── */
+const STEP_COUNT = 5;
+let bvCurrentStep = {{ initial_step }};
+const srcType    = '{{ src_type }}';
+const connType   = '{{ conn_type }}';
+const activePage = '{{ active_page or "connections" }}';
 
-    const backfillForm = document.querySelector('form[action="/admin/connections/backfill"]');
-    const resetForm = document.querySelector('form[action="/admin/connections/delete-data"]')
-      || document.querySelector('form[action="/admin/connections/reset-sync"]');
-    if (!backfillForm || !resetForm) return;
+/* ── Step navigation ── */
+window.bvGoTo = function (n) {
+  n = Math.max(0, Math.min(STEP_COUNT - 1, n));
+  document.querySelectorAll('.bv-step-panel').forEach(function (p) { p.classList.remove('active'); });
+  const panel = document.getElementById('bv-panel-' + n);
+  if (panel) panel.classList.add('active');
 
-    const backfillBar = document.getElementById('backfillProgressBar');
-    const backfillText = document.getElementById('backfillProgressText');
-    const backfillRangeText = document.getElementById('backfillRangeText');
-    const resetBar = document.getElementById('resetProgressBar');
-    const resetText = document.getElementById('resetProgressText');
-    const tenantSelect = backfillForm.querySelector('select[name="tenant_id"]');
-    const recoverBtn = document.getElementById('recoverSyncBtn');
-    const deleteAllToggle = resetForm ? resetForm.querySelector('#deleteAllDataToggle') : null;
-    const deleteFromInput = resetForm ? resetForm.querySelector('input[name="delete_from_date"]') : null;
-    const deleteToInput = resetForm ? resetForm.querySelector('input[name="delete_to_date"]') : null;
+  document.querySelectorAll('#bvStepsTrack .step').forEach(function (s, i) {
+    s.classList.remove('active', 'done', 'accessible');
+    if (i < n)      s.classList.add('done');
+    else if (i === n) s.classList.add('active');
+    else if (i <= bvCurrentStep) s.classList.add('accessible');
+    const dot = s.querySelector('.bv-step-dot');
+    if (dot) dot.textContent = i < n ? '✓' : i;
+  });
 
-    function syncDeleteScopeUi() {
-      if (!deleteAllToggle || !deleteFromInput || !deleteToInput) return;
-      const isFullDelete = !!deleteAllToggle.checked;
-      deleteFromInput.disabled = isFullDelete;
-      deleteToInput.disabled = isFullDelete;
-      if (isFullDelete) {
-        deleteFromInput.value = '';
-        deleteToInput.value = '';
-      }
-    }
+  bvCurrentStep = n;
+  document.getElementById('bvBtnBack').style.display = n > 0 ? '' : 'none';
+  document.getElementById('bvBtnNext').style.display = n < STEP_COUNT - 1 ? '' : 'none';
+};
 
-    function statusLabel(status) {
-      if (status === 'completed') return 'Ολοκληρώθηκε';
-      if (status === 'stopped') return 'Σταμάτησε';
-      if (status === 'running') return 'Σε εξέλιξη';
-      if (status === 'queued') return 'Σε αναμονή';
-      if (status === 'failed') return 'Αποτυχία';
-      return 'Αδράνεια';
-    }
+/* ── Source type card selection ── */
+window.bvSelectSource = function (card) {
+  document.querySelectorAll('.bv-src-card').forEach(function (c) { c.classList.remove('selected'); });
+  card.classList.add('selected');
+  const ct = card.dataset.connector;
+  const st = card.dataset.srctype;
+  document.getElementById('hConnType').value = ct;
+  document.getElementById('hSrcType').value  = st;
 
-    function formatIsoDate(value) {
-      if (!value || typeof value !== 'string') return '';
-      const parts = value.split('T')[0].split('-');
-      if (parts.length !== 3) return value;
-      return parts[2] + '/' + parts[1] + '/' + parts[0];
-    }
+  /* Reload page to fetch saved profile for this connector type */
+  const qs = new URLSearchParams(window.location.search);
+  qs.set('tenant_id', document.getElementById('globalTenantSelect').value);
+  qs.set('connector_type', ct);
+  const base = activePage === 'data_sources' ? '/admin/data-sources' : '/admin/connections';
+  window.location.href = base + '?' + qs.toString();
+};
 
-    function updateBackfillRange(payload) {
-      if (!backfillRangeText) return;
-      const fromRaw = payload && payload.from_date ? String(payload.from_date) : '';
-      const toRaw = payload && payload.to_date ? String(payload.to_date) : '';
-      const fromVal = fromRaw ? formatIsoDate(fromRaw) : (backfillRangeText.dataset.lastFrom || '');
-      const toVal = toRaw ? formatIsoDate(toRaw) : (backfillRangeText.dataset.lastTo || '');
-      const status = payload && payload.status ? String(payload.status) : '';
-      const operation = payload && payload.operation ? String(payload.operation) : '';
-      const isRunning = operation === 'backfill' && (status === 'running' || status === 'queued');
-      if (isRunning && (fromVal || toVal)) {
-        backfillRangeText.textContent = 'Τρέχον Backfill: ' + (fromVal || '-') + ' → ' + (toVal || '-');
-        return;
-      }
-      if (fromVal || toVal) {
-        backfillRangeText.textContent = 'Τελευταίο Backfill: ' + (fromVal || '-') + ' → ' + (toVal || '-');
-      } else {
-        backfillRangeText.textContent = 'Τελευταίο Backfill: -';
-      }
-    }
+/* ── Global tenant / connector selectors ── */
+['globalTenantSelect', 'globalConnectorSelect'].forEach(function (id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.addEventListener('change', function () {
+    const qs = new URLSearchParams(window.location.search);
+    qs.set('tenant_id', document.getElementById('globalTenantSelect').value);
+    qs.set('connector_type', document.getElementById('globalConnectorSelect').value);
+    const base = activePage === 'data_sources' ? '/admin/data-sources' : '/admin/connections';
+    window.location.href = base + '?' + qs.toString();
+  });
+});
 
-    function setIdleBar(bar, textNode) {
-      if (!bar || !textNode) return;
-      bar.style.width = '0%';
-      bar.textContent = '0%';
-      bar.classList.add('progress-bar-animated');
-      textNode.textContent = 'Δεν υπάρχει ενεργή διαδικασία.';
-    }
+/* Also keep the form's tenant select in sync */
+const fts = document.getElementById('formTenantSelect');
+if (fts) {
+  fts.addEventListener('change', function () {
+    document.getElementById('globalTenantSelect').value = fts.value;
+    document.getElementById('globalTenantSelect').dispatchEvent(new Event('change'));
+  });
+}
 
-    function isSettledDelete(payload) {
-      if (!payload || payload.operation !== 'delete') return false;
-      const status = String(payload.status || '');
-      const queueDepth = Number(payload.current_queue_depth || 0);
-      return queueDepth === 0 && (status === 'completed' || status === 'stopped' || status === 'failed');
-    }
+/* ── Quick-action submit helper ── */
+window.bvSubmitAs = function (action) {
+  const f = document.getElementById('bvMainForm');
+  if (!f) return;
+  const prev = f.action;
+  f.action = action;
+  f.submit();
+  f.action = prev;
+};
 
-    function isSettledBackfill(payload) {
-      if (!payload || payload.operation !== 'backfill') return false;
-      const status = String(payload.status || '');
-      const queueDepth = Number(payload.current_queue_depth || 0);
-      return queueDepth === 0 && (status === 'completed' || status === 'stopped' || status === 'failed');
-    }
+/* ── Password visibility toggle ── */
+window.bvTogglePwd = function () {
+  const inp = document.getElementById('fPassword');
+  if (!inp) return;
+  inp.type = inp.type === 'password' ? 'text' : 'password';
+};
 
-    function updateBar(bar, textNode, payload, expectedOperation) {
-      if (!bar || !textNode) return;
-      if (!payload || payload.operation !== expectedOperation) return;
-      const pct = Math.max(0, Math.min(100, Number(payload.progress_pct || 0)));
-      const visualPct = (pct > 0 && pct < 2) ? 2 : pct;
-      const total = Number(payload.total_jobs || 0);
-      const done = Number(payload.processed_jobs || 0);
-      const left = Number(payload.current_queue_depth || 0);
-      const jobLabel = expectedOperation === 'delete' ? 'delete jobs' : 'jobs';
-      bar.style.width = visualPct + '%';
-      bar.textContent = pct.toFixed(1) + '%';
-      const status = statusLabel(String(payload.status || 'idle'));
-      if (expectedOperation === 'delete') {
-        textNode.textContent = status + ' | ' + done + '/' + Math.max(1, total) + ' ' + jobLabel;
-      } else if (total > 0) {
-        textNode.textContent = status + ' | ' + done + '/' + total + ' ' + jobLabel + ' | Υπόλοιπο ουράς: ' + left;
-      } else {
-        textNode.textContent = status + ' | Υπόλοιπο ουράς: ' + left;
-      }
-      const statusRaw = String(payload.status || '');
-      if (statusRaw === 'completed' || statusRaw === 'stopped' || statusRaw === 'failed') {
-        bar.classList.remove('progress-bar-animated');
-      } else {
-        bar.classList.add('progress-bar-animated');
-      }
-    }
+/* ── Advanced options panel ── */
+window.bvToggleAdv = function () {
+  const toggle = document.getElementById('advToggle');
+  const body   = document.getElementById('advBody') || document.getElementById('advBodyApi');
+  if (!body) return;
+  const open = body.classList.toggle('show');
+  if (toggle) toggle.classList.toggle('open', open);
+};
 
-    async function pollProgress() {
-      if (!tenantSelect || !tenantSelect.value) return;
-      try {
-        const resp = await fetch('/admin/connections/progress?tenant_id=' + encodeURIComponent(tenantSelect.value), {
-          credentials: 'same-origin',
-          headers: {'X-Requested-With': 'XMLHttpRequest'},
-        });
-        if (!resp.ok) return;
-        const payload = await resp.json();
-        if (payload.status === 'idle') {
-          setIdleBar(backfillBar, backfillText);
-          setIdleBar(resetBar, resetText);
-          updateBackfillRange(payload);
-          return;
-        }
-        if (isSettledBackfill(payload)) {
-          setIdleBar(backfillBar, backfillText);
-          setIdleBar(resetBar, resetText);
-          updateBackfillRange(payload);
-          return;
-        }
-        if (isSettledDelete(payload)) {
-          setIdleBar(resetBar, resetText);
-          if (payload.operation !== 'backfill') {
-            setIdleBar(backfillBar, backfillText);
-          }
-          updateBackfillRange(payload);
-          return;
-        }
-        updateBar(backfillBar, backfillText, payload, 'backfill');
-        updateBar(resetBar, resetText, payload, 'delete');
-        if (payload.operation === 'backfill') {
-          updateBackfillRange(payload);
-        }
-        if (payload.operation === 'delete' && payload.status !== 'idle') {
-          backfillText.textContent = 'Τρέχει διαδικασία διαγραφής στο Danger Zone.';
-        } else if (payload.operation === 'backfill' && payload.status !== 'idle') {
-          resetText.textContent = 'Τρέχει διαδικασία initial backfill στο επάνω πλαίσιο.';
-        }
-        if (payload.is_stuck) {
-          const age = Number(payload.heartbeat_age_seconds || 0);
-          const hint = String(payload.stuck_hint || '').trim();
-          const stuckMsg = hint || ('Πιθανό κόλλημα: χωρίς heartbeat για ' + age + 's.');
-          if (payload.operation === 'backfill') {
-            backfillText.textContent = stuckMsg;
-          } else if (payload.operation === 'delete') {
-            resetText.textContent = stuckMsg;
-          }
-          if (recoverBtn) {
-            recoverBtn.classList.remove('disabled');
-            recoverBtn.title = 'Recovery suggested';
-          }
-        } else if (recoverBtn) {
-          recoverBtn.title = '';
-        }
-      } catch (_) {}
-    }
+/* ── Sync SQL option dropdowns → raw options string ── */
+window.bvSyncOptions = function () {
+  const enc   = (document.getElementById('adv_encrypt')       || {}).value || 'yes';
+  const trust = (document.getElementById('adv_trust')         || {}).value || 'yes';
+  const lt    = (document.getElementById('adv_login_timeout') || {}).value || '';
+  const qt    = (document.getElementById('adv_query_timeout') || {}).value || '';
+  let opts = 'Encrypt=' + enc + ';TrustServerCertificate=' + trust;
+  if (lt) opts += ';LoginTimeout=' + lt;
+  if (qt && qt !== '0') opts += ';QueryTimeout=' + qt;
+  const el = document.getElementById('fOptions');
+  if (el) el.value = opts;
+};
 
-    if (tenantSelect) {
-      tenantSelect.addEventListener('change', pollProgress);
+/* Hydrate advanced dropdowns from existing options string on page load */
+(function bvHydrateAdv() {
+  const el = document.getElementById('fOptions');
+  if (!el) return;
+  const raw = el.value || '';
+  const parts = {};
+  raw.split(';').forEach(function (p) {
+    const kv = p.split('=');
+    if (kv.length === 2) parts[kv[0].trim().toLowerCase()] = kv[1].trim().toLowerCase();
+  });
+  const encEl   = document.getElementById('adv_encrypt');
+  const trustEl = document.getElementById('adv_trust');
+  const ltEl    = document.getElementById('adv_login_timeout');
+  const qtEl    = document.getElementById('adv_query_timeout');
+  if (encEl   && parts.encrypt)              encEl.value   = parts.encrypt;
+  if (trustEl && parts.trustservercertificate) trustEl.value = parts.trustservercertificate;
+  if (ltEl    && parts.logintimeout)         ltEl.value    = parts.logintimeout;
+  if (qtEl    && parts.querytimeout)         qtEl.value    = parts.querytimeout;
+})();
+
+/* ── Query edit toggle ── */
+const qEdit = document.getElementById('enableQueryEdit');
+if (qEdit) {
+  qEdit.addEventListener('change', function () {
+    document.querySelectorAll('.qp-editable').forEach(function (el) { el.readOnly = !qEdit.checked; });
+  });
+}
+
+/* ── Discovery sync helper ── */
+window.bvSyncDiscovery = function () {
+  const s = (document.getElementById('discSchema') || {}).value || '';
+  const o = (document.getElementById('discObject') || {}).value || '';
+  document.getElementById('hSchema').value = s;
+  document.getElementById('hObject').value = o;
+};
+
+/* ── Click row in connections table → load that connection ── */
+window.bvLoadConnection = function (tenantId, ct) {
+  const qs = new URLSearchParams(window.location.search);
+  qs.set('tenant_id', tenantId);
+  qs.set('connector_type', ct);
+  const base = activePage === 'data_sources' ? '/admin/data-sources' : '/admin/connections';
+  window.location.href = base + '?' + qs.toString();
+};
+
+/* ── Discovery filter ── */
+window.bvFilterDisc = function (q) {
+  const rows = document.querySelectorAll('#discObjTable tbody tr');
+  const lq   = q.toLowerCase();
+  rows.forEach(function (r) {
+    r.style.display = r.textContent.toLowerCase().includes(lq) ? '' : 'none';
+  });
+};
+
+/* ── Pick object from discovery table → fill schema/object inputs ── */
+window.bvPickDiscoveryObj = function (schema, name) {
+  const si = document.getElementById('discSchema');
+  const oi = document.getElementById('discObject');
+  if (si) si.value = schema;
+  if (oi) oi.value = name;
+  document.getElementById('hSchema').value = schema;
+  document.getElementById('hObject').value = name;
+};
+
+/* ── Source note labels ── */
+const srcNotes = {
+  sql_connector:   ['SQL Server — Direct',       'pyodbc / SQL Server. Incremental sync via UpdatedAt cursor. Highest performance.'],
+  pharmacyone_sql: ['SQL Server (legacy key)',    'Same as SQL Connector but uses the older connector key. Kept for backwards compatibility.'],
+  external_api:    ['External API',               'HTTP calls to the ERP API. Date-windowed incremental (no cursor). No direct DB required.'],
+  file_import:     ['File Import',                'Upload CSV/Excel. Useful for one-time historical loads or supplemental data.'],
+};
+function bvUpdateSrcNote(ct) {
+  const note = srcNotes[ct] || ['Unknown connector', ''];
+  const nt = document.getElementById('bvSrcTypeNoteTitle');
+  const nb = document.getElementById('bvSrcTypeNoteBody');
+  if (nt) nt.textContent = note[0];
+  if (nb) nb.textContent = note[1];
+}
+bvUpdateSrcNote(connType);
+
+/* ── Danger zone — delete scope sync ── */
+const delAllToggle  = document.getElementById('deleteAllToggle');
+const delFromInput  = document.getElementById('delFromDate');
+const delToInput    = document.getElementById('delToDate');
+function bvSyncDeleteScope() {
+  if (!delAllToggle || !delFromInput || !delToInput) return;
+  const full = delAllToggle.checked;
+  delFromInput.disabled = full;
+  delToInput.disabled   = full;
+  if (full) { delFromInput.value = ''; delToInput.value = ''; }
+}
+if (delAllToggle) {
+  delAllToggle.addEventListener('change', bvSyncDeleteScope);
+  bvSyncDeleteScope();
+}
+
+/* ── Progress polling ── */
+const backfillBar  = document.getElementById('backfillProgressBar');
+const backfillText = document.getElementById('backfillProgressText');
+const backfillRange = document.getElementById('backfillRangeText');
+const resetBar     = document.getElementById('resetProgressBar');
+const resetText    = document.getElementById('resetProgressText');
+const recoverBtn   = document.getElementById('recoverSyncBtn');
+
+function statusLabel(s) {
+  return {completed:'Ολοκληρώθηκε', stopped:'Σταμάτησε', running:'Σε εξέλιξη', queued:'Σε αναμονή', failed:'Αποτυχία'}[s] || 'Αδράνεια';
+}
+function fmtDate(v) {
+  if (!v || typeof v !== 'string') return '';
+  const p = v.split('T')[0].split('-');
+  return p.length === 3 ? p[2]+'/'+p[1]+'/'+p[0] : v;
+}
+function setIdle(bar, txt) {
+  if (bar) { bar.style.width='0%'; bar.classList.add('progress-bar-animated'); }
+  if (txt) txt.textContent = 'Idle';
+}
+/* Sync operations — any non-delete operation shows on the backfill bar */
+const SYNC_OPS = ['backfill','incremental_sync_recovery','recovery_sync','incremental','full'];
+function isSyncOp(op) { return !op || op === 'idle' ? false : op !== 'delete'; }
+function updateBar(bar, txt, payload) {
+  if (!bar || !txt || !payload) return;
+  const pct  = Math.max(0, Math.min(100, Number(payload.progress_pct||0)));
+  const vPct = pct > 0 && pct < 2 ? 2 : pct;
+  bar.style.width = vPct + '%';
+  const done = Number(payload.processed_jobs||0), total = Number(payload.total_jobs||0), left = Number(payload.current_queue_depth||0);
+  txt.textContent = statusLabel(payload.status||'') + (total>0?' | '+done+'/'+total+' jobs | Queue: '+left:' | Queue: '+left);
+  const settled = ['completed','stopped','failed'].includes(String(payload.status||''));
+  if (settled) bar.classList.remove('progress-bar-animated'); else bar.classList.add('progress-bar-animated');
+}
+
+function getTenantId() {
+  const el = document.getElementById('backfillTenantSelect') || document.getElementById('globalTenantSelect');
+  return el ? el.value : '';
+}
+
+async function pollProgress() {
+  const tid = getTenantId();
+  if (!tid) return;
+  try {
+    const r = await fetch('/admin/connections/progress?tenant_id=' + encodeURIComponent(tid), {credentials:'same-origin', headers:{'X-Requested-With':'XMLHttpRequest'}});
+    if (!r.ok) return;
+    const p = await r.json();
+    if (!p || p.status === 'idle') { setIdle(backfillBar, backfillText); setIdle(resetBar, resetText); return; }
+    const bfSettled = isSyncOp(p.operation) && ['completed','stopped','failed'].includes(p.status||'') && Number(p.current_queue_depth||0)===0;
+    const dlSettled = p.operation==='delete'  && ['completed','stopped','failed'].includes(p.status||'') && Number(p.current_queue_depth||0)===0;
+    if (bfSettled) { setIdle(backfillBar, backfillText); }
+    if (dlSettled) { setIdle(resetBar, resetText); }
+    if (isSyncOp(p.operation)) updateBar(backfillBar, backfillText, p);
+    if (p.operation==='delete') updateBar(resetBar, resetText, p);
+    if (isSyncOp(p.operation) && backfillRange) {
+      const fr = p.from_date||'', to = p.to_date||'';
+      backfillRange.textContent = (p.status==='running'||p.status==='queued')
+        ? 'Τρέχον: ' + (fmtDate(fr)||'-') + ' → ' + (fmtDate(to)||'-')
+        : 'Τελευταίο: ' + (fmtDate(fr)||'-') + ' → ' + (fmtDate(to)||'-');
     }
-    backfillForm.addEventListener('submit', function () {
-      setTimeout(pollProgress, 600);
-    });
-    resetForm.addEventListener('submit', function () {
-      setTimeout(pollProgress, 600);
-    });
-    if (deleteAllToggle) {
-      deleteAllToggle.addEventListener('change', syncDeleteScopeUi);
-      syncDeleteScopeUi();
+    if (p.is_stuck && recoverBtn) {
+      recoverBtn.classList.add('btn-warning');
+      recoverBtn.title = p.stuck_hint || ('Stuck for ' + (p.heartbeat_age_seconds||'?') + 's — click Recovery Sync');
+    } else if (recoverBtn) {
+      recoverBtn.classList.remove('btn-warning');
+      recoverBtn.title = '';
     }
-    setInterval(pollProgress, 4000);
-    pollProgress();
-  })();
+  } catch(_) {}
+}
+
+/* Date form conversion (DMY → ISO) */
+function bvConvertDateFields(form) {
+  form.querySelectorAll('input[data-date-format="dmy"]').forEach(function (inp) {
+    const raw = (inp.value||'').trim();
+    if (!raw) return;
+    const m = raw.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{4})$/);
+    if (m) inp.value = m[3]+'-'+m[2].padStart(2,'0')+'-'+m[1].padStart(2,'0');
+  });
+}
+document.querySelectorAll('form').forEach(function (f) {
+  f.addEventListener('submit', function () { bvConvertDateFields(f); });
+});
+
+/* Kick off */
+setInterval(pollProgress, 4000);
+pollProgress();
+bvGoTo(bvCurrentStep);
+
+})();
 </script>
 {% endblock %}

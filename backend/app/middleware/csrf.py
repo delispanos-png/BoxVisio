@@ -21,7 +21,9 @@ async def csrf_middleware(request: Request, call_next):
     if not should_protect(request.url.path, request.method.upper()):
         response = await call_next(request)
         if request.url.path == '/login' and request.method.upper() == 'GET' and not request.cookies.get('csrf_token'):
-            response.set_cookie('csrf_token', secrets.token_urlsafe(24), httponly=False, samesite='lax', secure=False)
+            forwarded_proto = (request.headers.get('x-forwarded-proto') or '').lower()
+            secure_cookie = request.url.scheme == 'https' or forwarded_proto == 'https'
+            response.set_cookie('csrf_token', secrets.token_urlsafe(24), httponly=False, samesite='lax', secure=secure_cookie)
         return response
 
     cookie_token = request.cookies.get('csrf_token')

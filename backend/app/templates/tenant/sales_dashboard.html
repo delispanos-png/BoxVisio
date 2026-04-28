@@ -214,13 +214,6 @@
 {% block content %}
 <div id="salesError" class="alert alert-danger d-none"></div>
 <style>
-  .bv-kpi-box .kpi-value {
-    font-size: 1.35rem;
-    line-height: 1.15;
-    word-break: break-all;
-  }
-  .bv-kpi-box .kpi-title { font-size: .75rem; }
-  .bv-kpi-box .kpi-meta  { font-size: .72rem; }
   .insights-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(460px, 1fr));
@@ -739,13 +732,15 @@
           <th>Πελάτης</th>
           <th>Παράδοση</th>
           <th>Σχόλια</th>
+          <th class="text-end">Καθ.Αξία</th>
+          <th class="text-end">ΦΠΑ</th>
           <th class="text-end">Συν.Αξία</th>
           <th>Από</th>
           <th>Σε</th>
         </tr>
       </thead>
       <tbody id="salesDocsBody">
-        <tr><td colspan="13" class="text-center text-muted py-3">Φόρτωση παραστατικών...</td></tr>
+        <tr><td colspan="15" class="text-center text-muted py-3">Φόρτωση παραστατικών...</td></tr>
       </tbody>
     </table>
   </div>
@@ -784,97 +779,97 @@
 {% if not documents_mode %}
 <div class="row g-3 mb-3">
   <div class="col-xl-3 col-md-6">
-    <div class="bv-kpi-box bv-kpi-purple" data-kpi-what="Συνολική καθαρή αξία πωλήσεων στο επιλεγμένο διάστημα." data-kpi-formula="Σύνολο Τζίρου = άθροισμα net_value όλων των παραστατικών που έχουν χαρακτηριστεί ως Έσοδα, στο [Από, Έως].">
-      <div class="kpi-icon"><i class="fe fe-trending-up"></i></div>
-      <div class="kpi-title">{{ tt(request, 'total_turnover') }}</div>
-      <div id="cardTurnover" class="kpi-value">0.00</div>
-      <div id="deltaGrowth" class="kpi-meta">-</div>
+    <div class="bv-metric-card" style="--mc-color:#6f42c1" data-kpi-what="Συνολική καθαρή αξία πωλήσεων στο επιλεγμένο διάστημα." data-kpi-formula="Σύνολο Τζίρου = άθροισμα net_value όλων των παραστατικών που έχουν χαρακτηριστεί ως Έσοδα, στο [Από, Έως].">
+      <div class="mc-icon"><i class="fe fe-trending-up"></i></div>
+      <div class="mc-label">{{ tt(request, 'total_turnover') }}</div>
+      <div id="cardTurnover" class="mc-value">0.00</div>
+      <div id="deltaGrowth" class="mc-meta">-</div>
     </div>
   </div>
   <div class="col-xl-3 col-md-6">
-    <div class="bv-kpi-box bv-kpi-green" data-kpi-what="Μικτό αποτέλεσμα πωλήσεων στο επιλεγμένο διάστημα." data-kpi-formula="Μικτό Κέρδος = Σύνολο Τζίρου - Κόστος Πωλήσεων.">
-      <div class="kpi-icon"><i class="fe fe-award"></i></div>
-      <div class="kpi-title">{{ tt(request, 'gross_profit') }}</div>
-      <div id="cardGrossProfit" class="kpi-value">0.00</div>
-      <div id="deltaMargin" class="kpi-meta">-</div>
+    <div class="bv-metric-card" style="--mc-color:#0ea46f" data-kpi-what="Μικτό αποτέλεσμα πωλήσεων στο επιλεγμένο διάστημα." data-kpi-formula="Μικτό Κέρδος = Σύνολο Τζίρου - Κόστος Πωλήσεων.">
+      <div class="mc-icon"><i class="fe fe-award"></i></div>
+      <div class="mc-label">{{ tt(request, 'gross_profit') }}</div>
+      <div id="cardGrossProfit" class="mc-value">0.00</div>
+      <div id="deltaMargin" class="mc-meta">-</div>
     </div>
   </div>
   <div class="col-xl-3 col-md-6">
-    <div class="bv-kpi-box bv-kpi-orange" data-kpi-what="Το ποσοστό κερδοφορίας πάνω στις πωλήσεις." data-kpi-formula="Margin % = ((Σύνολο Τζίρου - Κόστος Πωλήσεων) / Σύνολο Τζίρου) * 100.">
-      <div class="kpi-icon"><i class="fe fe-percent"></i></div>
-      <div class="kpi-title">{{ tt(request, 'margin') if tt(request, 'margin') != 'margin' else 'Margin %' }}</div>
-      <div id="cardMarginPct" class="kpi-value">0.00%</div>
-      <div class="kpi-meta">{{ tt(request, 'operational_profitability') }}</div>
+    <div class="bv-metric-card" style="--mc-color:#f97316" data-kpi-what="Το ποσοστό κερδοφορίας πάνω στις πωλήσεις." data-kpi-formula="Margin % = ((Σύνολο Τζίρου - Κόστος Πωλήσεων) / Σύνολο Τζίρου) * 100.">
+      <div class="mc-icon"><i class="fe fe-percent"></i></div>
+      <div class="mc-label">{{ tt(request, 'margin') if tt(request, 'margin') != 'margin' else 'Margin %' }}</div>
+      <div id="cardMarginPct" class="mc-value">0.00%</div>
+      <div class="mc-meta">{{ tt(request, 'operational_profitability') }}</div>
     </div>
   </div>
   <div class="col-xl-3 col-md-6">
-    <div class="bv-kpi-box bv-kpi-blue" data-kpi-what="Συνολικές μονάδες που πουλήθηκαν στο επιλεγμένο διάστημα." data-kpi-formula="Πωληθείσα Ποσότητα = άθροισμα qty όλων των γραμμών πώλησης στο [Από, Έως].">
-      <div class="kpi-icon"><i class="fe fe-package"></i></div>
-      <div class="kpi-title">{{ tt(request, 'quantity_sold') }}</div>
-      <div id="cardQty" class="kpi-value">0</div>
-      <div class="kpi-meta">{{ tt(request, 'units_sold') }}</div>
+    <div class="bv-metric-card" style="--mc-color:#3b82f6" data-kpi-what="Συνολικές μονάδες που πουλήθηκαν στο επιλεγμένο διάστημα." data-kpi-formula="Πωληθείσα Ποσότητα = άθροισμα qty όλων των γραμμών πώλησης στο [Από, Έως].">
+      <div class="mc-icon"><i class="fe fe-package"></i></div>
+      <div class="mc-label">{{ tt(request, 'quantity_sold') }}</div>
+      <div id="cardQty" class="mc-value">0</div>
+      <div class="mc-meta">{{ tt(request, 'units_sold') }}</div>
     </div>
   </div>
 </div>
 
 <div class="row g-3 mb-3">
   <div class="col-xl-4 col-md-6">
-    <div class="bv-stat-strip bv-kpi-style bv-tone-cyan" data-kpi-what="Μέσος τζίρος ανά ημέρα στο επιλεγμένο διάστημα." data-kpi-formula="Μέση Πώληση / Ημέρα = Σύνολο Τζίρου / πλήθος ημερών από το 'Από' έως το 'Έως'.">
-      <div class="kpi-icon"><i class="fe fe-activity"></i></div>
-      <div class="label">{{ tt(request, 'avg_sale_per_day') }}</div>
-      <div id="cardAvgSalePerDay" class="value">0.00</div>
-      <div class="small">{{ tt(request, 'turnover_per_days') }}</div>
+    <div class="bv-metric-card" style="--mc-color:#06b6d4" data-kpi-what="Μέσος τζίρος ανά ημέρα στο επιλεγμένο διάστημα." data-kpi-formula="Μέση Πώληση / Ημέρα = Σύνολο Τζίρου / πλήθος ημερών από το 'Από' έως το 'Έως'.">
+      <div class="mc-icon"><i class="fe fe-activity"></i></div>
+      <div class="mc-label">{{ tt(request, 'avg_sale_per_day') }}</div>
+      <div id="cardAvgSalePerDay" class="mc-value">0.00</div>
+      <div class="mc-meta">{{ tt(request, 'turnover_per_days') }}</div>
     </div>
   </div>
   <div class="col-xl-4 col-md-6">
-    <div class="bv-stat-strip bv-kpi-style bv-tone-blue" data-kpi-what="Η μεταβολή του τζίρου σε σχέση με την αμέσως προηγούμενη συγκρίσιμη περίοδο." data-kpi-formula="Growth vs Prev = ((Τζίρος Τρέχουσας Περιόδου - Τζίρος Προηγούμενης Περιόδου) / Τζίρος Προηγούμενης Περιόδου) * 100.">
-      <div class="kpi-icon"><i class="fe fe-trending-up"></i></div>
-      <div class="label">{{ tt(request, 'growth_vs_prev') }}</div>
-      <div id="cardGrowthPct" class="value">-</div>
-      <div class="small">{{ tt(request, 'period_over_period') }}</div>
+    <div class="bv-metric-card" style="--mc-color:#3b82f6" data-kpi-what="Η μεταβολή του τζίρου σε σχέση με την αμέσως προηγούμενη συγκρίσιμη περίοδο." data-kpi-formula="Growth vs Prev = ((Τζίρος Τρέχουσας Περιόδου - Τζίρος Προηγούμενης Περιόδου) / Τζίρος Προηγούμενης Περιόδου) * 100.">
+      <div class="mc-icon"><i class="fe fe-trending-up"></i></div>
+      <div class="mc-label">{{ tt(request, 'growth_vs_prev') }}</div>
+      <div id="cardGrowthPct" class="mc-value">-</div>
+      <div class="mc-meta">{{ tt(request, 'period_over_period') }}</div>
     </div>
   </div>
   <div class="col-xl-4 col-md-6">
-    <div class="bv-stat-strip bv-kpi-style bv-tone-purple" data-kpi-what="Μέσο περιθώριο αν δεις κάθε υποκατάστημα ξεχωριστά και μετά πάρεις τον μέσο όρο." data-kpi-formula="Avg Margin / Branch = μέσος όρος των ποσοστών ((τζίρος branch - κόστος branch) / τζίρος branch) * 100 για όλα τα branches.">
-      <div class="kpi-icon"><i class="fe fe-percent"></i></div>
-      <div class="label">{{ tt(request, 'avg_margin_per_branch') }}</div>
-      <div id="cardAvgMarginBranch" class="value">0.00%</div>
-      <div class="small">{{ tt(request, 'mean_branch_margin') }}</div>
+    <div class="bv-metric-card" style="--mc-color:#8b5cf6" data-kpi-what="Μέσο περιθώριο αν δεις κάθε υποκατάστημα ξεχωριστά και μετά πάρεις τον μέσο όρο." data-kpi-formula="Avg Margin / Branch = μέσος όρος των ποσοστών ((τζίρος branch - κόστος branch) / τζίρος branch) * 100 για όλα τα branches.">
+      <div class="mc-icon"><i class="fe fe-percent"></i></div>
+      <div class="mc-label">{{ tt(request, 'avg_margin_per_branch') }}</div>
+      <div id="cardAvgMarginBranch" class="mc-value">0.00%</div>
+      <div class="mc-meta">{{ tt(request, 'mean_branch_margin') }}</div>
     </div>
   </div>
 </div>
 
 <div class="row g-3 mb-3">
   <div class="col-xl-3 col-md-6">
-    <div class="bv-stat-strip bv-kpi-style bv-tone-red" data-kpi-what="Καθαρή αξία πωλήσεων του προηγούμενου έτους μέχρι την ίδια ημέρα cutoff." data-kpi-formula="Τζίρος Προηγ. Έτους YTD = άθροισμα net_value από 01/01/{προηγ. έτος} έως ίδια ημερομηνία cutoff.">
-      <div class="kpi-icon"><i class="fe fe-clock"></i></div>
-      <div class="label">Τζίρος <span id="salesPrevYearLabel">{{ default_to.year - 1 }}</span> (YTD)</div>
-      <div id="salesPrevYearValue" class="value">0.00</div>
-      <div id="salesPrevYearCutoff" class="small">-</div>
+    <div class="bv-metric-card" style="--mc-color:#ef4444" data-kpi-what="Καθαρή αξία πωλήσεων του προηγούμενου έτους μέχρι την ίδια ημέρα cutoff." data-kpi-formula="Τζίρος Προηγ. Έτους YTD = άθροισμα net_value από 01/01/{προηγ. έτος} έως ίδια ημερομηνία cutoff.">
+      <div class="mc-icon"><i class="fe fe-clock"></i></div>
+      <div class="mc-label">Τζίρος <span id="salesPrevYearLabel">{{ default_to.year - 1 }}</span> (YTD)</div>
+      <div id="salesPrevYearValue" class="mc-value">0.00</div>
+      <div id="salesPrevYearCutoff" class="mc-meta">-</div>
     </div>
   </div>
   <div class="col-xl-3 col-md-6">
-    <div class="bv-stat-strip bv-kpi-style bv-tone-blue" data-kpi-what="Καθαρή αξία πωλήσεων του τρέχοντος έτους μέχρι την ημερομηνία cutoff." data-kpi-formula="Τζίρος Τρέχοντος Έτους YTD = άθροισμα net_value από 01/01/{τρέχον έτος} έως ημερομηνία 'Έως'.">
-      <div class="kpi-icon"><i class="fe fe-trending-up"></i></div>
-      <div class="label">Τζίρος <span id="salesYearLabel">{{ default_to.year }}</span> (YTD)</div>
-      <div id="salesYearValue" class="value">0.00</div>
-      <div id="salesYearDelta" class="small">-</div>
+    <div class="bv-metric-card" style="--mc-color:#3b82f6" data-kpi-what="Καθαρή αξία πωλήσεων του τρέχοντος έτους μέχρι την ημερομηνία cutoff." data-kpi-formula="Τζίρος Τρέχοντος Έτους YTD = άθροισμα net_value από 01/01/{τρέχον έτος} έως ημερομηνία 'Έως'.">
+      <div class="mc-icon"><i class="fe fe-trending-up"></i></div>
+      <div class="mc-label">Τζίρος <span id="salesYearLabel">{{ default_to.year }}</span> (YTD)</div>
+      <div id="salesYearValue" class="mc-value">0.00</div>
+      <div id="salesYearDelta" class="mc-meta">-</div>
     </div>
   </div>
   <div class="col-xl-3 col-md-6">
-    <div class="bv-stat-strip bv-kpi-style bv-tone-red" data-kpi-what="Συνολική καθαρή αξία πωλήσεων για όλο το προηγούμενο έτος." data-kpi-formula="Τζίρος Προηγ. Έτους Full = άθροισμα net_value από 01/01 έως 31/12 του προηγούμενου έτους.">
-      <div class="kpi-icon"><i class="fe fe-calendar"></i></div>
-      <div class="label">Τζίρος <span id="salesFullPrevYearLabel">{{ default_to.year - 1 }}</span> (FULL YEAR)</div>
-      <div id="salesFullPrevYearValue" class="value">0.00</div>
-      <div id="salesFullPrevYearRange" class="small">-</div>
+    <div class="bv-metric-card" style="--mc-color:#ef4444" data-kpi-what="Συνολική καθαρή αξία πωλήσεων για όλο το προηγούμενο έτος." data-kpi-formula="Τζίρος Προηγ. Έτους Full = άθροισμα net_value από 01/01 έως 31/12 του προηγούμενου έτους.">
+      <div class="mc-icon"><i class="fe fe-calendar"></i></div>
+      <div class="mc-label">Τζίρος <span id="salesFullPrevYearLabel">{{ default_to.year - 1 }}</span> (FULL YEAR)</div>
+      <div id="salesFullPrevYearValue" class="mc-value">0.00</div>
+      <div id="salesFullPrevYearRange" class="mc-meta">-</div>
     </div>
   </div>
   <div class="col-xl-3 col-md-6">
-    <div class="bv-stat-strip bv-kpi-style bv-tone-blue" data-kpi-what="Ο φετινός τζίρος YTD, με σύγκριση απέναντι στο full προηγούμενο έτος." data-kpi-formula="Τζίρος Τρέχοντος Έτους YTD = άθροισμα net_value από 01/01/{τρέχον έτος} έως 'Έως'. Σύγκριση = ((YTD - Προηγ. Έτος Full) / Προηγ. Έτος Full) * 100.">
-      <div class="kpi-icon"><i class="fe fe-flag"></i></div>
-      <div class="label">Τζίρος <span id="salesFullCurrentYearLabel">{{ default_to.year }}</span> (YTD)</div>
-      <div id="salesFullCurrentYearValue" class="value">0.00</div>
-      <div id="salesFullCurrentYearDelta" class="small">-</div>
+    <div class="bv-metric-card" style="--mc-color:#3b82f6" data-kpi-what="Ο φετινός τζίρος YTD, με σύγκριση απέναντι στο full προηγούμενο έτος." data-kpi-formula="Τζίρος Τρέχοντος Έτους YTD = άθροισμα net_value από 01/01/{τρέχον έτος} έως 'Έως'. Σύγκριση = ((YTD - Προηγ. Έτος Full) / Προηγ. Έτος Full) * 100.">
+      <div class="mc-icon"><i class="fe fe-flag"></i></div>
+      <div class="mc-label">Τζίρος <span id="salesFullCurrentYearLabel">{{ default_to.year }}</span> (YTD)</div>
+      <div id="salesFullCurrentYearValue" class="mc-value">0.00</div>
+      <div id="salesFullCurrentYearDelta" class="mc-meta">-</div>
     </div>
   </div>
 </div>
@@ -1514,7 +1509,7 @@ function renderSalesDocumentsTable(rows){
   if(!body) return;
   body.innerHTML = '';
   if(!(rows || []).length){
-    body.innerHTML = '<tr><td colspan="13" class="text-center text-muted py-3">Δεν βρέθηκαν παραστατικά.</td></tr>';
+    body.innerHTML = '<tr><td colspan="15" class="text-center text-muted py-3">Δεν βρέθηκαν παραστατικά.</td></tr>';
     return;
   }
   (rows || []).forEach((r)=>{
@@ -1535,6 +1530,8 @@ function renderSalesDocumentsTable(rows){
       <td>${escapeHtml(textOrDash(r.customer, 'ΠΕΛΑΤΗΣ ΛΙΑΝΙΚΗΣ'))}</td>
       <td>${escapeHtml(textOrDash(r.delivery_info, ''))}</td>
       <td title="${escapeHtml(textOrDash(r.comments_info, ''))}">${escapeHtml(textOrDash(r.comments_info, ''))}</td>
+      <td class="text-end">${money(r.total_net_value)}</td>
+      <td class="text-end">${money(r.total_vat_value)}</td>
       <td class="text-end">${money(r.total_gross_value)}</td>
       <td>${escapeHtml(textOrDash(r.from_ref, ''))}</td>
       <td>${escapeHtml(textOrDash(r.to_ref, ''))}</td>
@@ -1567,7 +1564,7 @@ function renderSalesDocumentsSummary(summary, meta={}){
   if(!el) return;
   const docs = toNum(summary?.documents);
   salesDocsTotal = Math.max(0, Math.round(docs));
-  el.textContent = `Παραστατικά: ${fmt0.format(Math.round(docs))} | Συν.Αξία: ${money(summary?.gross_value)} | Καθ.Αξία: ${money(summary?.net_value)} | ΦΠΑ: ${money(summary?.vat_value)}`;
+  el.textContent = `Παραστατικά: ${fmt0.format(Math.round(docs))} | Καθ.Αξία: ${money(summary?.net_value)}`;
 
   const limit = Math.max(1, Number(meta.limit || document.getElementById('salesDocsPageSize')?.value || 200));
   const offset = Math.max(0, Number(meta.offset || 0));
@@ -2218,6 +2215,18 @@ function buildContextInsights(payload){
 }
 
 function renderInsights(payload){
+  const tenantSlug = {{ (tenant.slug if tenant else '') | tojson }};
+  if (tenantSlug === 'pharmacy295') {
+    const wrap = document.getElementById('insightsWrap');
+    if (wrap) {
+      wrap.innerHTML = '';
+      const empty = document.createElement('div');
+      empty.className = 'insights-empty';
+      empty.textContent = '{{ tt(request, "insights_empty_period") }}';
+      wrap.appendChild(empty);
+    }
+    return;
+  }
   const insights = payload?.insights || [];
   const records = payload?.insight_records || [];
   const contextRows = buildContextInsights(payload);
@@ -2359,9 +2368,10 @@ function renderInsights(payload){
 }
 
 function renderTrend(rows){
-  const labels=rows.map(r=>r.month_start); const data=rows.map(r=>toNum(r.net_value));
+  const labels=rows.map(r=>r.month_start);
+  const data=rows.map(r=>toNum(r?.net_value ?? 0));
   if(trendChart) trendChart.destroy();
-  trendChart=new Chart(document.getElementById('trendChart'),{type:'line',data:{labels,datasets:[{label:'Turnover',data,borderColor:'#6f42c1',backgroundColor:'rgba(111,66,193,.12)',fill:true,tension:.25}]},options:{responsive:true,maintainAspectRatio:false}});
+  trendChart=new Chart(document.getElementById('trendChart'),{type:'line',data:{labels,datasets:[{label:'Καθ.Αξία',data,borderColor:'#6f42c1',backgroundColor:'rgba(111,66,193,.12)',fill:true,tension:.25}]},options:{responsive:true,maintainAspectRatio:false}});
 }
 
 function renderDonut(rows){

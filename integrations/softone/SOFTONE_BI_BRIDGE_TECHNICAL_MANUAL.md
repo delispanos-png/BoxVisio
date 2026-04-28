@@ -255,3 +255,29 @@ Customer and supplier open-balance streams follow SoftOne document behavior, not
   - supplier payments / transfers: `SOSOURCE IN (1281,1412,1416)` => negative
 
 Open balance snapshots are calculated `ως ημερομηνία` (`toDate`) and should not be restricted by `fromDate`.
+
+
+## 13) Release Workflow For Customer JS Files
+
+Canonical source:
+
+- `integrations/softone/boxvisio_bi_bridge.js`
+
+After every SQL/querypack change that affects SoftOne sales extraction, run:
+
+```bash
+python3 integrations/softone/generate_bridge_release.py
+```
+
+What the generator does:
+
+- validates that the canonical bridge still matches the current `sales_facts.sql` mappings
+- creates a dated customer snapshot like `boxvisio_bi_bridge_2026-04-22.js`
+- keeps the deployable customer JS under the same `integrations/softone/` folder
+
+Validation currently guards these synchronized fields:
+
+- `FINDOC.CCC88ECHANNEL` -> channel
+- `FINDOC.PAYMENT` -> payment method
+- `FINDOC.SOTIME/INSDATE` -> `source_created_at`
+- `ITEM.MTRGROUP` -> item group
