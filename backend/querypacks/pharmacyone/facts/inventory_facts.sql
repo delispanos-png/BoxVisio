@@ -98,10 +98,11 @@ WHERE
   AND ISNULL(W.ISACTIVE, 1) = 1
   AND ISNULL(I.SODTYPE, 0) = 51
   AND ABS(ISNULL(S.QTY1, 0)) > 0.0001
-  -- Snapshot always reflects current stock; skip it for historical backfill chunks
-  -- (to_date = past date) so we don't scan the full product table 100+ times.
-  -- Incremental sync (to_date IS NULL or = today) still fetches the snapshot.
+  -- Snapshot reflects current stock. Only run on first-ever sync (no prior sync state)
+  -- or explicit backfill to today. Skip on incremental syncs where prior state exists,
+  -- because movements already capture changes; snapshot re-runs only via full backfill.
   AND (@to_date IS NULL OR CAST(@to_date AS date) >= CAST(GETDATE() AS date))
+  AND @last_sync_ts IS NULL
 
 UNION ALL
 
