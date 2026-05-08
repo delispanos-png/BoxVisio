@@ -1,0 +1,1730 @@
+{% extends "base_tenant.html" %}
+
+{% block filters %}
+<form id="eshopFilters" class="row g-2">
+  <div class="col-12 col-md-6 col-xl-3">
+    <label class="form-label mb-1">{{ tt(request, 'from') }}</label>
+    <input class="form-control" type="text" name="from" value="{{ default_from.strftime('%d/%m/%Y') if default_from else '' }}" data-date-format="dmy" placeholder="ηη/μμ/εεεε" inputmode="numeric">
+  </div>
+  <div class="col-12 col-md-6 col-xl-3">
+    <label class="form-label mb-1">{{ tt(request, 'to') }}</label>
+    <input class="form-control" type="text" name="to" value="{{ default_to.strftime('%d/%m/%Y') if default_to else '' }}" data-date-format="dmy" placeholder="ηη/μμ/εεεε" inputmode="numeric">
+  </div>
+  <div class="col-12 col-md-6 col-xl-4">
+    <label class="form-label mb-1">{{ tt(request, 'branches') }}</label>
+    <div class="bv-multi" id="eshopBranchesMulti">
+      <button type="button" class="form-select bv-multi-toggle text-start" id="eshopBranchesToggle">Επιλογή</button>
+      <div class="bv-multi-menu" id="eshopBranchesMenu" hidden>
+        <div class="d-flex gap-2 mb-2">
+          <input type="text" class="form-control form-control-sm" id="eshopBranchesSearch" placeholder="Αναζήτηση...">
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="eshopBranchesAll">Όλα</button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="eshopBranchesClear">Καθαρισμός</button>
+        </div>
+        <div id="eshopBranchesOptions" class="bv-multi-options"></div>
+      </div>
+      <div id="eshopBranchesChips" class="bv-chip-wrap mt-2"></div>
+      <select name="branches" id="eshopBranches" multiple hidden></select>
+    </div>
+  </div>
+  <div class="col-12 col-md-6 col-xl-2 d-grid align-content-end">
+    <button class="btn btn-primary" type="submit"><i class="fe fe-filter"></i> {{ tt(request, 'apply') }}</button>
+  </div>
+</form>
+{% endblock %}
+
+{% block content %}
+<div id="eshopError" class="alert alert-danger d-none"></div>
+
+<style>
+  .eshop-card .mc-meta { font-weight: 700; }
+  .eshop-table th { font-size: 12px; text-transform: uppercase; letter-spacing: .03em; color: #64748b; font-weight: 700; }
+  .eshop-table td { vertical-align: middle; font-weight: 600; }
+  .eshop-subtitle { color:#64748b; font-size:.82rem; }
+  .eshop-empty { border:1px dashed #cbd5e1; border-radius:12px; padding:24px; text-align:center; color:#64748b; background:#f8fafc; font-weight:600; }
+  .eshop-card { min-height: 138px; }
+  .eshop-panel {
+    border-radius: 16px;
+  }
+  .eshop-panel .card-header {
+    padding: 12px 16px 10px;
+  }
+  .eshop-panel .card-body {
+    padding: 10px 16px 12px;
+  }
+  .eshop-panel .card-header h6 {
+    font-size: 1rem;
+  }
+  .eshop-panel .eshop-subtitle {
+    margin-top: 4px !important;
+    font-size: .78rem;
+    line-height: 1.25;
+  }
+  .eshop-panel .table-responsive,
+  .eshop-panel .eshop-table {
+    margin-bottom: 0;
+  }
+  .eshop-panel .eshop-table th {
+    padding-top: 10px;
+    padding-bottom: 10px;
+  }
+  .eshop-panel .eshop-table td {
+    padding-top: 10px;
+    padding-bottom: 10px;
+  }
+  .eshop-panel .eshop-table tbody td.text-center {
+    padding-top: 14px !important;
+    padding-bottom: 14px !important;
+  }
+  .eshop-recent-table {
+    min-width: 1500px;
+    table-layout: fixed;
+  }
+  .eshop-recent-table th {
+    font-size: 10.5px;
+    letter-spacing: .015em;
+    white-space: nowrap;
+  }
+  .eshop-recent-table td {
+    font-size: 11.5px;
+    font-weight: 500;
+    line-height: 1.18;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    padding-top: 8px !important;
+    padding-bottom: 8px !important;
+  }
+  .eshop-recent-table th:nth-child(1),
+  .eshop-recent-table td:nth-child(1) { width: 94px; }
+  .eshop-recent-table th:nth-child(2),
+  .eshop-recent-table td:nth-child(2) { width: 130px; }
+  .eshop-recent-table th:nth-child(3),
+  .eshop-recent-table td:nth-child(3) { width: 122px; }
+  .eshop-recent-table th:nth-child(4),
+  .eshop-recent-table td:nth-child(4) { width: 150px; }
+  .eshop-recent-table th:nth-child(5),
+  .eshop-recent-table td:nth-child(5) { width: 112px; }
+  .eshop-recent-table th:nth-child(6),
+  .eshop-recent-table td:nth-child(6) { width: 128px; }
+  .eshop-recent-table th:nth-child(7),
+  .eshop-recent-table td:nth-child(7) { width: 150px; }
+  .eshop-recent-table th:nth-child(8),
+  .eshop-recent-table td:nth-child(8) { width: 105px; }
+  .eshop-recent-table th:nth-child(9),
+  .eshop-recent-table td:nth-child(9) { width: 145px; }
+  .eshop-recent-table th:nth-child(n+10),
+  .eshop-recent-table td:nth-child(n+10) { width: 92px; }
+  .eshop-document-row {
+    cursor: pointer;
+  }
+  .eshop-document-row.is-active {
+    background: #eef4ff;
+  }
+  .eshop-doc-open {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    max-width: 100%;
+    border: 0;
+    background: transparent;
+    color: #0f172a;
+    font: inherit;
+    font-weight: 650;
+    padding: 0;
+    text-align: left;
+  }
+  .eshop-doc-open i {
+    color: #2563eb;
+    font-size: 12px;
+    flex: 0 0 auto;
+  }
+  .eshop-doc-open span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .eshop-doc-open:hover,
+  .eshop-doc-open:focus-visible {
+    color: #2563eb;
+  }
+  .eshop-doc-field {
+    min-height: 34px;
+    border-radius: 10px;
+    background: #f8fbff;
+    border: 1px solid #e2e8f0;
+    padding: 7px 9px;
+    color: #0f172a;
+    font-size: .85rem;
+    font-weight: 600;
+  }
+  .eshop-doc-lines-wrap {
+    max-height: 340px;
+    overflow: auto;
+  }
+  .eshop-panel.compact-empty .card-body {
+    padding-bottom: 8px;
+  }
+  .eshop-pagination { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:16px; flex-wrap:wrap; }
+  .eshop-pagination-meta { color:#64748b; font-size:.92rem; font-weight:600; }
+  .eshop-pagination-actions { display:flex; align-items:center; gap:8px; }
+  .eshop-pagination-page { min-width:88px; text-align:center; color:#0f172a; font-weight:700; }
+  .eshop-secondary-card {
+    min-height: 138px;
+  }
+  .eshop-secondary-card .mc-value {
+    font-size: 1.02rem;
+    line-height: 1.2;
+    margin-bottom: 6px;
+    word-break: normal;
+    overflow-wrap: anywhere;
+  }
+  .eshop-secondary-card .mc-meta {
+    font-size: .78rem;
+    font-weight: 700;
+    line-height: 1.28;
+    max-width: 100%;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    text-wrap: balance;
+  }
+  .eshop-secondary-card.wide-secondary {
+    min-height: 138px;
+  }
+  .eshop-icon-action {
+    border: 0;
+    padding: 0;
+    cursor: pointer;
+  }
+  .eshop-icon-action:focus-visible {
+    outline: 3px solid rgba(2, 132, 199, .28);
+    outline-offset: 3px;
+  }
+  .eshop-details-kpis {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .eshop-details-kpi {
+    border: 1px solid #dbe4f0;
+    border-radius: 8px;
+    background: #f8fbff;
+    padding: 8px 10px;
+  }
+  .eshop-details-kpi span {
+    display: block;
+    color: #64748b;
+    font-size: .68rem;
+    font-weight: 650;
+    text-transform: uppercase;
+    letter-spacing: .025em;
+  }
+  .eshop-details-kpi strong {
+    display: block;
+    color: #0f172a;
+    font-size: .98rem;
+    font-weight: 650;
+    line-height: 1.25;
+    margin-top: 3px;
+  }
+  .eshop-details-table-wrap {
+    max-height: min(70vh, 620px);
+    overflow: auto;
+  }
+  .modal[id^="eshop"] .modal-title {
+    font-size: 1rem;
+    font-weight: 650;
+  }
+  .modal[id^="eshop"] .modal-header small {
+    font-size: .78rem;
+    font-weight: 450;
+  }
+  .modal[id^="eshop"] .eshop-table th {
+    font-size: .68rem;
+    font-weight: 650;
+    letter-spacing: .02em;
+    white-space: nowrap;
+    padding-top: 8px;
+    padding-bottom: 8px;
+  }
+  .modal[id^="eshop"] .eshop-table td {
+    font-size: .82rem;
+    font-weight: 450;
+    line-height: 1.25;
+    padding-top: 8px;
+    padding-bottom: 8px;
+  }
+  .modal[id^="eshop"] .eshop-table td.text-end {
+    font-weight: 500;
+  }
+  .eshop-insights-list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+  .eshop-insight {
+    border: 1px solid #dbe4f0;
+    border-left: 4px solid #64748b;
+    border-radius: 12px;
+    padding: 12px;
+    background: #fff;
+    display: grid;
+    grid-template-columns: 38px minmax(0, 1fr) auto;
+    gap: 10px;
+    align-items: start;
+    min-height: 92px;
+  }
+  .eshop-insight-icon {
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+    display: grid;
+    place-items: center;
+    background: #f1f5f9;
+    color: #475569;
+    font-size: 16px;
+  }
+  .eshop-insight-title {
+    color: #0f172a;
+    font-weight: 800;
+    line-height: 1.2;
+    margin-bottom: 4px;
+  }
+  .eshop-insight-message {
+    color: #64748b;
+    font-size: .84rem;
+    line-height: 1.35;
+    font-weight: 600;
+  }
+  .eshop-insight-action {
+    color: #0f172a;
+    font-size: .82rem;
+    line-height: 1.35;
+    font-weight: 700;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid #e2e8f0;
+  }
+  .eshop-insight-action span {
+    color: #64748b;
+    font-size: .7rem;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    margin-right: 6px;
+  }
+  .eshop-insight-metric {
+    justify-self: end;
+    text-align: right;
+    color: #0f172a;
+    font-weight: 800;
+    white-space: nowrap;
+  }
+  .eshop-insight-metric span {
+    display: block;
+    color: #64748b;
+    font-size: .68rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    margin-bottom: 2px;
+  }
+  .eshop-insight--success { border-left-color: #16a34a; }
+  .eshop-insight--success .eshop-insight-icon { background: #dcfce7; color: #15803d; }
+  .eshop-insight--warning { border-left-color: #f59e0b; }
+  .eshop-insight--warning .eshop-insight-icon { background: #fef3c7; color: #b45309; }
+  .eshop-insight--info { border-left-color: #0284c7; }
+  .eshop-insight--info .eshop-insight-icon { background: #e0f2fe; color: #0369a1; }
+  @media (max-width: 767.98px) {
+    .eshop-details-kpis {
+      grid-template-columns: 1fr;
+    }
+    .eshop-insights-list {
+      grid-template-columns: 1fr;
+    }
+    .eshop-insight {
+      grid-template-columns: 34px minmax(0, 1fr);
+    }
+    .eshop-insight-metric {
+      grid-column: 2;
+      justify-self: start;
+      text-align: left;
+    }
+  }
+</style>
+
+<div class="row row-cols-2 row-cols-xl-6 g-3 mb-3">
+  <div class="col">
+    <div class="bv-metric-card eshop-card" style="--mc-color:#0284c7">
+      <button type="button" class="mc-icon eshop-icon-action" id="eshopOrdersDetailsBtn" aria-label="Στοιχεία παραγγελιών site" title="Στοιχεία παραγγελιών site"><i class="fe fe-shopping-bag"></i></button>
+      <div class="mc-label">Παραγγελίες Site</div>
+      <div id="eshopOrders" class="mc-value">—</div>
+      <div class="mc-meta">Σύνολο e-shop παραστατικών</div>
+    </div>
+  </div>
+  <div class="col">
+    <div class="bv-metric-card eshop-card" style="--mc-color:#16a34a">
+      <button type="button" class="mc-icon eshop-icon-action" id="eshopRevenueDetailsBtn" aria-label="Στοιχεία εσόδων e-shop" title="Στοιχεία εσόδων e-shop"><i class="fe fe-dollar-sign"></i></button>
+      <div class="mc-label">Έσοδα E-Shop</div>
+      <div id="eshopRevenue" class="mc-value">—</div>
+      <div class="mc-meta">Γενικό σύνολο παραγγελιών</div>
+    </div>
+  </div>
+  <div class="col">
+    <div class="bv-metric-card eshop-card" style="--mc-color:#7c3aed">
+      <button type="button" class="mc-icon eshop-icon-action" id="eshopShipmentsDetailsBtn" aria-label="Στοιχεία αποστολών" title="Στοιχεία αποστολών"><i class="fe fe-truck"></i></button>
+      <div class="mc-label">Αποστολές</div>
+      <div id="eshopShipments" class="mc-value">—</div>
+      <div class="mc-meta">Με μεταφορική</div>
+    </div>
+  </div>
+  <div class="col">
+    <div class="bv-metric-card eshop-card" style="--mc-color:#ea580c">
+      <button type="button" class="mc-icon eshop-icon-action" id="eshopShippingChargeDetailsBtn" aria-label="Ανάλυση εξόδων αποστολής" title="Ανάλυση εξόδων αποστολής"><i class="fe fe-credit-card"></i></button>
+      <div class="mc-label">Έξοδα Αποστολής</div>
+      <div id="eshopShippingCharge" class="mc-value">—</div>
+      <div class="mc-meta">Από επιβαρύνσεις SoftOne</div>
+    </div>
+  </div>
+  <div class="col">
+    <div class="bv-metric-card eshop-card" style="--mc-color:#be123c">
+      <button type="button" class="mc-icon eshop-icon-action" id="eshopCodChargeDetailsBtn" aria-label="Ανάλυση εξόδων αντικαταβολής" title="Ανάλυση εξόδων αντικαταβολής"><i class="fe fe-credit-card"></i></button>
+      <div class="mc-label">Έξοδα Αντικαταβολής</div>
+      <div id="eshopCodCharge" class="mc-value">—</div>
+      <div class="mc-meta">Ξεχωριστά από αποστολή</div>
+    </div>
+  </div>
+  <div class="col">
+    <div class="bv-metric-card eshop-card" style="--mc-color:#0f766e">
+      <button type="button" class="mc-icon eshop-icon-action" id="eshopOtherChargeDetailsBtn" aria-label="Ανάλυση λοιπών επιβαρύνσεων" title="Ανάλυση λοιπών επιβαρύνσεων"><i class="fe fe-box"></i></button>
+      <div class="mc-label">Λοιπές Επιβαρύνσεις</div>
+      <div id="eshopOtherCharge" class="mc-value">—</div>
+      <div class="mc-meta">Δώρα, συσκευασία και λοιπά</div>
+    </div>
+  </div>
+  <div class="col">
+    <div class="bv-metric-card eshop-card" style="--mc-color:#0f766e">
+      <button type="button" class="mc-icon eshop-icon-action" id="eshopAvgOrderDetailsBtn" aria-label="Ανάλυση μέσης παραγγελίας" title="Ανάλυση μέσης παραγγελίας"><i class="fe fe-bar-chart"></i></button>
+      <div class="mc-label">Μέση Παραγγελία</div>
+      <div id="eshopAvgOrder" class="mc-value">—</div>
+      <div class="mc-meta">Ανά e-shop παραγγελία</div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade bv-modal bv-modal--responsive" id="eshopOrdersDetailsModal" tabindex="-1" aria-hidden="true" aria-labelledby="eshopOrdersDetailsTitle" data-bv-modal="true" data-bv-close-on-backdrop="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title mb-0" id="eshopOrdersDetailsTitle">Παραγγελίες Site</h5>
+          <small class="text-muted">Ανάλυση εκτέλεσης e-shop παραγγελιών για το επιλεγμένο διάστημα</small>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Κλείσιμο"></button>
+      </div>
+      <div class="modal-body">
+        <div class="eshop-details-kpis">
+          <div class="eshop-details-kpi">
+            <span>Παραγγελίες</span>
+            <strong id="eshopOrdersDetailsTotal">—</strong>
+          </div>
+          <div class="eshop-details-kpi">
+            <span>Έσοδα</span>
+            <strong id="eshopOrdersDetailsRevenue">—</strong>
+          </div>
+          <div class="eshop-details-kpi">
+            <span>Μέση Παραγγελία</span>
+            <strong id="eshopOrdersDetailsAvg">—</strong>
+          </div>
+        </div>
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-0 eshop-table">
+            <thead>
+              <tr>
+                <th>Μοντέλο</th>
+                <th>Σημείο</th>
+                <th class="text-end">Παραγγελίες</th>
+                <th class="text-end">Έσοδα</th>
+              </tr>
+            </thead>
+            <tbody id="eshopOrdersDetailsFlowBody">
+              <tr><td colspan="4" class="text-center text-muted py-3">Φόρτωση...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade bv-modal bv-modal--responsive" id="eshopShipmentsDetailsModal" tabindex="-1" aria-hidden="true" aria-labelledby="eshopShipmentsDetailsTitle" data-bv-modal="true" data-bv-close-on-backdrop="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title mb-0" id="eshopShipmentsDetailsTitle"><i class="fe fe-send me-1"></i> Αποστολές Ανά Μεταφορική</h5>
+          <small class="text-muted">Όγκος και επιβαρύνσεις αποστολής / αντικαταβολής ανά μεταφορική</small>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Κλείσιμο"></button>
+      </div>
+      <div class="modal-body">
+        <div class="eshop-details-kpis">
+          <div class="eshop-details-kpi">
+            <span>Αποστολές</span>
+            <strong id="eshopShipmentsDetailsTotal">—</strong>
+          </div>
+          <div class="eshop-details-kpi">
+            <span>Έσοδα</span>
+            <strong id="eshopShipmentsDetailsRevenue">—</strong>
+          </div>
+          <div class="eshop-details-kpi">
+            <span>Σύνολο Επιβαρ.</span>
+            <strong id="eshopShipmentsDetailsCharges">—</strong>
+          </div>
+        </div>
+        <div class="table-responsive eshop-details-table-wrap">
+          <table class="table table-sm align-middle mb-0 eshop-table">
+            <thead>
+              <tr>
+                <th>Μεταφορική</th>
+                <th class="text-end">Αποστολές</th>
+                <th class="text-end">Έσοδα</th>
+                <th class="text-end">Αποστολή</th>
+                <th class="text-end">Αντικαταβολή</th>
+                <th class="text-end">Δώρα</th>
+                <th class="text-end">Λοιπά</th>
+                <th class="text-end">Σύνολο Επιβαρ.</th>
+              </tr>
+            </thead>
+            <tbody id="eshopShipmentsDetailsCarrierBody">
+              <tr><td colspan="8" class="text-center text-muted py-3">Φόρτωση...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade bv-modal bv-modal--responsive" id="eshopRevenueDetailsModal" tabindex="-1" aria-hidden="true" aria-labelledby="eshopRevenueDetailsTitle" data-bv-modal="true" data-bv-close-on-backdrop="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title mb-0" id="eshopRevenueDetailsTitle"><i class="fe fe-credit-card me-1"></i> Τρόποι Πληρωμής</h5>
+          <small class="text-muted">Ποιοι τρόποι πληρωμής φέρνουν τον κύριο όγκο των e-shop εσόδων</small>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Κλείσιμο"></button>
+      </div>
+      <div class="modal-body">
+        <div class="eshop-details-kpis">
+          <div class="eshop-details-kpi">
+            <span>Έσοδα</span>
+            <strong id="eshopRevenueDetailsTotal">—</strong>
+          </div>
+          <div class="eshop-details-kpi">
+            <span>Παραγγελίες</span>
+            <strong id="eshopRevenueDetailsOrders">—</strong>
+          </div>
+          <div class="eshop-details-kpi">
+            <span>Top τρόπος</span>
+            <strong id="eshopRevenueDetailsTopPayment">—</strong>
+          </div>
+        </div>
+        <div class="table-responsive eshop-details-table-wrap">
+          <table class="table table-sm align-middle mb-0 eshop-table">
+            <thead>
+              <tr>
+                <th>Τρόπος πληρωμής</th>
+                <th class="text-end">Παραγγελίες</th>
+                <th class="text-end">Έσοδα</th>
+              </tr>
+            </thead>
+            <tbody id="eshopRevenueDetailsPaymentBody">
+              <tr><td colspan="3" class="text-center text-muted py-3">Φόρτωση...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade bv-modal bv-modal--responsive" id="eshopCityDetailsModal" tabindex="-1" aria-hidden="true" aria-labelledby="eshopCityDetailsTitle" data-bv-modal="true" data-bv-close-on-backdrop="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title mb-0" id="eshopCityDetailsTitle"><i class="fe fe-map-pin me-1"></i> Top Πόλεις Παράδοσης</h5>
+          <small class="text-muted">Πού συγκεντρώνονται οι περισσότερες παραδόσεις του e-shop</small>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Κλείσιμο"></button>
+      </div>
+      <div class="modal-body">
+        <div class="eshop-details-kpis">
+          <div class="eshop-details-kpi">
+            <span>Παραγγελίες</span>
+            <strong id="eshopCityDetailsOrders">—</strong>
+          </div>
+          <div class="eshop-details-kpi">
+            <span>Έσοδα</span>
+            <strong id="eshopCityDetailsRevenue">—</strong>
+          </div>
+          <div class="eshop-details-kpi">
+            <span>Top πόλη</span>
+            <strong id="eshopCityDetailsTopCity">—</strong>
+          </div>
+        </div>
+        <div class="table-responsive eshop-details-table-wrap">
+          <table class="table table-sm align-middle mb-0 eshop-table">
+            <thead>
+              <tr>
+                <th>Πόλη</th>
+                <th class="text-end">Παραγγελίες</th>
+                <th class="text-end">Έσοδα</th>
+              </tr>
+            </thead>
+            <tbody id="eshopCityDetailsBody">
+              <tr><td colspan="3" class="text-center text-muted py-3">Φόρτωση...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade bv-modal bv-modal--responsive" id="eshopBranchesDetailsModal" tabindex="-1" aria-hidden="true" aria-labelledby="eshopBranchesDetailsTitle" data-bv-modal="true" data-bv-close-on-backdrop="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title mb-0" id="eshopBranchesDetailsTitle"><i class="fe fe-home me-1"></i> Παραδόσεις Ανά Κατάστημα</h5>
+          <small class="text-muted">Πόσες e-shop παραγγελίες εκτελέστηκαν από κάθε φυσικό κατάστημα</small>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Κλείσιμο"></button>
+      </div>
+      <div class="modal-body">
+        <div class="eshop-details-kpis">
+          <div class="eshop-details-kpi">
+            <span>Παραγγελίες</span>
+            <strong id="eshopBranchesDetailsTotal">—</strong>
+          </div>
+          <div class="eshop-details-kpi">
+            <span>Έσοδα</span>
+            <strong id="eshopBranchesDetailsRevenue">—</strong>
+          </div>
+          <div class="eshop-details-kpi">
+            <span>Top κατάστημα</span>
+            <strong id="eshopBranchesDetailsTop">—</strong>
+          </div>
+        </div>
+        <div class="table-responsive eshop-details-table-wrap">
+          <table class="table table-sm align-middle mb-0 eshop-table">
+            <thead>
+              <tr>
+                <th>Κατάστημα</th>
+                <th class="text-end">Παραγγελίες</th>
+                <th class="text-end">Έσοδα</th>
+                <th class="text-end">Αποστολή</th>
+                <th class="text-end">Αντικαταβολή</th>
+                <th class="text-end">Δώρα</th>
+                <th class="text-end">Λοιπά</th>
+                <th class="text-end">Σύνολο Επιβαρ.</th>
+              </tr>
+            </thead>
+            <tbody id="eshopBranchesDetailsBody">
+              <tr><td colspan="8" class="text-center text-muted py-3">Φόρτωση...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade bv-modal bv-modal--responsive" id="eshopGenericDetailsModal" tabindex="-1" aria-hidden="true" aria-labelledby="eshopGenericDetailsTitle" data-bv-modal="true" data-bv-close-on-backdrop="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title mb-0" id="eshopGenericDetailsTitle">KPI</h5>
+          <small class="text-muted" id="eshopGenericDetailsSubtitle">Ανάλυση για το επιλεγμένο διάστημα</small>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Κλείσιμο"></button>
+      </div>
+      <div class="modal-body">
+        <div class="eshop-details-kpis" id="eshopGenericDetailsKpis"></div>
+        <div class="table-responsive eshop-details-table-wrap">
+          <table class="table table-sm align-middle mb-0 eshop-table">
+            <thead>
+              <tr id="eshopGenericDetailsHead"></tr>
+            </thead>
+            <tbody id="eshopGenericDetailsBody">
+              <tr><td class="text-center text-muted py-3">Φόρτωση...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade bv-modal bv-modal--responsive" id="eshopDocumentModal" tabindex="-1" aria-hidden="true" aria-labelledby="eshopDocumentTitle" data-bv-modal="true" data-bv-close-on-backdrop="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title mb-0" id="eshopDocumentTitle">Παραστατικό</h5>
+          <small class="text-muted" id="eshopDocumentSubtitle">-</small>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Κλείσιμο"></button>
+      </div>
+      <div class="modal-body">
+        <div id="eshopDocumentError" class="alert alert-danger d-none mb-3"></div>
+        <div class="fw-semibold text-warning border-bottom pb-1 mb-2">Βασικά στοιχεία</div>
+        <div class="row g-2 mb-3">
+          <div class="col-md-6">
+            <label class="form-label mb-1">Υποκατάστημα</label>
+            <div class="eshop-doc-field" id="eshopDocBranch">-</div>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label mb-1">Αποθηκευτικός χώρος</label>
+            <div class="eshop-doc-field" id="eshopDocWarehouse">-</div>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label mb-1">Σειρά</label>
+            <div class="eshop-doc-field" id="eshopDocSeries">-</div>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label mb-1">Τύπος</label>
+            <div class="eshop-doc-field" id="eshopDocType">-</div>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label mb-1">Κωδ. παραστ.</label>
+            <div class="eshop-doc-field" id="eshopDocNo">-</div>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label mb-1">Κωδ. e-shop</label>
+            <div class="eshop-doc-field" id="eshopDocEshopCode">-</div>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label mb-1">Πελάτης</label>
+            <div class="eshop-doc-field" id="eshopDocCustomer">-</div>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label mb-1">Κανάλι πώλησης</label>
+            <div class="eshop-doc-field" id="eshopDocChannel">-</div>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label mb-1">Ημερομηνία</label>
+            <div class="eshop-doc-field" id="eshopDocDate">-</div>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label mb-1">Τρ. πληρωμής</label>
+            <div class="eshop-doc-field" id="eshopDocPayment">-</div>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label mb-1">Κωδ. αποστολής</label>
+            <div class="eshop-doc-field" id="eshopDocShipping">-</div>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label mb-1">Έξοδα αποστολής</label>
+            <div class="eshop-doc-field" id="eshopDocExpenses">-</div>
+          </div>
+        </div>
+
+        <div class="fw-semibold text-warning border-bottom pb-1 mb-2">Είδη</div>
+        <div class="table-responsive border rounded eshop-doc-lines-wrap mb-3">
+          <table class="table table-sm align-middle mb-0 eshop-table">
+            <thead class="table-light sticky-top">
+              <tr>
+                <th style="width:52px">Α/Α</th>
+                <th style="width:120px">Κωδικός</th>
+                <th>Περιγραφή</th>
+                <th class="text-end">Ποσ. 1</th>
+                <th class="text-end">Εκτελ.</th>
+                <th class="text-end">Τιμή</th>
+                <th class="text-end">Εκπτ. %</th>
+                <th class="text-end">Αξία εκπτ.</th>
+                <th class="text-end">ΦΠΑ</th>
+                <th class="text-end">Αξία</th>
+              </tr>
+            </thead>
+            <tbody id="eshopDocLinesBody">
+              <tr><td colspan="10" class="text-center text-muted py-3">Δεν υπάρχουν γραμμές.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="fw-semibold text-warning border-bottom pb-1 mb-2">Σύνολα</div>
+        <div class="row g-2">
+          <div class="col-md-3">
+            <label class="form-label mb-1">Καθαρή αξία</label>
+            <div class="eshop-doc-field" id="eshopDocTotalNet">-</div>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label mb-1">Έξοδα</label>
+            <div class="eshop-doc-field" id="eshopDocTotalExpenses">-</div>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label mb-1">ΦΠΑ</label>
+            <div class="eshop-doc-field" id="eshopDocTotalVat">-</div>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label mb-1">Γενικό σύνολο</label>
+            <div class="eshop-doc-field" id="eshopDocTotalGross">-</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-12 col-md-6 col-xl-3">
+    <div class="bv-metric-card eshop-card eshop-secondary-card h-100" style="--mc-color:#0284c7">
+      <button type="button" class="mc-icon eshop-icon-action" id="eshopBranchesDetailsBtn" aria-label="Παραδόσεις ανά κατάστημα" title="Παραδόσεις ανά κατάστημα"><i class="fe fe-home"></i></button>
+      <div class="mc-label">Top κατάστημα εκτέλεσης</div>
+      <div id="eshopTopBranch" class="mc-value">—</div>
+      <div id="eshopTopBranchMeta" class="mc-meta">—</div>
+    </div>
+  </div>
+  <div class="col-12 col-md-6 col-xl-3">
+    <div class="bv-metric-card eshop-card eshop-secondary-card h-100" style="--mc-color:#7c3aed">
+      <button type="button" class="mc-icon eshop-icon-action" id="eshopTopCarrierDetailsBtn" aria-label="Ανάλυση κύριας μεταφορικής" title="Ανάλυση κύριας μεταφορικής"><i class="fe fe-truck"></i></button>
+      <div class="mc-label">Κύρια μεταφορική</div>
+      <div id="eshopTopCarrier" class="mc-value">—</div>
+      <div id="eshopTopCarrierMeta" class="mc-meta">—</div>
+    </div>
+  </div>
+  <div class="col-12 col-md-6 col-xl-3">
+    <div class="bv-metric-card eshop-card eshop-secondary-card h-100" style="--mc-color:#ea580c">
+      <button type="button" class="mc-icon eshop-icon-action" id="eshopShippingPctDetailsBtn" aria-label="Ανάλυση κόστους courier προς έσοδα" title="Ανάλυση κόστους courier προς έσοδα"><i class="fe fe-percent"></i></button>
+      <div class="mc-label">Κόστος courier / έσοδα</div>
+      <div id="eshopShippingPct" class="mc-value">—</div>
+      <div class="mc-meta">Πόσο βαραίνει το courier στο e-shop revenue</div>
+    </div>
+  </div>
+  <div class="col-12 col-md-6 col-xl-3">
+    <div class="bv-metric-card eshop-card eshop-secondary-card h-100" style="--mc-color:#0f766e">
+      <button type="button" class="mc-icon eshop-icon-action" id="eshopNoCarrierDetailsBtn" aria-label="Παραγγελίες χωρίς μεταφορική" title="Παραγγελίες χωρίς μεταφορική"><i class="fe fe-alert-circle"></i></button>
+      <div class="mc-label">Παραγγελίες χωρίς μεταφορική</div>
+      <div id="eshopOrdersNoCarrier" class="mc-value">—</div>
+      <div class="mc-meta">Χρήσιμο για έλεγχο mapping και πληρότητας</div>
+    </div>
+  </div>
+  <div class="col-12 col-md-6 col-xl-3">
+    <div class="bv-metric-card eshop-card eshop-secondary-card h-100" style="--mc-color:#2563eb">
+      <button type="button" class="mc-icon eshop-icon-action" id="eshopCityDetailsBtn" aria-label="Top πόλεις παράδοσης" title="Top πόλεις παράδοσης"><i class="fe fe-map-pin"></i></button>
+      <div class="mc-label">Top πόλη παράδοσης</div>
+      <div id="eshopTopCity" class="mc-value">—</div>
+      <div id="eshopTopCityMeta" class="mc-meta">—</div>
+    </div>
+  </div>
+  <div class="col-12 col-md-6 col-xl-3">
+    <div class="bv-metric-card eshop-card eshop-secondary-card h-100" style="--mc-color:#16a34a">
+      <button type="button" class="mc-icon eshop-icon-action" id="eshopTopPaymentDetailsBtn" aria-label="Ανάλυση κύριου τρόπου πληρωμής" title="Ανάλυση κύριου τρόπου πληρωμής"><i class="fe fe-credit-card"></i></button>
+      <div class="mc-label">Κύριος τρόπος πληρωμής</div>
+      <div id="eshopTopPayment" class="mc-value">—</div>
+      <div id="eshopTopPaymentMeta" class="mc-meta">—</div>
+    </div>
+  </div>
+  <div class="col-12 col-md-6 col-xl-6">
+    <div class="bv-metric-card eshop-card eshop-secondary-card wide-secondary h-100" style="--mc-color:#475569">
+      <button type="button" class="mc-icon eshop-icon-action" id="eshopTopFlowDetailsBtn" aria-label="Ανάλυση κύριου μοντέλου εκτέλεσης" title="Ανάλυση κύριου μοντέλου εκτέλεσης"><i class="fe fe-package"></i></button>
+      <div class="mc-label">Κύριο μοντέλο εκτέλεσης</div>
+      <div id="eshopTopFlow" class="mc-value">—</div>
+      <div id="eshopTopFlowMeta" class="mc-meta">—</div>
+    </div>
+  </div>
+</div>
+
+<div class="card border-0 shadow-sm mb-3 eshop-panel">
+  <div class="card-header">
+    <h6 class="mb-0"><i class="fe fe-bell me-1"></i> Συμπεράσματα E-Shop</h6>
+    <div class="eshop-subtitle mt-1">Αυτόματα συμπεράσματα από παραγγελίες, αποστολές, πληρωμές και επιβαρύνσεις</div>
+  </div>
+  <div class="card-body">
+    <div id="eshopInsightsList" class="eshop-insights-list">
+      <div class="eshop-empty">Φόρτωση συμπερασμάτων...</div>
+    </div>
+  </div>
+</div>
+
+<div class="card border-0 shadow-sm eshop-panel">
+  <div class="card-header">
+    <h6 class="mb-0"><i class="fe fe-list me-1"></i> Πρόσφατες Παραγγελίες Site</h6>
+    <div class="eshop-subtitle mt-1">Κωδικός e-shop, κατάστημα εκτέλεσης, μεταφορική, πόλη και επιβαρύνσεις</div>
+  </div>
+  <div class="card-body">
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0 eshop-table eshop-recent-table">
+        <thead>
+          <tr>
+            <th>Ημερομηνία</th>
+            <th>Παραστατικό</th>
+            <th>Κωδ. e-shop</th>
+            <th>Πελάτης</th>
+            <th>Κατάστημα</th>
+            <th>Μοντέλο</th>
+            <th>Μεταφορική</th>
+            <th>Πόλη</th>
+            <th>Πληρωμή</th>
+            <th class="text-end">Έσοδα</th>
+            <th class="text-end">Αποστολή</th>
+            <th class="text-end">Αντικαταβολή</th>
+            <th class="text-end">Δώρα</th>
+            <th class="text-end">Λοιπά</th>
+            <th class="text-end">Σύνολο Επιβαρ.</th>
+          </tr>
+        </thead>
+        <tbody id="eshopRecentBody">
+          <tr><td colspan="15" class="text-center text-muted py-3">Φόρτωση...</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="eshop-pagination">
+      <div id="eshopRecentMeta" class="eshop-pagination-meta">—</div>
+      <div class="eshop-pagination-actions">
+        <button type="button" id="eshopPrevPage" class="btn btn-outline-secondary btn-sm">Προηγούμενη</button>
+        <div id="eshopRecentPage" class="eshop-pagination-page">—</div>
+        <button type="button" id="eshopNextPage" class="btn btn-outline-secondary btn-sm">Επόμενη</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+'use strict';
+
+const EUR = new Intl.NumberFormat('el-GR', { style:'currency', currency:'EUR', maximumFractionDigits:2 });
+const NUM0 = new Intl.NumberFormat('el-GR', { maximumFractionDigits:0 });
+const NUM2 = new Intl.NumberFormat('el-GR', { minimumFractionDigits:2, maximumFractionDigits:2 });
+const PCT = new Intl.NumberFormat('el-GR', { style:'percent', minimumFractionDigits:2, maximumFractionDigits:2 });
+const state = { page: 1, pageSize: 25 };
+let latestPayload = null;
+let eshopDocumentOpenToken = 0;
+const detailsModalControllers = {};
+function money(v){ return EUR.format(Number(v||0)); }
+function n0(v){ return NUM0.format(Number(v||0)); }
+function n2(v){ return NUM2.format(Number(v||0)); }
+function pct(v){ return PCT.format(Number(v||0)); }
+function txt(v, fallback='-'){ const s = String(v ?? '').trim(); return s || fallback; }
+function cityTxt(v){
+  const s = String(v ?? '').trim();
+  if(!s || s === '0' || s.toLowerCase() === 'null' || s.toLowerCase() === 'none') return 'Χωρίς πόλη';
+  return s;
+}
+function esc(v){ return String(v ?? '').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;'); }
+function dmy(v){ return window.bvToDmyDate ? window.bvToDmyDate(v) : txt(v); }
+function toIsoDate(v){
+  const raw = String(v ?? '').trim();
+  if(!raw) return '';
+  if(/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  const m = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if(m) return `${m[3]}-${m[2]}-${m[1]}`;
+  return window.bvToIsoDate ? window.bvToIsoDate(raw) : raw;
+}
+function setErr(msg){
+  const el = document.getElementById('eshopError');
+  if(!el) return;
+  if(!msg){ el.classList.add('d-none'); el.textContent=''; return; }
+  el.classList.remove('d-none'); el.textContent = msg;
+}
+
+function params(includePaging=true){
+  const fd = new FormData(document.getElementById('eshopFilters'));
+  const p = new URLSearchParams();
+  const fromRaw = fd.get('from');
+  const toRaw = fd.get('to');
+  p.set('from', toIsoDate(fromRaw));
+  p.set('to', toIsoDate(toRaw));
+  if(includePaging){
+    p.set('page', String(state.page));
+    p.set('page_size', String(state.pageSize));
+  }
+  for(const v of fd.getAll('branches')) if(String(v||'').trim()) p.append('branches', String(v).trim());
+  return p;
+}
+
+function bindMulti(prefix){
+  const toggle=document.getElementById(`${prefix}Toggle`);
+  const menu=document.getElementById(`${prefix}Menu`);
+  const search=document.getElementById(`${prefix}Search`);
+  const btnAll=document.getElementById(`${prefix}All`);
+  const btnClear=document.getElementById(`${prefix}Clear`);
+  const options=document.getElementById(`${prefix}Options`);
+  const chips=document.getElementById(`${prefix}Chips`);
+  const select=document.getElementById(prefix);
+  if(!toggle || !menu || !search || !btnAll || !btnClear || !options || !chips || !select || toggle.dataset.bound==='1') return;
+  toggle.dataset.bound='1';
+  const render=()=>{
+    const q=String(search.value||'').trim().toLowerCase();
+    options.querySelectorAll('label').forEach((row)=>{
+      row.hidden = q && !row.dataset.label.includes(q);
+    });
+    const selected=[...select.selectedOptions].map(o=>({value:o.value,label:o.textContent||o.value}));
+    chips.innerHTML=selected.map(it=>`<span class="badge rounded-pill text-bg-light border">${esc(it.label)}</span>`).join('');
+    toggle.textContent=selected.length ? `${selected.length} επιλεγμένα` : 'Επιλογή';
+  };
+  toggle.addEventListener('click', ()=>{ menu.hidden=!menu.hidden; if(!menu.hidden) search.focus(); });
+  btnAll.addEventListener('click', ()=>{ [...select.options].forEach(o=>o.selected=true); options.querySelectorAll('input').forEach(i=>i.checked=true); render(); });
+  btnClear.addEventListener('click', ()=>{ [...select.options].forEach(o=>o.selected=false); options.querySelectorAll('input').forEach(i=>i.checked=false); render(); });
+  search.addEventListener('input', render);
+  document.addEventListener('click', (e)=>{ if(!document.getElementById(`${prefix}Multi`)?.contains(e.target)) menu.hidden=true; });
+}
+
+function fillBranchOptions(items){
+  const select = document.getElementById('eshopBranches');
+  const options = document.getElementById('eshopBranchesOptions');
+  if(!select || !options) return;
+  select.innerHTML = '';
+  options.innerHTML = '';
+  (items || []).forEach((item)=>{
+    const value = String(item.value || item.id || '').trim();
+    const label = String(item.label || item.name || value).trim();
+    if(!value) return;
+    const opt = document.createElement('option');
+    opt.value = value;
+    opt.textContent = label;
+    select.appendChild(opt);
+    const row = document.createElement('label');
+    row.className = 'd-flex align-items-center gap-2 py-1';
+    row.dataset.label = label.toLowerCase();
+    row.innerHTML = `<input type="checkbox" class="form-check-input mt-0" value="${esc(value)}"><span>${esc(label)}</span>`;
+    row.querySelector('input').addEventListener('change', (e)=>{
+      opt.selected = e.target.checked;
+      const ev = new Event('change', { bubbles:true });
+      select.dispatchEvent(ev);
+    });
+    options.appendChild(row);
+  });
+  select.addEventListener('change', ()=>{
+    const selected = new Set([...select.selectedOptions].map(o=>o.value));
+    options.querySelectorAll('input').forEach((inp)=>{ inp.checked = selected.has(inp.value); });
+    const qEv = new Event('input', { bubbles:true });
+    document.getElementById('eshopBranchesSearch')?.dispatchEvent(qEv);
+  });
+}
+
+function renderSummary(summary){
+  document.getElementById('eshopOrders').textContent = n0(summary?.orders);
+  document.getElementById('eshopRevenue').textContent = money(summary?.gross_value);
+  document.getElementById('eshopShipments').textContent = n0(summary?.shipments);
+  document.getElementById('eshopShippingCharge').textContent = money(summary?.shipping_charge_value);
+  document.getElementById('eshopCodCharge').textContent = money(summary?.cod_charge_value);
+  document.getElementById('eshopOtherCharge').textContent = money(Number(summary?.gift_charge_value || 0) + Number(summary?.other_charge_value || 0));
+  document.getElementById('eshopAvgOrder').textContent = money(summary?.avg_order_value);
+  document.getElementById('eshopShippingPct').textContent = pct(summary?.shipping_cost_pct);
+  document.getElementById('eshopOrdersNoCarrier').textContent = n0(summary?.orders_without_carrier);
+
+  const topBranch = summary?.top_branch || null;
+  const topCarrier = summary?.top_carrier || null;
+  const topCity = summary?.top_city || null;
+  const topPayment = summary?.top_payment_method || null;
+  const topFlow = summary?.top_flow || null;
+  document.getElementById('eshopTopBranch').textContent = topBranch ? `${n0(topBranch.orders)} παραγγελίες` : '—';
+  document.getElementById('eshopTopBranchMeta').textContent = topBranch ? `${txt(topBranch.branch_name)} | ${money(topBranch.gross_value)}` : '—';
+  document.getElementById('eshopTopCarrier').textContent = topCarrier ? `${n0(topCarrier.orders)} αποστολές` : '—';
+  document.getElementById('eshopTopCarrierMeta').textContent = topCarrier ? `${txt(topCarrier.carrier_name)} | ${money(topCarrier.shipping_cost)}` : '—';
+  document.getElementById('eshopTopCity').textContent = topCity ? `${n0(topCity.orders)} παραγγελίες` : '—';
+  document.getElementById('eshopTopCityMeta').textContent = topCity ? `${cityTxt(topCity.delivery_city)} | ${money(topCity.gross_value)}` : '—';
+  document.getElementById('eshopTopPayment').textContent = topPayment ? `${n0(topPayment.orders)} παραγγελίες` : '—';
+  document.getElementById('eshopTopPaymentMeta').textContent = topPayment ? `${txt(topPayment.payment_method)} | ${money(topPayment.gross_value)}` : '—';
+  document.getElementById('eshopTopFlow').textContent = topFlow ? `${n0(topFlow.orders)} παραγγελίες` : '—';
+  document.getElementById('eshopTopFlowMeta').textContent = topFlow ? `${txt(topFlow.flow_type)} | ${txt(topFlow.flow_label)}` : '—';
+}
+
+function renderRows(bodyId, rows, cols, emptyText){
+  const body = document.getElementById(bodyId);
+  if(!body) return;
+  if(!(rows||[]).length){
+    body.innerHTML = `<tr><td colspan="${cols}" class="text-center text-muted py-3">${esc(emptyText)}</td></tr>`;
+    return;
+  }
+  body.innerHTML = rows.join('');
+}
+
+function insightMetric(row){
+  if(row?.metric_value === null || row?.metric_value === undefined || row?.metric_value === '') return '';
+  const kind = String(row?.metric_kind || 'text');
+  if(kind === 'money') return money(row.metric_value);
+  if(kind === 'percent') return pct(row.metric_value);
+  if(kind === 'number') return n0(row.metric_value);
+  return txt(row.metric_value);
+}
+
+function renderEshopInsights(rows){
+  const wrap = document.getElementById('eshopInsightsList');
+  if(!wrap) return;
+  if(!(rows || []).length){
+    wrap.innerHTML = '<div class="eshop-empty">Δεν υπάρχουν ακόμα συμπεράσματα για το επιλεγμένο διάστημα.</div>';
+    return;
+  }
+  wrap.innerHTML = rows.map((row)=>{
+    const severity = ['success', 'warning', 'info'].includes(String(row?.severity || '')) ? String(row.severity) : 'info';
+    const icon = String(row?.icon || 'activity').replace(/[^a-z0-9-]/gi, '') || 'activity';
+    const metric = insightMetric(row);
+    const metricHtml = metric ? `
+      <div class="eshop-insight-metric">
+        <span>${esc(txt(row.metric_label, 'Metric'))}</span>
+        ${esc(metric)}
+      </div>` : '';
+    const action = txt(row?.action, '');
+    const actionHtml = action ? `<div class="eshop-insight-action"><span>Ενέργεια</span>${esc(action)}</div>` : '';
+    return `
+      <div class="eshop-insight eshop-insight--${severity}">
+        <div class="eshop-insight-icon"><i class="fe fe-${esc(icon)}"></i></div>
+        <div>
+          <div class="eshop-insight-title">${esc(txt(row?.title, 'Συμπέρασμα'))}</div>
+          <div class="eshop-insight-message">${esc(txt(row?.message, ''))}</div>
+          ${actionHtml}
+        </div>
+        ${metricHtml}
+      </div>
+    `;
+  }).join('');
+}
+
+function renderOrdersDetails(payload){
+  const summary = payload?.summary || {};
+  const totalEl = document.getElementById('eshopOrdersDetailsTotal');
+  const revenueEl = document.getElementById('eshopOrdersDetailsRevenue');
+  const avgEl = document.getElementById('eshopOrdersDetailsAvg');
+  if(totalEl) totalEl.textContent = n0(summary.orders);
+  if(revenueEl) revenueEl.textContent = money(summary.gross_value);
+  if(avgEl) avgEl.textContent = money(summary.avg_order_value);
+  renderRows(
+    'eshopOrdersDetailsFlowBody',
+    (payload?.by_flow || []).map((row)=>`
+      <tr>
+        <td>${esc(txt(row.flow_type))}</td>
+        <td>${esc(txt(row.flow_label))}</td>
+        <td class="text-end">${n0(row.orders)}</td>
+        <td class="text-end">${money(row.gross_value)}</td>
+      </tr>
+    `),
+    4,
+    'Δεν βρέθηκαν μοντέλα εκτέλεσης.'
+  );
+}
+
+function getDetailsModalController(id){
+  const el = document.getElementById(id);
+  if(!el) return null;
+  if(window.BVModalSystem?.create){
+    detailsModalControllers[id] = detailsModalControllers[id] || window.BVModalSystem.create(el, {
+      closeOnBackdrop: true,
+      keyboard: true,
+      focusTrap: true,
+      restoreFocus: true,
+    });
+    return detailsModalControllers[id];
+  }
+  if(window.bootstrap?.Modal){
+    detailsModalControllers[id] = detailsModalControllers[id] || window.bootstrap.Modal.getOrCreateInstance(el, {
+      backdrop: true,
+      keyboard: true,
+      focus: true,
+    });
+    return detailsModalControllers[id];
+  }
+  return null;
+}
+
+function showDetailsModal(id, triggerEl){
+  const controller = getDetailsModalController(id);
+  if(!controller) return;
+  if(controller.show.length >= 1) controller.show(triggerEl);
+  else controller.show();
+}
+
+function showOrdersDetails(triggerEl){
+  renderOrdersDetails(latestPayload || {});
+  showDetailsModal('eshopOrdersDetailsModal', triggerEl);
+}
+
+function renderShipmentsDetails(payload){
+  const summary = payload?.summary || {};
+  const totalEl = document.getElementById('eshopShipmentsDetailsTotal');
+  const revenueEl = document.getElementById('eshopShipmentsDetailsRevenue');
+  const chargesEl = document.getElementById('eshopShipmentsDetailsCharges');
+  const rows = payload?.by_carrier || [];
+  const totalCharges = rows.reduce((acc, row)=>acc + Number(row?.shipping_cost || 0), 0);
+  if(totalEl) totalEl.textContent = n0(summary.shipments);
+  if(revenueEl) revenueEl.textContent = money(rows.reduce((acc, row)=>acc + Number(row?.gross_value || 0), 0));
+  if(chargesEl) chargesEl.textContent = money(totalCharges);
+  renderRows(
+    'eshopShipmentsDetailsCarrierBody',
+    rows.map((row)=>`
+      <tr>
+        <td>${esc(txt(row.carrier_name))}</td>
+        <td class="text-end">${n0(row.orders)}</td>
+        <td class="text-end">${money(row.gross_value)}</td>
+        <td class="text-end">${money(row.shipping_charge_value)}</td>
+        <td class="text-end">${money(row.cod_charge_value)}</td>
+        <td class="text-end">${money(row.gift_charge_value)}</td>
+        <td class="text-end">${money(row.other_charge_value)}</td>
+        <td class="text-end">${money(row.shipping_cost)}</td>
+      </tr>
+    `),
+    8,
+    'Δεν βρέθηκαν μεταφορικές.'
+  );
+}
+
+function showShipmentsDetails(triggerEl){
+  renderShipmentsDetails(latestPayload || {});
+  showDetailsModal('eshopShipmentsDetailsModal', triggerEl);
+}
+
+function renderRevenueDetails(payload){
+  const summary = payload?.summary || {};
+  const topPayment = summary?.top_payment_method || null;
+  const totalEl = document.getElementById('eshopRevenueDetailsTotal');
+  const ordersEl = document.getElementById('eshopRevenueDetailsOrders');
+  const topPaymentEl = document.getElementById('eshopRevenueDetailsTopPayment');
+  if(totalEl) totalEl.textContent = money(summary.gross_value);
+  if(ordersEl) ordersEl.textContent = n0(summary.orders);
+  if(topPaymentEl) topPaymentEl.textContent = topPayment ? txt(topPayment.payment_method) : '—';
+  renderRows(
+    'eshopRevenueDetailsPaymentBody',
+    (payload?.by_payment_method || []).map((row)=>`
+      <tr>
+        <td>${esc(txt(row.payment_method))}</td>
+        <td class="text-end">${n0(row.orders)}</td>
+        <td class="text-end">${money(row.gross_value)}</td>
+      </tr>
+    `),
+    3,
+    'Δεν βρέθηκαν τρόποι πληρωμής.'
+  );
+}
+
+function showRevenueDetails(triggerEl){
+  renderRevenueDetails(latestPayload || {});
+  showDetailsModal('eshopRevenueDetailsModal', triggerEl);
+}
+
+function renderCityDetails(payload){
+  const summary = payload?.summary || {};
+  const topCity = summary?.top_city || null;
+  const ordersEl = document.getElementById('eshopCityDetailsOrders');
+  const revenueEl = document.getElementById('eshopCityDetailsRevenue');
+  const topCityEl = document.getElementById('eshopCityDetailsTopCity');
+  if(ordersEl) ordersEl.textContent = n0(summary.orders);
+  if(revenueEl) revenueEl.textContent = money(summary.gross_value);
+  if(topCityEl) topCityEl.textContent = topCity ? cityTxt(topCity.delivery_city) : '—';
+  renderRows(
+    'eshopCityDetailsBody',
+    (payload?.by_city || []).map((row)=>`
+      <tr>
+        <td>${esc(cityTxt(row.delivery_city))}</td>
+        <td class="text-end">${n0(row.orders)}</td>
+        <td class="text-end">${money(row.gross_value)}</td>
+      </tr>
+    `),
+    3,
+    'Δεν βρέθηκαν πόλεις παράδοσης.'
+  );
+}
+
+function showCityDetails(triggerEl){
+  renderCityDetails(latestPayload || {});
+  showDetailsModal('eshopCityDetailsModal', triggerEl);
+}
+
+function renderBranchesDetails(payload){
+  const summary = payload?.summary || {};
+  const rows = payload?.by_branch || [];
+  const topBranch = summary?.top_branch || rows[0] || null;
+  const totalEl = document.getElementById('eshopBranchesDetailsTotal');
+  const revenueEl = document.getElementById('eshopBranchesDetailsRevenue');
+  const topEl = document.getElementById('eshopBranchesDetailsTop');
+  if(totalEl) totalEl.textContent = n0(rows.reduce((acc, row)=>acc + Number(row?.orders || 0), 0));
+  if(revenueEl) revenueEl.textContent = money(rows.reduce((acc, row)=>acc + Number(row?.gross_value || 0), 0));
+  if(topEl) topEl.textContent = topBranch ? txt(topBranch.branch_name) : '—';
+  renderRows(
+    'eshopBranchesDetailsBody',
+    rows.map((row)=>`
+      <tr>
+        <td>${esc(txt(row.branch_name))}</td>
+        <td class="text-end">${n0(row.orders)}</td>
+        <td class="text-end">${money(row.gross_value)}</td>
+        <td class="text-end">${money(row.shipping_charge_value)}</td>
+        <td class="text-end">${money(row.cod_charge_value)}</td>
+        <td class="text-end">${money(row.gift_charge_value)}</td>
+        <td class="text-end">${money(row.other_charge_value)}</td>
+        <td class="text-end">${money(row.shipping_cost)}</td>
+      </tr>
+    `),
+    8,
+    'Δεν βρέθηκαν παραδόσεις.'
+  );
+}
+
+function showBranchesDetails(triggerEl){
+  renderBranchesDetails(latestPayload || {});
+  showDetailsModal('eshopBranchesDetailsModal', triggerEl);
+}
+
+function chargeValue(row, kind){
+  if(kind === 'shipping') return Number(row?.shipping_charge_value || 0);
+  if(kind === 'cod') return Number(row?.cod_charge_value || 0);
+  if(kind === 'other') return Number(row?.gift_charge_value || 0) + Number(row?.other_charge_value || 0);
+  return Number(row?.shipping_cost || 0);
+}
+
+function renderGenericDetails(config){
+  const titleEl = document.getElementById('eshopGenericDetailsTitle');
+  const subEl = document.getElementById('eshopGenericDetailsSubtitle');
+  const kpisEl = document.getElementById('eshopGenericDetailsKpis');
+  const headEl = document.getElementById('eshopGenericDetailsHead');
+  const bodyEl = document.getElementById('eshopGenericDetailsBody');
+  if(titleEl) titleEl.innerHTML = config.icon ? `<i class="fe fe-${esc(config.icon)} me-1"></i> ${esc(config.title || 'KPI')}` : esc(config.title || 'KPI');
+  if(subEl) subEl.textContent = config.subtitle || 'Ανάλυση για το επιλεγμένο διάστημα';
+  if(kpisEl){
+    kpisEl.innerHTML = (config.kpis || []).slice(0, 3).map((kpi)=>`
+      <div class="eshop-details-kpi">
+        <span>${esc(kpi.label || '')}</span>
+        <strong>${esc(kpi.value || '—')}</strong>
+      </div>
+    `).join('');
+  }
+  if(headEl){
+    headEl.innerHTML = (config.headers || []).map((header)=>`<th class="${header.align === 'end' ? 'text-end' : ''}">${esc(header.label || '')}</th>`).join('');
+  }
+  if(bodyEl){
+    const cols = Math.max((config.headers || []).length, 1);
+    const rows = config.rows || [];
+    bodyEl.innerHTML = rows.length ? rows.join('') : `<tr><td colspan="${cols}" class="text-center text-muted py-3">${esc(config.empty || 'Δεν βρέθηκαν στοιχεία.')}</td></tr>`;
+  }
+}
+
+function showGenericDetails(triggerEl, config){
+  renderGenericDetails(config);
+  showDetailsModal('eshopGenericDetailsModal', triggerEl);
+}
+
+function showChargeDetails(kind, triggerEl){
+  const payload = latestPayload || {};
+  const summary = payload.summary || {};
+  const labels = {
+    shipping: ['Έξοδα Αποστολής', 'Αποστολή', 'truck', 'Ανάλυση επιβαρύνσεων αποστολής ανά μεταφορική'],
+    cod: ['Έξοδα Αντικαταβολής', 'Αντικαταβολή', 'credit-card', 'Ανάλυση επιβαρύνσεων αντικαταβολής ανά μεταφορική'],
+    other: ['Λοιπές Επιβαρύνσεις', 'Λοιπά', 'box', 'Δώρα, συσκευασία και λοιπές επιβαρύνσεις ανά μεταφορική'],
+  };
+  const [title, amountLabel, icon, subtitle] = labels[kind] || labels.shipping;
+  const rows = (payload.by_carrier || [])
+    .map((row)=>({ row, amount: chargeValue(row, kind) }))
+    .filter((entry)=>entry.amount !== 0)
+    .sort((a, b)=>Math.abs(b.amount) - Math.abs(a.amount));
+  const total = rows.reduce((acc, entry)=>acc + entry.amount, 0);
+  showGenericDetails(triggerEl, {
+    title,
+    subtitle,
+    icon,
+    kpis: [
+      { label: amountLabel, value: money(total) },
+      { label: 'Παραγγελίες', value: n0(rows.reduce((acc, entry)=>acc + Number(entry.row.orders || 0), 0)) },
+      { label: 'Έσοδα', value: money(rows.reduce((acc, entry)=>acc + Number(entry.row.gross_value || 0), 0)) },
+    ],
+    headers: [
+      { label: 'Μεταφορική' },
+      { label: 'Παραγγελίες', align: 'end' },
+      { label: 'Έσοδα', align: 'end' },
+      { label: amountLabel, align: 'end' },
+      { label: '% Εσόδων', align: 'end' },
+    ],
+    rows: rows.map(({ row, amount })=>`
+      <tr>
+        <td>${esc(txt(row.carrier_name))}</td>
+        <td class="text-end">${n0(row.orders)}</td>
+        <td class="text-end">${money(row.gross_value)}</td>
+        <td class="text-end">${money(amount)}</td>
+        <td class="text-end">${pct(Number(row.gross_value || 0) ? amount / Number(row.gross_value || 0) : 0)}</td>
+      </tr>
+    `),
+    empty: `Δεν βρέθηκαν ${amountLabel.toLowerCase()}.`,
+  });
+}
+
+function showAvgOrderDetails(triggerEl){
+  const payload = latestPayload || {};
+  const summary = payload.summary || {};
+  const prev = summary.previous_period || {};
+  const delta = summary.deltas?.avg_order_value_pct;
+  showGenericDetails(triggerEl, {
+    title: 'Μέση Παραγγελία',
+    subtitle: 'Μέση αξία και τεμάχια ανά e-shop παραγγελία',
+    icon: 'bar-chart',
+    kpis: [
+      { label: 'Τρέχουσα', value: money(summary.avg_order_value) },
+      { label: 'Προηγούμενη', value: money(prev.avg_order_value) },
+      { label: 'Μεταβολή', value: delta === null || delta === undefined ? '—' : pct(delta) },
+    ],
+    headers: [
+      { label: 'Μοντέλο' },
+      { label: 'Σημείο' },
+      { label: 'Παραγγελίες', align: 'end' },
+      { label: 'Έσοδα', align: 'end' },
+      { label: 'Μέση παραγγελία', align: 'end' },
+    ],
+    rows: (payload.by_flow || []).map((row)=>`
+      <tr>
+        <td>${esc(txt(row.flow_type))}</td>
+        <td>${esc(txt(row.flow_label))}</td>
+        <td class="text-end">${n0(row.orders)}</td>
+        <td class="text-end">${money(row.gross_value)}</td>
+        <td class="text-end">${money(Number(row.orders || 0) ? Number(row.gross_value || 0) / Number(row.orders || 0) : 0)}</td>
+      </tr>
+    `),
+    empty: 'Δεν βρέθηκαν στοιχεία μέσης παραγγελίας.',
+  });
+}
+
+function showShippingPctDetails(triggerEl){
+  const payload = latestPayload || {};
+  const summary = payload.summary || {};
+  const rows = (payload.by_carrier || []).filter((row)=>Number(row.gross_value || 0) || Number(row.shipping_cost || 0));
+  showGenericDetails(triggerEl, {
+    title: 'Κόστος courier / έσοδα',
+    subtitle: 'Πόσο βαραίνουν οι επιβαρύνσεις courier στο e-shop revenue',
+    icon: 'percent',
+    kpis: [
+      { label: 'Σύνολο επιβαρ.', value: money(summary.shipping_cost) },
+      { label: 'Έσοδα', value: money(summary.gross_value) },
+      { label: '% Εσόδων', value: pct(summary.shipping_cost_pct) },
+    ],
+    headers: [
+      { label: 'Μεταφορική' },
+      { label: 'Έσοδα', align: 'end' },
+      { label: 'Σύνολο επιβαρ.', align: 'end' },
+      { label: '% Εσόδων', align: 'end' },
+    ],
+    rows: rows.map((row)=>`
+      <tr>
+        <td>${esc(txt(row.carrier_name))}</td>
+        <td class="text-end">${money(row.gross_value)}</td>
+        <td class="text-end">${money(row.shipping_cost)}</td>
+        <td class="text-end">${pct(Number(row.gross_value || 0) ? Number(row.shipping_cost || 0) / Number(row.gross_value || 0) : 0)}</td>
+      </tr>
+    `),
+    empty: 'Δεν βρέθηκαν επιβαρύνσεις courier.',
+  });
+}
+
+function showNoCarrierDetails(triggerEl){
+  const payload = latestPayload || {};
+  const summary = payload.summary || {};
+  const rows = (payload.by_carrier || []).filter((row)=>txt(row.carrier_name) === 'Χωρίς μεταφορική');
+  const orders = Number(summary.orders || 0);
+  showGenericDetails(triggerEl, {
+    title: 'Παραγγελίες χωρίς μεταφορική',
+    subtitle: 'Έλεγχος mapping και πληρότητας αποστολών',
+    icon: 'alert-circle',
+    kpis: [
+      { label: 'Χωρίς μεταφορική', value: n0(summary.orders_without_carrier) },
+      { label: 'Σύνολο παραγγ.', value: n0(summary.orders) },
+      { label: 'Μερίδιο', value: pct(orders ? Number(summary.orders_without_carrier || 0) / orders : 0) },
+    ],
+    headers: [
+      { label: 'Ομάδα' },
+      { label: 'Παραγγελίες', align: 'end' },
+      { label: 'Έσοδα', align: 'end' },
+      { label: 'Σύνολο επιβαρ.', align: 'end' },
+    ],
+    rows: rows.map((row)=>`
+      <tr>
+        <td>${esc(txt(row.carrier_name))}</td>
+        <td class="text-end">${n0(row.orders)}</td>
+        <td class="text-end">${money(row.gross_value)}</td>
+        <td class="text-end">${money(row.shipping_cost)}</td>
+      </tr>
+    `),
+    empty: 'Δεν υπάρχουν παραγγελίες χωρίς μεταφορική.',
+  });
+}
+
+function setEshopDocText(id, value){
+  const el = document.getElementById(id);
+  if(el) el.textContent = txt(value);
+}
+
+function setEshopDocumentError(message){
+  const el = document.getElementById('eshopDocumentError');
+  if(!el) return;
+  if(!message){
+    el.classList.add('d-none');
+    el.textContent = '';
+    return;
+  }
+  el.classList.remove('d-none');
+  el.textContent = message;
+}
+
+function resetEshopDocumentModal(){
+  document.getElementById('eshopDocumentTitle').textContent = 'Παραστατικό';
+  document.getElementById('eshopDocumentSubtitle').textContent = '-';
+  [
+    'eshopDocBranch','eshopDocWarehouse','eshopDocSeries','eshopDocType','eshopDocNo','eshopDocEshopCode',
+    'eshopDocCustomer','eshopDocChannel','eshopDocDate','eshopDocPayment','eshopDocShipping','eshopDocExpenses',
+    'eshopDocTotalNet','eshopDocTotalExpenses','eshopDocTotalVat','eshopDocTotalGross'
+  ].forEach((id)=>setEshopDocText(id, '-'));
+  const body = document.getElementById('eshopDocLinesBody');
+  if(body) body.innerHTML = '<tr><td colspan="10" class="text-center text-muted py-3">Φόρτωση γραμμών...</td></tr>';
+  setEshopDocumentError(null);
+}
+
+function combineDocLabel(code, name){
+  const c = String(code ?? '').trim();
+  const n = String(name ?? '').trim();
+  if(c && n && c !== n) return `${c} ${n}`;
+  return c || n || '-';
+}
+
+function compactDocLabel(value){
+  const raw = String(value ?? '').trim();
+  if(!raw) return '-';
+  return raw.replace(/^(\d+)\s+(.+)$/u, '$1 $2');
+}
+
+function renderEshopDocumentLines(lines, note=''){
+  const body = document.getElementById('eshopDocLinesBody');
+  if(!body) return;
+  if(!(lines || []).length){
+    body.innerHTML = `<tr><td colspan="10" class="text-center text-muted py-3">${esc(txt(note, 'Δεν υπάρχουν γραμμές.'))}</td></tr>`;
+    return;
+  }
+  body.innerHTML = (lines || []).map((line, idx)=>`
+    <tr>
+      <td>${n0(Number(line.row_no || idx + 1))}</td>
+      <td>${esc(txt(line.item_code))}</td>
+      <td>${esc(txt(line.item_name))}</td>
+      <td class="text-end">${n2(line.qty)}</td>
+      <td class="text-end">${n2(line.qty_executed)}</td>
+      <td class="text-end">${money(line.unit_price)}</td>
+      <td class="text-end">${n2(line.discount_pct)}</td>
+      <td class="text-end">${money(line.discount_amount)}</td>
+      <td class="text-end">${money(line.vat_amount)}</td>
+      <td class="text-end">${money(line.line_total)}</td>
+    </tr>
+  `).join('');
+}
+
+function fillEshopDocumentModal(data){
+  const header = data?.header || {};
+  const totals = data?.totals || {};
+  const docNo = txt(data?.document_no || data?.document_id, 'Παραστατικό');
+  const expenseLabel = [
+    txt(header.shipping_expense_description, ''),
+    Number(header.shipping_expense_value || 0) !== 0 ? money(header.shipping_expense_value) : '',
+  ].filter(Boolean).join(' | ');
+
+  document.getElementById('eshopDocumentTitle').textContent = docNo;
+  document.getElementById('eshopDocumentSubtitle').textContent =
+    `Snapshot: ${dmy(data?.document_date)} | Γραμμές: ${n0(totals.line_count)}`;
+  setEshopDocText('eshopDocBranch', header.branch_name || header.branch_code);
+  setEshopDocText('eshopDocWarehouse', combineDocLabel(header.warehouse_code, header.warehouse_name));
+  setEshopDocText('eshopDocSeries', compactDocLabel(header.series));
+  setEshopDocText('eshopDocType', compactDocLabel(header.document_type));
+  setEshopDocText('eshopDocNo', data?.document_no || data?.document_id);
+  setEshopDocText('eshopDocEshopCode', header.eshop_code);
+  setEshopDocText('eshopDocCustomer', combineDocLabel(header.customer_code, header.customer_name));
+  setEshopDocText('eshopDocChannel', header.channel_name);
+  setEshopDocText('eshopDocDate', dmy(data?.document_date));
+  setEshopDocText('eshopDocPayment', header.payment_method);
+  setEshopDocText('eshopDocShipping', header.shipping_method);
+  setEshopDocText('eshopDocExpenses', expenseLabel || '-');
+  setEshopDocText('eshopDocTotalNet', money(totals.net_value));
+  setEshopDocText('eshopDocTotalExpenses', money(totals.expenses_value));
+  setEshopDocText('eshopDocTotalVat', money(totals.vat_value));
+  setEshopDocText('eshopDocTotalGross', money(totals.gross_value));
+  renderEshopDocumentLines(data?.lines || [], data?.lines_note || '');
+}
+
+async function openEshopDocument(documentId, triggerEl){
+  const docId = String(documentId || '').trim();
+  if(!docId) return;
+  document.querySelectorAll('#eshopRecentBody tr.is-active').forEach((row)=>row.classList.remove('is-active'));
+  Array.from(document.querySelectorAll('#eshopRecentBody tr[data-doc-id]'))
+    .find((row)=>row.dataset.docId === docId)
+    ?.classList.add('is-active');
+  resetEshopDocumentModal();
+  showDetailsModal('eshopDocumentModal', triggerEl);
+  const token = ++eshopDocumentOpenToken;
+  try {
+    const p = params(false);
+    const res = await fetch(`/v1/kpi/sales/documents/${encodeURIComponent(docId)}/detail?${p.toString()}`);
+    if(token !== eshopDocumentOpenToken) return;
+    if(!res.ok){
+      const err = await res.json().catch(()=>({ detail: 'Αποτυχία φόρτωσης παραστατικού.' }));
+      throw new Error(err?.detail || 'Αποτυχία φόρτωσης παραστατικού.');
+    }
+    const data = await res.json();
+    if(token !== eshopDocumentOpenToken) return;
+    fillEshopDocumentModal(data);
+  } catch(err){
+    if(token !== eshopDocumentOpenToken) return;
+    setEshopDocumentError(err?.message || 'Αποτυχία φόρτωσης παραστατικού.');
+  }
+}
+
+function bindRecentDocumentOpeners(){
+  document.querySelectorAll('#eshopRecentBody .eshop-doc-open').forEach((btn)=>{
+    btn.addEventListener('click', (event)=>{
+      event.preventDefault();
+      event.stopPropagation();
+      openEshopDocument(btn.dataset.docId, btn);
+    });
+  });
+  document.querySelectorAll('#eshopRecentBody tr[data-doc-id]').forEach((row)=>{
+    if(!row.dataset.docId) return;
+    row.tabIndex = 0;
+    row.setAttribute('role', 'button');
+    row.addEventListener('click', ()=>{
+      document.querySelectorAll('#eshopRecentBody tr.is-active').forEach((active)=>active.classList.remove('is-active'));
+      row.classList.add('is-active');
+    });
+    row.addEventListener('dblclick', ()=>openEshopDocument(row.dataset.docId, row));
+    row.addEventListener('keydown', (event)=>{
+      if(event.key === 'Enter' || event.key === ' '){
+        event.preventDefault();
+        openEshopDocument(row.dataset.docId, row);
+      }
+    });
+  });
+}
+
+function renderRecentPagination(meta){
+  const prev = document.getElementById('eshopPrevPage');
+  const next = document.getElementById('eshopNextPage');
+  const page = document.getElementById('eshopRecentPage');
+  const info = document.getElementById('eshopRecentMeta');
+  const current = Number(meta?.page || 1);
+  const totalPages = Number(meta?.total_pages || 1);
+  const total = Number(meta?.total || 0);
+  const pageSize = Number(meta?.page_size || state.pageSize || 25);
+  const fromRow = total ? ((current - 1) * pageSize) + 1 : 0;
+  const toRow = total ? Math.min(current * pageSize, total) : 0;
+  if(page) page.textContent = `Σελίδα ${n0(current)} / ${n0(totalPages)}`;
+  if(info) info.textContent = total ? `Εμφάνιση ${n0(fromRow)}-${n0(toRow)} από ${n0(total)} παραγγελίες` : 'Δεν υπάρχουν παραγγελίες.';
+  if(prev) prev.disabled = !(meta?.has_prev);
+  if(next) next.disabled = !(meta?.has_next);
+}
+
+async function loadFilters(){
+  const p = params(false);
+  const res = await fetch(`/v1/kpi/sales/filter-options?${p.toString()}`);
+  if(!res.ok) throw new Error('Αποτυχία φόρτωσης φίλτρων.');
+  const payload = await res.json();
+  fillBranchOptions(payload?.branches || []);
+  bindMulti('eshopBranches');
+}
+
+async function loadDashboard(){
+  setErr(null);
+  const p = params();
+  const res = await fetch(`/v1/kpi/eshop/analysis?${p.toString()}`);
+  if(!res.ok) throw new Error('Αποτυχία φόρτωσης E-Shop analysis.');
+  const payload = await res.json();
+  latestPayload = payload;
+  renderSummary(payload?.summary || {});
+  renderEshopInsights(payload?.insights || []);
+  renderOrdersDetails(payload);
+  renderShipmentsDetails(payload);
+  renderRevenueDetails(payload);
+  renderCityDetails(payload);
+  renderBranchesDetails(payload);
+  renderRows(
+    'eshopRecentBody',
+    (payload?.recent_orders || []).map((row)=>{
+      const docId = String(row.document_id || '').trim();
+      const docNo = txt(row.document_no);
+      const docCell = docId
+        ? `<button type="button" class="eshop-doc-open" data-doc-id="${esc(docId)}" title="Άνοιγμα παραστατικού ${esc(docNo)}"><i class="fe fe-external-link"></i><span>${esc(docNo)}</span></button>`
+        : esc(docNo);
+      return `
+      <tr class="${docId ? 'eshop-document-row' : ''}" data-doc-id="${esc(docId)}">
+        <td title="${esc(dmy(row.document_date))}">${esc(dmy(row.document_date))}</td>
+        <td title="${esc(docNo)}">${docCell}</td>
+        <td title="${esc(txt(row.eshop_code,''))}">${esc(txt(row.eshop_code,''))}</td>
+        <td title="${esc(txt(row.customer_name))}">${esc(txt(row.customer_name))}</td>
+        <td title="${esc(txt(row.branch_name))}">${esc(txt(row.branch_name))}</td>
+        <td title="${esc(txt(row.flow_type))}">${esc(txt(row.flow_type))}</td>
+        <td title="${esc(txt(row.carrier_name))}">${esc(txt(row.carrier_name))}</td>
+        <td title="${esc(cityTxt(row.delivery_city))}">${esc(cityTxt(row.delivery_city))}</td>
+        <td title="${esc(txt(row.payment_method))}">${esc(txt(row.payment_method))}</td>
+        <td class="text-end">${money(row.gross_value)}</td>
+        <td class="text-end">${money(row.shipping_charge_value)}</td>
+        <td class="text-end">${money(row.cod_charge_value)}</td>
+        <td class="text-end">${money(row.gift_charge_value)}</td>
+        <td class="text-end">${money(row.other_charge_value)}</td>
+        <td class="text-end">${money(row.shipping_expense_value)}</td>
+      </tr>
+    `;}),
+    15,
+    'Δεν βρέθηκαν e-shop παραγγελίες.'
+  );
+  bindRecentDocumentOpeners();
+  renderRecentPagination(payload?.recent_orders_pagination || {});
+}
+
+document.getElementById('eshopFilters')?.addEventListener('submit', async (e)=>{
+  e.preventDefault();
+  state.page = 1;
+  try { await loadDashboard(); } catch(err){ setErr(err.message || 'Σφάλμα φόρτωσης.'); }
+});
+
+document.getElementById('eshopPrevPage')?.addEventListener('click', async ()=>{
+  if(state.page <= 1) return;
+  state.page -= 1;
+  try { await loadDashboard(); } catch(err){ setErr(err.message || 'Σφάλμα φόρτωσης.'); }
+});
+
+document.getElementById('eshopNextPage')?.addEventListener('click', async ()=>{
+  state.page += 1;
+  try { await loadDashboard(); } catch(err){ setErr(err.message || 'Σφάλμα φόρτωσης.'); }
+});
+
+function bindDetailsIcon(id, handler){
+  const el = document.getElementById(id);
+  if(!el) return;
+  el.addEventListener('click', (event)=>{
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation();
+    handler(el);
+  }, true);
+}
+
+bindDetailsIcon('eshopOrdersDetailsBtn', showOrdersDetails);
+bindDetailsIcon('eshopShipmentsDetailsBtn', showShipmentsDetails);
+bindDetailsIcon('eshopRevenueDetailsBtn', showRevenueDetails);
+bindDetailsIcon('eshopBranchesDetailsBtn', showBranchesDetails);
+bindDetailsIcon('eshopCityDetailsBtn', showCityDetails);
+bindDetailsIcon('eshopShippingChargeDetailsBtn', (el)=>showChargeDetails('shipping', el));
+bindDetailsIcon('eshopCodChargeDetailsBtn', (el)=>showChargeDetails('cod', el));
+bindDetailsIcon('eshopOtherChargeDetailsBtn', (el)=>showChargeDetails('other', el));
+bindDetailsIcon('eshopAvgOrderDetailsBtn', showAvgOrderDetails);
+bindDetailsIcon('eshopTopCarrierDetailsBtn', showShipmentsDetails);
+bindDetailsIcon('eshopShippingPctDetailsBtn', showShippingPctDetails);
+bindDetailsIcon('eshopNoCarrierDetailsBtn', showNoCarrierDetails);
+bindDetailsIcon('eshopTopPaymentDetailsBtn', showRevenueDetails);
+bindDetailsIcon('eshopTopFlowDetailsBtn', showOrdersDetails);
+
+(async function init(){
+  try{
+    await loadFilters();
+    await loadDashboard();
+  }catch(err){
+    setErr(err.message || 'Σφάλμα φόρτωσης E-Shop analysis.');
+  }
+})();
+})();
+</script>
+{% endblock %}

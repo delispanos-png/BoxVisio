@@ -66,6 +66,9 @@ from app.services.kpi_queries import (
     sales_decision_pack,
     sales_document_detail,
     sales_documents_overview,
+    e_shop_analysis_summary,
+    normalize_document_series_labels_config,
+    normalize_eshop_fulfillment_config,
     sales_by_branch,
     sales_by_brand,
     sales_by_category,
@@ -152,6 +155,28 @@ def _tenant_inventory_item_classification_from_request(request: Request) -> dict
         if isinstance(cfg, dict):
             raw = cfg
     return normalize_inventory_item_classification_config(raw)
+
+
+def _tenant_eshop_fulfillment_from_request(request: Request) -> dict[str, object]:
+    tenant = getattr(request.state, 'tenant', None)
+    flags = getattr(tenant, 'feature_flags', None)
+    raw = {}
+    if isinstance(flags, dict):
+        cfg = flags.get('eshop_fulfillment')
+        if isinstance(cfg, dict):
+            raw = cfg
+    return normalize_eshop_fulfillment_config(raw)
+
+
+def _tenant_document_series_labels_from_request(request: Request) -> dict[str, str]:
+    tenant = getattr(request.state, 'tenant', None)
+    flags = getattr(tenant, 'feature_flags', None)
+    raw = {}
+    if isinstance(flags, dict):
+        cfg = flags.get('document_series_labels')
+        if isinstance(cfg, dict):
+            raw = cfg
+    return normalize_document_series_labels_config(raw)
 
 
 _PROFILE_INSIGHT_PRIORITY: dict[str, list[str]] = {
@@ -1058,6 +1083,7 @@ async def get_sales_ytd_monthly(
 
 @router.get('/v1/kpi/sales/documents')
 async def get_sales_documents(
+    request: Request,
     date_from: date = Query(default_factory=_default_from, alias='from'),
     date_to: date = Query(default_factory=_default_to, alias='to'),
     branches: list[str] | None = Query(default=None),
@@ -1076,6 +1102,7 @@ async def get_sales_documents(
     gross_min: float | None = Query(default=None),
     gross_max: float | None = Query(default=None),
     q: str | None = Query(default=None),
+    behaviors: list[int] | None = Query(default=None),
     limit: int = Query(default=200, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
     tenant_db: AsyncSession = Depends(get_tenant_db),
@@ -1100,13 +1127,17 @@ async def get_sales_documents(
         gross_min=gross_min,
         gross_max=gross_max,
         q=q,
+        behaviors=behaviors,
         limit=limit,
         offset=offset,
+        fulfillment_config=_tenant_eshop_fulfillment_from_request(request),
+        document_series_labels=_tenant_document_series_labels_from_request(request),
     )
 
 
 @router.get('/v1/kpi/sales/documents/{document_id}/detail')
 async def get_sales_document_detail(
+    request: Request,
     document_id: str,
     date_from: date | None = Query(default=None, alias='from'),
     date_to: date | None = Query(default=None, alias='to'),
@@ -1115,6 +1146,7 @@ async def get_sales_document_detail(
     brands: list[str] | None = Query(default=None),
     categories: list[str] | None = Query(default=None),
     groups: list[str] | None = Query(default=None),
+    behaviors: list[int] | None = Query(default=None),
     tenant_db: AsyncSession = Depends(get_tenant_db),
 ):
     try:
@@ -1128,13 +1160,40 @@ async def get_sales_document_detail(
             brands=brands,
             categories=categories,
             groups=groups,
+            behaviors=behaviors,
+            fulfillment_config=_tenant_eshop_fulfillment_from_request(request),
+            document_series_labels=_tenant_document_series_labels_from_request(request),
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+@router.get('/v1/kpi/eshop/analysis')
+async def get_eshop_analysis(
+    request: Request,
+    date_from: date = Query(default_factory=_default_from, alias='from'),
+    date_to: date = Query(default_factory=_default_to, alias='to'),
+    branches: list[str] | None = Query(default=None),
+    warehouses: list[str] | None = Query(default=None),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=25, ge=5, le=200),
+    tenant_db: AsyncSession = Depends(get_tenant_db),
+):
+    return await e_shop_analysis_summary(
+        tenant_db,
+        date_from=date_from,
+        date_to=date_to,
+        branches=branches,
+        warehouses=warehouses,
+        page=page,
+        page_size=page_size,
+        fulfillment_config=_tenant_eshop_fulfillment_from_request(request),
+    )
+
+
 @router.get('/v1/kpi/purchases/documents')
 async def get_purchases_documents(
+    request: Request,
     date_from: date = Query(default_factory=_default_from, alias='from'),
     date_to: date = Query(default_factory=_default_to, alias='to'),
     branches: list[str] | None = Query(default=None),
@@ -1142,6 +1201,7 @@ async def get_purchases_documents(
     brands: list[str] | None = Query(default=None),
     categories: list[str] | None = Query(default=None),
     groups: list[str] | None = Query(default=None),
+    series: str | None = Query(default=None),
     q: str | None = Query(default=None),
     limit: int = Query(default=200, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
@@ -1156,14 +1216,17 @@ async def get_purchases_documents(
         brands=brands,
         categories=categories,
         groups=groups,
+        series=series,
         q=q,
         limit=limit,
         offset=offset,
+        document_series_labels=_tenant_document_series_labels_from_request(request),
     )
 
 
 @router.get('/v1/kpi/purchases/documents/{document_id}/detail')
 async def get_purchase_document_detail(
+    request: Request,
     document_id: str,
     date_from: date | None = Query(default=None, alias='from'),
     date_to: date | None = Query(default=None, alias='to'),
@@ -1185,6 +1248,7 @@ async def get_purchase_document_detail(
             brands=brands,
             categories=categories,
             groups=groups,
+            document_series_labels=_tenant_document_series_labels_from_request(request),
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -1196,6 +1260,7 @@ async def get_expenses_documents(
     date_to: date = Query(default_factory=_default_to, alias='to'),
     branches: list[str] | None = Query(default=None),
     categories: list[str] | None = Query(default=None),
+    series: str | None = Query(default=None),
     q: str | None = Query(default=None),
     limit: int = Query(default=200, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
@@ -1207,6 +1272,7 @@ async def get_expenses_documents(
         date_to=date_to,
         branches=branches,
         categories=categories,
+        series=series,
         q=q,
         limit=limit,
         offset=offset,
@@ -1790,6 +1856,7 @@ async def get_expenses_filter_options(
 
 @router.get('/v1/kpi/inventory/documents')
 async def get_inventory_documents(
+    request: Request,
     date_from: date = Query(default_factory=_default_from, alias='from'),
     date_to: date = Query(default_factory=_default_to, alias='to'),
     branches: list[str] | None = Query(default=None),
@@ -1797,6 +1864,7 @@ async def get_inventory_documents(
     brands: list[str] | None = Query(default=None),
     categories: list[str] | None = Query(default=None),
     groups: list[str] | None = Query(default=None),
+    series: str | None = Query(default=None),
     q: str | None = Query(default=None),
     limit: int = Query(default=200, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
@@ -1811,14 +1879,17 @@ async def get_inventory_documents(
         brands=brands,
         categories=categories,
         groups=groups,
+        series=series,
         q=q,
         limit=limit,
         offset=offset,
+        document_series_labels=_tenant_document_series_labels_from_request(request),
     )
 
 
 @router.get('/v1/kpi/inventory/documents/{document_id}/detail')
 async def get_inventory_document_detail(
+    request: Request,
     document_id: str,
     date_from: date | None = Query(default=None, alias='from'),
     date_to: date | None = Query(default=None, alias='to'),
@@ -1840,6 +1911,7 @@ async def get_inventory_document_detail(
             brands=brands,
             categories=categories,
             groups=groups,
+            document_series_labels=_tenant_document_series_labels_from_request(request),
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -2275,6 +2347,7 @@ async def get_cashflow_documents(
     date_to: date = Query(default_factory=_default_to, alias='to'),
     category: str | None = Query(default=None),
     branches: list[str] | None = Query(default=None),
+    series: str | None = Query(default=None),
     q: str | None = Query(default=None),
     limit: int = Query(default=200, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
@@ -2286,6 +2359,7 @@ async def get_cashflow_documents(
         date_to=date_to,
         category=category,
         branches=branches,
+        series=series,
         q=q,
         limit=limit,
         offset=offset,

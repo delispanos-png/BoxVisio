@@ -1321,6 +1321,31 @@ def enqueue_incremental_sync_all_tenants(
     return _run_coro(_enqueue_incremental_sync_all_tenants(limit=limit, max_tenants=max_tenants))
 
 
+def _tenant_auto_sync_settings(tenant: Tenant) -> dict:
+    flags = tenant.feature_flags if isinstance(getattr(tenant, 'feature_flags', None), dict) else {}
+    cfg = flags.get('auto_sync') if isinstance(flags.get('auto_sync'), dict) else {}
+    enabled_raw = cfg.get('enabled', True)
+    if isinstance(enabled_raw, str):
+        enabled = enabled_raw.strip().lower() not in {'0', 'false', 'no', 'off', 'disabled'}
+    else:
+        enabled = bool(enabled_raw)
+    try:
+        interval_minutes = int(cfg.get('interval_minutes') or 0)
+    except Exception:
+        interval_minutes = 0
+    return {
+        'enabled': enabled,
+        'interval_minutes': max(0, interval_minutes),
+    }
+
+
+def _param_bool_enabled(params: dict, key: str, default: bool = True) -> bool:
+    raw = params.get(key, default)
+    if isinstance(raw, str):
+        return raw.strip().lower() not in {'0', 'false', 'no', 'off', 'disabled'}
+    return bool(raw)
+
+
 async def _enqueue_incremental_sync_all_tenants(
     limit: int | None = None,
     max_tenants: int | None = None,
@@ -1350,6 +1375,12 @@ async def _enqueue_incremental_sync_all_tenants(
             if tenants_checked >= cap:
                 break
             tenants_checked += 1
+
+            tenant_auto_sync = _tenant_auto_sync_settings(tenant)
+            if not bool(tenant_auto_sync.get('enabled', True)):
+                skipped += 1
+                continue
+
             # Queue only for tenants with at least one active connector.
             active_conn = (
                 await control_db.execute(
@@ -1365,7 +1396,14 @@ async def _enqueue_incremental_sync_all_tenants(
 
             # Per-tenant sync interval: read from connection_parameters, fall back to global.
             params = active_conn.connection_parameters if isinstance(active_conn.connection_parameters, dict) else {}
-            tenant_interval_minutes = int(params.get('sync_interval_minutes') or global_interval_minutes)
+            if not _param_bool_enabled(params, 'auto_sync_enabled', True):
+                skipped += 1
+                continue
+            tenant_interval_minutes = int(
+                tenant_auto_sync.get('interval_minutes')
+                or params.get('sync_interval_minutes')
+                or global_interval_minutes
+            )
             tenant_interval_minutes = max(1, tenant_interval_minutes)
 
             # Skip if last sync completed more recently than the tenant's interval.
@@ -1565,7 +1603,12 @@ def enqueue_sql_backfill(
     )
 
 
-async def _truncate_tenant_operational_tables(tenant: Tenant, *, include_notifications: bool = True) -> list[str]:
+async def _truncate_tenant_operational_tables(
+    tenant: Tenant,
+    *,
+    include_notifications: bool = True,
+    progress_tenant_slug: str | None = None,
+) -> list[str]:
     factory = get_tenant_session_factory(
         tenant_key=str(tenant.id),
         db_name=tenant.db_name,
@@ -1602,7 +1645,16 @@ async def _truncate_tenant_operational_tables(tenant: Tenant, *, include_notific
         tables = [str(name) for name in rows]
         if not include_notifications:
             tables = [name for name in tables if name not in {'insights', 'insight_runs'}]
-        for table in tables:
+        total_steps = max(1, len(tables))
+        if progress_tenant_slug:
+            update_ingest_progress(
+                progress_tenant_slug,
+                status='running',
+                total_jobs=total_steps,
+                processed_jobs=0,
+                current_queue_depth=1,
+            )
+        for idx, table in enumerate(tables, start=1):
             last_exc: Exception | None = None
             for attempt in range(5):
                 try:
@@ -1624,6 +1676,14 @@ async def _truncate_tenant_operational_tables(tenant: Tenant, *, include_notific
                     await tenant_db.execute(text("SET lock_timeout = '10s'"))
             if last_exc is not None:
                 raise last_exc
+            if progress_tenant_slug:
+                update_ingest_progress(
+                    progress_tenant_slug,
+                    status='running',
+                    total_jobs=total_steps,
+                    processed_jobs=idx,
+                    current_queue_depth=1 if idx < total_steps else 0,
+                )
         await tenant_db.commit()
         return tables
 
@@ -1675,6 +1735,7 @@ async def _delete_tenant_operational_tables_by_date_range(
     from_date: date,
     to_date: date,
     include_notifications: bool = True,
+    progress_tenant_slug: str | None = None,
 ) -> dict[str, object]:
     if from_date > to_date:
         raise ValueError('from_date must be <= to_date')
@@ -1745,6 +1806,16 @@ async def _delete_tenant_operational_tables_by_date_range(
         deleted_rows_total = 0
         deleted_table_count = 0
         deleted_by_table: dict[str, int] = {}
+        total_steps = max(1, len(rows) + (2 if include_notifications else 0))
+        completed_steps = 0
+        if progress_tenant_slug:
+            update_ingest_progress(
+                progress_tenant_slug,
+                status='running',
+                total_jobs=total_steps,
+                processed_jobs=completed_steps,
+                current_queue_depth=1,
+            )
 
         for table_name, column_name in rows:
             table = str(table_name or '').strip()
@@ -1766,6 +1837,15 @@ async def _delete_tenant_operational_tables_by_date_range(
             if rowcount > 0:
                 deleted_rows_total += rowcount
                 deleted_table_count += 1
+            completed_steps += 1
+            if progress_tenant_slug:
+                update_ingest_progress(
+                    progress_tenant_slug,
+                    status='running',
+                    total_jobs=total_steps,
+                    processed_jobs=completed_steps,
+                    current_queue_depth=1,
+                )
 
         notifications_deleted: dict[str, int] = {}
         if include_notifications:
@@ -1778,6 +1858,15 @@ async def _delete_tenant_operational_tables_by_date_range(
             if insight_rows > 0:
                 deleted_rows_total += insight_rows
                 deleted_table_count += 1
+            completed_steps += 1
+            if progress_tenant_slug:
+                update_ingest_progress(
+                    progress_tenant_slug,
+                    status='running',
+                    total_jobs=total_steps,
+                    processed_jobs=completed_steps,
+                    current_queue_depth=1,
+                )
 
             run_result = await tenant_db.execute(
                 text('DELETE FROM insight_runs WHERE started_at::date BETWEEN :from_date AND :to_date'),
@@ -1788,6 +1877,15 @@ async def _delete_tenant_operational_tables_by_date_range(
             if run_rows > 0:
                 deleted_rows_total += run_rows
                 deleted_table_count += 1
+            completed_steps += 1
+            if progress_tenant_slug:
+                update_ingest_progress(
+                    progress_tenant_slug,
+                    status='running',
+                    total_jobs=total_steps,
+                    processed_jobs=completed_steps,
+                    current_queue_depth=0,
+                )
 
         await tenant_db.commit()
         return {
@@ -1989,10 +2087,12 @@ async def _delete_tenant_data_only(
                 'reason': 'lock_contended',
                 'retry_count': retry_count,
             }
+        redis.delete(tenant_delete_active_key(tenant_slug), retry_key)
         update_ingest_progress(tenant_slug, status='failed', error='delete_lock_contended')
         return {'status': 'skipped', 'tenant': tenant_slug, 'reason': 'lock_contended', 'retry_count': retry_count}
 
     try:
+        update_ingest_progress(tenant_slug, status='running', total_jobs=1, processed_jobs=0, current_queue_depth=1)
         Redis.from_url(settings.redis_url, decode_responses=True).delete(f'delete:retry:{tenant_slug}')
         tenant = None
         tenant_id: int | None = None
@@ -2017,12 +2117,14 @@ async def _delete_tenant_data_only(
                 from_date=from_date,
                 to_date=to_date,
                 include_notifications=bool(include_notifications),
+                progress_tenant_slug=tenant_slug,
             )
         else:
             await _terminate_tenant_db_backends(tenant)
             truncated_tables = await _truncate_tenant_operational_tables(
                 tenant,
                 include_notifications=bool(include_notifications),
+                progress_tenant_slug=tenant_slug,
             )
             async with ControlSessionLocal() as control_db:
                 sync_conns = (
@@ -2185,7 +2287,15 @@ async def _drain_tenant_ingest_queue(tenant_slug: str, max_jobs: int) -> dict:
 
             # Heartbeat progress as soon as a job is picked, so UI reflects active work
             # even when an external request takes long before completion.
-            update_ingest_progress(tenant_slug, status='running', job_started=True)
+            update_ingest_progress(
+                tenant_slug,
+                status='running',
+                job_started=True,
+                current_stream=stream,
+                current_entity=entity,
+                current_from_date=str(job_payload.get('from_date') or ''),
+                current_to_date=str(job_payload.get('to_date') or ''),
+            )
 
             try:
                 started = time.perf_counter()

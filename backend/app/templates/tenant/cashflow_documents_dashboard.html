@@ -37,11 +37,24 @@
       inputmode="numeric"
     >
   </div>
+  <div class="col-12 col-md-4 col-xl-2">
+    <label class="form-label mb-1">Σειρά</label>
+    <input
+      class="form-control"
+      type="text"
+      name="series"
+      id="cashflowDocsSeries"
+      placeholder="π.χ. Είσπραξη"
+    >
+  </div>
   <div class="col-12 col-md-4 col-xl-2 d-grid align-content-end">
     <button class="btn btn-primary" type="submit"><i class="fe fe-filter"></i> {{ tt(request, 'apply') }}</button>
   </div>
   <div class="col-12 col-md-4 col-xl-2 d-grid align-content-end">
     <button class="btn btn-outline-secondary" type="button" id="cashflowDocsReset"><i class="fe fe-rotate-ccw"></i> Καθαρισμός</button>
+  </div>
+  <div class="col-12">
+    <small id="cashflowBehaviorHint" class="text-muted"></small>
   </div>
 </form>
 {% endblock %}
@@ -382,6 +395,7 @@ function getCashflowUiLabels(){
       showExpenses: true,
       showCash: true,
       searchPlaceholder: 'Αναζήτηση παραστατικού / πελάτη',
+      behaviorHint: 'Κανόνας πρόσημου: Συμπεριφορά 101 θετικό, 102 αρνητικό. Αν έχει καταχωρηθεί αρνητική αξία σε 101, διατηρείται ως αρνητική.',
     };
   }
   if(cashflowCategory === 'customer_transfers'){
@@ -395,6 +409,7 @@ function getCashflowUiLabels(){
       showExpenses: false,
       showCash: false,
       searchPlaceholder: 'Αναζήτηση παραστατικού / λογαριασμού',
+      behaviorHint: 'Κανόνας πρόσημου: Κατάθεση εμβάσματος 101 θετικό, Επιστροφή εμβάσματος 102 αρνητικό. Περιλαμβάνονται και λοιπά εμβάσματα χρεωστών.',
     };
   }
   if(cashflowCategory === 'supplier_payments'){
@@ -408,6 +423,7 @@ function getCashflowUiLabels(){
       showExpenses: true,
       showCash: true,
       searchPlaceholder: 'Αναζήτηση παραστατικού / προμηθευτή',
+      behaviorHint: 'Κανόνας πρόσημου: Πληρωμή 101 θετικό, Επιστροφή 102 αρνητικό. Περιλαμβάνονται και λοιπές πληρωμές πιστωτών.',
     };
   }
   if(cashflowCategory === 'supplier_transfers'){
@@ -421,6 +437,7 @@ function getCashflowUiLabels(){
       showExpenses: false,
       showCash: false,
       searchPlaceholder: 'Αναζήτηση παραστατικού / λογαριασμού',
+      behaviorHint: 'Κανόνας πρόσημου: Κατάθεση εμβάσματος 101 θετικό, Επιστροφή εμβάσματος 102 αρνητικό. Περιλαμβάνονται και λοιπά εμβάσματα πιστωτών.',
     };
   }
   if(cashflowCategory === 'financial_accounts'){
@@ -446,6 +463,7 @@ function getCashflowUiLabels(){
     showExpenses: true,
     showCash: true,
     searchPlaceholder: 'Αναζήτηση παραστατικού / λογαριασμού',
+    behaviorHint: '',
   };
 }
 function applyCashflowUiLabels(){
@@ -464,6 +482,8 @@ function applyCashflowUiLabels(){
   if(lineTypeLabel) lineTypeLabel.textContent = labels.lineTypeLabel;
   const searchInput = document.getElementById('cashflowDocsSearch');
   if(searchInput) searchInput.placeholder = labels.searchPlaceholder;
+  const behaviorHintEl = document.getElementById('cashflowBehaviorHint');
+  if(behaviorHintEl) behaviorHintEl.textContent = labels.behaviorHint || '';
   const expensesCol = document.getElementById('cashDocTExpensesCol');
   if(expensesCol) expensesCol.classList.toggle('d-none', !labels.showExpenses);
   const cashCol = document.getElementById('cashDocTCashCol');
@@ -578,6 +598,8 @@ function params(){
   const p = new URLSearchParams();
   p.set('from', toIsoDate(fd.get('from')));
   p.set('to', toIsoDate(fd.get('to')));
+  const series = String(fd.get('series') || '').trim();
+  if(series) p.set('series', series);
   if(cashflowCategory) p.set('category', cashflowCategory);
   return p;
 }
@@ -662,7 +684,18 @@ function renderCashflowDocumentsSummary(summary, meta={}){
   if(!el) return;
   const docs = toNum(summary?.documents);
   cashflowDocsTotal = Math.max(0, Math.round(docs));
-  el.textContent = `Παραστατικά: ${fmt0.format(Math.round(docs))} | Συν.Αξία: ${money(summary?.value_total)} | Γραμμές: ${fmt0.format(Math.round(toNum(summary?.line_count)))}`;
+  const net = toNum(summary?.net_value ?? summary?.value_total);
+  const vat = toNum(summary?.vat_value);
+  const gross = toNum(summary?.gross_value ?? summary?.value_total);
+  const expenses = Number.isFinite(Number(summary?.expenses_value))
+    ? toNum(summary?.expenses_value)
+    : (gross - net - vat);
+  const lines = fmt0.format(Math.round(toNum(summary?.line_count)));
+  if(cashflowCategory){
+    el.textContent = `Παραστατικά: ${fmt0.format(Math.round(docs))} | Γραμμές: ${lines} | Σύνολο αξίας: ${money(gross)}`;
+  } else {
+    el.textContent = `Παραστατικά: ${fmt0.format(Math.round(docs))} | Σύνολο καθαρής αξίας: ${money(net)} | Σύνολο εξόδων: ${money(expenses)} | Σύνολο ΦΠΑ: ${money(vat)} | Γενικό Σύνολο: ${money(gross)} | Γραμμές: ${lines}`;
+  }
 
   const limit = Math.max(1, Number(meta.limit || document.getElementById('cashflowDocsPageSize')?.value || 250));
   const offset = Math.max(0, Number(meta.offset || 0));
@@ -762,7 +795,7 @@ async function reloadCashflowDocuments(e){
       body.innerHTML = '<tr><td colspan="6" class="text-center text-danger py-3">Αποτυχία φόρτωσης παραστατικών.</td></tr>';
     }
     renderCashflowDocumentsSummary(
-      { documents: 0, value_total: 0, line_count: 0 },
+      { documents: 0, value_total: 0, net_value: 0, expenses_value: 0, vat_value: 0, gross_value: 0, line_count: 0 },
       { limit: document.getElementById('cashflowDocsPageSize')?.value || 250, offset: 0, rowsCount: 0 }
     );
   }

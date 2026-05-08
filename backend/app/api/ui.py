@@ -95,6 +95,8 @@ from app.services.ingestion.sync_planner import plan_tenant_sync_jobs
 from app.services.kpi_cache import invalidate_tenant_cache
 from app.services.querypacks import apply_querypack_to_connection, load_querypack
 from app.services.subscriptions import get_or_create_subscription, sync_tenant_from_subscription
+from app.services.subscription_features import SUBSCRIPTION_FEATURES, normalize_subscription_feature_flags
+from app.services.kpi_queries import normalize_document_series_labels_config, normalize_eshop_fulfillment_config
 
 router = APIRouter(tags=['ui'])
 templates = Jinja2Templates(
@@ -197,6 +199,15 @@ def _login_redirect_for(user: User, host: str | None = None, profile_code: str |
     return _dashboard_redirect_for_profile_code(profile_code, user.role)
 
 
+def _tenant_slug_from_host(host: str | None) -> str | None:
+    host_only = str(host or '').split(':')[0].lower()
+    root = str(settings.tenant_domain_root or '').strip('.').lower()
+    if root and host_only.endswith(f'.{root}'):
+        slug = host_only[: -(len(root) + 1)]
+        return slug or None
+    return None
+
+
 def _cookie_domain_for_host(host: str) -> str | None:
     if host in {settings.admin_portal_host.lower(), settings.tenant_portal_host.lower()}:
         return host
@@ -242,6 +253,11 @@ _DEFAULT_INVENTORY_ITEM_CLASSIFICATION_SETTINGS = {
     'slow_sales_qty_30d_max': 5,
 }
 
+_DEFAULT_AUTO_SYNC_SETTINGS = {
+    'enabled': True,
+    'interval_minutes': max(1, int(getattr(settings, 'incremental_sync_interval_minutes', 5) or 5)),
+}
+
 
 def _parse_int_in_range(raw: object, *, default: int, min_value: int, max_value: int) -> int:
     try:
@@ -249,6 +265,14 @@ def _parse_int_in_range(raw: object, *, default: int, min_value: int, max_value:
     except Exception:
         parsed = int(default)
     return max(min_value, min(max_value, parsed))
+
+
+def _parse_bool_enabled(raw: object, default: bool = True) -> bool:
+    if raw is None:
+        return bool(default)
+    if isinstance(raw, str):
+        return raw.strip().lower() not in {'0', 'false', 'no', 'off', 'disabled'}
+    return bool(raw)
 
 
 def _tenant_inventory_item_classification_settings(tenant: Tenant | None) -> dict[str, object]:
@@ -286,6 +310,46 @@ def _tenant_inventory_item_classification_settings(tenant: Tenant | None) -> dic
         'fast_sales_qty_30d_min': fast_min,
         'slow_sales_qty_30d_max': slow_max,
     }
+
+
+def _tenant_auto_sync_settings(tenant: Tenant | None) -> dict[str, object]:
+    flags = tenant.feature_flags if tenant is not None else None
+    source = {}
+    if isinstance(flags, dict):
+        cfg = flags.get('auto_sync')
+        if isinstance(cfg, dict):
+            source = cfg
+    enabled = _parse_bool_enabled(source.get('enabled'), bool(_DEFAULT_AUTO_SYNC_SETTINGS['enabled']))
+    interval = _parse_int_in_range(
+        source.get('interval_minutes'),
+        default=int(_DEFAULT_AUTO_SYNC_SETTINGS['interval_minutes']),
+        min_value=1,
+        max_value=1440,
+    )
+    return {
+        'enabled': enabled,
+        'interval_minutes': interval,
+    }
+
+
+def _tenant_eshop_fulfillment_settings(tenant: Tenant | None) -> dict[str, object]:
+    flags = tenant.feature_flags if tenant is not None else None
+    source = {}
+    if isinstance(flags, dict):
+        cfg = flags.get('eshop_fulfillment')
+        if isinstance(cfg, dict):
+            source = cfg
+    return normalize_eshop_fulfillment_config(source)
+
+
+def _tenant_document_series_labels_settings(tenant: Tenant | None) -> dict[str, str]:
+    flags = tenant.feature_flags if tenant is not None else None
+    source = {}
+    if isinstance(flags, dict):
+        cfg = flags.get('document_series_labels')
+        if isinstance(cfg, dict):
+            source = cfg
+    return normalize_document_series_labels_config(source)
 
 
 _CASHFLOW_CATEGORY_ALIAS_MAP: dict[str, str] = {
@@ -825,6 +889,8 @@ _DOCUMENT_RULE_STREAMS: list[dict[str, str]] = [
     {'value': OperationalStream.inventory_documents.value, 'label': 'Αποθήκη'},
     {'value': OperationalStream.cash_transactions.value, 'label': 'Ταμείο'},
 ]
+
+_CONTROL_OPERATIONAL_STREAM_VALUES: set[str] = {item.value for item in OperationalStream}
 
 _DOCUMENT_SIGN_OPTIONS: list[dict[str, str]] = [
     {'value': 'positive', 'label': 'Θετικό'},
@@ -2346,6 +2412,46 @@ async def login_page(request: Request, error: str | None = None):
     return resp
 
 
+@router.get('/invite', response_class=HTMLResponse)
+async def invite_password_page(request: Request, token: str = Query(default='')):
+    return templates.TemplateResponse('auth/invite.html', {'request': request, 'token': token, 'error': None})
+
+
+@router.post('/invite')
+async def invite_password_submit(
+    request: Request,
+    token: str = Form(default=''),
+    password: str = Form(default=''),
+    db: AsyncSession = Depends(get_control_db),
+):
+    token = str(token or '').strip()
+    password = str(password or '')
+    if len(password) < 8:
+        return templates.TemplateResponse(
+            'auth/invite.html',
+            {'request': request, 'token': token, 'error': 'Ο κωδικός πρέπει να έχει τουλάχιστον 8 χαρακτήρες.'},
+            status_code=400,
+        )
+    user = (await db.execute(select(User).where(User.reset_token == token, User.is_active.is_(True)))).scalar_one_or_none()
+    if not user:
+        return templates.TemplateResponse(
+            'auth/invite.html',
+            {'request': request, 'token': token, 'error': 'Μη έγκυρη πρόσκληση.'},
+            status_code=400,
+        )
+    if not user.reset_token_expires_at or user.reset_token_expires_at < datetime.utcnow():
+        return templates.TemplateResponse(
+            'auth/invite.html',
+            {'request': request, 'token': token, 'error': 'Η πρόσκληση έχει λήξει.'},
+            status_code=400,
+        )
+    user.password_hash = get_password_hash(password)
+    user.reset_token = None
+    user.reset_token_expires_at = None
+    await db.commit()
+    return RedirectResponse(url='/login?created=1', status_code=303)
+
+
 @router.post('/login')
 async def login_submit(
     request: Request,
@@ -2362,6 +2468,17 @@ async def login_submit(
         )
 
     host = (request.headers.get('host') or '').split(':')[0].lower()
+    host_tenant_slug = _tenant_slug_from_host(host)
+    if host_tenant_slug and user.tenant_id is not None:
+        user_tenant_slug = (
+            await db.execute(select(Tenant.slug).where(Tenant.id == user.tenant_id))
+        ).scalar_one_or_none()
+        if str(user_tenant_slug or '').lower() != host_tenant_slug:
+            return templates.TemplateResponse(
+                'auth/login.html',
+                {'request': request, 'error': tt(request, 'invalid_credentials')},
+                status_code=401,
+            )
     access_audience = expected_audience_for_host(host) or audience_for_role(user.role.value)
     profile_code = None
     if user.professional_profile_id:
@@ -2541,6 +2658,8 @@ async def admin_tenant_create(
     source: str = Form(default='external'),
     subscription_status: str = Form(default='trial'),
     trial_days: int = Form(default=14),
+    send_welcome_email: bool = Form(default=False),
+    create_subdomain: bool = Form(default=False),
     _: object = Depends(require_roles(RoleName.cloudon_admin)),
     db: AsyncSession = Depends(get_control_db),
 ):
@@ -2555,6 +2674,8 @@ async def admin_tenant_create(
         source=source,
         subscription_status=selected_sub,
         trial_days=trial_days,
+        send_welcome_email=bool(send_welcome_email),
+        create_subdomain=bool(create_subdomain),
     )
     if result['status'] != 'ok':
         tenants = (
@@ -2605,12 +2726,37 @@ async def admin_tenant_edit_get_redirect(
     tenant = (await db.execute(select(Tenant).where(Tenant.id == tenant_id))).scalar_one_or_none()
     if tenant is None:
         return RedirectResponse(url='/admin/tenants?updated=0&reason=tenant_not_found', status_code=303)
+    auto_sync = _tenant_auto_sync_settings(tenant)
+    flags = tenant.feature_flags if isinstance(tenant.feature_flags, dict) else {}
+    if not isinstance(flags.get('auto_sync'), dict):
+        primary_conn = (
+            await db.execute(
+                select(TenantConnection)
+                .where(TenantConnection.tenant_id == tenant.id)
+                .order_by(TenantConnection.is_active.desc(), TenantConnection.updated_at.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if primary_conn is not None:
+            params = primary_conn.connection_parameters if isinstance(primary_conn.connection_parameters, dict) else {}
+            auto_sync = {
+                'enabled': _parse_bool_enabled(params.get('auto_sync_enabled'), True),
+                'interval_minutes': _parse_int_in_range(
+                    params.get('sync_interval_minutes'),
+                    default=int(auto_sync['interval_minutes']),
+                    min_value=1,
+                    max_value=1440,
+                ),
+            }
     return templates.TemplateResponse(
         'admin/tenant_edit.html',
         {
             'request': request,
             'tenant': tenant,
             'inventory_item_classification': _tenant_inventory_item_classification_settings(tenant),
+            'auto_sync': auto_sync,
+            'eshop_fulfillment': _tenant_eshop_fulfillment_settings(tenant),
+            'document_series_labels': _tenant_document_series_labels_settings(tenant),
             'active_page': 'tenants',
             'title': 'title_tenants',
             'next_url': request.query_params.get('next') or '/admin/tenants',
@@ -2627,10 +2773,20 @@ async def admin_tenant_edit(
     source: str = Form(default=''),
     tenant_status: str = Form(default=''),
     subscription_status: str = Form(default=''),
+    auto_sync_enabled: bool = Form(default=False),
+    auto_sync_interval_minutes: str = Form(default='5'),
     status_source: str = Form(default='sales_window'),
     active_last_sale_days: str = Form(default='60'),
     fast_sales_qty_30d_min: str = Form(default='50'),
     slow_sales_qty_30d_max: str = Form(default='5'),
+    pickup_warehouses_text: str = Form(default=''),
+    store_warehouses_text: str = Form(default=''),
+    pure_eshop_warehouses_text: str = Form(default='1004'),
+    three_pl_warehouses_text: str = Form(default='3000'),
+    shipping_method_labels_text: str = Form(default=''),
+    sales_series_channel_labels_text: str = Form(default=''),
+    document_series_labels_text: str = Form(default=''),
+    physical_branch_names_text: str = Form(default=''),
     next_url: str = Form(default='/admin/tenants'),
     _: object = Depends(require_roles(RoleName.cloudon_admin)),
     db: AsyncSession = Depends(get_control_db),
@@ -2681,7 +2837,10 @@ async def admin_tenant_edit(
         'source': tenant.source,
         'tenant_status': tenant.status.value,
         'subscription_status': tenant.subscription_status.value,
+        'auto_sync': _tenant_auto_sync_settings(tenant),
         'inventory_item_classification': _tenant_inventory_item_classification_settings(tenant),
+        'eshop_fulfillment': _tenant_eshop_fulfillment_settings(tenant),
+        'document_series_labels': _tenant_document_series_labels_settings(tenant),
     }
 
     tenant.name = name or tenant.name
@@ -2725,9 +2884,163 @@ async def admin_tenant_edit(
     if settings_payload['slow_sales_qty_30d_max'] >= settings_payload['fast_sales_qty_30d_min']:
         settings_payload['slow_sales_qty_30d_max'] = max(0, settings_payload['fast_sales_qty_30d_min'] - 1)
 
+    auto_sync_payload = _tenant_auto_sync_settings(tenant)
+    auto_sync_payload['enabled'] = bool(auto_sync_enabled)
+    auto_sync_payload['interval_minutes'] = _parse_int_in_range(
+        auto_sync_interval_minutes,
+        default=int(auto_sync_payload['interval_minutes']),
+        min_value=1,
+        max_value=1440,
+    )
+
+    current_fulfillment = _tenant_eshop_fulfillment_settings(tenant)
+    pickup_map: dict[str, str] = {}
+    for line in str(pickup_warehouses_text or '').splitlines():
+        raw_line = str(line or '').strip()
+        if not raw_line:
+            continue
+        if '=' in raw_line:
+            code, label = raw_line.split('=', 1)
+        elif ':' in raw_line:
+            code, label = raw_line.split(':', 1)
+        else:
+            continue
+        code_clean = str(code or '').strip()
+        label_clean = str(label or '').strip()
+        if code_clean and label_clean:
+            pickup_map[code_clean] = label_clean
+    if not pickup_map:
+        pickup_map = dict(current_fulfillment.get('pickup_warehouses') or {})
+
+    store_warehouse_map: dict[str, str] = {}
+    for line in str(store_warehouses_text or '').splitlines():
+        raw_line = str(line or '').strip()
+        if not raw_line:
+            continue
+        if '=' in raw_line:
+            code, label = raw_line.split('=', 1)
+        elif ':' in raw_line:
+            code, label = raw_line.split(':', 1)
+        else:
+            continue
+        code_clean = str(code or '').strip()
+        label_clean = str(label or '').strip()
+        if code_clean and label_clean:
+            store_warehouse_map[code_clean] = label_clean
+    if not store_warehouse_map:
+        store_warehouse_map = dict(current_fulfillment.get('store_warehouses') or {})
+
+    shipping_method_label_map: dict[str, str] = {}
+    for line in str(shipping_method_labels_text or '').splitlines():
+        raw_line = str(line or '').strip()
+        if not raw_line:
+            continue
+        if '=' in raw_line:
+            code, label = raw_line.split('=', 1)
+        elif ':' in raw_line:
+            code, label = raw_line.split(':', 1)
+        else:
+            continue
+        code_clean = str(code or '').strip()
+        label_clean = str(label or '').strip()
+        if code_clean and label_clean:
+            shipping_method_label_map[code_clean] = label_clean
+    if not shipping_method_label_map:
+        shipping_method_label_map = dict(current_fulfillment.get('shipping_method_labels') or {})
+
+    sales_series_channel_label_map: dict[str, str] = {}
+    for line in str(sales_series_channel_labels_text or '').splitlines():
+        raw_line = str(line or '').strip()
+        if not raw_line:
+            continue
+        if '=' in raw_line:
+            code, label = raw_line.split('=', 1)
+        elif ':' in raw_line:
+            code, label = raw_line.split(':', 1)
+        else:
+            continue
+        code_clean = str(code or '').strip()
+        label_clean = str(label or '').strip()
+        if code_clean and label_clean:
+            sales_series_channel_label_map[code_clean] = label_clean
+    if not sales_series_channel_label_map:
+        sales_series_channel_label_map = dict(current_fulfillment.get('sales_series_channel_labels') or {})
+
+    current_document_series_labels = _tenant_document_series_labels_settings(tenant)
+    document_series_label_map: dict[str, str] = {}
+    for line in str(document_series_labels_text or '').splitlines():
+        raw_line = str(line or '').strip()
+        if not raw_line:
+            continue
+        if '=' in raw_line:
+            code, label = raw_line.split('=', 1)
+        elif ':' in raw_line:
+            code, label = raw_line.split(':', 1)
+        else:
+            continue
+        code_clean = str(code or '').strip()
+        label_clean = str(label or '').strip()
+        if code_clean and label_clean:
+            document_series_label_map[code_clean] = label_clean
+    if not document_series_label_map:
+        document_series_label_map = dict(current_document_series_labels or {})
+
+    physical_branch_names: list[str] = []
+    seen_physical_branch_names: set[str] = set()
+    for line in str(physical_branch_names_text or '').splitlines():
+        clean = str(line or '').strip()
+        if clean and clean not in seen_physical_branch_names:
+            seen_physical_branch_names.add(clean)
+            physical_branch_names.append(clean)
+    if not physical_branch_names:
+        physical_branch_names = list(current_fulfillment.get('physical_branch_names') or [])
+
+    def _csv_to_list(raw: str, fallback: list[str]) -> list[str]:
+        seen: set[str] = set()
+        out: list[str] = []
+        for item in str(raw or '').replace('\n', ',').split(','):
+            clean = str(item or '').strip()
+            if clean and clean not in seen:
+                seen.add(clean)
+                out.append(clean)
+        return out or list(fallback)
+
+    eshop_fulfillment_payload = normalize_eshop_fulfillment_config(
+        {
+            'pickup_warehouses': pickup_map,
+            'store_warehouses': store_warehouse_map,
+            'pure_eshop_warehouses': _csv_to_list(
+                pure_eshop_warehouses_text,
+                list(current_fulfillment.get('pure_eshop_warehouses') or ['1004']),
+            ),
+            'three_pl_warehouses': _csv_to_list(
+                three_pl_warehouses_text,
+                list(current_fulfillment.get('three_pl_warehouses') or ['3000']),
+            ),
+            'shipping_method_labels': shipping_method_label_map,
+            'sales_series_channel_labels': sales_series_channel_label_map,
+            'physical_branch_names': physical_branch_names,
+        }
+    )
+
     flags = dict(tenant.feature_flags or {})
+    flags['auto_sync'] = auto_sync_payload
     flags['inventory_item_classification'] = settings_payload
+    flags['eshop_fulfillment'] = eshop_fulfillment_payload
+    flags['document_series_labels'] = normalize_document_series_labels_config(document_series_label_map)
     tenant.feature_flags = flags
+
+    tenant_connections = (
+        await db.execute(select(TenantConnection).where(TenantConnection.tenant_id == tenant.id))
+    ).scalars().all()
+    for conn in tenant_connections:
+        conn_params = conn.connection_parameters if isinstance(conn.connection_parameters, dict) else {}
+        conn.connection_parameters = {
+            **conn_params,
+            'auto_sync_enabled': bool(auto_sync_payload['enabled']),
+            'sync_interval_minutes': int(auto_sync_payload['interval_minutes']),
+        }
+        db.add(conn)
 
     db.add(
         AuditLog(
@@ -2744,7 +3057,10 @@ async def admin_tenant_edit(
                     'source': tenant.source,
                     'tenant_status': tenant.status.value,
                     'subscription_status': sub.status.value,
+                    'auto_sync': auto_sync_payload,
                     'inventory_item_classification': settings_payload,
+                    'eshop_fulfillment': eshop_fulfillment_payload,
+                    'document_series_labels': flags['document_series_labels'],
                 },
             },
         )
@@ -2818,15 +3134,22 @@ async def admin_subscriptions(
     db: AsyncSession = Depends(get_control_db),
 ):
     tenants = (await db.execute(select(Tenant).order_by(Tenant.created_at.desc()))).scalars().all()
+    subscriptions_by_tenant: dict[int, Subscription] = {}
+    subscription_features_by_tenant: dict[int, dict[str, bool]] = {}
     for t in tenants:
         sub = await get_or_create_subscription(db, t)
         await sync_tenant_from_subscription(db, t, sub)
+        subscriptions_by_tenant[int(t.id)] = sub
+        subscription_features_by_tenant[int(t.id)] = normalize_subscription_feature_flags(sub.plan, sub.feature_flags)
     await db.commit()
     return templates.TemplateResponse(
         'admin/subscriptions.html',
         {
             'request': request,
             'tenants': tenants,
+            'subscriptions_by_tenant': subscriptions_by_tenant,
+            'subscription_features_by_tenant': subscription_features_by_tenant,
+            'subscription_features': SUBSCRIPTION_FEATURES,
             'active_page': 'subscriptions',
             'title': 'title_subscriptions',
         },
@@ -2846,6 +3169,7 @@ async def admin_subscription_update_get_redirect(
 async def admin_subscription_update(
     tenant_id: int,
     subscription_status: str = Form(default=''),
+    enabled_features: list[str] = Form(default=[]),
     note: str = Form(default=''),
     next_url: str = Form(default='/admin/subscriptions'),
     _: object = Depends(require_roles(RoleName.cloudon_admin)),
@@ -2871,6 +3195,11 @@ async def admin_subscription_update(
         sub.canceled_at = datetime.utcnow()
     if sub.status == SubscriptionStatus.suspended:
         sub.suspended_at = datetime.utcnow()
+    selected_features = {str(item) for item in (enabled_features or [])}
+    sub.feature_flags = {
+        feature.key: feature.key in selected_features
+        for feature in SUBSCRIPTION_FEATURES
+    }
     await sync_tenant_from_subscription(db, tenant, sub)
 
     db.add(
@@ -2887,7 +3216,12 @@ async def admin_subscription_update(
             action='subscription_updated_ui',
             entity_type='subscription',
             entity_id=str(sub.id),
-            payload={'from': prev, 'to': sub.status.value, 'note': note or None},
+            payload={
+                'from': prev,
+                'to': sub.status.value,
+                'note': note or None,
+                'feature_flags': sub.feature_flags,
+            },
         )
     )
     try:
@@ -2908,31 +3242,33 @@ async def admin_plans(
 ):
     rows = (await db.execute(select(PlanFeature).order_by(PlanFeature.plan, PlanFeature.feature_name))).scalars().all()
     plans: dict[str, dict[str, bool]] = {}
+    for plan_name in PlanName:
+        plans[plan_name.value] = normalize_subscription_feature_flags(plan_name, {})
     for r in rows:
         plans.setdefault(r.plan.value, {})[r.feature_name] = bool(r.enabled)
     return templates.TemplateResponse(
         'admin/plans.html',
-        {'request': request, 'plans': plans, 'active_page': 'plans', 'title': 'title_plan_features'},
+        {
+            'request': request,
+            'plans': plans,
+            'subscription_features': SUBSCRIPTION_FEATURES,
+            'active_page': 'plans',
+            'title': 'title_plan_features',
+        },
     )
 
 
 @router.post('/admin/plans/{plan}/features')
 async def admin_plan_features_update(
+    request: Request,
     plan: str,
-    sales: str = Form(default='0'),
-    purchases: str = Form(default='0'),
-    inventory: str = Form(default='0'),
-    cashflows: str = Form(default='0'),
     _: object = Depends(require_roles(RoleName.cloudon_admin)),
     db: AsyncSession = Depends(get_control_db),
 ):
     selected_plan = PlanName(plan)
-    values = {
-        'sales': sales == '1',
-        'purchases': purchases == '1',
-        'inventory': inventory == '1',
-        'cashflows': cashflows == '1',
-    }
+    form = await request.form()
+    enabled_features = {str(item) for item in form.getlist('enabled_features')}
+    values = {feature.key: feature.key in enabled_features for feature in SUBSCRIPTION_FEATURES}
     for feature, enabled in values.items():
         row = (
             await db.execute(
@@ -3178,6 +3514,7 @@ async def admin_connections_discovery(
     options_map = _parse_options_map(options)
     conn = await _find_tenant_connection(db, tenant_id=tenant_id, connector_type=connector_type)
     resolved_password = _resolve_secret_password(password, conn)
+    discovery: dict = {'objects': [], 'selected_schema': selected_schema, 'selected_object': selected_object}
     if not resolved_password:
         result = {'status': 'error', 'message': 'Missing password. Fill password or save connection with credentials first.'}
         context = await _connections_template_context(
@@ -3231,7 +3568,6 @@ async def admin_connections_discovery(
         password=resolved_password,
         options=options_map,
     )
-    discovery: dict = {'objects': [], 'selected_schema': selected_schema, 'selected_object': selected_object}
     result: dict[str, str] = {'status': 'ok', 'message': 'Discovery completed.'}
     try:
         connection_string = build_odbc_connection_string(secret)
@@ -3417,7 +3753,7 @@ async def admin_connections_save(
     if _api_ep:
         conn.stream_api_endpoint = _api_ep
     existing_params = conn.connection_parameters if isinstance(conn.connection_parameters, dict) else {}
-    preserved_keys = {'sync_defaults', 'company_id', 'auth_config', 'enable_operating_expenses'}
+    preserved_keys = {'sync_defaults', 'company_id', 'auth_config', 'enable_operating_expenses', 'auto_sync_enabled'}
     conn.connection_parameters = {
         **{k: v for k, v in existing_params.items() if k in preserved_keys},
         'connector_type': connector_type,
@@ -4111,12 +4447,24 @@ async def admin_sync_status(
         await db.execute(
             select(TenantConnection, Tenant)
             .join(Tenant, Tenant.id == TenantConnection.tenant_id)
+            .where(TenantConnection.is_active.is_(True))
             .order_by(TenantConnection.last_sync_at.desc().nullslast())
         )
     ).all()
+    progress_by_tenant: dict[int, dict] = {}
+    for _connection, tenant in rows:
+        tenant_id_key = int(tenant.id)
+        if tenant_id_key not in progress_by_tenant:
+            progress_by_tenant[tenant_id_key] = get_ingest_progress(tenant.slug)
     return templates.TemplateResponse(
         'admin/sync_status.html',
-        {'request': request, 'rows': rows, 'active_page': 'sync', 'title': 'title_sync_status'},
+        {
+            'request': request,
+            'rows': rows,
+            'progress_by_tenant': progress_by_tenant,
+            'active_page': 'sync',
+            'title': 'title_sync_status',
+        },
     )
 
 
@@ -4127,24 +4475,21 @@ async def admin_sync_trigger(
     db: AsyncSession = Depends(get_control_db),
 ):
     tenant = (await db.execute(select(Tenant).where(Tenant.id == tenant_id))).scalar_one_or_none()
-    if tenant:
-        planned_jobs = await plan_tenant_sync_jobs(
-            db,
-            tenant_id=tenant.id,
-            tenant_slug=tenant.slug,
+    if not tenant:
+        return RedirectResponse(url='/admin/sync-status', status_code=303)
+    conn = (
+        await db.execute(
+            select(TenantConnection)
+            .where(TenantConnection.tenant_id == tenant.id, TenantConnection.is_active.is_(True))
+            .order_by(TenantConnection.id.asc())
+            .limit(1)
         )
-        for job in planned_jobs:
-            payload = dict(job)
-            payload.setdefault('payload', {})
-            payload.setdefault('attempt', 0)
-            payload.setdefault('max_retries', settings.ingest_job_max_retries)
-            enqueue_tenant_job(tenant.slug, payload)
-        celery_client.send_task(
-            'worker.tasks.drain_tenant_ingest_queue',
-            kwargs={'tenant_slug': tenant.slug},
-            queue='ingest',
-        )
-    return RedirectResponse(url='/admin/sync-status', status_code=303)
+    ).scalar_one_or_none()
+    connector_type = getattr(conn, 'connector_type', None) or 'sql_connector'
+    return RedirectResponse(
+        url=f'/admin/connections?tenant_id={tenant.id}&connector_type={connector_type}',
+        status_code=303,
+    )
 
 
 @router.get('/admin/insights', response_class=HTMLResponse)
@@ -5048,6 +5393,7 @@ async def admin_business_rules_tenant_overrides(
 # ---------------------------------------------------------------------------
 
 _STREAM_BEHAVIOR_LABELS: dict[int, str] = {
+    101: 'Παραστατικό Πώλησης',
     102: 'Τιμολόγιο Πώλησης',
     103: 'Δελτίο Αποστολής',
     131: 'Απόδειξη Λιανικής (POS)',
@@ -5062,11 +5408,83 @@ _STREAM_BEHAVIOR_LABELS: dict[int, str] = {
     451: 'Παραγγελία Αγοράς',
 }
 
+
+def _stream_behavior_label(code: int | str | None) -> str:
+    try:
+        normalized = int(code or 0)
+    except (TypeError, ValueError):
+        normalized = 0
+    if normalized <= 0:
+        return 'Άγνωστος'
+    return _STREAM_BEHAVIOR_LABELS.get(normalized, 'Άγνωστος')
+
+
+def _infer_behavior_code_from_doc_type(doc_type: str | None) -> int:
+    raw = str(doc_type or '').strip()
+    if not raw:
+        return 0
+    match = re.match(r'^(\d+)\s+', raw)
+    if not match:
+        return 0
+    try:
+        return int(match.group(1))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _humanize_stream_doc_type(doc_type: str | None, stream_key: str) -> str:
+    raw = str(doc_type or '').strip()
+    if not raw:
+        return '—'
+
+    if raw == 'sales_1351':
+        return 'Πωλήσεις ERP (1351)'
+    if raw == 'sales_11351':
+        return 'Πωλήσεις POS redirect (11351)'
+
+    purchase_match = re.match(r'^(?P<behavior>\d+)\s+purchase\s+(?P<source>\d+)$', raw, re.IGNORECASE)
+    if purchase_match:
+        behavior_code = int(purchase_match.group('behavior'))
+        source_code = purchase_match.group('source')
+        return f'Αγορές ERP ({source_code}) · {_stream_behavior_label(behavior_code)}'
+
+    purchase_expense_match = re.match(r'^(?P<behavior>\d+)\s+purchase_expense_(?P<source>\d+)$', raw, re.IGNORECASE)
+    if purchase_expense_match:
+        behavior_code = int(purchase_expense_match.group('behavior'))
+        source_code = purchase_expense_match.group('source')
+        return f'Έξοδα Αγορών ({source_code}) · {_stream_behavior_label(behavior_code)}'
+
+    expense_series_match = re.match(r'^softone_series_(?P<series>\d+)$', raw, re.IGNORECASE)
+    if expense_series_match:
+        return f'Σειρά SoftOne ({expense_series_match.group("series")})'
+
+    if raw.startswith('cash_'):
+        return f'Ταμείο {raw.replace("cash_", "").replace("_", " ").strip()}'.strip()
+    if raw.startswith('expense_'):
+        return f'Έξοδα {raw.replace("expense_", "").replace("_", " ").strip()}'.strip()
+    if raw.startswith('operating_expenses_'):
+        return f'Λειτουργικά Έξοδα {raw.replace("operating_expenses_", "").replace("_", " ").strip()}'.strip()
+    if raw.startswith('purchase_'):
+        return f'Αγορές {raw.replace("purchase_", "").replace("_", " ").strip()}'.strip()
+    if raw.startswith('sales_'):
+        return f'Πωλήσεις {raw.replace("sales_", "").replace("_", " ").strip()}'.strip()
+
+    if stream_key == 'sales':
+        return f'Πωλήσεις · {raw.replace("_", " ")}'
+    if stream_key == 'purchases':
+        return f'Αγορές · {raw.replace("_", " ")}'
+    if stream_key == 'cashflows':
+        return f'Ταμείο · {raw.replace("_", " ")}'
+    if stream_key == 'expenses':
+        return f'Έξοδα · {raw.replace("_", " ")}'
+    return raw.replace('_', ' ')
+
 _STREAM_DEFS = [
     {
         'key': 'sales',
         'label': 'Πωλήσεις',
         'icon': 'trending-up',
+        'source_col_label': 'Πηγή Πώλησης',
         'operational_stream': 'sales_documents',
         'fact_table': 'fact_sales',
         'amount_col': 'net_value',
@@ -5076,6 +5494,7 @@ _STREAM_DEFS = [
         'key': 'purchases',
         'label': 'Αγορές',
         'icon': 'shopping-cart',
+        'source_col_label': 'Πηγή Αγοράς',
         'operational_stream': 'purchase_documents',
         'fact_table': 'fact_purchases',
         'amount_col': 'net_value',
@@ -5085,6 +5504,7 @@ _STREAM_DEFS = [
         'key': 'cashflows',
         'label': 'Ταμείο',
         'icon': 'dollar-sign',
+        'source_col_label': 'Πηγή Ταμείου',
         'operational_stream': 'cash_transactions',
         'fact_table': 'fact_cashflows',
         'amount_col': 'amount',
@@ -5094,6 +5514,7 @@ _STREAM_DEFS = [
         'key': 'expenses',
         'label': 'Έξοδα',
         'icon': 'credit-card',
+        'source_col_label': 'Πηγή Εξόδου',
         'operational_stream': 'operating_expenses',
         'fact_table': 'fact_expenses',
         'amount_col': 'amount',
@@ -5102,7 +5523,7 @@ _STREAM_DEFS = [
 ]
 
 
-async def _discover_stream_series(tenant_db: AsyncSession, fact_table: str, amount_col: str) -> list[dict]:
+async def _discover_stream_series(tenant_db: AsyncSession, fact_table: str, amount_col: str, stream_key: str) -> list[dict]:
     has_series = fact_table in {'fact_sales', 'fact_purchases', 'fact_expenses'}
     has_payload = fact_table in {'fact_sales', 'fact_purchases'}
     year_start = date.today().replace(month=1, day=1)
@@ -5171,6 +5592,14 @@ async def _discover_stream_series(tenant_db: AsyncSession, fact_table: str, amou
         if code and code not in result[key]['behavior_codes']:
             result[key]['behavior_codes'].append(code)
 
+    for item in result.values():
+        if not item['behavior_codes']:
+            inferred_code = _infer_behavior_code_from_doc_type(item['doc_type'])
+            if inferred_code:
+                item['behavior_codes'].append(inferred_code)
+        item['behavior_codes'] = sorted(item['behavior_codes'])
+        item['doc_type_label'] = _humanize_stream_doc_type(item['doc_type'], stream_key)
+
     return sorted(result.values(), key=lambda x: abs(x['ytd_value']), reverse=True)
 
 
@@ -5201,17 +5630,20 @@ async def admin_tenant_stream_config_get(
         db_password=tenant.db_password,
     ):
         for sdef in _STREAM_DEFS:
-            rule = (await db.execute(
-                select(TenantRuleOverride).where(
-                    TenantRuleOverride.tenant_id == tenant_id,
-                    TenantRuleOverride.domain == RuleDomain.kpi_participation_rules,
-                    TenantRuleOverride.stream == sdef['operational_stream'],
-                    TenantRuleOverride.rule_key == sdef['rule_key'],
-                )
-            )).scalar_one_or_none()
+            stream_value = str(sdef.get('operational_stream') or '').strip()
+            rule = None
+            if stream_value in _CONTROL_OPERATIONAL_STREAM_VALUES:
+                rule = (await db.execute(
+                    select(TenantRuleOverride).where(
+                        TenantRuleOverride.tenant_id == tenant_id,
+                        TenantRuleOverride.domain == RuleDomain.kpi_participation_rules,
+                        TenantRuleOverride.stream == OperationalStream(stream_value),
+                        TenantRuleOverride.rule_key == sdef['rule_key'],
+                    )
+                )).scalar_one_or_none()
 
             excluded = _excluded_series_set(rule)
-            series_rows = await _discover_stream_series(tenant_db, sdef['fact_table'], sdef['amount_col'])
+            series_rows = await _discover_stream_series(tenant_db, sdef['fact_table'], sdef['amount_col'], sdef['key'])
             for s in series_rows:
                 s['included'] = s['series'] not in excluded
 
@@ -5616,6 +6048,14 @@ async def admin_users(
     professional_profiles = await _list_professional_profiles(db)
     profile_name_map = {p.id: p.profile_name for p in professional_profiles}
     profile_code_map = {p.id: p.profile_code for p in professional_profiles}
+    tenant_name_map = {t.id: t.name for t in tenants}
+    tenant_slug_map = {t.id: t.slug for t in tenants}
+    user_counts = {
+        'total': len(users),
+        'active': sum(1 for u in users if u.is_active),
+        'tenant_scoped': sum(1 for u in users if u.tenant_id is not None),
+        'cloudon_admin': sum(1 for u in users if u.role == RoleName.cloudon_admin),
+    }
     role_default_profile_code = {
         RoleName.cloudon_admin.value: _default_profile_code_for_role(RoleName.cloudon_admin),
         RoleName.tenant_admin.value: _default_profile_code_for_role(RoleName.tenant_admin),
@@ -5630,6 +6070,9 @@ async def admin_users(
             'professional_profiles': professional_profiles,
             'profile_name_map': profile_name_map,
             'profile_code_map': profile_code_map,
+            'tenant_name_map': tenant_name_map,
+            'tenant_slug_map': tenant_slug_map,
+            'user_counts': user_counts,
             'role_default_profile_code': role_default_profile_code,
             'active_page': 'users',
             'title': 'title_user_management',
@@ -6062,6 +6505,28 @@ async def tenant_sales_dashboard(
             'active_page': 'sales',
             'title': 'title_sales_dashboard',
             'documents_mode': False,
+        },
+    )
+
+
+@router.get('/tenant/e-shop-analysis', response_class=HTMLResponse)
+async def tenant_eshop_analysis_dashboard(
+    request: Request,
+    tenant: Tenant = Depends(get_request_tenant),
+    _user=Depends(get_current_user),
+):
+    to_date = date.today()
+    from_date = to_date - timedelta(days=30)
+    return templates.TemplateResponse(
+        'tenant/eshop_analysis_dashboard.html',
+        {
+            'request': request,
+            'tenant': tenant,
+            **(await _tenant_navigation_context(tenant)),
+            'default_from': from_date,
+            'default_to': to_date,
+            'active_page': 'eshop_analysis',
+            'title': 'E-Shop analysis',
         },
     )
 

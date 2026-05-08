@@ -1,101 +1,396 @@
 {% extends "base_admin.html" %}
 {% block content %}
-<div class="card mt-3">
-  <div class="card-header">
-    <h5 class="mb-0">Επεξεργασία Πελάτη: {{ tenant.name }}</h5>
+<style>
+.tenant-edit-page { display: grid; gap: 14px; }
+.tenant-hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--bv-admin-border, #dfe6ef);
+  border-radius: 8px;
+  background: var(--bv-admin-surface, #fff);
+  box-shadow: var(--bv-admin-shadow, 0 10px 26px rgba(17,24,39,.07));
+}
+.tenant-identity { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.tenant-avatar {
+  width: 46px;
+  height: 46px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: #3156d3;
+  font-weight: 850;
+  letter-spacing: .04em;
+  flex: 0 0 auto;
+}
+.tenant-title { min-width: 0; }
+.tenant-title h5 { margin: 0; font-weight: 850; }
+.tenant-title span { display: block; margin-top: 3px; color: var(--bv-admin-muted, #667085); font-size: .82rem; }
+.tenant-hero-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.tenant-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+.tenant-meta {
+  padding: 11px 12px;
+  border: 1px solid var(--bv-admin-border, #dfe6ef);
+  border-radius: 8px;
+  background: var(--bv-admin-surface-soft, #f8fafc);
+}
+.tenant-meta span {
+  display: block;
+  color: var(--bv-admin-muted, #667085);
+  font-size: .68rem;
+  font-weight: 850;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+}
+.tenant-meta strong { display: block; margin-top: 4px; font-size: .9rem; }
+.tenant-settings-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 330px;
+  gap: 14px;
+  align-items: start;
+}
+.tenant-section-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.tenant-section-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  background: #e9efff;
+  color: #3156d3;
+  flex: 0 0 auto;
+}
+.tenant-section-head h5,
+.tenant-section-head h6 { margin: 0; font-weight: 850; }
+.tenant-section-head p { margin: 3px 0 0; color: var(--bv-admin-muted, #667085); font-size: .82rem; }
+.tenant-field-help { display: block; margin-top: 6px; color: var(--bv-admin-muted, #667085); font-size: .76rem; line-height: 1.35; }
+.tenant-form-card .card-body { padding: 18px; }
+.tenant-rule-card {
+  border: 1px solid var(--bv-admin-border, #dfe6ef);
+  border-radius: 8px;
+  padding: 14px;
+  background: var(--bv-admin-surface, #fff);
+}
+.tenant-rule-card + .tenant-rule-card { margin-top: 12px; }
+.tenant-rule-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.tenant-textarea-lg { min-height: 132px; resize: vertical; }
+.tenant-textarea-sm { min-height: 96px; resize: vertical; }
+.tenant-sticky-actions {
+  position: sticky;
+  bottom: 10px;
+  z-index: 20;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 10px;
+  border: 1px solid var(--bv-admin-border, #dfe6ef);
+  border-radius: 8px;
+  background: rgba(255,255,255,.94);
+  box-shadow: 0 10px 24px rgba(17,24,39,.10);
+  backdrop-filter: blur(8px);
+}
+body[data-theme='dark'] .tenant-sticky-actions { background: rgba(21,31,45,.94); }
+.tenant-side-card .list-group-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: transparent;
+  border-color: var(--bv-admin-border, #dfe6ef);
+  padding: 10px 0;
+}
+.tenant-side-card .list-group-item:first-child { border-top: 0; }
+.tenant-side-card .list-group-item:last-child { border-bottom: 0; }
+@media (max-width: 1199.98px) {
+  .tenant-settings-grid { grid-template-columns: 1fr; }
+  .tenant-meta-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 767.98px) {
+  .tenant-hero { align-items: flex-start; flex-direction: column; }
+  .tenant-meta-grid,
+  .tenant-rule-grid { grid-template-columns: 1fr; }
+  .tenant-sticky-actions { position: static; flex-direction: column; align-items: stretch; }
+}
+</style>
+
+<div class="tenant-edit-page">
+  <div class="tenant-hero">
+    <div class="tenant-identity">
+      <div class="tenant-avatar">{{ tenant.name[:2]|upper }}</div>
+      <div class="tenant-title">
+        <h5>Επεξεργασία Πελάτη: {{ tenant.name }}</h5>
+        <span>{{ tenant.slug }} · ID {{ tenant.id }}</span>
+      </div>
+    </div>
+    <div class="tenant-hero-actions">
+      <a href="{{ next_url }}" class="btn btn-sm bv-action-btn bv-action-edit"><i class="fe fe-arrow-left"></i>Πίσω</a>
+      <a href="/admin/tenants/{{ tenant.id }}/stream-config" class="btn btn-sm btn-primary"><i class="fe fe-git-merge"></i>Stream Rules</a>
+    </div>
   </div>
-  <div class="card-body">
-    <form method="post" action="/admin/tenants/{{ tenant.id }}/edit" class="row g-2">
-      <input type="hidden" name="next_url" value="{{ next_url }}">
-      <div class="col-md-6">
-        <label class="form-label">Όνομα</label>
-        <input class="form-control" name="name" value="{{ tenant.name }}" required>
-      </div>
-      <div class="col-md-3">
-        <label class="form-label">Slug</label>
-        <input class="form-control" name="slug" value="{{ tenant.slug }}" pattern="[a-z0-9-]+" title="Μόνο a-z, 0-9 και -" required>
-        <small class="text-muted">Μορφή: μόνο πεζά λατινικά, αριθμοί και παύλα (π.χ. cloudon-athens).</small>
-      </div>
-      <div class="col-md-3">
-        <label class="form-label">{{ tt(request, 'plan') }}</label>
-        <select class="form-select" name="plan">
-          <option value="standard" {% if tenant.plan.value == 'standard' %}selected{% endif %}>Standard</option>
-          <option value="pro" {% if tenant.plan.value == 'pro' %}selected{% endif %}>Pro</option>
-          <option value="enterprise" {% if tenant.plan.value == 'enterprise' %}selected{% endif %}>Enterprise</option>
-        </select>
-      </div>
-      <div class="col-md-3">
-        <label class="form-label">{{ tt(request, 'source') }}</label>
-        <select class="form-select" name="source">
-          <option value="sql" {% if tenant.source in ['sql', 'pharmacyone', 'pharmacyone_sql'] %}selected{% endif %}>SQL</option>
-          <option value="external" {% if tenant.source == 'external' %}selected{% endif %}>API</option>
-          <option value="files" {% if tenant.source == 'files' %}selected{% endif %}>Αρχεία</option>
-        </select>
-      </div>
-      <div class="col-md-3">
-        <label class="form-label">{{ tt(request, 'status') }}</label>
-        <select class="form-select" name="tenant_status">
-          <option value="active" {% if tenant.status.value == 'active' %}selected{% endif %}>ενεργός</option>
-          <option value="suspended" {% if tenant.status.value == 'suspended' %}selected{% endif %}>σε αναστολή</option>
-          <option value="terminated" {% if tenant.status.value == 'terminated' %}selected{% endif %}>τερματισμένος</option>
-        </select>
-      </div>
-      <div class="col-md-3">
-        <label class="form-label">{{ tt(request, 'subscriptions') }}</label>
-        <select class="form-select" name="subscription_status">
-          <option value="trial" {% if tenant.subscription_status.value == 'trial' %}selected{% endif %}>δοκιμή</option>
-          <option value="active" {% if tenant.subscription_status.value == 'active' %}selected{% endif %}>ενεργή</option>
-          <option value="past_due" {% if tenant.subscription_status.value == 'past_due' %}selected{% endif %}>ληξιπρόθεσμη</option>
-          <option value="suspended" {% if tenant.subscription_status.value == 'suspended' %}selected{% endif %}>σε αναστολή</option>
-          <option value="canceled" {% if tenant.subscription_status.value == 'canceled' %}selected{% endif %}>ακυρωμένη</option>
-        </select>
+
+  <div class="tenant-meta-grid">
+    <div class="tenant-meta"><span>Πλάνο</span><strong>{{ tenant.plan.value }}</strong></div>
+    <div class="tenant-meta"><span>Πηγή</span><strong>{% if tenant.source in ['sql', 'pharmacyone', 'pharmacyone_sql'] %}SQL{% elif tenant.source == 'external' %}API{% elif tenant.source == 'files' %}Αρχεία{% else %}{{ tenant.source }}{% endif %}</strong></div>
+    <div class="tenant-meta"><span>Κατάσταση</span><strong>{{ tenant.status.value }}</strong></div>
+    <div class="tenant-meta"><span>Συνδρομή</span><strong>{{ tenant.subscription_status.value }}</strong></div>
+  </div>
+
+  <form method="post" action="/admin/tenants/{{ tenant.id }}/edit">
+    <input type="hidden" name="next_url" value="{{ next_url }}">
+
+    <div class="tenant-settings-grid">
+      <div class="tenant-main">
+        <div class="card tenant-form-card">
+          <div class="card-body">
+            <div class="tenant-section-head">
+              <div class="tenant-section-icon"><i class="fe fe-briefcase"></i></div>
+              <div>
+                <h5>Βασικά στοιχεία</h5>
+                <p>Τα στοιχεία ταυτότητας, πηγής και lifecycle του tenant.</p>
+              </div>
+            </div>
+
+            <div class="row g-3">
+              <div class="col-lg-6">
+                <label class="form-label">Όνομα</label>
+                <input class="form-control" name="name" value="{{ tenant.name }}" required>
+              </div>
+              <div class="col-lg-3">
+                <label class="form-label">Slug</label>
+                <input class="form-control" name="slug" value="{{ tenant.slug }}" pattern="[a-z0-9-]+" title="Μόνο a-z, 0-9 και -" required>
+                <span class="tenant-field-help">Μόνο πεζά λατινικά, αριθμοί και παύλα.</span>
+              </div>
+              <div class="col-lg-3">
+                <label class="form-label">{{ tt(request, 'plan') }}</label>
+                <select class="form-select" name="plan">
+                  <option value="standard" {% if tenant.plan.value == 'standard' %}selected{% endif %}>Standard</option>
+                  <option value="pro" {% if tenant.plan.value == 'pro' %}selected{% endif %}>Pro</option>
+                  <option value="enterprise" {% if tenant.plan.value == 'enterprise' %}selected{% endif %}>Enterprise</option>
+                </select>
+              </div>
+              <div class="col-lg-4">
+                <label class="form-label">{{ tt(request, 'source') }}</label>
+                <select class="form-select" name="source">
+                  <option value="sql" {% if tenant.source in ['sql', 'pharmacyone', 'pharmacyone_sql'] %}selected{% endif %}>SQL</option>
+                  <option value="external" {% if tenant.source == 'external' %}selected{% endif %}>API</option>
+                  <option value="files" {% if tenant.source == 'files' %}selected{% endif %}>Αρχεία</option>
+                </select>
+              </div>
+              <div class="col-lg-4">
+                <label class="form-label">{{ tt(request, 'status') }}</label>
+                <select class="form-select" name="tenant_status">
+                  <option value="active" {% if tenant.status.value == 'active' %}selected{% endif %}>ενεργός</option>
+                  <option value="suspended" {% if tenant.status.value == 'suspended' %}selected{% endif %}>σε αναστολή</option>
+                  <option value="terminated" {% if tenant.status.value == 'terminated' %}selected{% endif %}>τερματισμένος</option>
+                </select>
+              </div>
+              <div class="col-lg-4">
+                <label class="form-label">{{ tt(request, 'subscriptions') }}</label>
+                <select class="form-select" name="subscription_status">
+                  <option value="trial" {% if tenant.subscription_status.value == 'trial' %}selected{% endif %}>δοκιμή</option>
+                  <option value="active" {% if tenant.subscription_status.value == 'active' %}selected{% endif %}>ενεργή</option>
+                  <option value="past_due" {% if tenant.subscription_status.value == 'past_due' %}selected{% endif %}>ληξιπρόθεσμη</option>
+                  <option value="suspended" {% if tenant.subscription_status.value == 'suspended' %}selected{% endif %}>σε αναστολή</option>
+                  <option value="canceled" {% if tenant.subscription_status.value == 'canceled' %}selected{% endif %}>ακυρωμένη</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card tenant-form-card">
+          <div class="card-body">
+            <div class="tenant-section-head">
+              <div class="tenant-section-icon"><i class="fe fe-refresh-cw"></i></div>
+              <div>
+                <h5>Αυτόματη ενημέρωση</h5>
+                <p>Έλεγχος αν ο tenant θα μπαίνει στο αυτόματο incremental sync και κάθε πόσα λεπτά.</p>
+              </div>
+            </div>
+
+            <div class="tenant-rule-card">
+              <div class="tenant-rule-grid">
+                <div>
+                  <label class="form-label">Κατάσταση auto sync</label>
+                  <div class="form-check form-switch mt-2">
+                    <input class="form-check-input" type="checkbox" role="switch" name="auto_sync_enabled" id="tenantAutoSyncEnabled" value="true" {% if auto_sync.enabled %}checked{% endif %}>
+                    <label class="form-check-label" for="tenantAutoSyncEnabled">Αυτόματη ενημέρωση ενεργή</label>
+                  </div>
+                  <span class="tenant-field-help">Όταν είναι κλειστό, δεν ξεκινά αυτόματα scheduled sync. Τα manual sync/test παραμένουν διαθέσιμα.</span>
+                </div>
+                <div>
+                  <label class="form-label">Συγχρονισμός κάθε</label>
+                  <div class="input-group">
+                    <input class="form-control" type="number" min="1" max="1440" name="auto_sync_interval_minutes" value="{{ auto_sync.interval_minutes }}">
+                    <span class="input-group-text">λεπτά</span>
+                  </div>
+                  <span class="tenant-field-help">Ελάχιστο 1 λεπτό, μέγιστο 1440 λεπτά. Προτεινόμενο: 5-15 λεπτά για ενεργό e-shop.</span>
+                </div>
+                <div>
+                  <label class="form-label">Εφαρμογή</label>
+                  <div class="tenant-meta">
+                    <span>Scope</span>
+                    <strong>Tenant + Connectors</strong>
+                  </div>
+                  <span class="tenant-field-help">Με την αποθήκευση ενημερώνονται και οι συνδέσεις του tenant ώστε ο scheduler να διαβάζει την ίδια ρύθμιση.</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card tenant-form-card">
+          <div class="card-body">
+            <div class="tenant-section-head">
+              <div class="tenant-section-icon"><i class="fe fe-box"></i></div>
+              <div>
+                <h5>Χαρακτηρισμός ειδών αποθήκης</h5>
+                <p>Κανόνες για Ταχυκίνητο, Κανονικής Κινητικότητας και Αργοκίνητο.</p>
+              </div>
+            </div>
+
+            <div class="tenant-rule-card">
+              <div class="tenant-rule-grid">
+                <div>
+                  <label class="form-label">Πηγή Κατάστασης Είδους</label>
+                  <select class="form-select" name="status_source">
+                    <option value="sales_window" {% if inventory_item_classification.status_source != 'softone' %}selected{% endif %}>BI (βάσει τελευταίας πώλησης)</option>
+                    <option value="softone" {% if inventory_item_classification.status_source == 'softone' %}selected{% endif %}>SoftOne (is_active_source)</option>
+                  </select>
+                  <span class="tenant-field-help">Με SoftOne το Ενεργό/Ανενεργό έρχεται από την καρτέλα είδους.</span>
+                </div>
+                <div>
+                  <label class="form-label">Ημέρες για "Ενεργό Είδος"</label>
+                  <input class="form-control" type="number" min="1" max="3650" name="active_last_sale_days" value="{{ inventory_item_classification.active_last_sale_days }}">
+                  <span class="tenant-field-help">Ενεργό αν έχει πώληση εντός αυτού του παραθύρου.</span>
+                </div>
+                <div>
+                  <label class="form-label">Όριο Ταχυκίνητου (πωλήσεις 30ημ.)</label>
+                  <input class="form-control" type="number" min="1" max="1000000" name="fast_sales_qty_30d_min" value="{{ inventory_item_classification.fast_sales_qty_30d_min }}">
+                  <span class="tenant-field-help">Ταχυκίνητο όταν οι πωλήσεις 30ημ. είναι >= από το όριο.</span>
+                </div>
+                <div>
+                  <label class="form-label">Όριο Αργοκίνητου (πωλήσεις 30ημ.)</label>
+                  <input class="form-control" type="number" min="0" max="1000000" name="slow_sales_qty_30d_max" value="{{ inventory_item_classification.slow_sales_qty_30d_max }}">
+                  <span class="tenant-field-help">Αργοκίνητο όταν οι πωλήσεις 30ημ. είναι <= από το όριο.</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card tenant-form-card">
+          <div class="card-body">
+            <div class="tenant-section-head">
+              <div class="tenant-section-icon"><i class="fe fe-shopping-cart"></i></div>
+              <div>
+                <h5>E-Shop / Fulfillment Rules</h5>
+                <p>Αποθήκες, 3PL, ονομασίες αποστολής και φυσικά σημεία εκτέλεσης ανά tenant.</p>
+              </div>
+            </div>
+
+            <div class="row g-3">
+              <div class="col-12">
+                <label class="form-label">Αποθήκες Παραλαβής από Κατάστημα</label>
+                <textarea class="form-control tenant-textarea-lg" name="pickup_warehouses_text" rows="6" placeholder="1001=E-Shop Αγίου Δημητρίου&#10;1007=E-Shop Κηφισίας">{% for code, label in eshop_fulfillment.pickup_warehouses.items() %}{{ code }}={{ label }}{% if not loop.last %}
+{% endif %}{% endfor %}</textarea>
+                <span class="tenant-field-help">Μία γραμμή ανά αποθήκη, μορφή κωδικός=όνομα καταστήματος.</span>
+              </div>
+              <div class="col-12">
+                <label class="form-label">Αποθήκες Φυσικών Καταστημάτων</label>
+                <textarea class="form-control tenant-textarea-lg" name="store_warehouses_text" rows="5" placeholder="1002=Φαρμακείο Αγίου Δημητρίου&#10;1006=Φαρμακείο Κηφισίας&#10;8000=Φαρμακείο Περιστερίου">{% for code, label in eshop_fulfillment.store_warehouses.items() %}{{ code }}={{ label }}{% if not loop.last %}
+{% endif %}{% endfor %}</textarea>
+                <span class="tenant-field-help">Για παραγγελίες που εκτελούνται από φυσικό φαρμακείο με Efood/Wolt/courier. Μορφή κωδικός=σημείο πώλησης.</span>
+              </div>
+              <div class="col-lg-6">
+                <label class="form-label">Καθαρό E-Shop</label>
+                <textarea class="form-control tenant-textarea-sm" name="pure_eshop_warehouses_text" rows="4" placeholder="1004&#10;3000">{{ eshop_fulfillment.pure_eshop_warehouses | join('\n') }}</textarea>
+                <span class="tenant-field-help">Ένας κωδικός ανά γραμμή.</span>
+              </div>
+              <div class="col-lg-6">
+                <label class="form-label">3PL / Courier στον Πελάτη</label>
+                <textarea class="form-control tenant-textarea-sm" name="three_pl_warehouses_text" rows="4" placeholder="3000">{{ eshop_fulfillment.three_pl_warehouses | join('\n') }}</textarea>
+                <span class="tenant-field-help">Ένας κωδικός ανά γραμμή.</span>
+              </div>
+              <div class="col-lg-6">
+                <label class="form-label">Ονομασίες Κωδικών Αποστολής</label>
+                <textarea class="form-control tenant-textarea-sm" name="shipping_method_labels_text" rows="4" placeholder="119=Παραλαβή από Wolt&#10;100=Γενική Ταχυδρομική">{% for code, label in eshop_fulfillment.shipping_method_labels.items() %}{{ code }}={{ label }}{% if not loop.last %}
+{% endif %}{% endfor %}</textarea>
+                <span class="tenant-field-help">Μία γραμμή ανά κωδικό αποστολής, μορφή κωδικός=ονομασία.</span>
+              </div>
+              <div class="col-lg-6">
+                <label class="form-label">Σειρές Πώλησης σε Κανάλι</label>
+                <textarea class="form-control tenant-textarea-sm" name="sales_series_channel_labels_text" rows="4" placeholder="7079=Site&#10;7005=Site&#10;7683=Skroutz">{% for code, label in eshop_fulfillment.sales_series_channel_labels.items() %}{{ code }}={{ label }}{% if not loop.last %}
+{% endif %}{% endfor %}</textarea>
+                <span class="tenant-field-help">Fallback όταν το SoftOne δεν έχει κανάλι. Μορφή σειρά=κανάλι πώλησης.</span>
+              </div>
+              <div class="col-12">
+                <label class="form-label">Ονομασίες Σειρών Παραστατικών</label>
+                <textarea class="form-control tenant-textarea-lg" name="document_series_labels_text" rows="8" placeholder="7030=Απόδειξη Λιανικής Πώλησης Κηφισιά-Φαρμακείο&#10;7071=Απόδειξη Λιανικής Πώλησης-ΔΑ&#10;2062=Δελτίο Αποστολής Αγορών">{% for code, label in document_series_labels.items() %}{{ code }}={{ label }}{% if not loop.last %}
+{% endif %}{% endfor %}</textarea>
+                <span class="tenant-field-help">Γενικό mapping σειρά=ονομασία. Εφαρμόζεται σε πωλήσεις, αγορές, αποθήκη και όπου το BI έχει μόνο αριθμό σειράς.</span>
+              </div>
+              <div class="col-lg-6">
+                <label class="form-label">Φυσικά Σημεία Εκτέλεσης</label>
+                <textarea class="form-control tenant-textarea-sm" name="physical_branch_names_text" rows="4" placeholder="Έδρα&#10;Κηφισιά Κασσαβέτη&#10;Ελληνικό&#10;Περιστέρι&#10;Σπάτα">{% for name in eshop_fulfillment.physical_branch_names %}{{ name }}{% if not loop.last %}
+{% endif %}{% endfor %}</textarea>
+                <span class="tenant-field-help">Branch names που θεωρούνται φυσικά σημεία για e-shop branch KPIs.</span>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
-      <div class="col-12 mt-3">
-        <hr>
-        <h6 class="mb-2">Χαρακτηρισμός Ειδών Αποθήκης (ανά tenant)</h6>
-        <p class="text-muted mb-2">Ορίζει πότε ένα είδος είναι Ταχυκίνητο, Κανονικής Κινητικότητας ή Αργοκίνητο.</p>
-      </div>
-      <div class="col-md-4">
-        <label class="form-label">Πηγή Κατάστασης Είδους</label>
-        <select class="form-select" name="status_source">
-          <option value="sales_window" {% if inventory_item_classification.status_source != 'softone' %}selected{% endif %}>BI (βάσει τελευταίας πώλησης)</option>
-          <option value="softone" {% if inventory_item_classification.status_source == 'softone' %}selected{% endif %}>SoftOne (is_active_source)</option>
-        </select>
-        <small class="text-muted">Αν επιλέξεις SoftOne, το Ενεργό/Ανενεργό έρχεται από την καρτέλα είδους του SoftOne.</small>
-      </div>
-      <div class="col-md-4">
-        <label class="form-label">Ημέρες για "Ενεργό Είδος"</label>
-        <input class="form-control" type="number" min="1" max="3650" name="active_last_sale_days" value="{{ inventory_item_classification.active_last_sale_days }}">
-        <small class="text-muted">Ενεργό αν η τελευταία πώληση είναι εντός αυτών των ημερών.</small>
-      </div>
-      <div class="col-md-4">
-        <label class="form-label">Όριο Ταχυκίνητου (πωλήσεις 30ημ.)</label>
-        <input class="form-control" type="number" min="1" max="1000000" name="fast_sales_qty_30d_min" value="{{ inventory_item_classification.fast_sales_qty_30d_min }}">
-        <small class="text-muted">Ταχυκίνητο όταν οι πωλήσεις 30ημ. είναι >= από αυτό το όριο.</small>
-      </div>
-      <div class="col-md-4">
-        <label class="form-label">Όριο Αργοκίνητου (πωλήσεις 30ημ.)</label>
-        <input class="form-control" type="number" min="0" max="1000000" name="slow_sales_qty_30d_max" value="{{ inventory_item_classification.slow_sales_qty_30d_max }}">
-        <small class="text-muted">Αργοκίνητο όταν οι πωλήσεις 30ημ. είναι <= από αυτό το όριο. Ενδιάμεσα: Κανονική Κινητικότητα.</small>
-      </div>
-      <div class="col-12 d-flex gap-2 mt-3">
+      <aside class="tenant-side">
+        <div class="card tenant-side-card">
+          <div class="card-header"><h6 class="mb-0">Γρήγορη εικόνα</h6></div>
+          <div class="card-body">
+            <div class="list-group list-group-flush">
+              <div class="list-group-item"><span class="text-muted">Tenant ID</span><strong>{{ tenant.id }}</strong></div>
+              <div class="list-group-item"><span class="text-muted">Slug</span><strong>{{ tenant.slug }}</strong></div>
+              <div class="list-group-item"><span class="text-muted">Source</span><strong>{{ tenant.source }}</strong></div>
+              <div class="list-group-item"><span class="text-muted">Plan</span><strong>{{ tenant.plan.value }}</strong></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card tenant-side-card">
+          <div class="card-header"><h6 class="mb-0"><i class="fe fe-sliders me-2"></i>Επιχειρησιακή λογική</h6></div>
+          <div class="card-body">
+            <p class="text-muted small mb-3">Ορίστε ποια series και κωδικοί συμπεριφοράς συμμετέχουν στα KPI κάθε ροής δεδομένων.</p>
+            <a href="/admin/tenants/{{ tenant.id }}/stream-config" class="btn btn-primary w-100">
+              <i class="fe fe-git-merge"></i>Stream Config
+            </a>
+          </div>
+        </div>
+      </aside>
+    </div>
+
+    <div class="tenant-sticky-actions">
+      <span class="text-muted small">Οι αλλαγές εφαρμόζονται στο tenant profile και στα feature flags.</span>
+      <div class="d-flex gap-2 flex-wrap">
+        <a href="{{ next_url }}" class="btn bv-action-btn bv-action-edit"><i class="fe fe-x"></i>Ακύρωση</a>
         <button type="submit" class="btn bv-action-btn bv-action-save"><i class="fe fe-save"></i>Αποθήκευση Αλλαγών</button>
-        <a href="{{ next_url }}" class="btn bv-action-btn bv-action-edit"><i class="fe fe-arrow-left"></i>Ακύρωση</a>
       </div>
-    </form>
-  </div>
-</div>
-
-<div class="card mt-3">
-  <div class="card-header">
-    <h6 class="mb-0"><i class="fe fe-sliders me-2"></i>Παραμετροποίηση Επιχειρησιακής Λογικής</h6>
-  </div>
-  <div class="card-body">
-    <p class="text-muted small mb-3">Ορίστε ποιά series και κωδικοί συμπεριφοράς συμμετέχουν στα KPI κάθε ροής δεδομένων.</p>
-    <a href="/admin/tenants/{{ tenant.id }}/stream-config" class="btn btn-primary">
-      <i class="fe fe-git-merge me-1"></i>Παραμετροποίηση Stream (Εσοδα / Αγορές / Ταμείο / Έξοδα)
-    </a>
-  </div>
+    </div>
+  </form>
 </div>
 {% endblock %}

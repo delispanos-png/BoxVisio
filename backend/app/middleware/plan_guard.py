@@ -6,21 +6,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.security import expected_audience_for_host, safe_decode
 from app.models.control import Tenant
 from app.services.subscriptions import get_or_create_subscription, is_feature_enabled
-
-
-FEATURE_PATH_PREFIXES = {
-    'sales': ('/v1/kpi/sales', '/kpi/sales', '/v1/ingest/sales'),
-    'purchases': ('/v1/kpi/purchases', '/kpi/purchases', '/v1/ingest/purchases'),
-    'inventory': ('/v1/kpi/inventory', '/kpi/inventory'),
-    'cashflows': ('/v1/kpi/cashflows', '/kpi/cashflows', '/v1/kpi/cashflow', '/kpi/cashflow'),
-}
+from app.services.subscription_features import feature_key_for_path
 
 
 def required_feature_for_path(path: str) -> str | None:
-    for feature, prefixes in FEATURE_PATH_PREFIXES.items():
-        if any(path.startswith(prefix) for prefix in prefixes):
-            return feature
-    return None
+    return feature_key_for_path(path)
 
 
 async def plan_guard_middleware(request: Request, call_next):

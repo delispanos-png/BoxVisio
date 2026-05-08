@@ -16,12 +16,74 @@
 </div>
 {% endif %}
 
+<style>
+  .stream-toggle-wrap {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+  .stream-toggle-wrap .stream-toggle {
+    width: 18px;
+    height: 18px;
+    margin: 0;
+    opacity: 1 !important;
+    position: static !important;
+    pointer-events: auto !important;
+    appearance: auto;
+    -webkit-appearance: checkbox;
+  }
+  .stream-toggle-state {
+    min-width: 34px;
+    font-size: .72rem;
+    font-weight: 700;
+    line-height: 1;
+  }
+  .stream-toggle-state.is-on {
+    color: #15803d;
+  }
+  .stream-toggle-state.is-off {
+    color: #b91c1c;
+  }
+  .stream-behavior-card {
+    border: 1px solid #d9e2f2;
+    border-radius: 10px;
+    background: #f8fbff;
+    padding: 10px 12px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 48px;
+  }
+  .stream-behavior-code {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 40px;
+    height: 28px;
+    padding: 0 10px;
+    border-radius: 999px;
+    background: #5b6675;
+    color: #fff;
+    font-size: .8rem;
+    font-weight: 700;
+    line-height: 1;
+    flex-shrink: 0;
+  }
+  .stream-behavior-label {
+    color: #1f2937;
+    font-size: .88rem;
+    font-weight: 600;
+    line-height: 1.25;
+  }
+</style>
+
 {# Stream tab nav #}
 <ul class="nav nav-tabs mb-0" id="streamTabs">
   {% for s in streams %}
   <li class="nav-item">
     <button class="nav-link {% if loop.first %}active{% endif %}"
-      data-bs-toggle="tab" data-bs-target="#tab-{{ s.key }}" type="button">
+      data-bs-toggle="tab" data-bs-target="#tab-{{ s.key }}" data-stream-key="{{ s.key }}" type="button">
       <i class="fe fe-{{ s.icon }} me-1"></i>{{ s.label }}
       {% if s.excluded_count %}
         <span class="badge bg-warning text-dark ms-1">{{ s.excluded_count }} εξαιρ.</span>
@@ -105,7 +167,7 @@
             <tr>
               <th style="width:48px" class="text-center">Ενεργό</th>
               <th>Series</th>
-              <th>Τύπος</th>
+              <th>{{ s.source_col_label or 'Πηγή Ροής' }}</th>
               <th>Κωδικοί Συμπ.</th>
               <th class="text-end">Εγγραφές</th>
               <th class="text-end">YTD Αξία</th>
@@ -116,24 +178,27 @@
             {% for row in s.series %}
             <tr class="{% if not row.included %}table-warning{% endif %}">
               <td class="text-center">
-                <div class="form-check form-switch d-flex justify-content-center mb-0">
+                <div class="stream-toggle-wrap">
                   <input class="form-check-input stream-toggle" type="checkbox"
                     id="chk-{{ s.key }}-{{ loop.index }}"
                     name="series_include_{{ row.series }}__{{ row.doc_type }}"
                     data-stream="{{ s.key }}"
                     {% if row.included %}checked{% endif %}
-                    onchange="this.closest('tr').className = this.checked ? '' : 'table-warning'">
+                    onchange="updateStreamToggleState(this)">
+                  <span class="stream-toggle-state {% if row.included %}is-on{% else %}is-off{% endif %}">
+                    {% if row.included %}ΝΑΙ{% else %}ΟΧΙ{% endif %}
+                  </span>
                 </div>
               </td>
               <td>
                 <span class="fw-semibold font-monospace">{{ row.series or '(κενό)' }}</span>
               </td>
               <td>
-                <span class="badge bg-light text-dark border">{{ row.doc_type or '—' }}</span>
+                <span class="badge bg-light text-dark border" title="{{ row.doc_type or '—' }}">{{ row.doc_type_label or '—' }}</span>
               </td>
               <td>
                 {% for code in row.behavior_codes %}
-                  <span class="badge bg-secondary me-1" title="{{ behavior_labels.get(code, '') }}">{{ code }}</span>
+                  <span class="badge bg-secondary me-1" title="{{ behavior_labels.get(code, 'Άγνωστος') }}">{{ code }} · {{ behavior_labels.get(code, 'Άγνωστος') }}</span>
                 {% else %}—
                 {% endfor %}
               </td>
@@ -163,13 +228,13 @@
     {% if beh_codes %}
     <div class="mt-4 p-3 bg-light rounded border">
       <div class="fw-semibold mb-2 text-muted small text-uppercase">
-        <i class="fe fe-info me-1"></i>Κωδικοί Συμπεριφοράς (TFPRMS) στο stream
+        <i class="fe fe-info me-1"></i>Τύποι Παραστατικών Που Βρέθηκαν Στο Stream
       </div>
       <div class="d-flex flex-wrap gap-2">
         {% for code in beh_codes %}
-        <div class="border rounded px-3 py-1 bg-white d-flex align-items-center gap-2">
-          <span class="badge bg-secondary">{{ code }}</span>
-          <span class="small">{{ behavior_labels.get(code, 'Άγνωστος') }}</span>
+        <div class="stream-behavior-card">
+          <span class="stream-behavior-code">{{ code }}</span>
+          <span class="stream-behavior-label">{{ behavior_labels.get(code, 'Άγνωστος') }}</span>
         </div>
         {% endfor %}
       </div>
@@ -187,11 +252,61 @@
 </div>
 
 <script>
+function updateStreamToggleState(input) {
+  if(!input) return;
+  const row = input.closest('tr');
+  if(row) row.className = input.checked ? '' : 'table-warning';
+  const state = input.parentElement?.querySelector('.stream-toggle-state');
+  if(state){
+    state.textContent = input.checked ? 'ΝΑΙ' : 'ΟΧΙ';
+    state.classList.toggle('is-on', input.checked);
+    state.classList.toggle('is-off', !input.checked);
+  }
+}
+
 function setAll(streamKey, checked) {
   document.querySelectorAll('#tab-' + streamKey + ' .stream-toggle').forEach(function(cb) {
     cb.checked = checked;
-    cb.closest('tr').className = checked ? '' : 'table-warning';
+    updateStreamToggleState(cb);
   });
 }
+
+(function(){
+  const tabButtons = Array.from(document.querySelectorAll('#streamTabs [data-stream-key]'));
+  const tabPanes = Array.from(document.querySelectorAll('.tab-content .tab-pane'));
+  if(!tabButtons.length || !tabPanes.length) return;
+
+  function activateStream(streamKey, updateUrl = true){
+    tabButtons.forEach((btn)=>{
+      const isActive = btn.dataset.streamKey === streamKey;
+      btn.classList.toggle('active', isActive);
+      btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
+    });
+    tabPanes.forEach((pane)=>{
+      const isActive = pane.id === `tab-${streamKey}`;
+      pane.classList.toggle('show', isActive);
+      pane.classList.toggle('active', isActive);
+    });
+    if(updateUrl){
+      const url = new URL(window.location.href);
+      url.searchParams.set('stream', streamKey);
+      window.history.replaceState({}, '', url.toString());
+    }
+  }
+
+  tabButtons.forEach((btn)=>{
+    btn.addEventListener('click', function(ev){
+      ev.preventDefault();
+      activateStream(btn.dataset.streamKey);
+    });
+  });
+
+  const streamFromUrl = new URL(window.location.href).searchParams.get('stream');
+  const initialStream = tabButtons.some((btn)=>btn.dataset.streamKey === streamFromUrl)
+    ? streamFromUrl
+    : (tabButtons.find((btn)=>btn.classList.contains('active'))?.dataset.streamKey || tabButtons[0].dataset.streamKey);
+  activateStream(initialStream, false);
+  document.querySelectorAll('.stream-toggle').forEach(updateStreamToggleState);
+})();
 </script>
 {% endblock %}

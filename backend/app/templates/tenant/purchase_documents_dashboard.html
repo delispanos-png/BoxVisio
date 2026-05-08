@@ -57,6 +57,16 @@
       <select name="warehouses" id="purchaseDocsWarehouses" multiple hidden></select>
     </div>
   </div>
+  <div class="col-12 col-md-4 col-xl-3">
+    <label class="form-label mb-1">Σειρά</label>
+    <input
+      class="form-control"
+      type="text"
+      name="series"
+      id="purchaseDocsSeries"
+      placeholder="π.χ. 2061 ή Τιμολόγιο"
+    >
+  </div>
   <div class="col-12 col-md-4 col-xl-3 d-grid gap-2 align-content-end">
     <button class="btn btn-primary" type="submit"><i class="fe fe-filter"></i> {{ tt(request, 'apply') }}</button>
     <button class="btn btn-outline-secondary" type="button" id="purchaseDocsReset"><i class="fe fe-rotate-ccw"></i> Καθαρισμός</button>
@@ -77,7 +87,7 @@
     background: rgba(59, 130, 246, 0.08);
   }
   .purchase-doc-modal {
-    --bv-modal-max-width: 1320px;
+    --bv-modal-max-width: 1560px;
     --bv-modal-max-height: 92vh;
   }
   .purchase-doc-modal .modal-body {
@@ -87,6 +97,22 @@
   .purchase-doc-lines-wrap {
     max-height: min(34vh, 360px);
     overflow: auto;
+  }
+  .purchase-doc-lines-table {
+    min-width: 1720px;
+    table-layout: fixed;
+  }
+  .purchase-doc-lines-table th,
+  .purchase-doc-lines-table td {
+    white-space: nowrap;
+  }
+  .purchase-doc-lines-table .purchase-doc-line-desc {
+    min-width: 420px;
+    width: 420px;
+    white-space: normal;
+    word-break: normal;
+    overflow-wrap: anywhere;
+    line-height: 1.35;
   }
   .purchase-doc-modal .form-label {
     font-size: 0.76rem;
@@ -230,12 +256,31 @@
 
             <div class="fw-semibold text-warning border-bottom pb-1 mb-2">Είδη</div>
             <div class="table-responsive border rounded purchase-doc-lines-wrap mb-3">
-              <table class="table table-sm align-middle mb-0">
+              <table class="table table-sm align-middle mb-0 purchase-doc-lines-table">
+                <colgroup>
+                  <col style="width:52px">
+                  <col style="width:120px">
+                  <col style="width:420px">
+                  <col style="width:90px">
+                  <col style="width:76px">
+                  <col style="width:76px">
+                  <col style="width:86px">
+                  <col style="width:86px">
+                  <col style="width:86px">
+                  <col style="width:86px">
+                  <col style="width:110px">
+                  <col style="width:110px">
+                  <col style="width:110px">
+                  <col style="width:132px">
+                  <col style="width:148px">
+                  <col style="width:96px">
+                  <col style="width:110px">
+                </colgroup>
                 <thead class="table-light sticky-top">
                   <tr>
                     <th style="width:52px">Α/Α</th>
                     <th style="width:120px">Κωδικός</th>
-                    <th>Περιγραφή</th>
+                    <th class="purchase-doc-line-desc">Περιγραφή</th>
                     <th>Κανάλι</th>
                     <th class="text-end">Ποσ. 1</th>
                     <th class="text-end">Εκτελ.</th>
@@ -261,20 +306,20 @@
             <div class="fw-semibold text-warning border-bottom pb-1 mb-2">Σύνολα</div>
             <div class="row g-2">
               <div class="col-md-4">
-                <label class="form-label mb-1">Συν.Αξία</label>
-                <input type="text" class="form-control form-control-sm" id="purchaseDocTGross" readonly>
+                <label class="form-label mb-1">Σύνολο καθαρής αξίας</label>
+                <input type="text" class="form-control form-control-sm" id="purchaseDocTNet" readonly>
               </div>
               <div class="col-md-4">
-                <label class="form-label mb-1">Αξία ΦΠΑ</label>
-                <input type="text" class="form-control form-control-sm" id="purchaseDocTVat" readonly>
-              </div>
-              <div class="col-md-4">
-                <label class="form-label mb-1">Αξία Εξόδων</label>
+                <label class="form-label mb-1">Σύνολο εξόδων</label>
                 <input type="text" class="form-control form-control-sm" id="purchaseDocTExpenses" readonly>
               </div>
               <div class="col-md-4">
-                <label class="form-label mb-1">Καθ.Αξία</label>
-                <input type="text" class="form-control form-control-sm" id="purchaseDocTNet" readonly>
+                <label class="form-label mb-1">Σύνολο ΦΠΑ</label>
+                <input type="text" class="form-control form-control-sm" id="purchaseDocTVat" readonly>
+              </div>
+              <div class="col-md-4">
+                <label class="form-label mb-1">Σύνολο</label>
+                <input type="text" class="form-control form-control-sm" id="purchaseDocTGross" readonly>
               </div>
               <div class="col-md-4">
                 <label class="form-label mb-1">Κόστος</label>
@@ -501,6 +546,8 @@ function params(){
   const p = new URLSearchParams();
   p.set('from', toIsoDate(fd.get('from')));
   p.set('to', toIsoDate(fd.get('to')));
+  const series = String(fd.get('series') || '').trim();
+  if(series) p.set('series', series);
   purchaseDocFieldDefs.forEach((field) => {
     const sel = document.getElementById(field.selectId);
     Array.from(sel?.selectedOptions || []).forEach((o) => p.append(field.key, o.value));
@@ -690,7 +737,13 @@ function renderPurchaseDocumentsSummary(summary, meta={}){
   if(!el) return;
   const docs = toNum(summary?.documents);
   purchaseDocsTotal = Math.max(0, Math.round(docs));
-  el.textContent = `Παραστατικά: ${fmt0.format(Math.round(docs))} | Συν.Αξία: ${money(summary?.net_value)} | Κόστος: ${money(summary?.cost_value)} | Συν.ποσ.: ${fmt2.format(toNum(summary?.qty_total))}`;
+  const net = toNum(summary?.net_value);
+  const vat = toNum(summary?.vat_value);
+  const gross = toNum(summary?.gross_value);
+  const expenses = Number.isFinite(Number(summary?.expenses_value))
+    ? toNum(summary?.expenses_value)
+    : (gross - net - vat);
+  el.textContent = `Παραστατικά: ${fmt0.format(Math.round(docs))} | Σύνολο καθαρής αξίας: ${money(net)} | Σύνολο εξόδων: ${money(expenses)} | Σύνολο ΦΠΑ: ${money(vat)} | Σύνολο: ${money(gross)}`;
 
   const limit = Math.max(1, Number(meta.limit || document.getElementById('purchaseDocsPageSize')?.value || 100));
   const offset = Math.max(0, Number(meta.offset || 0));
@@ -714,7 +767,7 @@ function renderPurchaseDocumentLines(lines){
     tr.innerHTML = `
       <td>${fmt0.format(Number(line.row_no || idx + 1))}</td>
       <td>${escapeHtml(textOrDash(line.item_code, '-'))}</td>
-      <td>${escapeHtml(textOrDash(line.item_name, '-'))}</td>
+      <td class="purchase-doc-line-desc">${escapeHtml(textOrDash(line.item_name, '-'))}</td>
       <td>${escapeHtml(textOrDash(line.channel_name, ''))}</td>
       <td class="text-end">${fmt2.format(toNum(line.qty))}</td>
       <td class="text-end">${fmt2.format(toNum(line.qty_executed))}</td>
@@ -745,10 +798,10 @@ function fillPurchaseDocumentModal(data){
   document.getElementById('purchaseDocumentModalSub').textContent =
     `Snapshot: ${formatDateOnly(data?.document_date)} | Γραμμές: ${fmt0.format(Math.round(toNum(totals.line_count)))}`;
 
-  setInputValue('purchaseDocFBranch', combineCodeName(header.branch_code, header.branch_name));
+  setInputValue('purchaseDocFBranch', header.branch_name || header.branch_code);
   setInputValue('purchaseDocFWarehouse', combineCodeName(header.warehouse_code, header.warehouse_name));
   setInputValue('purchaseDocFSeries', header.series);
-  setInputValue('purchaseDocFType', header.document_type);
+  setInputValue('purchaseDocFType', header.document_type_label || header.document_type);
   setInputValue('purchaseDocFDocumentNo', data?.document_no || data?.document_id);
   setInputValue('purchaseDocFSupplier', combineCodeName(header.supplier_code, header.supplier_name));
   setInputValue('purchaseDocFDate', formatDateOnly(data?.document_date));
@@ -795,7 +848,10 @@ async function reloadPurchaseDocuments(e){
     if(body){
       body.innerHTML = '<tr><td colspan="8" class="text-center text-danger py-3">Αποτυχία φόρτωσης παραστατικών.</td></tr>';
     }
-    renderPurchaseDocumentsSummary({ documents: 0, net_value: 0, cost_value: 0, qty_total: 0 }, { limit: document.getElementById('purchaseDocsPageSize')?.value || 100, offset: 0, rowsCount: 0 });
+    renderPurchaseDocumentsSummary(
+      { documents: 0, net_value: 0, vat_value: 0, expenses_value: 0, gross_value: 0, cost_value: 0, qty_total: 0 },
+      { limit: document.getElementById('purchaseDocsPageSize')?.value || 100, offset: 0, rowsCount: 0 }
+    );
   }
 }
 

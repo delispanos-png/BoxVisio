@@ -28,7 +28,7 @@
     </div>
   </div>
   <div class="col-12 col-md-6 col-xl-2">
-    <label class="form-label mb-1">Αποθ. χώρος</label>
+    <label class="form-label mb-1">Αποθηκευτικός χώρος</label>
     <div class="bv-multi" id="salesWarehousesMulti">
       <button type="button" class="form-select bv-multi-toggle text-start" id="salesWarehousesToggle">Επιλογή</button>
       <div class="bv-multi-menu" id="salesWarehousesMenu" hidden>
@@ -62,6 +62,15 @@
   <div class="col-12 col-md-6 col-xl-2">
     <label class="form-label mb-1">Σειρά</label>
     <input class="form-control" type="text" name="series" placeholder="Σειρά">
+  </div>
+  <div class="col-12 col-md-6 col-xl-2 d-flex align-items-end">
+    <div class="form-check mb-2">
+      <input class="form-check-input" type="checkbox" id="specialRevenueMode" name="special_revenue_mode" value="1">
+      <label class="form-check-label" for="specialRevenueMode">Ειδικές Εσόδων (101/102/131/181)</label>
+    </div>
+  </div>
+  <div class="col-12">
+    <small id="specialRevenueHint" class="text-muted d-none">Κανόνας πρόσημου: 102 και 181 πιστωτικά αρνητικά.</small>
   </div>
   <div class="col-12 col-md-6 col-xl-2">
     <label class="form-label mb-1">Status</label>
@@ -663,6 +672,11 @@
   #salesDocsTable tbody tr.is-active {
     background: #e0ecff;
   }
+  #salesDocsTable th:nth-child(4),
+  #salesDocsTable td:nth-child(4) {
+    min-width: 220px;
+    max-width: 320px;
+  }
   .sales-doc-status {
     display: inline-flex;
     align-items: center;
@@ -724,15 +738,16 @@
         <tr>
           <th>Ημερομηνία</th>
           <th>Υποκατάστημα</th>
-          <th>Αποθ. χώρος</th>
+          <th>Αποθηκευτικός χώρος</th>
           <th>Σειρά</th>
-          <th>Status</th>
+          <th>Κανάλι πώλησης</th>
           <th>Κωδ. παραστ.</th>
           <th>Κωδ. eshop</th>
           <th>Πελάτης</th>
           <th>Παράδοση</th>
           <th>Σχόλια</th>
           <th class="text-end">Καθ.Αξία</th>
+          <th class="text-end">Αξία εξόδων</th>
           <th class="text-end">ΦΠΑ</th>
           <th class="text-end">Συν.Αξία</th>
           <th>Από</th>
@@ -740,7 +755,7 @@
         </tr>
       </thead>
       <tbody id="salesDocsBody">
-        <tr><td colspan="15" class="text-center text-muted py-3">Φόρτωση παραστατικών...</td></tr>
+        <tr><td colspan="16" class="text-center text-muted py-3">Φόρτωση παραστατικών...</td></tr>
       </tbody>
     </table>
   </div>
@@ -1071,7 +1086,7 @@
                 <input type="text" class="form-control form-control-sm" id="salesDocFBranch" readonly>
               </div>
               <div class="col-md-6">
-                <label class="form-label mb-1">Αποθ. χώρος</label>
+                <label class="form-label mb-1">Αποθηκευτικός χώρος</label>
                 <input type="text" class="form-control form-control-sm" id="salesDocFWarehouse" readonly>
               </div>
               <div class="col-md-6">
@@ -1095,7 +1110,7 @@
                 <input type="text" class="form-control form-control-sm" id="salesDocFCustomer" readonly>
               </div>
               <div class="col-md-6">
-                <label class="form-label mb-1">Status</label>
+                <label class="form-label mb-1">Έξοδα αποστολής</label>
                 <input type="text" class="form-control form-control-sm" id="salesDocFStatus" readonly>
               </div>
               <div class="col-md-6">
@@ -1107,7 +1122,7 @@
                 <input type="text" class="form-control form-control-sm" id="salesDocFPayment" readonly>
               </div>
               <div class="col-md-6">
-                <label class="form-label mb-1">Αποστολή</label>
+                <label class="form-label mb-1">Κωδ. αποστολής</label>
                 <input type="text" class="form-control form-control-sm" id="salesDocFShipping" readonly>
               </div>
               <div class="col-md-6">
@@ -1146,20 +1161,20 @@
             <div class="fw-semibold text-warning border-bottom pb-1 mb-2">Σύνολα</div>
             <div class="row g-2">
               <div class="col-md-6">
-                <label class="form-label mb-1">Συν.Αξία</label>
-                <input type="text" class="form-control form-control-sm" id="salesDocTGross" readonly>
+                <label class="form-label mb-1">Σύνολο καθαρής αξίας</label>
+                <input type="text" class="form-control form-control-sm" id="salesDocTNet" readonly>
               </div>
               <div class="col-md-6">
-                <label class="form-label mb-1">Αξία ΦΠΑ</label>
-                <input type="text" class="form-control form-control-sm" id="salesDocTVat" readonly>
-              </div>
-              <div class="col-md-6">
-                <label class="form-label mb-1">Αξία Εξόδων</label>
+                <label class="form-label mb-1">Σύνολο εξόδων</label>
                 <input type="text" class="form-control form-control-sm" id="salesDocTExpenses" readonly>
               </div>
               <div class="col-md-6">
-                <label class="form-label mb-1">Καθ.Αξία</label>
-                <input type="text" class="form-control form-control-sm" id="salesDocTNet" readonly>
+                <label class="form-label mb-1">Σύνολο ΦΠΑ</label>
+                <input type="text" class="form-control form-control-sm" id="salesDocTVat" readonly>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label mb-1">Γενικό Σύνολο</label>
+                <input type="text" class="form-control form-control-sm" id="salesDocTGross" readonly>
               </div>
               <div class="col-md-6">
                 <label class="form-label mb-1">Συν.ποσ.1</label>
@@ -1270,6 +1285,8 @@ let trendChart, donutChart, barChart, moversChart, seasonalityChart;
 let salesDocModalEl, salesDocModalCtrl, salesDocWizardCtrl, salesDocSearchDebounce;
 let salesDocActiveId = '';
 let salesDocOpenToken = 0;
+let salesDocsReloadToken = 0;
+let salesDocsAbortController = null;
 let salesDocsPage = 1;
 let salesDocsTotal = 0;
 const documentsMode = {{ 'true' if documents_mode else 'false' }};
@@ -1509,7 +1526,7 @@ function renderSalesDocumentsTable(rows){
   if(!body) return;
   body.innerHTML = '';
   if(!(rows || []).length){
-    body.innerHTML = '<tr><td colspan="15" class="text-center text-muted py-3">Δεν βρέθηκαν παραστατικά.</td></tr>';
+    body.innerHTML = '<tr><td colspan="16" class="text-center text-muted py-3">Δεν βρέθηκαν παραστατικά.</td></tr>';
     return;
   }
   (rows || []).forEach((r)=>{
@@ -1522,15 +1539,16 @@ function renderSalesDocumentsTable(rows){
     tr.innerHTML = `
       <td>${escapeHtml(formatDateOnly(r.document_date))}</td>
       <td>${escapeHtml(textOrDash(r.branch))}</td>
-      <td>${escapeHtml(textOrDash(r.warehouse))}</td>
+      <td>${escapeHtml(combineCodeName(r.warehouse_code, r.warehouse))}</td>
       <td>${escapeHtml(textOrDash(r.series))}</td>
-      <td><span class="sales-doc-status" title="${escapeHtml(textOrDash(r.status))}">${escapeHtml(textOrDash(r.status))}</span></td>
+      <td>${escapeHtml(textOrDash(r.channel_name, ''))}</td>
       <td>${escapeHtml(textOrDash(r.document_no))}</td>
       <td>${escapeHtml(textOrDash(r.eshop_code, ''))}</td>
       <td>${escapeHtml(textOrDash(r.customer, 'ΠΕΛΑΤΗΣ ΛΙΑΝΙΚΗΣ'))}</td>
       <td>${escapeHtml(textOrDash(r.delivery_info, ''))}</td>
       <td title="${escapeHtml(textOrDash(r.comments_info, ''))}">${escapeHtml(textOrDash(r.comments_info, ''))}</td>
       <td class="text-end">${money(r.total_net_value)}</td>
+      <td class="text-end">${money(r.total_expenses_value)}</td>
       <td class="text-end">${money(r.total_vat_value)}</td>
       <td class="text-end">${money(r.total_gross_value)}</td>
       <td>${escapeHtml(textOrDash(r.from_ref, ''))}</td>
@@ -1564,7 +1582,13 @@ function renderSalesDocumentsSummary(summary, meta={}){
   if(!el) return;
   const docs = toNum(summary?.documents);
   salesDocsTotal = Math.max(0, Math.round(docs));
-  el.textContent = `Παραστατικά: ${fmt0.format(Math.round(docs))} | Καθ.Αξία: ${money(summary?.net_value)}`;
+  const net = toNum(summary?.net_value);
+  const vat = toNum(summary?.vat_value);
+  const gross = toNum(summary?.gross_value);
+  const expenses = Number.isFinite(Number(summary?.expenses_value))
+    ? toNum(summary?.expenses_value)
+    : (gross - net - vat);
+  el.textContent = `Παραστατικά: ${fmt0.format(Math.round(docs))} | Σύνολο καθαρής αξίας: ${money(net)} | Σύνολο εξόδων: ${money(expenses)} | Σύνολο ΦΠΑ: ${money(vat)} | Γενικό Σύνολο: ${money(gross)}`;
 
   const limit = Math.max(1, Number(meta.limit || document.getElementById('salesDocsPageSize')?.value || 200));
   const offset = Math.max(0, Number(meta.offset || 0));
@@ -1614,13 +1638,19 @@ function fillSalesDocumentModal(data){
     `Snapshot: ${formatDateOnly(data?.document_date)} | Γραμμές: ${fmt0.format(Math.round(toNum(totals.line_count)))}`;
 
   setInputValue('salesDocFBranch', header.branch_name || header.branch_code);
-  setInputValue('salesDocFWarehouse', header.warehouse_name || header.warehouse_code);
+  setInputValue('salesDocFWarehouse', combineCodeName(header.warehouse_code, header.warehouse_name));
   setInputValue('salesDocFSeries', compactSeriesTypeLabel(header.series));
   setInputValue('salesDocFType', compactSeriesTypeLabel(header.document_type));
   setInputValue('salesDocFDocumentNo', data?.document_no || data?.document_id);
   setInputValue('salesDocFEshopCode', header.eshop_code);
   setInputValue('salesDocFCustomer', combineCodeName(header.customer_code, header.customer_name));
-  setInputValue('salesDocFStatus', header.status);
+  const shippingExpenseLabel = [
+    textOrDash(header.shipping_expense_description, ''),
+    Number.isFinite(Number(header.shipping_expense_value)) && Number(header.shipping_expense_value) !== 0
+      ? money(header.shipping_expense_value)
+      : ''
+  ].filter(Boolean).join(' | ');
+  setInputValue('salesDocFStatus', shippingExpenseLabel);
   setInputValue('salesDocFDate', formatDateOnly(data?.document_date));
   setInputValue('salesDocFPayment', header.payment_method);
   setInputValue('salesDocFShipping', header.shipping_method);
@@ -1656,15 +1686,24 @@ function fillSalesDocumentModal(data){
   setInputValue('salesDocAUpdatedBy', audit.updated_by);
 }
 async function reloadSalesDocuments(){
+  const token = ++salesDocsReloadToken;
+  if (salesDocsAbortController) {
+    salesDocsAbortController.abort();
+  }
+  salesDocsAbortController = new AbortController();
   const body = document.getElementById('salesDocsBody');
   if(body){
-    body.innerHTML = '<tr><td colspan="13" class="text-center text-muted py-3">Φόρτωση παραστατικών...</td></tr>';
+    body.innerHTML = '<tr><td colspan="16" class="text-center text-muted py-3">Φόρτωση παραστατικών...</td></tr>';
   }
   try {
     const p = salesDocumentsParams();
-    const res = await fetch(`/v1/kpi/sales/documents?${p.toString()}`);
+    const res = await fetch(`/v1/kpi/sales/documents?${p.toString()}`, {
+      signal: salesDocsAbortController.signal,
+    });
+    if(token !== salesDocsReloadToken) return;
     if(!res.ok) throw new Error('Αποτυχία φόρτωσης παραστατικών.');
     const payload = await res.json();
+    if(token !== salesDocsReloadToken) return;
     renderSalesDocumentsTable(payload?.rows || []);
     renderSalesDocumentsSummary(payload?.summary || {}, {
       limit: payload?.limit,
@@ -1672,11 +1711,12 @@ async function reloadSalesDocuments(){
       rowsCount: (payload?.rows || []).length,
     });
   } catch (_err){
+    if (_err?.name === 'AbortError' || token !== salesDocsReloadToken) return;
     if(body){
-      body.innerHTML = '<tr><td colspan="13" class="text-center text-danger py-3">Αποτυχία φόρτωσης παραστατικών.</td></tr>';
+      body.innerHTML = '<tr><td colspan="16" class="text-center text-danger py-3">Αποτυχία φόρτωσης παραστατικών.</td></tr>';
     }
     renderSalesDocumentsSummary(
-      { documents: 0, gross_value: 0, net_value: 0, vat_value: 0 },
+      { documents: 0, gross_value: 0, net_value: 0, expenses_value: 0, vat_value: 0 },
       { limit: document.getElementById('salesDocsPageSize')?.value || 200, offset: 0, rowsCount: 0 }
     );
   }
@@ -1723,8 +1763,17 @@ function params(){
     });
     const channelSel = document.getElementById('salesDocChannels');
     Array.from(channelSel?.selectedOptions || []).forEach(o => p.append('channels', o.value));
+    if (document.getElementById('specialRevenueMode')?.checked) {
+      ['101','102','131','181'].forEach((b) => p.append('behaviors', b));
+    }
   }
   return p;
+}
+function syncSpecialRevenueHint(){
+  const cb = document.getElementById('specialRevenueMode');
+  const hint = document.getElementById('specialRevenueHint');
+  if(!cb || !hint) return;
+  hint.classList.toggle('d-none', !cb.checked);
 }
 
 function sameDayPreviousYear(dateObj){
@@ -2712,6 +2761,14 @@ window.addEventListener('load', async () => {
     if(el) el.addEventListener('change', ()=>syncSalesCategoryHierarchy(id));
   });
   await loadSalesFilterOptions();
+  syncSpecialRevenueHint();
+  document.getElementById('specialRevenueMode')?.addEventListener('change', () => {
+    syncSpecialRevenueHint();
+    if(documentsMode){
+      salesDocsPage = 1;
+      reloadSalesDocuments();
+    }
+  });
   await reloadSales();
 
   const salesDocsSearch = document.getElementById('salesDocsSearch');
@@ -2779,6 +2836,7 @@ document.getElementById('salesFiltersReset')?.addEventListener('click', async ()
   });
   syncSalesCategoryHierarchy();
   salesUiFieldDefs.forEach((field) => syncSalesMultiUI(field.selectId, field.label));
+  syncSpecialRevenueHint();
   salesDocsPage = 1;
   await loadSalesFilterOptions();
   await reloadSales();

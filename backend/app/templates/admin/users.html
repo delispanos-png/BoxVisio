@@ -1,5 +1,52 @@
 {% extends "base_admin.html" %}
 {% block content %}
+<style>
+.admin-users-page { --u-border:#e5eaf3; --u-muted:#64748b; --u-ink:#0f172a; }
+.users-hero { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin:4px 0 16px; }
+.users-hero h4 { margin:0; font-weight:800; color:var(--u-ink); }
+.users-hero p { margin:.25rem 0 0; color:var(--u-muted); font-size:.9rem; }
+.users-stats { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin-bottom:16px; }
+.users-stat { border:1px solid var(--u-border); background:#fff; border-radius:8px; padding:13px 14px; }
+.users-stat span { display:block; color:var(--u-muted); font-size:.72rem; font-weight:800; text-transform:uppercase; letter-spacing:.05em; }
+.users-stat strong { display:block; margin-top:3px; font-size:1.45rem; line-height:1; color:var(--u-ink); }
+.users-panel { border:1px solid var(--u-border); border-radius:8px; background:#fff; margin-bottom:16px; overflow:hidden; }
+.users-panel-hd { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:14px 16px; border-bottom:1px solid var(--u-border); }
+.users-panel-hd h5 { margin:0; font-size:1rem; font-weight:800; color:var(--u-ink); }
+.users-panel-body { padding:16px; }
+.users-form .form-label { margin-bottom:5px; color:var(--u-muted); font-size:.72rem; font-weight:800; text-transform:uppercase; letter-spacing:.05em; }
+.users-form .form-control, .users-form .form-select { min-height:40px; border-radius:8px; }
+.users-toolbar { display:grid; grid-template-columns:minmax(260px,1fr) 160px 160px 220px; gap:10px; margin-bottom:12px; }
+.users-table-wrap { overflow-x:auto; }
+.users-table { min-width:1080px; table-layout:fixed; }
+.users-table thead th { color:var(--u-muted) !important; font-size:.7rem; font-weight:800; text-transform:uppercase; letter-spacing:.05em; white-space:nowrap; }
+.users-table td { vertical-align:middle; }
+.user-cell { display:flex; align-items:center; gap:11px; min-width:0; }
+.user-avatar { width:36px; height:36px; border-radius:8px; display:grid; place-items:center; background:#eef2ff; color:#4f46e5; font-weight:800; flex:0 0 auto; }
+.user-main { min-width:0; }
+.user-name { font-weight:800; color:var(--u-ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.user-email { color:var(--u-muted); font-size:.82rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:330px; }
+.user-meta-line { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+.user-pill { display:inline-flex; align-items:center; gap:5px; border:1px solid var(--u-border); border-radius:999px; padding:3px 8px; background:#f8fafc; color:#334155; font-size:.74rem; font-weight:700; white-space:nowrap; }
+.user-pill.role-cloudon_admin { background:#eef2ff; color:#4338ca; border-color:#c7d2fe; }
+.user-pill.role-tenant_admin { background:#ecfdf5; color:#047857; border-color:#bbf7d0; }
+.user-pill.role-tenant_user { background:#f8fafc; color:#475569; }
+.user-scope strong, .user-access strong { display:block; color:var(--u-ink); font-size:.86rem; font-weight:800; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.user-scope span, .user-access span { display:block; color:var(--u-muted); font-size:.78rem; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.user-status { display:inline-flex; align-items:center; gap:6px; border-radius:999px; padding:5px 9px; font-size:.75rem; font-weight:800; white-space:nowrap; }
+.user-status.is-active { color:#047857; background:#ecfdf5; }
+.user-status.is-inactive { color:#475569; background:#f1f5f9; }
+.user-status-dot { width:7px; height:7px; border-radius:999px; background:currentColor; }
+.user-actions { display:flex; justify-content:flex-end; gap:8px; flex-wrap:nowrap; }
+.user-actions .btn { min-width:42px !important; height:38px; display:inline-flex; align-items:center; justify-content:center; border-radius:8px; }
+.user-actions form { margin:0; }
+.user-empty { padding:34px 10px; text-align:center; color:var(--u-muted); }
+@media (max-width: 1100px) {
+  .users-toolbar { grid-template-columns:1fr 1fr; }
+  .users-stats { grid-template-columns:1fr; }
+  .users-hero { flex-direction:column; }
+}
+</style>
+
 <div class="admin-users-page">
 {% if request.query_params.get('updated') == '1' %}
 <div class="alert alert-success mt-3 mb-3">Η ενέργεια ολοκληρώθηκε επιτυχώς.</div>
@@ -12,51 +59,45 @@
 <div class="alert alert-danger mt-3 mb-3">Η διαγραφή απέτυχε.</div>
 {% endif %}
 
-{% set active_count = users | selectattr('is_active') | list | length %}
-{% set total_count = users | length %}
-{% set tenant_scoped_count = users | selectattr('tenant_id') | list | length %}
+{% set active_count = user_counts.active if user_counts is defined else (users | selectattr('is_active') | list | length) %}
+{% set total_count = user_counts.total if user_counts is defined else (users | length) %}
+{% set tenant_scoped_count = user_counts.tenant_scoped if user_counts is defined else (users | selectattr('tenant_id') | list | length) %}
+{% set admin_count = user_counts.cloudon_admin if user_counts is defined else 0 %}
 
-<div class="row g-3 mb-3 mt-1">
-  <div class="col-xl-3 col-md-4 col-6">
-    <div class="bv-stat-strip">
-      <div class="label">Σύνολο χρηστών</div>
-      <div class="value">{{ total_count }}</div>
-    </div>
+<div class="users-hero">
+  <div>
+    <h4>Χρήστες &amp; Πρόσβαση</h4>
+    <p>Ρόλοι, επαγγελματικά προφίλ, tenant scope και χρονικά όρια πρόσβασης.</p>
   </div>
-  <div class="col-xl-3 col-md-4 col-6">
-    <div class="bv-stat-strip">
-      <div class="label">Ενεργοί χρήστες</div>
-      <div class="value">{{ active_count }}</div>
-    </div>
-  </div>
-  <div class="col-xl-3 col-md-4 col-6">
-    <div class="bv-stat-strip">
-      <div class="label">Χρήστες πελατών</div>
-      <div class="value">{{ tenant_scoped_count }}</div>
-    </div>
-  </div>
+  <a class="btn btn-primary" href="#create-user-panel"><i class="fe fe-user-plus me-1"></i>Νέος χρήστης</a>
 </div>
 
-<div class="card mt-3 shadow-sm">
-  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
-    <h5 class="mb-0">{{ tt(request, 'create_user') }}</h5>
-    <small class="text-muted">Υποχρεωτικά πεδία: Email, Ρόλος, Επαγγελματικό Προφίλ.</small>
+<div class="users-stats">
+  <div class="users-stat"><span>Σύνολο</span><strong>{{ total_count }}</strong></div>
+  <div class="users-stat"><span>Ενεργοί</span><strong>{{ active_count }}</strong></div>
+  <div class="users-stat"><span>Tenant scoped</span><strong>{{ tenant_scoped_count }}</strong></div>
+</div>
+
+<div class="users-panel" id="create-user-panel">
+  <div class="users-panel-hd">
+    <h5>{{ tt(request, 'create_user') }}</h5>
+    <span class="badge bg-light text-dark border">{{ admin_count }} CloudOn admins</span>
   </div>
-  <div class="card-body pb-4">
-    <form method="post" action="/admin/users/create" class="row g-3 align-items-end admin-user-create-form">
+  <div class="users-panel-body">
+    <form method="post" action="/admin/users/create" class="row g-3 align-items-end users-form">
       <div class="col-xl-3 col-lg-4 col-md-6">
         <label class="form-label">{{ tt(request, 'name') }}</label>
         <input class="form-control" name="full_name" placeholder="Πλήρες όνομα">
       </div>
-      <div class="col-xl-2 col-lg-3 col-md-6">
-        <label class="form-label">{{ tt(request, 'phone') if tt(request, 'phone') != 'phone' else 'Phone' }}</label>
-        <input class="form-control" name="phone" placeholder="+30 69X XXX XXXX">
-      </div>
-      <div class="col-xl-3 col-lg-5 col-md-6">
+      <div class="col-xl-3 col-lg-4 col-md-6">
         <label class="form-label">{{ tt(request, 'email') }}</label>
         <input class="form-control" type="email" name="email" placeholder="user@tenant.com" required>
       </div>
-      <div class="col-xl-2 col-lg-3 col-md-6">
+      <div class="col-xl-2 col-lg-4 col-md-6">
+        <label class="form-label">{{ tt(request, 'phone') if tt(request, 'phone') != 'phone' else 'Phone' }}</label>
+        <input class="form-control" name="phone" placeholder="+30 69X XXX XXXX">
+      </div>
+      <div class="col-xl-2 col-lg-4 col-md-6">
         <label class="form-label">{{ tt(request, 'role') }}</label>
         <select class="form-select" name="role" id="createUserRoleSelect">
           <option value="tenant_user" data-default-profile="{{ role_default_profile_code.get('tenant_user', 'FINANCE') }}">Χρήστης Πελάτη</option>
@@ -64,8 +105,8 @@
           <option value="cloudon_admin" data-default-profile="{{ role_default_profile_code.get('cloudon_admin', 'OWNER') }}">CloudOn Admin</option>
         </select>
       </div>
-      <div class="col-xl-3 col-lg-4 col-md-6">
-        <label class="form-label">Επαγγελματικό Προφίλ</label>
+      <div class="col-xl-2 col-lg-4 col-md-6">
+        <label class="form-label">Προφίλ</label>
         <select class="form-select" name="professional_profile_code" id="createUserProfileSelect" required>
           {% for p in professional_profiles %}
           <option value="{{ p.profile_code }}" {% if p.profile_code == role_default_profile_code.get('tenant_admin', 'MANAGER') %}selected{% endif %}>
@@ -74,7 +115,6 @@
           {% endfor %}
         </select>
       </div>
-
       <div class="col-xl-4 col-lg-5 col-md-6">
         <label class="form-label">{{ tt(request, 'tenant') }}</label>
         <select class="form-select" name="tenant_id">
@@ -85,18 +125,18 @@
         </select>
       </div>
       <div class="col-xl-2 col-lg-3 col-md-6">
-        <label class="form-label">Company ID Scope</label>
+        <label class="form-label">Company Scope</label>
         <input class="form-control" name="company_id" placeholder="1001">
       </div>
-      <div class="col-xl-3 col-lg-4 col-md-6">
-        <label class="form-label">{{ tt(request, 'access_from') if tt(request, 'access_from') != 'access_from' else 'Access from' }}</label>
+      <div class="col-xl-2 col-lg-3 col-md-6">
+        <label class="form-label">Πρόσβαση από</label>
         <input class="form-control" type="datetime-local" name="access_starts_at">
       </div>
-      <div class="col-xl-3 col-lg-4 col-md-6">
-        <label class="form-label">{{ tt(request, 'access_until') if tt(request, 'access_until') != 'access_until' else 'Access until' }}</label>
+      <div class="col-xl-2 col-lg-3 col-md-6">
+        <label class="form-label">Πρόσβαση έως</label>
         <input class="form-control" type="datetime-local" name="access_expires_at">
       </div>
-      <div class="col-xl-2 col-lg-4 col-md-6">
+      <div class="col-xl-2 col-lg-3 col-md-6">
         <button class="btn btn-primary w-100" type="submit">
           <i class="fe fe-user-plus me-1"></i>{{ tt(request, 'create') }}
         </button>
@@ -105,99 +145,175 @@
   </div>
 </div>
 
-<div class="card mt-3 shadow-sm">
-  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
-    <h5 class="mb-0">{{ tt(request, 'users') }}</h5>
-    <small class="text-muted">Επεξεργασία / εναλλαγή / διαγραφή ανά χρήστη.</small>
+<div class="users-panel">
+  <div class="users-panel-hd">
+    <h5>{{ tt(request, 'users') }}</h5>
+    <span class="text-muted small"><span id="usersVisibleCount">{{ total_count }}</span> / {{ total_count }}</span>
   </div>
-  <div class="card-body">
-    <div class="table-responsive">
+  <div class="users-panel-body">
+    <div class="users-toolbar">
+      <input class="form-control" id="usersSearch" placeholder="Αναζήτηση ονόματος, email, tenant">
+      <select class="form-select" id="usersRoleFilter">
+        <option value="">Όλοι οι ρόλοι</option>
+        <option value="cloudon_admin">CloudOn Admin</option>
+        <option value="tenant_admin">Tenant Admin</option>
+        <option value="tenant_user">Tenant User</option>
+      </select>
+      <select class="form-select" id="usersStatusFilter">
+        <option value="">Όλες οι καταστάσεις</option>
+        <option value="active">Ενεργοί</option>
+        <option value="inactive">Ανενεργοί</option>
+      </select>
+      <select class="form-select" id="usersTenantFilter">
+        <option value="">Όλοι οι πελάτες</option>
+        <option value="__none__">Χωρίς tenant</option>
+        {% for t in tenants %}
+        <option value="{{ t.id }}">{{ t.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="users-table-wrap">
       <table class="table table-hover align-middle users-table bv-unified-table" data-bv-admin-table="1">
+        <colgroup>
+          <col style="width:34%">
+          <col style="width:20%">
+          <col style="width:18%">
+          <col style="width:10%">
+          <col style="width:10%">
+          <col style="width:8%">
+        </colgroup>
         <thead>
           <tr>
-            <th>{{ tt(request, 'name') }}</th>
-            <th>{{ tt(request, 'email') }}</th>
-            <th>{{ tt(request, 'role') }}</th>
-            <th>Προφίλ</th>
-            <th>{{ tt(request, 'tenant') }}</th>
-            <th>Company Scope</th>
-            <th>{{ tt(request, 'phone') if tt(request, 'phone') != 'phone' else 'Phone' }}</th>
-            <th>{{ tt(request, 'access_from') if tt(request, 'access_from') != 'access_from' else 'Access From' }}</th>
-            <th>{{ tt(request, 'access_until') if tt(request, 'access_until') != 'access_until' else 'Access Until' }}</th>
+            <th>Χρήστης</th>
+            <th>Tenant / Scope</th>
+            <th>Πρόσβαση</th>
             <th>{{ tt(request, 'status') }}</th>
             <th>{{ tt(request, 'created') }}</th>
             <th class="text-end">{{ tt(request, 'actions') }}</th>
           </tr>
         </thead>
-        <tbody>
+        <tbody id="usersTableBody">
           {% for u in users %}
-          <tr>
-            <td class="fw-semibold" style="white-space: pre-line;">{{ u.full_name or '-' }}</td>
-            <td class="text-break">{{ u.email }}</td>
+          {% set _pname = profile_name_map.get(u.professional_profile_id) %}
+          {% set _pcode = profile_code_map.get(u.professional_profile_id) %}
+          {% set _tenant_name = tenant_name_map.get(u.tenant_id) if u.tenant_id else '' %}
+          {% set _tenant_slug = tenant_slug_map.get(u.tenant_id) if u.tenant_id else '' %}
+          {% set _status_key = 'active' if u.is_active else 'inactive' %}
+          <tr
+            data-user-row="1"
+            data-role="{{ u.role.value }}"
+            data-status="{{ _status_key }}"
+            data-tenant="{{ u.tenant_id or '__none__' }}"
+            data-search="{{ (u.full_name or '')|lower }} {{ u.email|lower }} {{ (_tenant_name or '')|lower }} {{ (_tenant_slug or '')|lower }} {{ u.role.value|lower }} {{ (_pname or '')|lower }} {{ (_pcode or '')|lower }}"
+          >
             <td>
-              <span class="badge bg-light text-dark border">{{ u.role.value }}</span>
+              <div class="user-cell">
+                <div class="user-avatar">{{ (u.full_name or u.email or '?')[:1] | upper }}</div>
+                <div class="user-main">
+                  <div class="user-name">{{ u.full_name or 'Χωρίς όνομα' }}</div>
+                  <div class="user-email" title="{{ u.email }}">{{ u.email }}</div>
+                  <div class="user-meta-line mt-1">
+                    <span class="user-pill role-{{ u.role.value }}">{{ u.role.value }}</span>
+                    {% if _pname %}<span class="user-pill">{{ _pname }} ({{ _pcode }})</span>{% endif %}
+                  </div>
+                </div>
+              </div>
             </td>
             <td>
-              {% set _pname = profile_name_map.get(u.professional_profile_id) %}
-              {% set _pcode = profile_code_map.get(u.professional_profile_id) %}
-              {% if _pname %}
-              <span class="badge bg-light text-dark border">{{ _pname }} ({{ _pcode }})</span>
-              {% else %}
-              <span class="text-muted">-</span>
-              {% endif %}
+              <div class="user-scope">
+                <strong title="{{ _tenant_name or 'CloudOn' }}">{{ _tenant_name or 'CloudOn' }}</strong>
+                <span>{% if _tenant_slug %}{{ _tenant_slug }}{% else %}global access{% endif %}</span>
+                <span>Company: {{ u.company_id or '-' }}</span>
+              </div>
             </td>
-            <td>{{ u.tenant_id or '-' }}</td>
-            <td>{{ u.company_id or '-' }}</td>
-            <td>{{ u.phone or '-' }}</td>
-            <td>{{ u.access_starts_at or '-' }}</td>
-            <td>{{ u.access_expires_at or '-' }}</td>
             <td>
-              {% if u.is_active %}
-              <span class="badge bg-success">{{ tt(request, 'active') }}</span>
-              {% else %}
-              <span class="badge bg-secondary">{{ tt(request, 'inactive') }}</span>
-              {% endif %}
+              <div class="user-access">
+                <strong>{% if u.access_starts_at %}{{ u.access_starts_at.strftime('%d/%m/%Y %H:%M') }}{% else %}Άμεσα{% endif %}</strong>
+                <span>{% if u.access_expires_at %}έως {{ u.access_expires_at.strftime('%d/%m/%Y %H:%M') }}{% else %}χωρίς λήξη{% endif %}</span>
+                {% if u.phone %}<span>{{ u.phone }}</span>{% endif %}
+              </div>
             </td>
-            <td>{{ u.created_at }}</td>
-            <td class="text-end text-nowrap">
-              <a class="btn btn-sm bv-action-btn bv-action-edit me-1 mb-1" href="/admin/users/{{ u.id }}/edit?next=/admin/users">
-                <i class="fe fe-edit-2 me-1"></i>Επεξεργασία
-              </a>
-              <form method="post" action="/admin/users/{{ u.id }}/toggle" class="d-inline-block me-1 mb-1">
-                <button class="btn btn-sm bv-action-btn bv-action-toggle" type="submit">
-                  <i class="fe fe-refresh-cw me-1"></i>{{ tt(request, 'toggle') }}
-                </button>
-              </form>
-              <form method="post" action="/admin/users/{{ u.id }}/delete" class="d-inline-block mb-1" onsubmit="return confirm('Διαγραφή χρήστη {{ u.email }};');">
-                <button class="btn btn-sm bv-action-btn bv-action-delete" type="submit">
-                  <i class="fe fe-trash-2 me-1"></i>Διαγραφή
-                </button>
-              </form>
+            <td>
+              <span class="user-status is-{{ _status_key }}"><span class="user-status-dot"></span>{{ tt(request, 'active') if u.is_active else tt(request, 'inactive') }}</span>
+            </td>
+            <td class="small text-muted">{{ u.created_at.strftime('%d/%m/%Y') if u.created_at else '-' }}</td>
+            <td>
+              <div class="user-actions">
+                <a class="btn btn-sm bv-action-btn bv-action-edit" href="/admin/users/{{ u.id }}/edit?next=/admin/users" title="Επεξεργασία" aria-label="Επεξεργασία">
+                  <i class="fe fe-edit-2"></i>
+                </a>
+                <form method="post" action="/admin/users/{{ u.id }}/toggle">
+                  <button class="btn btn-sm bv-action-btn bv-action-toggle" type="submit" title="Εναλλαγή κατάστασης" aria-label="Εναλλαγή κατάστασης">
+                    <i class="fe fe-refresh-cw"></i>
+                  </button>
+                </form>
+                <form method="post" action="/admin/users/{{ u.id }}/delete" onsubmit="return confirm('Διαγραφή χρήστη {{ u.email }};');">
+                  <button class="btn btn-sm bv-action-btn bv-action-delete" type="submit" title="Διαγραφή" aria-label="Διαγραφή">
+                    <i class="fe fe-trash-2"></i>
+                  </button>
+                </form>
+              </div>
             </td>
           </tr>
           {% endfor %}
+          <tr id="usersEmptyRow" class="d-none">
+            <td colspan="6"><div class="user-empty">Δεν βρέθηκαν χρήστες με αυτά τα φίλτρα.</div></td>
+          </tr>
         </tbody>
       </table>
     </div>
   </div>
 </div>
 </div>
+
 <script>
 (() => {
   const roleSelect = document.getElementById('createUserRoleSelect');
   const profileSelect = document.getElementById('createUserProfileSelect');
-  if (!roleSelect || !profileSelect) return;
+  if (roleSelect && profileSelect) {
+    const syncDefaultProfile = () => {
+      const selectedOption = roleSelect.options[roleSelect.selectedIndex];
+      const defaultProfileCode = selectedOption?.dataset?.defaultProfile || '';
+      if (!defaultProfileCode) return;
+      const targetOption = Array.from(profileSelect.options).find((opt) => opt.value === defaultProfileCode);
+      if (targetOption) profileSelect.value = defaultProfileCode;
+    };
+    roleSelect.addEventListener('change', syncDefaultProfile);
+    syncDefaultProfile();
+  }
 
-  const syncDefaultProfile = () => {
-    const selectedOption = roleSelect.options[roleSelect.selectedIndex];
-    const defaultProfileCode = selectedOption?.dataset?.defaultProfile || '';
-    if (!defaultProfileCode) return;
-    const targetOption = Array.from(profileSelect.options).find((opt) => opt.value === defaultProfileCode);
-    if (targetOption) profileSelect.value = defaultProfileCode;
+  const search = document.getElementById('usersSearch');
+  const roleFilter = document.getElementById('usersRoleFilter');
+  const statusFilter = document.getElementById('usersStatusFilter');
+  const tenantFilter = document.getElementById('usersTenantFilter');
+  const countEl = document.getElementById('usersVisibleCount');
+  const emptyRow = document.getElementById('usersEmptyRow');
+  const rows = Array.from(document.querySelectorAll('[data-user-row="1"]'));
+
+  const applyFilters = () => {
+    const q = (search?.value || '').trim().toLowerCase();
+    const role = roleFilter?.value || '';
+    const status = statusFilter?.value || '';
+    const tenant = tenantFilter?.value || '';
+    let visible = 0;
+    rows.forEach((row) => {
+      const okSearch = !q || (row.dataset.search || '').includes(q);
+      const okRole = !role || row.dataset.role === role;
+      const okStatus = !status || row.dataset.status === status;
+      const okTenant = !tenant || row.dataset.tenant === tenant;
+      const show = okSearch && okRole && okStatus && okTenant;
+      row.classList.toggle('d-none', !show);
+      if (show) visible += 1;
+    });
+    if (countEl) countEl.textContent = String(visible);
+    if (emptyRow) emptyRow.classList.toggle('d-none', visible !== 0);
   };
 
-  roleSelect.addEventListener('change', syncDefaultProfile);
-  syncDefaultProfile();
+  [search, roleFilter, statusFilter, tenantFilter].forEach((el) => {
+    if (el) el.addEventListener('input', applyFilters);
+    if (el) el.addEventListener('change', applyFilters);
+  });
+  applyFilters();
 })();
 </script>
 {% endblock %}

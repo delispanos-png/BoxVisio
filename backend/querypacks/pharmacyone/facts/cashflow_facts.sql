@@ -26,14 +26,11 @@ FROM (
     CAST(ISNULL(F.FINCODE, F.FINDOC) AS nvarchar(128)) AS transaction_id,
     CAST(
       CASE
-        WHEN F.SOSOURCE IN (1381, 1413) THEN 'inflow'
-        WHEN F.SOSOURCE IN (1261, 1281, 1412, 1416) THEN 'outflow'
-        WHEN F.SOSOURCE IN (1414, 1481) THEN 'transfer'
-        WHEN ISNULL(F.SODTYPE, 0) = 13 THEN 'inflow'
-        WHEN ISNULL(F.SODTYPE, 0) = 12 THEN 'outflow'
-        WHEN ISNULL(F.SODTYPE, 0) = 14 THEN 'transfer'
-        WHEN ISNULL(TL.LINEVAL, 0) < 0 THEN 'outflow'
-        ELSE 'inflow'
+        WHEN ISNULL(F.TFPRMS, 0) = 101 AND ISNULL(TL.LINEVAL, 0) < 0 THEN '102'
+        WHEN ISNULL(F.TFPRMS, 0) IN (102, 181) THEN '102'
+        WHEN ISNULL(F.TFPRMS, 0) = 101 THEN '101'
+        WHEN ISNULL(TL.LINEVAL, 0) < 0 THEN '102'
+        ELSE '101'
       END AS nvarchar(64)
     ) AS transaction_type,
     CAST(
@@ -63,6 +60,7 @@ FROM (
     CAST(ISNULL(F.SOSOURCE, 0) AS int) AS source_module_id,
     CAST(ISNULL(F.SOREDIR, 0) AS int) AS redirect_module_id,
     CAST(ISNULL(F.SODTYPE, 0) AS int) AS source_entity_id,
+    CAST(ISNULL(F.TFPRMS, 0) AS int) AS source_transaction_type_id,
     CAST(ISNULL(F.SOSOURCE, 0) + ISNULL(F.SOREDIR, 0) AS int) AS object_id,
     CAST(ISNULL(BR.NAME, CAST(F.BRANCH AS nvarchar(255))) AS nvarchar(255)) AS branch_name,
     CAST(F.BRANCH AS nvarchar(64)) AS branch_code,
@@ -106,14 +104,11 @@ FROM (
     CAST(ISNULL(F.FINCODE, F.FINDOC) AS nvarchar(128)) AS transaction_id,
     CAST(
       CASE
-        WHEN F.SOSOURCE IN (1381, 1413) THEN 'inflow'
-        WHEN F.SOSOURCE IN (1261, 1281, 1412, 1416) THEN 'outflow'
-        WHEN F.SOSOURCE IN (1414, 1481) THEN 'transfer'
-        WHEN ISNULL(F.SODTYPE, 0) = 13 THEN 'inflow'
-        WHEN ISNULL(F.SODTYPE, 0) = 12 THEN 'outflow'
-        WHEN ISNULL(F.SODTYPE, 0) = 14 THEN 'transfer'
-        WHEN ISNULL(F.SUMAMNT, 0) < 0 THEN 'outflow'
-        ELSE 'inflow'
+        WHEN ISNULL(F.TFPRMS, 0) = 101 AND ISNULL(F.SUMAMNT, 0) < 0 THEN '102'
+        WHEN ISNULL(F.TFPRMS, 0) IN (102, 181) THEN '102'
+        WHEN ISNULL(F.TFPRMS, 0) = 101 THEN '101'
+        WHEN ISNULL(F.SUMAMNT, 0) < 0 THEN '102'
+        ELSE '101'
       END AS nvarchar(64)
     ) AS transaction_type,
     CAST(
@@ -143,6 +138,7 @@ FROM (
     CAST(ISNULL(F.SOSOURCE, 0) AS int) AS source_module_id,
     CAST(ISNULL(F.SOREDIR, 0) AS int) AS redirect_module_id,
     CAST(ISNULL(F.SODTYPE, 0) AS int) AS source_entity_id,
+    CAST(ISNULL(F.TFPRMS, 0) AS int) AS source_transaction_type_id,
     CAST(ISNULL(F.SOSOURCE, 0) + ISNULL(F.SOREDIR, 0) AS int) AS object_id,
     CAST(ISNULL(BR.NAME, CAST(F.BRANCH AS nvarchar(255))) AS nvarchar(255)) AS branch_name,
     CAST(F.BRANCH AS nvarchar(64)) AS branch_code,

@@ -57,6 +57,16 @@
       <select name="warehouses" id="warehouseDocsWarehouses" multiple hidden></select>
     </div>
   </div>
+  <div class="col-12 col-md-4 col-xl-3">
+    <label class="form-label mb-1">Σειρά</label>
+    <input
+      class="form-control"
+      type="text"
+      name="series"
+      id="warehouseDocsSeries"
+      placeholder="π.χ. 3001 ή Δελτίο"
+    >
+  </div>
   <div class="col-12 col-md-4 col-xl-3 d-grid gap-2 align-content-end">
     <button class="btn btn-primary" type="submit"><i class="fe fe-filter"></i> {{ tt(request, 'apply') }}</button>
     <button class="btn btn-outline-secondary" type="button" id="warehouseDocsReset"><i class="fe fe-rotate-ccw"></i> Καθαρισμός</button>
@@ -259,20 +269,20 @@
             <div class="fw-semibold text-warning border-bottom pb-1 mb-2">Σύνολα</div>
             <div class="row g-2">
               <div class="col-md-4">
-                <label class="form-label mb-1">Συν.Αξία</label>
-                <input type="text" class="form-control form-control-sm" id="warehouseDocTGross" readonly>
-              </div>
-              <div class="col-md-4">
-                <label class="form-label mb-1">Καθ.Αξία</label>
+                <label class="form-label mb-1">Σύνολο καθαρής αξίας</label>
                 <input type="text" class="form-control form-control-sm" id="warehouseDocTNet" readonly>
               </div>
               <div class="col-md-4">
-                <label class="form-label mb-1">Αξία ΦΠΑ</label>
+                <label class="form-label mb-1">Σύνολο εξόδων</label>
+                <input type="text" class="form-control form-control-sm" id="warehouseDocTExpenses" readonly>
+              </div>
+              <div class="col-md-4">
+                <label class="form-label mb-1">Σύνολο ΦΠΑ</label>
                 <input type="text" class="form-control form-control-sm" id="warehouseDocTVat" readonly>
               </div>
               <div class="col-md-4">
-                <label class="form-label mb-1">Αξία Εξόδων</label>
-                <input type="text" class="form-control form-control-sm" id="warehouseDocTExpenses" readonly>
+                <label class="form-label mb-1">Σύνολο</label>
+                <input type="text" class="form-control form-control-sm" id="warehouseDocTGross" readonly>
               </div>
               <div class="col-md-4">
                 <label class="form-label mb-1">Συν.ποσ.1</label>
@@ -548,6 +558,8 @@ function params(){
   const p = new URLSearchParams();
   p.set('from', toIsoDate(fd.get('from')));
   p.set('to', toIsoDate(fd.get('to')));
+  const series = String(fd.get('series') || '').trim();
+  if(series) p.set('series', series);
   warehouseDocFieldDefs.forEach((field) => {
     const sel = document.getElementById(field.selectId);
     Array.from(sel?.selectedOptions || []).forEach((o) => p.append(field.key, o.value));
@@ -741,7 +753,13 @@ function renderWarehouseDocumentsSummary(summary, meta={}){
   if(!el) return;
   const docs = toNum(summary?.documents);
   warehouseDocsTotal = Math.max(0, Math.round(docs));
-  el.textContent = `Παραστατικά: ${fmt0.format(Math.round(docs))} | Συν.Αξία: ${money(summary?.value_total)} | Κόστος: ${money(summary?.cost_total)} | Συν.ποσ.: ${fmt2.format(toNum(summary?.qty_total))}`;
+  const net = toNum(summary?.net_value ?? summary?.value_total);
+  const vat = toNum(summary?.vat_value);
+  const gross = toNum(summary?.gross_value ?? summary?.value_total);
+  const expenses = Number.isFinite(Number(summary?.expenses_value))
+    ? toNum(summary?.expenses_value)
+    : (gross - net - vat);
+  el.textContent = `Παραστατικά: ${fmt0.format(Math.round(docs))} | Σύνολο καθαρής αξίας: ${money(net)} | Σύνολο εξόδων: ${money(expenses)} | Σύνολο ΦΠΑ: ${money(vat)} | Σύνολο: ${money(gross)}`;
 
   const limit = Math.max(1, Number(meta.limit || document.getElementById('warehouseDocsPageSize')?.value || 100));
   const offset = Math.max(0, Number(meta.offset || 0));
@@ -790,10 +808,10 @@ function fillWarehouseDocumentModal(data){
   document.getElementById('warehouseDocumentModalSub').textContent =
     `Snapshot: ${formatDateOnly(data?.document_date)} | Γραμμές: ${fmt0.format(Math.round(toNum(totals.line_count)))}`;
 
-  setInputValue('warehouseDocFBranch', combineCodeName(header.branch_code, header.branch_name));
-  setInputValue('warehouseDocFWarehouse', combineCodeName(header.warehouse_code, header.warehouse_name));
-  setInputValue('warehouseDocFBranch2', combineCodeName(header.branch_code_2, header.branch_name_2));
-  setInputValue('warehouseDocFWarehouse2', combineCodeName(header.warehouse_code_2, header.warehouse_name_2));
+  setInputValue('warehouseDocFBranch', header.branch_name || header.branch_code);
+  setInputValue('warehouseDocFWarehouse', header.warehouse_name || header.warehouse_code);
+  setInputValue('warehouseDocFBranch2', header.branch_name_2 || header.branch_code_2 || header.branch_name || header.branch_code);
+  setInputValue('warehouseDocFWarehouse2', header.warehouse_name_2 || header.warehouse_code_2 || header.warehouse_name || header.warehouse_code);
   setInputValue('warehouseDocFSeries', header.series);
   setInputValue('warehouseDocFType', header.document_type);
   setInputValue('warehouseDocFDocumentNo', data?.document_no || data?.document_id);
@@ -852,7 +870,7 @@ async function reloadWarehouseDocuments(e){
       body.innerHTML = '<tr><td colspan="9" class="text-center text-danger py-3">Αποτυχία φόρτωσης παραστατικών.</td></tr>';
     }
     renderWarehouseDocumentsSummary(
-      { documents: 0, value_total: 0, cost_total: 0, qty_total: 0 },
+      { documents: 0, value_total: 0, net_value: 0, expenses_value: 0, vat_value: 0, gross_value: 0, cost_total: 0, qty_total: 0 },
       { limit: document.getElementById('warehouseDocsPageSize')?.value || 100, offset: 0, rowsCount: 0 }
     );
   }

@@ -69,6 +69,9 @@ def is_feature_enabled(tenant: Tenant, feature: str) -> bool:
     can activate them individually after implementation.
     """
     policy = resolve_plan_policy(tenant)
+    flags: dict = tenant.feature_flags if isinstance(tenant.feature_flags, dict) else {}
+    if feature in flags and isinstance(flags.get(feature), bool):
+        return bool(flags.get(feature))
 
     if feature == 'sales':
         return policy.feature_sales
@@ -83,7 +86,6 @@ def is_feature_enabled(tenant: Tenant, feature: str) -> bool:
 
     # Bespoke / custom feature key — only meaningful for custom plan.
     if tenant.plan == PlanName.custom:
-        flags: dict = tenant.feature_flags if isinstance(tenant.feature_flags, dict) else {}
         return bool(flags.get(feature, False))
 
     return False

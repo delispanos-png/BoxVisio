@@ -5,17 +5,17 @@ SELECT
   CAST(ISNULL(MD.WHOUSE, 0) AS nvarchar(64)) AS warehouse_external_id,
   CAST(ISNULL(S.CODE, F.TRDR) AS nvarchar(64)) AS supplier_external_id,
   CAST(
-    (CASE WHEN ISNULL(F.SOSOURCE, 0) IN (1253) THEN -1 ELSE 1 END)
+    (CASE WHEN ISNULL(F.TFPRMS, 0) IN (151, 152) THEN -1 ELSE 1 END)
     * COALESCE(TRY_CAST(ABS(ISNULL(L.QTY1, ISNULL(L.QTY, 0))) AS decimal(28,8)), 0)
     AS decimal(28,8)
   ) AS qty,
   CAST(
-    (CASE WHEN ISNULL(F.SOSOURCE, 0) IN (1253) THEN -1 ELSE 1 END)
+    (CASE WHEN ISNULL(F.TFPRMS, 0) IN (151, 152) THEN -1 ELSE 1 END)
     * COALESCE(TRY_CAST(ABS(ISNULL(L.NETLINEVAL, ISNULL(L.LINEVAL, 0))) AS decimal(28,8)), 0)
     AS decimal(28,8)
   ) AS net_amount,
   CAST(
-    (CASE WHEN ISNULL(F.SOSOURCE, 0) IN (1253) THEN -1 ELSE 1 END)
+    (CASE WHEN ISNULL(F.TFPRMS, 0) IN (151, 152) THEN -1 ELSE 1 END)
     * COALESCE(TRY_CAST(ABS(ISNULL(L.SALESCVAL, ISNULL(L.NETLINEVAL, ISNULL(L.LINEVAL, 0)))) AS decimal(28,8)), 0)
     AS decimal(28,8)
   ) AS cost_amount,
@@ -57,7 +57,7 @@ SELECT
   CAST(ISNULL(F.FINCODE, F.FINDOC) AS nvarchar(128)) AS document_no,
   CAST(F.SERIES AS nvarchar(128)) AS document_series,
   CAST(ISNULL(SR.NAME, CAST(F.SERIES AS nvarchar(255))) AS nvarchar(255)) AS document_series_name,
-  CAST('purchase_' + CAST(ISNULL(F.SOSOURCE, 0) + ISNULL(F.SOREDIR, 0) AS nvarchar(16)) AS nvarchar(128)) AS document_type,
+  CAST(CAST(ISNULL(F.TFPRMS, 0) AS nvarchar(16)) + ' purchase_' + CAST(ISNULL(F.SOSOURCE, 0) + ISNULL(F.SOREDIR, 0) AS nvarchar(16)) AS nvarchar(128)) AS document_type,
   CAST(ISNULL(S.CODE, F.TRDR) AS nvarchar(64)) AS supplier_ext_id,
   CAST(ISNULL(S.NAME, '') AS nvarchar(255)) AS supplier_name,
   CAST(ISNULL(I.CODE, L.MTRL) AS nvarchar(128)) AS item_code,
@@ -112,12 +112,12 @@ SELECT
   ) AS discount_amount,
 
   CAST(
-    (CASE WHEN ISNULL(F.SOSOURCE, 0) IN (1253) THEN -1 ELSE 1 END)
+    (CASE WHEN ISNULL(F.TFPRMS, 0) IN (151, 152) THEN -1 ELSE 1 END)
     * COALESCE(TRY_CAST(ABS(ISNULL(L.VATAMNT, 0)) AS decimal(28,8)), 0)
     AS decimal(28,8)
   ) AS vat_amount,
   CAST(
-    (CASE WHEN ISNULL(F.SOSOURCE, 0) IN (1253) THEN -1 ELSE 1 END)
+    (CASE WHEN ISNULL(F.TFPRMS, 0) IN (151, 152) THEN -1 ELSE 1 END)
     * (
       COALESCE(TRY_CAST(ABS(ISNULL(L.NETLINEVAL, ISNULL(L.LINEVAL, 0))) AS decimal(28,8)), 0)
       + COALESCE(TRY_CAST(ABS(ISNULL(L.VATAMNT, 0)) AS decimal(28,8)), 0)
@@ -176,7 +176,8 @@ WHERE
   AND
   ISNULL(F.SODTYPE, 0) = 12
   -- Purchase flows only (SoftOne):
-  -- 1251 purchase invoice / receipt, 1253 purchase credit (negative sign above).
+  -- Purchase expense/invoice behaviors:
+  -- TFPRMS 102/103 positive, TFPRMS 151/152 negative.
   -- Excludes supplier payments/transfers/expenses handled by other circuits.
   AND F.SOSOURCE IN (1251, 1253)
   AND ISNULL(F.TFPRMS, 0) NOT IN (100, 101, 154, 201, 202, 301, 500, 501)

@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="{{ request.cookies.get('lang', 'el') }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CloudOn BI - Ορισμός κωδικού</title>
+  <link rel="icon" href="/static/azea/images/favicon.ico" type="image/x-icon">
+  <link href="/static/azea/plugins/bootstrap/css/bootstrap.min.css" rel="stylesheet">
+  <link href="/static/css/boxvisio-ui.css?v=20260417a" rel="stylesheet">
+  <style>
+    body { min-height:100vh; display:grid; place-items:center; background:#f3f5fb; color:#111827; }
+    .invite-card { width:min(440px, calc(100vw - 28px)); background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:24px; box-shadow:0 12px 32px rgba(15,23,42,.08); }
+    .brand-logo { width:190px; display:block; margin:0 auto 18px; }
+  </style>
+</head>
+<body>
+  <main class="invite-card">
+    <img class="brand-logo" src="/static/azea/images/boxvisio-logo.svg" alt="BoxVisio logo">
+    <h5 class="fw-bold mb-1">Ορισμός κωδικού πρόσβασης</h5>
+    <p class="text-muted small mb-3">Συμπλήρωσε νέο κωδικό για να ενεργοποιηθεί η πρόσβαση.</p>
+    {% if error %}<div class="alert alert-danger py-2">{{ error }}</div>{% endif %}
+    <form method="post" action="/invite">
+      <input type="hidden" name="token" value="{{ token or '' }}">
+      <div class="mb-3">
+        <label class="form-label small fw-semibold">Νέος κωδικός</label>
+        <input class="form-control" type="password" name="password" minlength="8" autocomplete="new-password" required>
+      </div>
+      <button class="btn btn-primary w-100" type="submit">Αποθήκευση κωδικού</button>
+    </form>
+  </main>
+</body>
+</html>

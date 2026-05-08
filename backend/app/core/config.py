@@ -119,6 +119,24 @@ class Settings(BaseSettings):
     whmcs_webhook_secret: str = ''
     default_admin_email: str = 'admin@boxvisio.com'
     default_admin_password: str = ''
+    app_public_base_url: str = ''
+    tenant_domain_root: str = ''
+
+    smtp_host: str = ''
+    smtp_port: int = 587
+    smtp_username: str = ''
+    smtp_password: str = ''
+    smtp_from_email: str = ''
+    smtp_from_name: str = 'CloudOn BI'
+    smtp_use_tls: bool = True
+
+    tenant_subdomain_auto_dns_enabled: bool = False
+    cloudflare_api_token: str = ''
+    cloudflare_zone_id: str = ''
+    cloudflare_dns_record_type: str = 'CNAME'
+    cloudflare_dns_target: str = ''
+    cloudflare_dns_proxied: bool = True
+    cloudflare_dns_ttl: int = 1
 
     odbc_driver: str = 'ODBC Driver 18 for SQL Server'
     tenant_portal_host: str = 'bi.boxvisio.com'

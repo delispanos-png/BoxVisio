@@ -29,6 +29,8 @@ from app.models.control import (
     TenantStatus,
     User,
 )
+from app.services.cloudflare_dns import ensure_tenant_dns_record, tenant_hostname
+from app.services.email_delivery import send_tenant_welcome_email
 from app.services.subscriptions import infer_default_features_for_plan
 
 TENANT_MIGRATION_HEAD = '20260418_0020_tenant'
@@ -129,6 +131,8 @@ async def run_tenant_provisioning_wizard(
     source: str,
     subscription_status: SubscriptionStatus,
     trial_days: int | None,
+    send_welcome_email: bool = True,
+    create_subdomain: bool = False,
 ) -> dict:
     source = str(source or '').strip().lower()
     if source in {'pharmacyone', 'pharmacyone_sql'}:
@@ -243,6 +247,35 @@ async def run_tenant_provisioning_wizard(
             )
         )
         mark(7, 'Generate API keys', 'ok')
+
+        dns_result = {'status': 'skipped'}
+        if create_subdomain:
+            try:
+                dns_result = await asyncio.to_thread(ensure_tenant_dns_record, slug)
+                mark(8, 'Create tenant subdomain', str(dns_result.get('status') or 'unknown'), tenant_hostname(slug))
+            except Exception as exc:
+                dns_result = {'status': 'error', 'error': str(exc)}
+                mark(8, 'Create tenant subdomain', 'error', str(exc))
+        else:
+            mark(8, 'Create tenant subdomain', 'skipped')
+
+        email_result = {'status': 'skipped'}
+        if send_welcome_email:
+            try:
+                email_result = await asyncio.to_thread(
+                    send_tenant_welcome_email,
+                    tenant_name=name,
+                    tenant_slug=slug,
+                    admin_email=admin_email,
+                    invite_token=invite_token,
+                )
+                mark(9, 'Send welcome email', str(email_result.get('status') or 'unknown'), admin_email)
+            except Exception as exc:
+                email_result = {'status': 'error', 'error': str(exc)}
+                mark(9, 'Send welcome email', 'error', str(exc))
+        else:
+            mark(9, 'Send welcome email', 'skipped')
+
         await db.commit()
 
         return {
@@ -252,6 +285,10 @@ async def run_tenant_provisioning_wizard(
             'plan': plan.value,
             'subscription_status': subscription_status.value,
             'invite_token': invite_token,
+            'invite_url': email_result.get('invite_url'),
+            'email_status': email_result.get('status'),
+            'dns_status': dns_result.get('status'),
+            'tenant_hostname': tenant_hostname(slug) if create_subdomain else None,
             'api_key_id': api_key_id,
             'api_key_secret': api_key_secret,
             'steps': steps,

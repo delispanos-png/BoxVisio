@@ -126,6 +126,75 @@
 
 /* Danger zone accent — needs body.azea-shell prefix + !important to beat global card-header rule */
 body.azea-shell .bv-danger-zone > .card-header { background:#fff5f5 !important; border-bottom:1px solid #fecaca !important; }
+body.azea-shell .bv-danger-delete-btn {
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:.45rem;
+  min-width:148px;
+  color:#fff !important;
+  background:#dc2626 !important;
+  border-color:#dc2626 !important;
+  font-weight:800;
+  opacity:1 !important;
+  text-shadow:0 1px 1px rgba(0,0,0,.18);
+  box-shadow:0 10px 18px rgba(220,38,38,.18);
+}
+body.azea-shell .bv-danger-delete-btn:hover,
+body.azea-shell .bv-danger-delete-btn:focus {
+  color:#fff !important;
+  background:#b91c1c !important;
+  border-color:#b91c1c !important;
+}
+body.azea-shell .bv-danger-delete-btn:disabled,
+body.azea-shell .bv-danger-delete-btn.disabled {
+  color:#fff !important;
+  background:#f87171 !important;
+  border-color:#f87171 !important;
+  opacity:.78 !important;
+  text-shadow:none;
+  box-shadow:none;
+}
+body.azea-shell .bv-danger-delete-btn svg {
+  color:#fff !important;
+  stroke:#fff !important;
+  flex-shrink:0;
+}
+body.azea-shell .bv-start-backfill-btn {
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:.45rem;
+  min-width:142px;
+  color:#fff !important;
+  background:#16a34a !important;
+  border-color:#16a34a !important;
+  font-weight:800;
+  opacity:1 !important;
+  text-shadow:0 1px 1px rgba(0,0,0,.16);
+  box-shadow:0 10px 18px rgba(22,163,74,.18);
+}
+body.azea-shell .bv-start-backfill-btn:hover,
+body.azea-shell .bv-start-backfill-btn:focus {
+  color:#fff !important;
+  background:#15803d !important;
+  border-color:#15803d !important;
+}
+body.azea-shell .bv-start-backfill-btn:disabled,
+body.azea-shell .bv-start-backfill-btn.disabled {
+  color:#fff !important;
+  background:#86efac !important;
+  border-color:#86efac !important;
+  opacity:.82 !important;
+  text-shadow:none;
+  box-shadow:none;
+}
+body.azea-shell .bv-start-backfill-btn svg,
+body.azea-shell .bv-start-backfill-btn i {
+  color:#fff !important;
+  stroke:#fff !important;
+  flex-shrink:0;
+}
 </style>
 
 {% set fv = form_values %}
@@ -136,6 +205,7 @@ body.azea-shell .bv-danger-zone > .card-header { background:#fff5f5 !important; 
 {% set is_sql = not is_api and not is_file %}
 {% set has_saved = fv.has_saved_password %}
 {% set initial_step = 0 if not has_saved and not fv.host else 1 %}
+{% set sql_connector_types = ['sql_connector', 'pharmacyone_sql'] %}
 
 {# ── Flash messages ── #}
 {% if result %}
@@ -172,8 +242,8 @@ body.azea-shell .bv-danger-zone > .card-header { background:#fff5f5 !important; 
 {# ── Page header ── #}
 <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
   <div>
-    <h4 class="fw-bold mb-0">Connection Setup</h4>
-    <p class="text-muted small mb-0">Configure, test and manage data source connections — SQL, API, files.</p>
+    <h4 class="fw-bold mb-0">Συνδέσεις &amp; Πηγές Δεδομένων</h4>
+    <p class="text-muted small mb-0">Ρύθμιση, έλεγχος και συγχρονισμός των ενεργών SQL connectors ανά tenant.</p>
   </div>
   <div class="d-flex align-items-center gap-2">
     <label class="small fw-semibold text-muted mb-0">Tenant</label>
@@ -186,8 +256,12 @@ body.azea-shell .bv-danger-zone > .card-header { background:#fff5f5 !important; 
     <select class="form-select form-select-sm" style="width:175px" id="globalConnectorSelect">
       <option value="sql_connector"  {% if conn_type=='sql_connector'  %}selected{% endif %}>SQL Connector</option>
       <option value="pharmacyone_sql"{% if conn_type=='pharmacyone_sql'%}selected{% endif %}>SQL (legacy key)</option>
-      <option value="external_api"   {% if conn_type=='external_api'   %}selected{% endif %}>External API</option>
-      <option value="file_import"    {% if conn_type=='file_import'    %}selected{% endif %}>File Import</option>
+      {% if conn_type == 'external_api' %}
+      <option value="external_api" selected>External API (σε ενοποίηση)</option>
+      {% endif %}
+      {% if conn_type == 'file_import' %}
+      <option value="file_import" selected>File Import (σε ενοποίηση)</option>
+      {% endif %}
     </select>
   </div>
 </div>
@@ -248,18 +322,20 @@ body.azea-shell .bv-danger-zone > .card-header { background:#fff5f5 !important; 
         <p>Direct connection via pyodbc to Microsoft SQL Server. Maximum fidelity &amp; speed.</p>
       </div>
 
-      <div class="bv-src-card {% if conn_type=='external_api' %}selected{% endif %}"
-           data-connector="external_api" data-srctype="api" onclick="bvSelectSource(this)">
+      <div class="bv-src-card disabled {% if conn_type=='external_api' %}selected{% endif %}"
+           data-connector="external_api" data-srctype="api">
         <div class="bv-src-icon api"><i data-feather="cloud"></i></div>
+        <span class="bv-src-badge bg-secondary-subtle text-secondary border border-secondary-subtle">Σε ενοποίηση</span>
         <h6>External API</h6>
-        <p>HTTP/REST API connector. For ERP systems without direct DB access.</p>
+        <p>Υποστηρίζεται στο backend, αλλά το admin workflow δεν είναι ακόμη πλήρως δεμένο.</p>
       </div>
 
-      <div class="bv-src-card {% if conn_type=='file_import' %}selected{% endif %}"
-           data-connector="file_import" data-srctype="file" onclick="bvSelectSource(this)">
+      <div class="bv-src-card disabled {% if conn_type=='file_import' %}selected{% endif %}"
+           data-connector="file_import" data-srctype="file">
         <div class="bv-src-icon file"><i data-feather="upload"></i></div>
+        <span class="bv-src-badge bg-secondary-subtle text-secondary border border-secondary-subtle">Σε ενοποίηση</span>
         <h6>File Import</h6>
-        <p>Upload CSV/Excel files for one-time or scheduled data loads.</p>
+        <p>Το CSV/Excel pipeline δεν εμφανίζεται ως ενεργή λειτουργία μέχρι να ολοκληρωθεί το import flow.</p>
       </div>
 
       <div class="bv-src-card disabled">
@@ -275,7 +351,7 @@ body.azea-shell .bv-danger-zone > .card-header { background:#fff5f5 !important; 
       <div class="bv-result-icon info"><i data-feather="info"></i></div>
       <div>
         <div class="fw-semibold small" id="bvSrcTypeNoteTitle">Select a connector above</div>
-        <div class="small text-muted" id="bvSrcTypeNoteBody">Each connector type has different setup steps and configuration options.</div>
+        <div class="small text-muted" id="bvSrcTypeNoteBody">Το admin panel εκθέτει μόνο όσα connectors έχουν ολοκληρωμένο setup, test και sync flow.</div>
       </div>
     </div>
   </div>
@@ -489,7 +565,7 @@ body.azea-shell .bv-danger-zone > .card-header { background:#fff5f5 !important; 
         </div>
       </div>
       <div class="bv-result-panel info">
-        <span class="small"><i data-feather="info" style="width:13px;height:13px"></i> File import: upload files via the <strong>File Imports</strong> section. This connection record stores the format configuration.</span>
+        <span class="small"><i data-feather="info" style="width:13px;height:13px"></i> Το File Import παραμένει κρυφό από το admin menu μέχρι να ολοκληρωθεί το upload και validation workflow.</span>
       </div>
     </div>
   </div>
@@ -768,9 +844,11 @@ body.azea-shell .bv-danger-zone > .card-header { background:#fff5f5 !important; 
       <button class="btn bv-action-btn bv-action-save" type="submit" formaction="/admin/connections/save">
         <i class="fe fe-save"></i> Save Connection
       </button>
+      {% if conn_type in sql_connector_types %}
       <button class="btn bv-action-btn bv-action-edit" type="submit" formaction="/admin/connections/apply-pack">
         <i class="fe fe-download-cloud"></i> Apply Default Querypack
       </button>
+      {% endif %}
     </div>
   </div>
 </div>
@@ -802,6 +880,7 @@ body.azea-shell .bv-danger-zone > .card-header { background:#fff5f5 !important; 
   <div class="collapse show" id="bvSyncOps">
   <div class="card-body">
     <div class="row g-3">
+      {% if conn_type in sql_connector_types %}
       {# Apply querypack #}
       <div class="col-lg-4">
         <div class="p-3 border rounded h-100">
@@ -820,9 +899,10 @@ body.azea-shell .bv-danger-zone > .card-header { background:#fff5f5 !important; 
           </form>
         </div>
       </div>
+      {% endif %}
 
       {# Initial backfill #}
-      <div class="col-lg-8">
+      <div class="{% if conn_type in sql_connector_types %}col-lg-8{% else %}col-12{% endif %}">
         <div class="p-3 border rounded h-100">
           <div class="d-flex align-items-center gap-2 mb-2">
             <i data-feather="download" style="width:16px;height:16px;color:#10b981"></i>
@@ -862,7 +942,7 @@ body.azea-shell .bv-danger-zone > .card-header { background:#fff5f5 !important; 
               <button id="bvStopBtn" class="btn btn-sm btn-outline-danger" type="submit" formaction="/admin/connections/stop-sync" formnovalidate>
                 <i class="fe fe-stop-circle"></i> Stop
               </button>
-              <button class="btn btn-sm btn-success" type="submit">
+              <button class="btn btn-sm btn-success bv-start-backfill-btn" type="submit">
                 <i class="fe fe-play-circle"></i> Start Backfill
               </button>
             </div>
@@ -1010,7 +1090,7 @@ body.azea-shell .bv-danger-zone > .card-header { background:#fff5f5 !important; 
           <input class="form-control form-control-sm" type="text" name="confirm_text" placeholder="RESET" required>
         </div>
         <div class="col-12 d-flex justify-content-between align-items-center">
-          <button class="btn btn-danger btn-sm" type="submit">
+          <button class="btn btn-danger btn-sm bv-danger-delete-btn" type="submit">
             <i data-feather="trash-2" style="width:14px;height:14px"></i> Delete Tenant Data
           </button>
         </div>
@@ -1045,6 +1125,7 @@ body.azea-shell .bv-danger-zone > .card-header { background:#fff5f5 !important; 
       <button class="bv-q-btn" onclick="bvSubmitAs('/admin/connections/save')">
         <i data-feather="save"></i> Save Connection
       </button>
+      {% if conn_type in sql_connector_types %}
       <button class="bv-q-btn" onclick="bvGoTo(3)">
         <i data-feather="search"></i> Run Discovery
       </button>
@@ -1055,6 +1136,11 @@ body.azea-shell .bv-danger-zone > .card-header { background:#fff5f5 !important; 
       <button class="bv-q-btn" onclick="bvSubmitAs('/admin/connections/apply-pack')">
         <i data-feather="download-cloud"></i> Apply Querypack
       </button>
+      {% else %}
+      <button class="bv-q-btn" onclick="bvGoTo(4)">
+        <i data-feather="sliders"></i> Edit Settings
+      </button>
+      {% endif %}
       <hr class="bv-q-sep">
       <button class="bv-q-btn danger" onclick="document.getElementById('bvStopBtn').click()">
         <i data-feather="stop-circle"></i> Stop Sync
@@ -1372,8 +1458,12 @@ async function pollProgress() {
     if (p.operation==='delete') updateBar(resetBar, resetText, p);
     if (isSyncOp(p.operation) && backfillRange) {
       const fr = p.from_date||'', to = p.to_date||'';
+      const currentName = p.current_stream || p.current_entity || '';
+      const currentPrefix = currentName ? currentName + ' | ' : '';
+      const rangeText = (fmtDate(fr)||'') && (fmtDate(to)||'') ? (fmtDate(fr) + ' → ' + fmtDate(to)) : '';
+      const queueText = 'ουρά sync | ' + Number(p.processed_jobs||0) + '/' + Number(p.total_jobs||0) + ' jobs';
       backfillRange.textContent = (p.status==='running'||p.status==='queued')
-        ? 'Τρέχον: ' + (fmtDate(fr)||'-') + ' → ' + (fmtDate(to)||'-')
+        ? 'Τρέχον: ' + currentPrefix + (rangeText || queueText)
         : 'Τελευταίο: ' + (fmtDate(fr)||'-') + ' → ' + (fmtDate(to)||'-');
     }
     if (p.is_stuck && recoverBtn) {

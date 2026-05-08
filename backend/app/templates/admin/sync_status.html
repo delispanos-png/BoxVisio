@@ -1,23 +1,107 @@
 {% extends "base_admin.html" %}
 {% block content %}
+<style>
+.bv-sync-note {
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+  color: #1e3a8a;
+  border-radius: 10px;
+  padding: .85rem 1rem;
+  margin: 1rem 0;
+  display: flex;
+  gap: .75rem;
+  align-items: flex-start;
+}
+.bv-sync-note i { margin-top: .1rem; }
+.bv-sync-status {
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+  padding: .25rem .55rem;
+  border-radius: 999px;
+  font-size: .72rem;
+  font-weight: 700;
+}
+.bv-sync-status.ok { background: #dcfce7; color: #166534; }
+.bv-sync-status.run { background: #e0e7ff; color: #3730a3; }
+.bv-sync-status.err { background: #fee2e2; color: #991b1b; }
+.bv-sync-status.idle { background: #f3f4f6; color: #4b5563; }
+.bv-sync-progress {
+  min-width: 180px;
+}
+.bv-sync-progress .progress {
+  height: 6px;
+  background: #eef2f7;
+}
+.bv-sync-progress-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: .75rem;
+  margin-bottom: .3rem;
+  color: #64748b;
+  font-size: .72rem;
+}
+</style>
+
+<div class="bv-sync-note">
+  <i class="fe fe-info"></i>
+  <div>
+    <strong>Η Κατάσταση Συγχρονισμού είναι πλέον overview.</strong>
+    Εμφανίζονται μόνο οι ενεργές συνδέσεις. Οι αλλαγές σύνδεσης, backfill, recovery, stop και test γίνονται από το κύκλωμα <strong>Συνδέσεις</strong>, ώστε να μην υπάρχουν δύο διαφορετικά σημεία που ξεκινούν sync.
+  </div>
+</div>
+
 <div class="card mt-3">
   <div class="card-header"><h5 class="mb-0">{{ tt(request, 'sync_status_title') }}</h5></div>
   <div class="card-body">
     <div class="table-responsive">
       <table class="table table-hover bv-unified-table" data-bv-admin-table="1">
-        <thead><tr><th>{{ tt(request, 'tenant') }}</th><th>Connector</th><th>{{ tt(request, 'status') }}</th><th>{{ tt(request, 'last_sync') }}</th><th>{{ tt(request, 'action') }}</th></tr></thead>
+        <thead>
+          <tr>
+            <th>{{ tt(request, 'tenant') }}</th>
+            <th>Connector</th>
+            <th>{{ tt(request, 'status') }}</th>
+            <th>Progress</th>
+            <th>{{ tt(request, 'last_sync') }}</th>
+            <th>{{ tt(request, 'action') }}</th>
+          </tr>
+        </thead>
         <tbody>
           {% for row in rows %}
+          {% set sync_status = row[0].sync_status or 'never' %}
+          {% set progress = progress_by_tenant.get(row[1].id, {}) %}
+          {% set progress_status = progress.get('status', 'idle') %}
+          {% set progress_pct = progress.get('progress_pct', 0) %}
+          {% set queue_left = progress.get('current_queue_depth', 0) %}
           <tr>
             <td>{{ row[1].name }}<div class="text-muted small">{{ row[1].slug }}</div></td>
             <td>{{ row[0].connector_type }}</td>
-            <td>{{ row[0].sync_status }}</td>
+            <td>
+              <span class="bv-sync-status {% if sync_status in ['ok', 'completed'] %}ok{% elif sync_status in ['running', 'queued', 'processing'] %}run{% elif sync_status in ['failed', 'error'] %}err{% else %}idle{% endif %}">
+                {{ sync_status }}
+              </span>
+            </td>
+            <td>
+              <div class="bv-sync-progress">
+                <div class="bv-sync-progress-meta">
+                  <span>{{ progress_status }}</span>
+                  <span>ουρά: {{ queue_left }}</span>
+                </div>
+                <div class="progress">
+                  <div class="progress-bar" role="progressbar" style="width: {{ progress_pct }}%;" aria-valuenow="{{ progress_pct }}" aria-valuemin="0" aria-valuemax="100"></div>
+                </div>
+              </div>
+            </td>
             <td>{{ row[0].last_sync_at or '-' }}</td>
             <td>
-              <form method="post" action="/admin/sync-status/{{ row[1].id }}/trigger">
-                <button class="btn btn-sm bv-action-btn bv-action-save" type="submit"><i class="fe fe-play"></i> {{ tt(request, 'trigger_queue_drain') }}</button>
-              </form>
+              <a class="btn btn-sm bv-action-btn bv-action-edit" href="/admin/connections?tenant_id={{ row[1].id }}&connector_type={{ row[0].connector_type }}">
+                <i class="fe fe-link"></i> Συνδέσεις
+              </a>
             </td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="6" class="text-center text-muted py-4">Δεν υπάρχουν συνδέσεις.</td>
           </tr>
           {% endfor %}
         </tbody>

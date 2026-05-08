@@ -399,6 +399,12 @@
       <span style="font-weight:700;font-size:.82rem;color:#9f1239;letter-spacing:.02em;text-transform:uppercase;">Insights</span>
     </a>
   </div>
+  <div class="col-6 col-sm-4 col-md-2">
+    <a href="/tenant/e-shop-analysis" class="bv-nav-tile text-decoration-none d-flex flex-column align-items-center justify-content-center text-center gap-2 p-3 rounded-3 border h-100" style="background:#ecfeff;border-color:#a5f3fc!important;">
+      <i class="fe fe-truck" style="font-size:1.6rem;color:#0891b2;"></i>
+      <span style="font-weight:700;font-size:.82rem;color:#155e75;letter-spacing:.02em;text-transform:uppercase;">E-Shop</span>
+    </a>
+  </div>
 </div>
 
 <div class="card border-0 shadow-sm mb-3 content-card">
@@ -923,13 +929,14 @@ function renderMonthlyBranchPerformance(rows, prevRows){
     const branch = String(r.branch || '-');
     const value = toNum(r.net_value);
     const prev = prevMap.get(branch) || 0;
+    const deltaAmount = value - prev;
     const deltaPct = prev > 0 ? ((value - prev) / prev) * 100 : null;
     const deltaCls = deltaPct === null
       ? 'branch-month-delta-neutral'
       : deltaPct > 0 ? 'branch-month-delta-up' : (deltaPct < 0 ? 'branch-month-delta-down' : 'branch-month-delta-neutral');
-    const deltaText = deltaPct === null
-      ? 'n/a'
-      : `${deltaPct >= 0 ? '+' : ''}${fmt2.format(deltaPct)}%`;
+    const deltaText = prev > 0
+      ? `Δ ${money(deltaAmount)} | ${deltaPct >= 0 ? '+' : ''}${fmt2.format(deltaPct)}%`
+      : 'Δ - | n/a';
     const width = ratioByMax(value, maxVal);
     return `
       <div class="branch-month-row">
@@ -939,7 +946,7 @@ function renderMonthlyBranchPerformance(rows, prevRows){
         </div>
         <div class="branch-month-track"><div class="branch-month-fill" style="width:${width}%"></div></div>
         <div class="branch-month-foot">
-          <span>vs προηγούμενος μήνας</span>
+          <span>vs αντίστοιχος περσινός μήνας</span>
           <span class="${deltaCls}">${deltaText}</span>
         </div>
       </div>
@@ -1023,10 +1030,6 @@ async function reloadCentralDashboard(e){
     const cutoffLabel = formatDMY(ytdTo);
     const prevCutoffLabel = formatDMY(prevYtdTo);
 
-    const prevMonthDate = new Date(anchorDate.getFullYear(), anchorDate.getMonth(), 0);
-    const prevMonthFrom = dtISO(startOfMonth(prevMonthDate));
-    const prevMonthToRaw = new Date(prevMonthDate.getFullYear(), prevMonthDate.getMonth(), anchorDate.getDate());
-    const prevMonthTo = dtISO(prevMonthToRaw > prevMonthDate ? prevMonthDate : prevMonthToRaw);
     const execParams = filtersToParams();
     execParams.set('_ts', String(Date.now()));
     const executive = await fetchJsonStrict(`/v1/dashboard/executive-summary?${execParams.toString()}`);
@@ -1046,7 +1049,7 @@ async function reloadCentralDashboard(e){
     const dayByBranch = Array.isArray(branchBreakdown.day) ? branchBreakdown.day : [];
     const monthByBranch = Array.isArray(branchBreakdown.month) ? branchBreakdown.month : [];
     const yearByBranch = Array.isArray(branchBreakdown.year) ? branchBreakdown.year : [];
-    const prevMonthByBranch = Array.isArray(branchBreakdown.prev_month) ? branchBreakdown.prev_month : [];
+    const prevYearMonthByBranch = Array.isArray(branchBreakdown.prev_year_month) ? branchBreakdown.prev_year_month : [];
     const trendY0 = Array.isArray(trend?.y0?.rows) ? trend.y0.rows : [];
     const trendY1 = Array.isArray(trend?.y1?.rows) ? trend.y1.rows : [];
     const trendY2 = Array.isArray(trend?.y2?.rows) ? trend.y2.rows : [];
@@ -1113,7 +1116,7 @@ async function reloadCentralDashboard(e){
     renderSmallDonut('dayByBranchDonut', dayByBranch||[]);
     renderSmallDonut('monthByBranchDonut', monthByBranch||[]);
     renderYearDonut(yearByBranch||[]);
-    renderMonthlyBranchPerformance(monthByBranch||[], prevMonthByBranch||[]);
+    renderMonthlyBranchPerformance(monthByBranch||[], prevYearMonthByBranch||[]);
 
     renderDecisionInsights(Array.isArray(executive?.key_alerts) ? executive.key_alerts : []);
   }catch(err){

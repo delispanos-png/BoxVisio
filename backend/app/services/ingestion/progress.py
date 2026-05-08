@@ -78,7 +78,21 @@ def begin_ingest_progress(
     return get_ingest_progress(tenant_slug)
 
 
-def update_ingest_progress(tenant_slug: str, *, status: str | None = None, error: str | None = None, job_started: bool = False, job_completed: bool = False) -> dict[str, object]:
+def update_ingest_progress(
+    tenant_slug: str,
+    *,
+    status: str | None = None,
+    error: str | None = None,
+    job_started: bool = False,
+    job_completed: bool = False,
+    total_jobs: int | None = None,
+    processed_jobs: int | None = None,
+    current_queue_depth: int | None = None,
+    current_stream: str | None = None,
+    current_entity: str | None = None,
+    current_from_date: str | None = None,
+    current_to_date: str | None = None,
+) -> dict[str, object]:
     redis = _redis()
     key = progress_key(tenant_slug)
     existing = redis.hgetall(key)
@@ -98,9 +112,11 @@ def update_ingest_progress(tenant_slug: str, *, status: str | None = None, error
     current_depth_value = queue_depth_now
 
     if operation == 'delete':
-        total_jobs = max(1, int(existing.get('total_jobs') or 1))
-        current_depth_value = int(existing.get('current_queue_depth') or 1)
-        done = int(existing.get('processed_jobs') or 0)
+        total_jobs = max(1, int(total_jobs if total_jobs is not None else (existing.get('total_jobs') or 1)))
+        current_depth_value = int(
+            current_queue_depth if current_queue_depth is not None else (existing.get('current_queue_depth') or 1)
+        )
+        done = int(processed_jobs if processed_jobs is not None else (existing.get('processed_jobs') or 0))
         pct = round(min(100.0, max(0.0, (done / max(1, total_jobs)) * 100.0)), 1)
         if next_status == 'completed':
             current_depth_value = 0
@@ -125,6 +141,14 @@ def update_ingest_progress(tenant_slug: str, *, status: str | None = None, error
         update_map['last_job_completed_at'] = now
     if job_started:
         update_map['last_job_started_at'] = now
+    if current_stream is not None:
+        update_map['current_stream'] = str(current_stream or '')
+    if current_entity is not None:
+        update_map['current_entity'] = str(current_entity or '')
+    if current_from_date is not None:
+        update_map['from_date'] = str(current_from_date or '')
+    if current_to_date is not None:
+        update_map['to_date'] = str(current_to_date or '')
     if next_status in {'completed', 'stopped', 'failed'}:
         update_map.setdefault('completed_at', now)
     if error:
@@ -164,7 +188,7 @@ def get_ingest_progress(tenant_slug: str) -> dict[str, object]:
     operation = str(raw.get('operation') or 'backfill')
     status = str(raw.get('status') or 'running')
     if operation == 'delete':
-        if not delete_active:
+        if not delete_active and status not in {'completed', 'failed', 'stopped'}:
             redis.delete(key)
             return {
                 'tenant_slug': tenant_slug,
@@ -218,6 +242,8 @@ def get_ingest_progress(tenant_slug: str) -> dict[str, object]:
         'progress_pct': pct,
         'from_date': raw.get('from_date') or None,
         'to_date': raw.get('to_date') or None,
+        'current_stream': raw.get('current_stream') or None,
+        'current_entity': raw.get('current_entity') or None,
         'chunk_records': int(raw.get('chunk_records') or 0),
         'chunk_days': int(raw.get('chunk_days') or 0),
         'started_at': raw.get('started_at') or None,

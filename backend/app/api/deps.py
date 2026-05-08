@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import expected_audience_for_host, safe_decode
 from app.db.tenant_manager import get_tenant_db_session
-from app.models.control import OperationalStream, ProfessionalProfile, RoleName, RuleDomain, Tenant, TenantStatus, User
+from app.models.control import OperationalStream, ProfessionalProfile, RoleName, RuleDomain, Subscription, Tenant, TenantStatus, User
 from app.models.tenant import DimBranch
 from app.services.kpi_participation_scope import (
     reset_current_sales_kpi_participation_config,
@@ -16,6 +16,7 @@ from app.services.kpi_participation_scope import (
 )
 from app.services.request_scope import reset_allowed_branch_scope, set_allowed_branch_scope
 from app.services.rule_config import resolve_rule_payload
+from app.services.subscription_features import menu_visibility_from_features, normalize_subscription_feature_flags
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl='/v1/auth/login', auto_error=False)
 
@@ -199,6 +200,15 @@ async def get_current_user(
             )
         )
         row = result.first()
+        subscription_features: dict[str, bool] = {}
+        if row:
+            user_for_sub = row[0]
+            if user_for_sub.tenant_id is not None:
+                sub = (
+                    await db.execute(select(Subscription).where(Subscription.tenant_id == user_for_sub.tenant_id))
+                ).scalar_one_or_none()
+                if sub is not None:
+                    subscription_features = normalize_subscription_feature_flags(sub.plan, sub.feature_flags)
     if not row:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='User not found')
     user, profile_code, profile_name = row
@@ -216,7 +226,13 @@ async def get_current_user(
     request.state.professional_profile_code = resolved_profile_code
     request.state.professional_profile_name = resolved_profile_name
     request.state.ui_persona = resolve_ui_persona(user, resolved_profile_code)
-    request.state.menu_visibility = resolve_menu_visibility(user, resolved_profile_code)
+    persona_visibility = resolve_menu_visibility(user, resolved_profile_code)
+    subscription_visibility = menu_visibility_from_features(subscription_features)
+    request.state.menu_visibility = {
+        key: bool(value) and bool(subscription_visibility.get(key, True))
+        for key, value in persona_visibility.items()
+    }
+    request.state.subscription_features = subscription_features
     return user
 
 

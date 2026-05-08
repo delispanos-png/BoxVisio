@@ -7,11 +7,11 @@ SELECT
   CAST(NULL AS nvarchar(128)) AS account_id,
   CAST('operational' AS nvarchar(128)) AS expense_category_code,
   CAST(ISNULL(SR.NAME, N'Λειτουργικά Έξοδα') AS nvarchar(255)) AS expense_category_name,
-  CAST(ISNULL(SR.NAME, 'expense_' + CAST(ISNULL(F.SOSOURCE, 0) AS nvarchar(16))) AS nvarchar(128)) AS document_type,
+  CAST(CAST(ISNULL(F.TFPRMS, 0) AS nvarchar(16)) + N' ' + ISNULL(SR.NAME, 'expense_' + CAST(ISNULL(F.SOSOURCE, 0) AS nvarchar(16))) AS nvarchar(128)) AS document_type,
   CAST(ISNULL(F.FINCODE, F.FINDOC) AS nvarchar(128)) AS document_no,
-  CAST(ABS(ISNULL(F.SUMAMNT, 0)) AS decimal(18,4)) AS amount_net,
-  CAST(ABS(ISNULL(F.VATAMNT, 0)) AS decimal(18,4)) AS amount_tax,
-  CAST(ABS(ISNULL(F.SUMAMNT, 0) + ISNULL(F.VATAMNT, 0)) AS decimal(18,4)) AS amount_gross,
+  CAST((CASE WHEN ISNULL(F.TFPRMS, 0) = 102 THEN -1 ELSE 1 END) * ABS(ISNULL(F.SUMAMNT, 0)) AS decimal(18,4)) AS amount_net,
+  CAST((CASE WHEN ISNULL(F.TFPRMS, 0) = 102 THEN -1 ELSE 1 END) * ABS(ISNULL(F.VATAMNT, 0)) AS decimal(18,4)) AS amount_tax,
+  CAST((CASE WHEN ISNULL(F.TFPRMS, 0) = 102 THEN -1 ELSE 1 END) * ABS(ISNULL(F.SUMAMNT, 0) + ISNULL(F.VATAMNT, 0)) AS decimal(18,4)) AS amount_gross,
   CAST('EXP|' + CAST(F.FINDOC AS nvarchar(40)) AS nvarchar(128)) AS external_id,
   CAST(ISNULL(F.UPDDATE, F.TRNDATE) AS datetime2) AS updated_at,
 
@@ -55,20 +55,20 @@ SELECT
   CAST(NULL AS nvarchar(128)) AS account_id,
   CAST('softone_series_' + CAST(ISNULL(F.SERIES, 0) AS nvarchar(32)) AS nvarchar(128)) AS expense_category_code,
   CAST(ISNULL(SR.NAME, N'Λοιπά Έξοδα / Δαπάνες') AS nvarchar(255)) AS expense_category_name,
-  CAST('purchase_expense_' + CAST(ISNULL(F.SOSOURCE, 0) + ISNULL(F.SOREDIR, 0) AS nvarchar(16)) AS nvarchar(128)) AS document_type,
+  CAST(CAST(ISNULL(F.TFPRMS, 0) AS nvarchar(16)) + N' purchase_expense_' + CAST(ISNULL(F.SOSOURCE, 0) + ISNULL(F.SOREDIR, 0) AS nvarchar(16)) AS nvarchar(128)) AS document_type,
   CAST(ISNULL(F.FINCODE, F.FINDOC) AS nvarchar(128)) AS document_no,
   CAST(
-    (CASE WHEN ISNULL(F.SOSOURCE, 0) IN (1253) THEN -1 ELSE 1 END)
+    (CASE WHEN ISNULL(F.TFPRMS, 0) IN (151, 152) THEN -1 ELSE 1 END)
     * COALESCE(TRY_CAST(ABS(ISNULL(L.NETLINEVAL, ISNULL(L.LINEVAL, 0))) AS decimal(18,4)), 0)
     AS decimal(18,4)
   ) AS amount_net,
   CAST(
-    (CASE WHEN ISNULL(F.SOSOURCE, 0) IN (1253) THEN -1 ELSE 1 END)
+    (CASE WHEN ISNULL(F.TFPRMS, 0) IN (151, 152) THEN -1 ELSE 1 END)
     * COALESCE(TRY_CAST(ABS(ISNULL(L.VATAMNT, 0)) AS decimal(18,4)), 0)
     AS decimal(18,4)
   ) AS amount_tax,
   CAST(
-    (CASE WHEN ISNULL(F.SOSOURCE, 0) IN (1253) THEN -1 ELSE 1 END)
+    (CASE WHEN ISNULL(F.TFPRMS, 0) IN (151, 152) THEN -1 ELSE 1 END)
     * (
       COALESCE(TRY_CAST(ABS(ISNULL(L.NETLINEVAL, ISNULL(L.LINEVAL, 0))) AS decimal(18,4)), 0)
       + COALESCE(TRY_CAST(ABS(ISNULL(L.VATAMNT, 0)) AS decimal(18,4)), 0)

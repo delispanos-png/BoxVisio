@@ -13,6 +13,7 @@ from app.models.control import (
     Tenant,
     TenantStatus,
 )
+from app.services.subscription_features import infer_subscription_feature_defaults
 
 
 async def get_or_create_subscription(db: AsyncSession, tenant: Tenant) -> Subscription:
@@ -42,6 +43,12 @@ async def sync_tenant_from_subscription(db: AsyncSession, tenant: Tenant, sub: S
     tenant.trial_ends_at = sub.trial_ends_at
     tenant.current_period_end = sub.current_period_end
     tenant.canceled_at = sub.canceled_at
+    tenant_flags = dict(tenant.feature_flags or {})
+    sub_flags = dict(sub.feature_flags or {})
+    for key, enabled in sub_flags.items():
+        if isinstance(enabled, bool):
+            tenant_flags[key] = enabled
+    tenant.feature_flags = tenant_flags
     if sub.status in {SubscriptionStatus.suspended, SubscriptionStatus.canceled}:
         tenant.status = TenantStatus.suspended
     elif tenant.status == TenantStatus.suspended:
@@ -107,9 +114,4 @@ async def is_feature_enabled(
 
 
 def infer_default_features_for_plan(plan: PlanName) -> dict[str, bool]:
-    if plan == PlanName.standard:
-        return {'sales': True, 'purchases': False, 'inventory': False, 'cashflows': False}
-    if plan == PlanName.pro:
-        return {'sales': True, 'purchases': True, 'inventory': False, 'cashflows': False}
-    # enterprise and custom
-    return {'sales': True, 'purchases': True, 'inventory': True, 'cashflows': True}
+    return infer_subscription_feature_defaults(plan)

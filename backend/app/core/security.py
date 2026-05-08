@@ -28,6 +28,9 @@ def expected_audience_for_host(host: str | None) -> str | None:
         return AUDIENCE_ADMIN
     if host_only == settings.tenant_portal_host.lower():
         return AUDIENCE_TENANT
+    tenant_root = str(settings.tenant_domain_root or '').strip('.').lower()
+    if tenant_root and host_only.endswith(f'.{tenant_root}'):
+        return AUDIENCE_TENANT
     if host_only in _ALLOWED_HOSTS:
         return None
     # Unknown host: return a sentinel that forces audience mismatch rather than skipping verification

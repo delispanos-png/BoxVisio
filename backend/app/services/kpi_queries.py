@@ -1,9 +1,10 @@
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 import re
+import unicodedata
 from uuid import UUID
 
-from sqlalchemy import Date, Integer, String, and_, case, cast, func, literal, literal_column, not_, or_, select
+from sqlalchemy import Date, Integer, Numeric, String, and_, case, cast, func, literal, literal_column, not_, or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 from sqlalchemy.sql import over
@@ -33,6 +34,7 @@ from app.models.tenant import (
     DimAccount,
     DimCategory,
     DimCustomer,
+    DimDocumentType,
     DimExpenseCategory,
     DimGroup,
     DimItem,
@@ -55,6 +57,22 @@ _DEFAULT_INVENTORY_ITEM_CLASSIFICATION = {
     'active_last_sale_days': 60,
     'fast_sales_qty_30d_min': 50,
     'slow_sales_qty_30d_max': 5,
+}
+
+_DEFAULT_ESHOP_FULFILLMENT_RULES = {
+    'pickup_warehouses': {
+        '1001': 'E-Shop Αγίου Δημητρίου',
+        '1007': 'E-Shop Κηφισίας',
+        '1010': 'E-Shop Ελληνικού',
+        '2001': 'E-Shop Σπάτων',
+        '8001': 'E-Shop Περιστερίου',
+    },
+    'store_warehouses': {},
+    'pure_eshop_warehouses': ['1004'],
+    'three_pl_warehouses': ['3000'],
+    'shipping_method_labels': {},
+    'sales_series_channel_labels': {},
+    'physical_branch_names': [],
 }
 
 
@@ -98,6 +116,121 @@ def normalize_inventory_item_classification_config(raw: dict | None) -> dict[str
         'fast_sales_qty_30d_min': fast_min,
         'slow_sales_qty_30d_max': slow_max,
     }
+
+
+def normalize_eshop_fulfillment_config(raw: dict | None) -> dict[str, object]:
+    source = raw if isinstance(raw, dict) else {}
+    raw_pickup = source.get('pickup_warehouses')
+    pickup_source = raw_pickup if isinstance(raw_pickup, dict) else {}
+    pickup_clean: dict[str, str] = {}
+    for code, label in pickup_source.items():
+        code_clean = str(code or '').strip()
+        label_clean = str(label or '').strip()
+        if code_clean and label_clean:
+            pickup_clean[code_clean] = label_clean
+    if not pickup_clean:
+        pickup_clean = dict(_DEFAULT_ESHOP_FULFILLMENT_RULES['pickup_warehouses'])
+
+    raw_store_warehouses = source.get('store_warehouses')
+    store_source = raw_store_warehouses if isinstance(raw_store_warehouses, dict) else {}
+    store_clean: dict[str, str] = {}
+    for code, label in store_source.items():
+        code_clean = str(code or '').strip()
+        label_clean = str(label or '').strip()
+        if code_clean and label_clean:
+            store_clean[code_clean] = label_clean
+
+    raw_shipping_method_labels = source.get('shipping_method_labels')
+    shipping_method_label_source = raw_shipping_method_labels if isinstance(raw_shipping_method_labels, dict) else {}
+    shipping_method_label_clean: dict[str, str] = {}
+    for code, label in shipping_method_label_source.items():
+        code_clean = str(code or '').strip()
+        label_clean = str(label or '').strip()
+        if code_clean and label_clean:
+            shipping_method_label_clean[code_clean] = label_clean
+
+    raw_sales_series_channel_labels = source.get('sales_series_channel_labels')
+    series_channel_source = raw_sales_series_channel_labels if isinstance(raw_sales_series_channel_labels, dict) else {}
+    series_channel_clean: dict[str, str] = {}
+    for code, label in series_channel_source.items():
+        code_clean = str(code or '').strip()
+        label_clean = str(label or '').strip()
+        if code_clean and label_clean:
+            series_channel_clean[code_clean] = label_clean
+
+    def _list_clean(value: object, default: list[str]) -> list[str]:
+        if isinstance(value, list):
+            raw_items = value
+        else:
+            raw_items = default
+        clean: list[str] = []
+        seen: set[str] = set()
+        for item in raw_items:
+            item_clean = str(item or '').strip()
+            if item_clean and item_clean not in seen:
+                clean.append(item_clean)
+                seen.add(item_clean)
+        return clean or list(default)
+
+    return {
+        'pickup_warehouses': pickup_clean,
+        'store_warehouses': store_clean,
+        'pure_eshop_warehouses': _list_clean(
+            source.get('pure_eshop_warehouses'),
+            list(_DEFAULT_ESHOP_FULFILLMENT_RULES['pure_eshop_warehouses']),
+        ),
+        'three_pl_warehouses': _list_clean(
+            source.get('three_pl_warehouses'),
+            list(_DEFAULT_ESHOP_FULFILLMENT_RULES['three_pl_warehouses']),
+        ),
+        'shipping_method_labels': shipping_method_label_clean,
+        'sales_series_channel_labels': series_channel_clean,
+        'physical_branch_names': _list_clean(
+            source.get('physical_branch_names'),
+            list(_DEFAULT_ESHOP_FULFILLMENT_RULES['physical_branch_names']),
+        ),
+    }
+
+
+def normalize_document_series_labels_config(raw: dict | None) -> dict[str, str]:
+    source = raw if isinstance(raw, dict) else {}
+    clean: dict[str, str] = {}
+    for code, label in source.items():
+        code_clean = str(code or '').strip()
+        label_clean = str(label or '').strip()
+        if code_clean and label_clean:
+            clean[code_clean] = label_clean
+    return clean
+
+
+def _document_series_label(
+    series_code: object,
+    fallback: object = None,
+    document_series_labels: dict[str, str] | None = None,
+) -> str:
+    code = str(series_code or '').strip()
+    labels = normalize_document_series_labels_config(document_series_labels)
+    if code:
+        mapped = labels.get(code)
+        if mapped:
+            return mapped
+        first_token = code.split(' ', 1)[0].strip()
+        if first_token and first_token != code:
+            mapped = labels.get(first_token)
+            if mapped:
+                return mapped
+    fallback_txt = str(fallback or '').strip()
+    if fallback_txt:
+        return fallback_txt
+    return code or 'N/A'
+
+
+def _fold_text_for_match(value: object) -> str:
+    txt = str(value or '').strip().lower()
+    if not txt:
+        return ''
+    normalized = unicodedata.normalize('NFD', txt)
+    return ''.join(ch for ch in normalized if not unicodedata.combining(ch))
 
 
 def _classify_inventory_item(
@@ -209,6 +342,63 @@ def _payload_bool(payload: dict | None, *aliases: str) -> bool | None:
     if txt in {'0', 'false', 'no', 'n', 'off', 'οχι', 'όχι'}:
         return False
     return None
+
+
+def _blank_zero_text(value: object, fallback: str = '') -> str:
+    txt = str(value or '').strip()
+    if not txt:
+        return fallback
+    compact = txt.replace(',', '.').strip().lower()
+    if compact in {'0', '0.0', '-', 'null', 'none', 'n/a'}:
+        return fallback
+    return txt
+
+
+def _warehouse_matches_eshop_channel_fallback(warehouse_code: object, fulfillment_config: dict | None = None) -> bool:
+    rules = normalize_eshop_fulfillment_config(fulfillment_config)
+    wh = str(warehouse_code or '').strip()
+    pure_eshop = {str(x).strip() for x in (rules.get('pure_eshop_warehouses') or []) if str(x).strip()}
+    three_pl = {str(x).strip() for x in (rules.get('three_pl_warehouses') or []) if str(x).strip()}
+    return wh in pure_eshop or wh in three_pl
+
+
+def _normalize_sales_channel_name(
+    channel_name: object,
+    warehouse_code: object,
+    fulfillment_config: dict | None = None,
+    series_code: object = None,
+) -> str:
+    txt = str(channel_name or '').strip()
+    if txt:
+        return txt
+    rules = normalize_eshop_fulfillment_config(fulfillment_config)
+    series = str(series_code or '').strip()
+    sales_series_channel_labels = rules.get('sales_series_channel_labels') or {}
+    if series and isinstance(sales_series_channel_labels, dict):
+        mapped = str(sales_series_channel_labels.get(series) or '').strip()
+        if mapped:
+            return mapped
+        first_token = series.split(' ', 1)[0].strip()
+        if first_token and first_token != series:
+            mapped = str(sales_series_channel_labels.get(first_token) or '').strip()
+            if mapped:
+                return mapped
+    if _warehouse_matches_eshop_channel_fallback(warehouse_code, fulfillment_config):
+        return 'Site'
+    return ''
+
+
+def _normalize_shipping_method_label(shipping_method: object, fulfillment_config: dict | None = None) -> str:
+    txt = _blank_zero_text(shipping_method, '')
+    if not txt:
+        return ''
+    rules = normalize_eshop_fulfillment_config(fulfillment_config)
+    shipping_method_labels = rules.get('shipping_method_labels') or {}
+    if isinstance(shipping_method_labels, dict):
+        mapped = str(shipping_method_labels.get(txt) or '').strip()
+        if mapped:
+            return mapped
+    return txt
 
 
 def _split_softone_codes(raw: str | None) -> list[str]:
@@ -405,6 +595,7 @@ def _apply_fact_purchase_filters(stmt, branches=None, warehouses=None, brands=No
 
 
 def _fact_purchase_signed_discount_expr():
+    net_expr = _fact_purchases_signed_amount_expr(func.coalesce(FactPurchases.net_value, 0))
     discount_total = (
         func.coalesce(FactPurchases.discount_amount, 0)
         + func.coalesce(FactPurchases.discount1_amount, 0)
@@ -412,7 +603,204 @@ def _fact_purchase_signed_discount_expr():
         + func.coalesce(FactPurchases.discount3_amount, 0)
     )
     abs_discount = func.abs(discount_total)
-    return case((func.coalesce(FactPurchases.net_value, 0) < 0, -abs_discount), else_=abs_discount)
+    return case((net_expr < 0, -abs_discount), else_=abs_discount)
+
+
+_PURCHASE_CREDIT_BEHAVIOR_CODES = (151, 152)
+
+
+def _fact_purchases_is_credit_expr():
+    behavior_text = func.btrim(
+        cast(
+            func.coalesce(
+                FactPurchases.source_payload_json['source_transaction_type_id'].astext,
+                FactPurchases.source_payload_json['behavior_code'].astext,
+                FactPurchases.source_payload_json['behavior'].astext,
+                FactPurchases.source_payload_json['tfprms'].astext,
+                literal(''),
+            ),
+            String,
+        )
+    )
+    is_credit_behavior = behavior_text.in_([str(code) for code in _PURCHASE_CREDIT_BEHAVIOR_CODES])
+
+    series_name_expr = func.lower(
+        cast(
+            func.coalesce(
+                FactPurchases.source_payload_json['document_series_name'].astext,
+                FactPurchases.document_series,
+                literal(''),
+            ),
+            String,
+        )
+    )
+    doc_type_expr = func.lower(
+        cast(
+            func.coalesce(
+                FactPurchases.source_payload_json['document_type'].astext,
+                FactPurchases.document_type,
+                literal(''),
+            ),
+            String,
+        )
+    )
+    return or_(
+        is_credit_behavior,
+        series_name_expr.like('%πιστωτ%'),
+        series_name_expr.like('%credit%'),
+        doc_type_expr.like('%πιστωτ%'),
+        doc_type_expr.like('%credit%'),
+    )
+
+
+def _fact_purchases_signed_amount_expr(amount_expr):
+    is_credit = _fact_purchases_is_credit_expr()
+    return case((and_(is_credit, amount_expr > 0), -amount_expr), else_=amount_expr)
+
+
+def _purchase_is_credit_payload(payload: dict | None) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    behavior_keys = ('source_transaction_type_id', 'behavior_code', 'behavior', 'tfprms')
+    for key in behavior_keys:
+        raw = payload.get(key)
+        try:
+            if int(str(raw).strip()) in _PURCHASE_CREDIT_BEHAVIOR_CODES:
+                return True
+        except (TypeError, ValueError):
+            continue
+    series_name = str(payload.get('document_series_name') or '').strip().lower()
+    doc_type = str(payload.get('document_type') or '').strip().lower()
+    return ('πιστωτ' in series_name) or ('πιστωτ' in doc_type) or ('credit' in series_name) or ('credit' in doc_type)
+
+
+def _normalize_purchase_credit_sign(value: float, is_credit: bool) -> float:
+    amount = float(value or 0.0)
+    if is_credit and amount > 0:
+        return -amount
+    return amount
+
+
+def _fact_expenses_is_credit_expr():
+    doc_type_expr = func.lower(cast(func.coalesce(FactExpense.document_type, literal('')), String))
+    return or_(
+        doc_type_expr.like('%πιστωτ%'),
+        doc_type_expr.like('%credit%'),
+        doc_type_expr.like('102%'),
+        doc_type_expr.like('% 102%'),
+        doc_type_expr.like('11.4%'),
+        doc_type_expr.like('%11.4%'),
+    )
+
+
+def _fact_expenses_signed_amount_expr(amount_expr):
+    is_credit = _fact_expenses_is_credit_expr()
+    return case((and_(is_credit, amount_expr > 0), -amount_expr), else_=amount_expr)
+
+
+def _expense_is_credit_document_type(document_type: str | None) -> bool:
+    doc_type = str(document_type or '').strip().lower()
+    if not doc_type:
+        return False
+    return (
+        ('πιστωτ' in doc_type)
+        or ('credit' in doc_type)
+        or doc_type.startswith('102')
+        or (' 102' in doc_type)
+        or doc_type.startswith('11.4')
+        or ('11.4' in doc_type)
+    )
+
+
+def _normalize_expense_credit_sign(value: float, document_type: str | None) -> float:
+    amount = float(value or 0.0)
+    if _expense_is_credit_document_type(document_type) and amount > 0:
+        return -amount
+    return amount
+
+
+def _normalize_expense_document_type_label(raw_type: str | None, *, category_name: str | None = None) -> str:
+    txt = str(raw_type or '').strip()
+    if not txt:
+        return str(category_name or 'Παραστατικό Εξόδων')
+    lowered = txt.lower()
+    category = str(category_name or '').strip()
+    if 'purchase_expense_' in lowered:
+        behavior = txt.split(' ', 1)[0].strip()
+        if behavior == '102' and category:
+            return f'Πιστωτικό {category}'
+        if behavior == '101' and category:
+            return category
+        return category or txt
+    if lowered.startswith('expense_') or lowered.startswith('softone_series_'):
+        return category or txt
+    return txt
+
+
+def _normalize_expense_branch_label(branch_name: str | None, branch_ext_id: str | None) -> str:
+    label = str(branch_name or '').strip()
+    if label and label.upper() != 'N/A':
+        return label
+    ext = str(branch_ext_id or '').strip()
+    if ':' in ext:
+        right = ext.split(':', 1)[1].strip()
+        if right:
+            return right
+    return ext or 'N/A'
+
+
+_TECHNICAL_PURCHASE_TYPE_RE = re.compile(r'^(?:\d+\s+)?purchase_\d+$', re.IGNORECASE)
+
+
+def _strip_tenant_prefix(value: str | None) -> str:
+    txt = str(value or '').strip()
+    if ':' not in txt:
+        return txt
+    right = txt.split(':', 1)[1].strip()
+    return right or txt
+
+
+def _normalize_purchase_branch_label(branch_name: str | None, branch_ext_id: str | None) -> str:
+    label = str(branch_name or '').strip()
+    if label and label.upper() != 'N/A':
+        return _strip_tenant_prefix(label)
+    ext = _strip_tenant_prefix(branch_ext_id)
+    return ext or 'N/A'
+
+
+def _normalize_purchase_document_type_label(
+    raw_type: str | None,
+    *,
+    series_label: str | None = None,
+    payload: dict | None = None,
+) -> str:
+    value = str(raw_type or '').strip()
+    if value and not _TECHNICAL_PURCHASE_TYPE_RE.match(value):
+        return value
+
+    if isinstance(payload, dict):
+        for key in (
+            'document_series_name',
+            'series_name',
+            'document_type_name',
+            'doc_type_name',
+            'type_name',
+            'tfprms_name',
+        ):
+            txt = str(payload.get(key) or '').strip()
+            if txt and not _TECHNICAL_PURCHASE_TYPE_RE.match(txt) and not txt.isdigit():
+                return txt
+
+    fallback_series = str(series_label or '').strip()
+    if fallback_series and not fallback_series.isdigit() and not _TECHNICAL_PURCHASE_TYPE_RE.match(fallback_series):
+        return fallback_series
+
+    behavior = value.split(' ', 1)[0].strip() if value else ''
+    if behavior in {'102', '152'}:
+        return 'Πιστωτικό Αγορών'
+    if behavior == '103':
+        return 'Τιμολόγιο / Δελτίο Αγορών'
+    return 'Παραστατικό Αγορών'
 
 
 def _apply_sales_monthly_filters(stmt, branches=None, warehouses=None, brands=None, categories=None, groups=None):
@@ -593,6 +981,184 @@ def _sales_behavior_sign_map(map_key: str) -> dict[int, float]:
 
 def _fact_sales_behavior_code_expr():
     return cast(FactSales.source_payload_json['source_transaction_type_id'].astext, Integer)
+
+
+_CREDIT_BEHAVIOR_CODES_FOR_VAT_SIGN_FIX = (102, 151, 152, 181)
+
+
+def _is_credit_behavior_code_for_vat_sign_fix(value: object) -> bool:
+    try:
+        return int(str(value).strip()) in _CREDIT_BEHAVIOR_CODES_FOR_VAT_SIGN_FIX
+    except (TypeError, ValueError):
+        return False
+
+
+def _normalize_credit_vat_sign(vat_value: float, net_value: float, behavior_code: object) -> float:
+    if not _is_credit_behavior_code_for_vat_sign_fix(behavior_code):
+        return float(vat_value)
+    if net_value < 0 and vat_value > 0:
+        return -float(vat_value)
+    if net_value > 0 and vat_value < 0:
+        return -float(vat_value)
+    return float(vat_value)
+
+
+def _fact_sales_behavior_code_text_expr():
+    return func.coalesce(cast(FactSales.source_payload_json['source_transaction_type_id'].astext, String), literal(''))
+
+
+def _fact_sales_credit_signed_amount_expr(amount_expr):
+    behavior_code_text = _fact_sales_behavior_code_text_expr()
+    is_credit_behavior = behavior_code_text.in_([str(code) for code in _CREDIT_BEHAVIOR_CODES_FOR_VAT_SIGN_FIX])
+    return case((and_(is_credit_behavior, amount_expr > 0), -amount_expr), else_=amount_expr)
+
+
+def _fact_sales_vat_amount_expr():
+    gross_expr = func.coalesce(FactSales.gross_value, 0)
+    net_expr = func.coalesce(FactSales.net_value, 0)
+    raw_vat_expr = case(
+        (FactSales.vat_amount.is_not(None), FactSales.vat_amount),
+        else_=(gross_expr - net_expr),
+    )
+    behavior_code_text = _fact_sales_behavior_code_text_expr()
+    is_credit_behavior = behavior_code_text.in_([str(code) for code in _CREDIT_BEHAVIOR_CODES_FOR_VAT_SIGN_FIX])
+    return case(
+        (and_(is_credit_behavior, net_expr < 0, raw_vat_expr > 0), -raw_vat_expr),
+        (and_(is_credit_behavior, net_expr > 0, raw_vat_expr < 0), -raw_vat_expr),
+        else_=raw_vat_expr,
+    )
+
+
+def _json_numeric_text_expr(json_col, key: str):
+    raw = func.nullif(func.btrim(cast(json_col[key].astext, String)), '')
+    return func.replace(raw, ',', '.')
+
+
+def _fact_sales_payload_expenses_expr():
+    payload = FactSales.source_payload_json
+    return cast(
+        func.coalesce(
+            _json_numeric_text_expr(payload, 'charge_revenue_net_value'),
+            _json_numeric_text_expr(payload, 'shipping_expense_value'),
+            _json_numeric_text_expr(payload, 'shipping_charge_net_value'),
+            _json_numeric_text_expr(payload, 'cod_charge_net_value'),
+            _json_numeric_text_expr(payload, 'charge_revenue_total_net_value'),
+            _json_numeric_text_expr(payload, 'expenses_value'),
+            _json_numeric_text_expr(payload, 'expense_value'),
+            _json_numeric_text_expr(payload, 'expenses_amount'),
+            _json_numeric_text_expr(payload, 'expense_amount'),
+            _json_numeric_text_expr(payload, 'total_expenses'),
+            _json_numeric_text_expr(payload, 'expenses_total'),
+            _json_numeric_text_expr(payload, 'other_charges'),
+            _json_numeric_text_expr(payload, 'charges_amount'),
+            _json_numeric_text_expr(payload, 'shipping_cost'),
+            _json_numeric_text_expr(payload, 'fees_amount'),
+            _json_numeric_text_expr(payload, 'value_expenses'),
+            _json_numeric_text_expr(payload, 'axia_exodon'),
+            _json_numeric_text_expr(payload, 'charge_revenue_gross_value'),
+            _json_numeric_text_expr(payload, 'charge_revenue_total_gross_value'),
+            _json_numeric_text_expr(payload, 'DOC_EXPENSES_TOTAL'),
+            _json_numeric_text_expr(payload, 'EXPENSES_VALUE'),
+            _json_numeric_text_expr(payload, 'EXPENSE_AMOUNT'),
+            literal('0'),
+        ),
+        Numeric,
+    )
+
+
+def _fact_sales_payload_vat_expr():
+    payload = FactSales.source_payload_json
+    return cast(
+        func.coalesce(
+            _json_numeric_text_expr(payload, 'vat_total'),
+            _json_numeric_text_expr(payload, 'vat_value'),
+            _json_numeric_text_expr(payload, 'total_vat'),
+            _json_numeric_text_expr(payload, 'tax_total'),
+            _json_numeric_text_expr(payload, 'tax_amount'),
+            _json_numeric_text_expr(payload, 'fpa_total'),
+            _json_numeric_text_expr(payload, 'fpa_amount'),
+            _json_numeric_text_expr(payload, 'doc_tax_total'),
+            _json_numeric_text_expr(payload, 'DOC_TAX_TOTAL'),
+            _json_numeric_text_expr(payload, 'VAT_AMOUNT'),
+            _json_numeric_text_expr(payload, 'TAX_AMOUNT'),
+            literal('0'),
+        ),
+        Numeric,
+    )
+
+
+def _fact_sales_payload_gross_expr():
+    payload = FactSales.source_payload_json
+    return cast(
+        func.coalesce(
+            _json_numeric_text_expr(payload, 'gross_total'),
+            _json_numeric_text_expr(payload, 'gross_value'),
+            _json_numeric_text_expr(payload, 'total_gross'),
+            _json_numeric_text_expr(payload, 'amount_total'),
+            _json_numeric_text_expr(payload, 'total_value'),
+            _json_numeric_text_expr(payload, 'value_total'),
+            _json_numeric_text_expr(payload, 'doc_gross_total'),
+            _json_numeric_text_expr(payload, 'DOC_GROSS_TOTAL'),
+            _json_numeric_text_expr(payload, 'GROSS_VALUE'),
+            literal('0'),
+        ),
+        Numeric,
+    )
+
+
+def _fact_sales_payload_shipping_expense_expr():
+    payload = FactSales.source_payload_json
+    return cast(
+        func.coalesce(
+            _json_numeric_text_expr(payload, 'shipping_charge_net_value'),
+            _json_numeric_text_expr(payload, 'shipping_expense_value'),
+            _json_numeric_text_expr(payload, 'shipping_cost'),
+            literal('0'),
+        ),
+        Numeric,
+    )
+
+
+def _fact_sales_payload_cod_charge_expr():
+    payload = FactSales.source_payload_json
+    return cast(
+        func.coalesce(
+            _json_numeric_text_expr(payload, 'cod_charge_net_value'),
+            _json_numeric_text_expr(payload, 'cod_charge_gross_value'),
+            literal('0'),
+        ),
+        Numeric,
+    )
+
+
+def _fact_sales_payload_gift_charge_expr():
+    payload = FactSales.source_payload_json
+    return cast(
+        func.coalesce(
+            _json_numeric_text_expr(payload, 'gift_charge_net_value'),
+            _json_numeric_text_expr(payload, 'gift_charge_gross_value'),
+            literal('0'),
+        ),
+        Numeric,
+    )
+
+
+def _fact_sales_payload_other_charge_expr():
+    payload = FactSales.source_payload_json
+    return cast(
+        func.coalesce(
+            _json_numeric_text_expr(payload, 'other_charge_net_value'),
+            _json_numeric_text_expr(payload, 'other_charge_gross_value'),
+            literal('0'),
+        ),
+        Numeric,
+    )
+
+
+def _fact_sales_eshop_document_expr():
+    channel_expr = func.lower(cast(func.coalesce(FactSales.channel_name, literal('')), String))
+    eshop_expr = func.nullif(func.btrim(cast(func.coalesce(FactSales.eshop_code, literal('')), String)), '')
+    return or_(eshop_expr.is_not(None), channel_expr.like('%site%'), channel_expr.like('%eshop%'), channel_expr.like('%e-shop%'))
 
 
 def _fact_sales_behavior_sign_expr(*, quantity: bool):
@@ -1445,8 +2011,8 @@ async def _purchases_summaries_by_windows(
         return {}
 
     global_from, global_to = _window_bounds(windows)
-    net_expr = func.coalesce(FactPurchases.net_value, 0)
-    cost_expr = func.coalesce(FactPurchases.cost_amount, 0)
+    net_expr = _fact_purchases_signed_amount_expr(func.coalesce(FactPurchases.net_value, 0))
+    cost_expr = _fact_purchases_signed_amount_expr(func.coalesce(FactPurchases.cost_amount, 0))
     discount_expr = _fact_purchase_signed_discount_expr()
     before_discount_expr = net_expr + discount_expr
     cols = []
@@ -2105,8 +2671,8 @@ async def purchases_summary(
     categories: list[str] | None = None,
     groups: list[str] | None = None,
 ):
-    net_expr = func.coalesce(FactPurchases.net_value, 0)
-    cost_expr = func.coalesce(FactPurchases.cost_amount, 0)
+    net_expr = _fact_purchases_signed_amount_expr(func.coalesce(FactPurchases.net_value, 0))
+    cost_expr = _fact_purchases_signed_amount_expr(func.coalesce(FactPurchases.cost_amount, 0))
     discount_expr = _fact_purchase_signed_discount_expr()
     before_discount_expr = net_expr + discount_expr
     stmt = (
@@ -2153,9 +2719,13 @@ async def purchases_by_supplier(
         select(
             FactPurchases.supplier_ext_id,
             func.coalesce(func.max(DimSupplier.name), FactPurchases.supplier_ext_id).label('supplier_name'),
-            func.coalesce(func.sum(FactPurchases.net_value), 0).label('net_value'),
-            func.coalesce(func.sum(FactPurchases.cost_amount), 0).label('cost_amount'),
-            func.coalesce(func.sum(FactPurchases.discount_amount), 0).label('discount_amount'),
+            func.coalesce(func.sum(_fact_purchases_signed_amount_expr(func.coalesce(FactPurchases.net_value, 0))), 0).label(
+                'net_value'
+            ),
+            func.coalesce(func.sum(_fact_purchases_signed_amount_expr(func.coalesce(FactPurchases.cost_amount, 0))), 0).label(
+                'cost_amount'
+            ),
+            func.coalesce(func.sum(_fact_purchase_signed_discount_expr()), 0).label('discount_amount'),
         )
         .select_from(FactPurchases)
         .join(DimSupplier, DimSupplier.external_id == FactPurchases.supplier_ext_id, isouter=True)
@@ -2164,7 +2734,9 @@ async def purchases_by_supplier(
     stmt = _apply_fact_purchases_filters(
         stmt, branches=branches, warehouses=warehouses, brands=brands, categories=categories, groups=groups
     )
-    stmt = stmt.group_by(FactPurchases.supplier_ext_id).order_by(func.sum(FactPurchases.net_value).desc())
+    stmt = stmt.group_by(FactPurchases.supplier_ext_id).order_by(
+        func.sum(_fact_purchases_signed_amount_expr(func.coalesce(FactPurchases.net_value, 0))).desc()
+    )
     rows = (await db.execute(stmt)).all()
     return [
         {
@@ -2192,8 +2764,12 @@ async def purchases_monthly_trend(
     stmt = (
         select(
             month_start_expr.label('month_start'),
-            func.coalesce(func.sum(FactPurchases.net_value), 0).label('net_value'),
-            func.coalesce(func.sum(FactPurchases.cost_amount), 0).label('cost_amount'),
+            func.coalesce(func.sum(_fact_purchases_signed_amount_expr(func.coalesce(FactPurchases.net_value, 0))), 0).label(
+                'net_value'
+            ),
+            func.coalesce(func.sum(_fact_purchases_signed_amount_expr(func.coalesce(FactPurchases.cost_amount, 0))), 0).label(
+                'cost_amount'
+            ),
             func.coalesce(func.sum(FactPurchases.qty), 0).label('qty'),
         )
         .where(*_date_range(FactPurchases.doc_date, date_from, date_to))
@@ -3060,24 +3636,74 @@ async def sales_documents_overview(
     gross_min: float | None = None,
     gross_max: float | None = None,
     q: str | None = None,
+    behaviors: list[int] | None = None,
     limit: int = 200,
     offset: int = 0,
+    fulfillment_config: dict | None = None,
+    document_series_labels: dict[str, str] | None = None,
 ):
     doc_key = func.coalesce(FactSales.document_id, FactSales.document_no, FactSales.external_id)
+    vat_line_expr = _fact_sales_vat_amount_expr()
+    net_line_expr = _fact_sales_credit_signed_amount_expr(func.coalesce(FactSales.net_value, 0))
+    qty_line_expr = func.abs(_fact_sales_credit_signed_amount_expr(func.coalesce(FactSales.qty, 0)))
+    gross_line_expr = case(
+        (FactSales.gross_value.is_not(None), _fact_sales_credit_signed_amount_expr(FactSales.gross_value)),
+        else_=(net_line_expr + vat_line_expr),
+    )
+    payload_vat_doc_expr = func.coalesce(func.max(_fact_sales_payload_vat_expr()), 0)
+    payload_gross_doc_expr = func.coalesce(func.max(_fact_sales_payload_gross_expr()), 0)
+    payload_expenses_doc_expr = func.coalesce(func.max(_fact_sales_payload_expenses_expr()), 0)
+    payload_vat_signed_doc_expr = case(
+        (func.sum(net_line_expr) < 0, -func.abs(payload_vat_doc_expr)),
+        else_=func.abs(payload_vat_doc_expr),
+    )
+    vat_doc_expr = case(
+        (func.abs(payload_vat_doc_expr) > 0.0001, payload_vat_signed_doc_expr),
+        else_=func.coalesce(func.sum(vat_line_expr), 0),
+    )
+    payload_expenses_signed_doc_expr = case(
+        (func.sum(net_line_expr) < 0, -func.abs(payload_expenses_doc_expr)),
+        else_=func.abs(payload_expenses_doc_expr),
+    )
+    payload_gross_signed_doc_expr = case(
+        (func.sum(net_line_expr) < 0, -func.abs(payload_gross_doc_expr)),
+        else_=func.abs(payload_gross_doc_expr),
+    )
+    gross_doc_expr = case(
+        (func.abs(payload_gross_doc_expr) > 0.0001, payload_gross_signed_doc_expr),
+        else_=func.coalesce(func.sum(gross_line_expr), 0),
+    )
+    residual_expenses_doc_expr = (
+        gross_doc_expr
+        - func.coalesce(func.sum(net_line_expr), 0)
+        - vat_doc_expr
+    )
+    expenses_doc_expr = case(
+        (func.abs(payload_expenses_doc_expr) > 0.0001, payload_expenses_signed_doc_expr),
+        else_=residual_expenses_doc_expr,
+    )
     base = (
         select(
             doc_key.label('document_id'),
             func.max(FactSales.document_no).label('document_no'),
             func.max(FactSales.doc_date).label('document_date'),
             func.coalesce(func.max(DimBranch.name), func.max(FactSales.branch_ext_id), literal('N/A')).label('branch_name'),
+            func.coalesce(func.max(FactSales.warehouse_ext_id), literal('')).label('warehouse_code'),
             func.coalesce(func.max(DimWarehouse.name), func.max(FactSales.warehouse_ext_id), literal('N/A')).label(
                 'warehouse_name'
             ),
-            func.coalesce(func.max(FactSales.document_series), func.max(FactSales.document_type), literal('N/A')).label(
+            func.coalesce(func.max(FactSales.document_series), literal('')).label('series_code'),
+            func.coalesce(
+                func.max(FactSales.source_payload_json['document_series_name'].astext),
+                func.max(FactSales.document_series),
+                func.max(FactSales.document_type),
+                literal('N/A'),
+            ).label(
                 'series_label'
             ),
             func.coalesce(func.max(FactSales.document_status), literal('N/A')).label('status_label'),
             func.coalesce(func.max(FactSales.document_type), literal('N/A')).label('document_type'),
+            func.coalesce(func.max(FactSales.channel_name), literal('')).label('channel_name'),
             func.coalesce(func.max(FactSales.eshop_code), literal('')).label('eshop_code'),
             func.coalesce(
                 func.max(FactSales.customer_name),
@@ -3086,9 +3712,10 @@ async def sales_documents_overview(
             ).label('customer_name'),
             func.coalesce(func.sum(FactSales.qty), 0).label('qty_total'),
             func.coalesce(func.sum(func.coalesce(FactSales.qty_executed, FactSales.qty)), 0).label('qty_exec_total'),
-            func.coalesce(func.sum(FactSales.net_value), 0).label('net_value'),
-            func.coalesce(func.sum(func.coalesce(FactSales.vat_amount, 0)), 0).label('vat_value'),
-            (func.coalesce(func.sum(FactSales.net_value), 0) + func.coalesce(func.sum(func.coalesce(FactSales.vat_amount, 0)), 0)).label('gross_value'),
+            func.coalesce(func.sum(net_line_expr), 0).label('net_value'),
+            vat_doc_expr.label('vat_value'),
+            gross_doc_expr.label('gross_value'),
+            expenses_doc_expr.label('expenses_value'),
             func.count(FactSales.id).label('line_count'),
             func.coalesce(func.max(FactSales.origin_ref), literal('')).label('origin_ref'),
             func.coalesce(func.max(FactSales.destination_ref), literal('')).label('destination_ref'),
@@ -3112,6 +3739,10 @@ async def sales_documents_overview(
         groups=groups,
         channels=channels,
     )
+    if behaviors:
+        behavior_vals = [str(int(b)) for b in behaviors if str(b).strip().isdigit()]
+        if behavior_vals:
+            base = base.where(_fact_sales_behavior_code_text_expr().in_(behavior_vals))
 
     status_clean = str(status or 'all').strip().lower()
     if status_clean not in {'', 'all'}:
@@ -3157,7 +3788,7 @@ async def sales_documents_overview(
             func.lower(cast(func.coalesce(FactSales.destination_ref, literal('')), String)).like(f'%{to_ref_clean}%')
         )
 
-    gross_total_expr = func.coalesce(func.sum(FactSales.net_value), 0) + func.coalesce(func.sum(func.coalesce(FactSales.vat_amount, 0)), 0)
+    gross_total_expr = func.coalesce(func.sum(gross_line_expr), 0)
     if gross_min is not None:
         base = base.having(gross_total_expr >= float(gross_min))
     if gross_max is not None:
@@ -3182,27 +3813,131 @@ async def sales_documents_overview(
             | func.lower(cast(func.coalesce(FactSales.notes, FactSales.notes_2, literal('')), String)).like(like)
         )
 
-    docs_sub = base.group_by(doc_key).subquery('sales_docs')
-    totals_row = (
-        await db.execute(
-            select(
-                func.coalesce(func.count(), 0).label('docs_count'),
-                func.coalesce(func.sum(docs_sub.c.gross_value), 0).label('gross_value'),
-                func.coalesce(func.sum(docs_sub.c.net_value), 0).label('net_value'),
-                func.coalesce(func.sum(docs_sub.c.vat_value), 0).label('vat_value'),
-                func.coalesce(func.sum(docs_sub.c.qty_total), 0).label('qty_total'),
-            )
-        )
-    ).mappings().one()
+    page_limit = max(1, min(int(limit), 500))
+    page_offset = max(0, int(offset))
+    fast_page = gross_min is None and gross_max is None and not q_clean
+    summary_partial = False
+    summary_docs_count = 0
+    summary_gross_value = 0.0
+    summary_net_value = 0.0
+    summary_vat_value = 0.0
+    summary_expenses_value = 0.0
+    summary_qty_total = 0.0
 
-    rows = (
-        await db.execute(
-            select(docs_sub)
-            .order_by(docs_sub.c.document_date.desc(), docs_sub.c.last_update.desc(), docs_sub.c.document_id.asc())
-            .offset(max(0, int(offset)))
-            .limit(max(1, min(int(limit), 500)))
+    if fast_page:
+        candidate = (
+            select(
+                doc_key.label('document_id'),
+                func.max(FactSales.doc_date).label('document_date'),
+                func.max(func.coalesce(FactSales.source_updated_at, FactSales.updated_at)).label('last_update'),
+            )
+            .select_from(FactSales)
+            .where(*_date_range(FactSales.doc_date, date_from, date_to))
         )
-    ).mappings().all()
+        candidate = _apply_fact_sales_filters(
+            candidate,
+            branches=branches,
+            warehouses=warehouses,
+            brands=brands,
+            categories=categories,
+            groups=groups,
+            channels=channels,
+        )
+        if behaviors and behavior_vals:
+            candidate = candidate.where(_fact_sales_behavior_code_text_expr().in_(behavior_vals))
+        if status_clean not in {'', 'all'}:
+            candidate = candidate.where(
+                func.lower(cast(func.coalesce(FactSales.document_status, literal('')), String)).like(f'%{status_clean}%')
+            )
+        if series_clean:
+            candidate = candidate.where(
+                func.lower(cast(func.coalesce(FactSales.document_series, FactSales.document_type, literal('')), String)).like(
+                    f'%{series_clean}%'
+                )
+            )
+        if document_no_clean:
+            candidate = candidate.where(
+                func.lower(cast(func.coalesce(FactSales.document_no, FactSales.document_id, FactSales.external_id), String)).like(
+                    f'%{document_no_clean}%'
+                )
+            )
+        if eshop_code_clean:
+            candidate = candidate.where(
+                func.lower(cast(func.coalesce(FactSales.eshop_code, literal('')), String)).like(f'%{eshop_code_clean}%')
+            )
+        if customer_clean:
+            candidate = candidate.where(
+                func.lower(cast(func.coalesce(FactSales.customer_name, FactSales.customer_code, literal('')), String)).like(
+                    f'%{customer_clean}%'
+                )
+            )
+        if from_ref_clean:
+            candidate = candidate.where(
+                func.lower(cast(func.coalesce(FactSales.origin_ref, literal('')), String)).like(f'%{from_ref_clean}%')
+            )
+        if to_ref_clean:
+            candidate = candidate.where(
+                func.lower(cast(func.coalesce(FactSales.destination_ref, literal('')), String)).like(f'%{to_ref_clean}%')
+            )
+        candidate_rows = (
+            await db.execute(
+                candidate.group_by(doc_key)
+                .order_by(
+                    literal_column('document_date').desc(),
+                    literal_column('last_update').desc(),
+                    literal_column('document_id').asc(),
+                )
+                .offset(page_offset)
+                .limit(page_limit + 1)
+            )
+        ).mappings().all()
+        has_more = len(candidate_rows) > page_limit
+        candidate_ids = [str(r['document_id']) for r in candidate_rows[:page_limit] if r.get('document_id') is not None]
+        summary_docs_count = page_offset + len(candidate_ids) + (1 if has_more else 0)
+        summary_partial = True
+        if not candidate_ids:
+            rows = []
+        else:
+            docs_sub = base.where(doc_key.in_(candidate_ids)).group_by(doc_key).subquery('sales_docs')
+            rows = (
+                await db.execute(
+                    select(docs_sub).order_by(
+                        docs_sub.c.document_date.desc(),
+                        docs_sub.c.last_update.desc(),
+                        docs_sub.c.document_id.asc(),
+                    )
+                )
+            ).mappings().all()
+        summary_gross_value = sum(float(r.get('gross_value') or 0) for r in rows)
+        summary_net_value = sum(float(r.get('net_value') or 0) for r in rows)
+        summary_vat_value = sum(float(r.get('vat_value') or 0) for r in rows)
+        summary_expenses_value = sum(float(r.get('expenses_value') or 0) for r in rows)
+        summary_qty_total = sum(float(r.get('qty_total') or 0) for r in rows)
+    else:
+        docs_sub = base.group_by(doc_key).subquery('sales_docs')
+        rows = (
+            await db.execute(
+                select(
+                    docs_sub,
+                    func.count().over().label('_docs_count'),
+                    func.coalesce(func.sum(docs_sub.c.gross_value).over(), 0).label('_summary_gross_value'),
+                    func.coalesce(func.sum(docs_sub.c.net_value).over(), 0).label('_summary_net_value'),
+                    func.coalesce(func.sum(docs_sub.c.vat_value).over(), 0).label('_summary_vat_value'),
+                    func.coalesce(func.sum(docs_sub.c.expenses_value).over(), 0).label('_summary_expenses_value'),
+                    func.coalesce(func.sum(docs_sub.c.qty_total).over(), 0).label('_summary_qty_total'),
+                )
+                .order_by(docs_sub.c.document_date.desc(), docs_sub.c.last_update.desc(), docs_sub.c.document_id.asc())
+                .offset(page_offset)
+                .limit(page_limit)
+            )
+        ).mappings().all()
+        first_row = rows[0] if rows else {}
+        summary_docs_count = int(first_row.get('_docs_count') or 0)
+        summary_gross_value = float(first_row.get('_summary_gross_value') or 0)
+        summary_net_value = float(first_row.get('_summary_net_value') or 0)
+        summary_vat_value = float(first_row.get('_summary_vat_value') or 0)
+        summary_expenses_value = float(first_row.get('_summary_expenses_value') or 0)
+        summary_qty_total = float(first_row.get('_summary_qty_total') or 0)
 
     out_rows = []
     for r in rows:
@@ -3219,21 +3954,29 @@ async def sales_documents_overview(
                 'document_no': str(r.get('document_no') or r.get('document_id') or ''),
                 'document_date': doc_date_val.isoformat() if isinstance(doc_date_val, date) else str(doc_date_val or ''),
                 'branch': str(r.get('branch_name') or 'N/A'),
+                'warehouse_code': str(r.get('warehouse_code') or ''),
                 'warehouse': str(r.get('warehouse_name') or 'N/A'),
-                'series': str(r.get('series_label') or 'N/A'),
+                'series': _document_series_label(r.get('series_code'), r.get('series_label') or 'N/A', document_series_labels),
                 'document_type': str(r.get('document_type') or 'N/A'),
                 'status': str(r.get('status_label') or 'N/A'),
                 'eshop_code': str(r.get('eshop_code') or ''),
                 'customer': str(r.get('customer_name') or 'ΠΕΛΑΤΗΣ ΛΙΑΝΙΚΗΣ'),
+                'channel_name': _normalize_sales_channel_name(
+                    r.get('channel_name'),
+                    r.get('warehouse_code'),
+                    fulfillment_config,
+                    r.get('series_label'),
+                ),
                 'total_qty': float(r.get('qty_total') or 0),
                 'total_qty_executed': float(r.get('qty_exec_total') or 0),
                 'total_net_value': float(r.get('net_value') or 0),
                 'total_vat_value': float(r.get('vat_value') or 0),
                 'total_gross_value': float(r.get('gross_value') or 0),
+                'total_expenses_value': float(r.get('expenses_value') or 0),
                 'line_count': int(r.get('line_count') or 0),
                 'from_ref': str(r.get('origin_ref') or ''),
                 'to_ref': str(r.get('destination_ref') or ''),
-                'delivery_info': ' | '.join(delivery_parts),
+                'delivery_info': ' | '.join([part for part in delivery_parts if _blank_zero_text(part)]),
                 'comments_info': notes_preview[:220],
                 'last_update': _raw_scalar(r.get('last_update')),
             }
@@ -3241,11 +3984,13 @@ async def sales_documents_overview(
 
     return {
         'summary': {
-            'documents': int(totals_row['docs_count'] or 0),
-            'gross_value': float(totals_row['gross_value'] or 0),
-            'net_value': float(totals_row['net_value'] or 0),
-            'vat_value': float(totals_row['vat_value'] or 0),
-            'qty_total': float(totals_row['qty_total'] or 0),
+            'documents': int(summary_docs_count or 0),
+            'gross_value': float(summary_gross_value or 0),
+            'net_value': float(summary_net_value or 0),
+            'vat_value': float(summary_vat_value or 0),
+            'expenses_value': float(summary_expenses_value or 0),
+            'qty_total': float(summary_qty_total or 0),
+            'partial': bool(summary_partial),
         },
         'limit': int(limit),
         'offset': int(offset),
@@ -3263,6 +4008,9 @@ async def sales_document_detail(
     brands: list[str] | None = None,
     categories: list[str] | None = None,
     groups: list[str] | None = None,
+    behaviors: list[int] | None = None,
+    fulfillment_config: dict | None = None,
+    document_series_labels: dict[str, str] | None = None,
 ):
     doc_id = str(document_id or '').strip()
     if not doc_id:
@@ -3294,6 +4042,10 @@ async def sales_document_detail(
         categories=categories,
         groups=groups,
     )
+    if behaviors:
+        behavior_vals = [str(int(b)) for b in behaviors if str(b).strip().isdigit()]
+        if behavior_vals:
+            stmt = stmt.where(_fact_sales_behavior_code_text_expr().in_(behavior_vals))
     rows = (
         await db.execute(
             stmt.order_by(
@@ -3360,9 +4112,12 @@ async def sales_document_detail(
 
         qty = float(fact.qty or 0)
         qty_exec = float(fact.qty_executed if fact.qty_executed is not None else qty)
-        net_value = float(fact.net_value or 0)
-        gross_value = float(fact.gross_value or 0)
-        vat_value = float(fact.vat_amount if fact.vat_amount is not None else (gross_value - net_value))
+        net_value = float(_normalize_purchase_credit_sign(float(fact.net_value or 0), _is_credit_behavior_code_for_vat_sign_fix(source_payload_row.get('source_transaction_type_id'))))
+        gross_value = float(_normalize_purchase_credit_sign(float(fact.gross_value or 0), _is_credit_behavior_code_for_vat_sign_fix(source_payload_row.get('source_transaction_type_id'))))
+        behavior_code = source_payload_row.get('source_transaction_type_id')
+        vat_value_raw = float(fact.vat_amount if fact.vat_amount is not None else (gross_value - net_value))
+        vat_value = _normalize_credit_vat_sign(vat_value_raw, net_value, behavior_code)
+        line_total_value = gross_value if fact.gross_value is not None else (net_value + vat_value)
         unit_price = float(fact.unit_price) if fact.unit_price is not None else (net_value / qty if qty else 0.0)
         fact_discount_pct = float(fact.discount_pct) if fact.discount_pct is not None else None
         fact_discount_amount = float(fact.discount_amount) if fact.discount_amount is not None else None
@@ -3387,7 +4142,7 @@ async def sales_document_detail(
         total_exec += qty_exec
         total_net += net_value
         total_vat += vat_value
-        total_gross += net_value + vat_value
+        total_gross += line_total_value
 
         line_rows.append(
             {
@@ -3401,7 +4156,7 @@ async def sales_document_detail(
                 'discount_pct': discount_pct,
                 'discount_amount': discount_amount,
                 'vat_amount': vat_value,
-                'line_total': gross_value,
+                'line_total': line_total_value,
                 'line_net': net_value,
                 'line_external_id': str(fact.external_id or ''),
             }
@@ -3411,6 +4166,11 @@ async def sales_document_detail(
     doc_key_value = str(first_fact.document_id or first_fact.document_no or first_fact.external_id or '')
     expenses_value = _payload_float(
         source_payload,
+        'charge_revenue_net_value',
+        'shipping_expense_value',
+        'shipping_charge_net_value',
+        'cod_charge_net_value',
+        'charge_revenue_total_net_value',
         'expenses_value',
         'expense_value',
         'expenses_amount',
@@ -3423,10 +4183,54 @@ async def sales_document_detail(
         'fees_amount',
         'value_expenses',
         'axia_exodon',
+        'charge_revenue_gross_value',
+        'charge_revenue_total_gross_value',
     )
     if expenses_value is None:
         residual = total_gross - total_net - total_vat
         expenses_value = float(residual) if abs(residual) > 0.0001 else 0.0
+
+    doc_net_total = _payload_float(
+        source_payload,
+        'doc_net_total',
+        'net_total',
+        'net_value',
+        'total_net',
+        'DOC_NET_TOTAL',
+        'NET_VALUE',
+    )
+    doc_tax_total = _payload_float(
+        source_payload,
+        'doc_tax_total',
+        'vat_total',
+        'vat_value',
+        'total_vat',
+        'tax_total',
+        'tax_amount',
+        'DOC_TAX_TOTAL',
+        'VAT_AMOUNT',
+        'TAX_AMOUNT',
+    )
+    doc_gross_total = _payload_float(
+        source_payload,
+        'doc_gross_total',
+        'gross_total',
+        'gross_value',
+        'total_gross',
+        'amount_total',
+        'DOC_GROSS_TOTAL',
+        'GROSS_VALUE',
+    )
+    payload_totals_are_document_level = doc_net_total is not None and abs(float(doc_net_total) - total_net) < 0.05
+    display_vat = float(doc_tax_total) if payload_totals_are_document_level and doc_tax_total is not None else total_vat
+    expected_gross_with_charges = total_net + display_vat + float(expenses_value or 0)
+    display_gross = total_gross
+    if payload_totals_are_document_level and doc_gross_total is not None:
+        payload_gross = float(doc_gross_total)
+        if abs(payload_gross - expected_gross_with_charges) < 0.10:
+            display_gross = payload_gross
+    elif abs(expected_gross_with_charges - total_gross) > 0.0001:
+        display_gross = expected_gross_with_charges
 
     header_series = _payload_code_name(
         source_payload,
@@ -3434,11 +4238,17 @@ async def sales_document_detail(
         ['series_name', 'series_description', 'document_series'],
         fallback=str(first_fact.document_series or ''),
     )
+    header_series = _document_series_label(first_fact.document_series, header_series, document_series_labels)
     header_type = _payload_code_name(
         source_payload,
         ['document_type_code', 'doc_type_code', 'type_code'],
         ['document_type_name', 'doc_type_name', 'document_type', 'type_name'],
         fallback=str(first_fact.document_type or ''),
+    )
+    header_type = _normalize_sales_document_type_label(
+        header_type,
+        series_label=header_series,
+        payload=source_payload,
     )
     header_status = _payload_code_name(
         source_payload,
@@ -3457,6 +4267,24 @@ async def sales_document_detail(
         ['shipping_code', 'shipment_code', 'dispatch_code'],
         ['shipping_name', 'shipping_method', 'shipment_method', 'dispatch_method'],
         fallback=str(first_fact.shipping_method or ''),
+    )
+    header_shipping = _normalize_shipping_method_label(header_shipping, fulfillment_config)
+    header_shipping_expense_description = _payload_text(
+        source_payload,
+        'charge_revenue_description',
+        'shipping_expense_description',
+        'expense_description',
+        'shipping_expense_description',
+        'expense_name',
+        'expenses_name',
+        fallback='',
+    )
+    header_shipping_expense_value = _payload_float(
+        source_payload,
+        'shipping_expense_value',
+        'shipping_cost',
+        'expense_value',
+        'expenses_value',
     )
     movement_text = _payload_code_name(
         source_payload,
@@ -3503,11 +4331,18 @@ async def sales_document_detail(
             'customer_code': str(first_fact.customer_code or ''),
             'customer_name': str(first_fact.customer_name or 'ΠΕΛΑΤΗΣ ΛΙΑΝΙΚΗΣ'),
             'payment_method': header_payment,
+            'shipping_expense_description': header_shipping_expense_description,
+            'shipping_expense_value': float(header_shipping_expense_value or 0),
             'shipping_method': header_shipping,
-            'reason': str(first_fact.reason or ''),
+            'reason': _blank_zero_text(first_fact.reason),
             'from_ref': str(first_fact.origin_ref or ''),
             'to_ref': str(first_fact.destination_ref or ''),
-            'channel_name': str(getattr(first_fact, 'channel_name', '') or ''),
+            'channel_name': _normalize_sales_channel_name(
+                getattr(first_fact, 'channel_name', ''),
+                first_fact.warehouse_ext_id,
+                fulfillment_config,
+                header_series,
+            ),
         },
         'delivery': {
             'customer_branch': customer_branch,
@@ -3536,7 +4371,7 @@ async def sales_document_detail(
                 source_payload,
                 'delivery_area',
                 'region',
-                fallback=str(first_fact.delivery_area or ''),
+                fallback=_blank_zero_text(first_fact.delivery_area),
             ),
             'movement_type': movement_text,
             'carrier_name': _payload_text(
@@ -3607,9 +4442,9 @@ async def sales_document_detail(
             'updated_by': str(first_fact.source_updated_by or ''),
         },
         'totals': {
-            'gross_value': total_gross,
+            'gross_value': display_gross,
             'net_value': total_net,
-            'vat_value': total_vat,
+            'vat_value': display_vat,
             'expenses_value': expenses_value,
             'qty_total': total_qty,
             'qty_exec_total': total_exec,
@@ -3618,6 +4453,972 @@ async def sales_document_detail(
         'lines': line_rows,
         'lines_note': '',
         'raw_fields': raw_fields,
+    }
+
+
+async def e_shop_analysis_summary(
+    db: AsyncSession,
+    date_from: date,
+    date_to: date,
+    branches: list[str] | None = None,
+    warehouses: list[str] | None = None,
+    page: int = 1,
+    page_size: int = 25,
+    fulfillment_config: dict | None = None,
+):
+    rules = normalize_eshop_fulfillment_config(fulfillment_config)
+    pickup_warehouses = dict(rules.get('pickup_warehouses') or {})
+    store_warehouses = dict(rules.get('store_warehouses') or {})
+    pure_eshop_warehouses = {str(x).strip() for x in (rules.get('pure_eshop_warehouses') or []) if str(x).strip()}
+    three_pl_warehouses = {str(x).strip() for x in (rules.get('three_pl_warehouses') or []) if str(x).strip()}
+    physical_branch_names = {
+        _fold_text_for_match(x)
+        for x in (rules.get('physical_branch_names') or [])
+        if _fold_text_for_match(x)
+    }
+
+    def _store_point_label(
+        *,
+        warehouse_code: str | None = None,
+        warehouse_name: str | None = None,
+        branch_name: str | None = None,
+        shipping_label: str | None = None,
+    ) -> str:
+        wh_name = _blank_zero_text(warehouse_name, '')
+        br_name = _blank_zero_text(branch_name, '')
+        ship = _blank_zero_text(shipping_label, '')
+        wh_fold = _fold_text_for_match(wh_name)
+        br_fold = _fold_text_for_match(br_name)
+        ship_fold = _fold_text_for_match(ship)
+
+        if 'wolt' in ship_fold and 'φαρμακει' in wh_fold:
+            parts = wh_name.split()
+            if parts and _fold_text_for_match(parts[-1]).startswith('φαρμακει'):
+                place = ' '.join(parts[:-1]).strip()
+                if place:
+                    return f'Φαρμακείο {place}'
+            return wh_name
+
+        for prefix in ('αποστολη με efood ', 'efood ', 'παραλαβη απο '):
+            if ship_fold.startswith(prefix):
+                label = ship[len(prefix):].strip(' -')
+                if label and _fold_text_for_match(label) != 'wolt':
+                    return label
+
+        if 'φαρμακει' in wh_fold:
+            parts = wh_name.split()
+            if parts and _fold_text_for_match(parts[-1]).startswith('φαρμακει'):
+                place = ' '.join(parts[:-1]).strip()
+                if place:
+                    return f'Φαρμακείο {place}'
+            return wh_name
+        if br_name and br_name not in {'N/A', 'Χωρίς υποκατάστημα'}:
+            return br_name
+        return wh_name or str(warehouse_code or '').strip() or 'Χωρίς σημείο'
+
+    def _warehouse_flow(
+        code: str | None,
+        warehouse_name: str | None = None,
+        branch_name: str | None = None,
+        shipping_method: str | None = None,
+    ) -> tuple[str, str]:
+        cleaned = str(code or '').strip()
+        shipping_label = _normalize_shipping_method_label(shipping_method, rules)
+        shipping_fold = _fold_text_for_match(shipping_label)
+        warehouse_fold = _fold_text_for_match(warehouse_name)
+        branch_fold = _fold_text_for_match(branch_name)
+        if cleaned in pickup_warehouses:
+            return ('Παραλαβή από κατάστημα', pickup_warehouses[cleaned])
+        if cleaned in store_warehouses:
+            if shipping_fold.startswith('παραλαβη απο ') and 'efood' not in shipping_fold and 'wolt' not in shipping_fold:
+                return ('Παραλαβή από κατάστημα', store_warehouses[cleaned])
+            return ('Αποστολή από κατάστημα', store_warehouses[cleaned])
+        if cleaned in pure_eshop_warehouses:
+            return ('Καθαρό E-Shop', 'Καθαρή αποθήκη e-shop')
+        if cleaned in three_pl_warehouses:
+            return ('3PL / Courier πελάτη', 'Κεντρική αποθήκη 3PL')
+        looks_physical_store = (
+            bool(warehouse_fold and 'φαρμακει' in warehouse_fold)
+            or bool(branch_fold and branch_fold in physical_branch_names)
+        )
+        if looks_physical_store or shipping_fold.startswith(('παραλαβη απο ', 'αποστολη με efood ', 'efood ')):
+            point_label = _store_point_label(
+                warehouse_code=cleaned,
+                warehouse_name=warehouse_name,
+                branch_name=branch_name,
+                shipping_label=shipping_label,
+            )
+            if shipping_fold.startswith('παραλαβη απο ') and 'efood' not in shipping_fold and 'wolt' not in shipping_fold:
+                return ('Παραλαβή από κατάστημα', point_label)
+            return ('Αποστολή από κατάστημα', point_label)
+        return ('Λοιπό / Άγνωστο', cleaned or 'Χωρίς αποθήκη')
+
+    def _display_carrier_label(
+        carrier_name: str | None,
+        warehouse_code: str | None,
+        warehouse_name: str | None = None,
+        branch_name: str | None = None,
+        shipping_method: str | None = None,
+    ) -> str:
+        carrier = _normalize_shipping_method_label(carrier_name, rules)
+        flow_type, flow_label = _warehouse_flow(warehouse_code, warehouse_name, branch_name, shipping_method)
+        if carrier and carrier != 'Χωρίς μεταφορική':
+            return carrier
+        if flow_type == 'Παραλαβή από κατάστημα':
+            return f'Παραλαβή από κατάστημα - {flow_label}'
+        if flow_type == 'Αποστολή από κατάστημα':
+            normalized_shipping = _normalize_shipping_method_label(shipping_method, rules)
+            return normalized_shipping or f'Αποστολή από κατάστημα - {flow_label}'
+        return 'Χωρίς μεταφορική'
+
+    doc_key = func.coalesce(FactSales.document_id, FactSales.document_no, FactSales.external_id)
+    vat_line_expr = _fact_sales_vat_amount_expr()
+    net_line_expr = _fact_sales_credit_signed_amount_expr(func.coalesce(FactSales.net_value, 0))
+    qty_line_expr = func.abs(_fact_sales_credit_signed_amount_expr(func.coalesce(FactSales.qty, 0)))
+    gross_line_expr = case(
+        (FactSales.gross_value.is_not(None), _fact_sales_credit_signed_amount_expr(FactSales.gross_value)),
+        else_=(net_line_expr + vat_line_expr),
+    )
+    shipping_charge_doc_expr = func.coalesce(func.max(_fact_sales_payload_shipping_expense_expr()), 0)
+    cod_charge_doc_expr = func.coalesce(func.max(_fact_sales_payload_cod_charge_expr()), 0)
+    gift_charge_doc_expr = func.coalesce(func.max(_fact_sales_payload_gift_charge_expr()), 0)
+    other_charge_doc_expr = func.coalesce(func.max(_fact_sales_payload_other_charge_expr()), 0)
+    total_charge_doc_expr = shipping_charge_doc_expr + cod_charge_doc_expr + gift_charge_doc_expr + other_charge_doc_expr
+    shipment_doc_expr = func.coalesce(
+        func.max(func.nullif(FactSales.shipping_method, '')),
+        func.max(func.nullif(FactSales.carrier_name, '')),
+        literal('Χωρίς μεταφορική'),
+    )
+    channel_doc_expr = func.coalesce(func.max(FactSales.channel_name), literal(''))
+    city_doc_expr = func.coalesce(func.max(func.nullif(FactSales.delivery_city, '')), literal('Χωρίς πόλη'))
+    payment_doc_expr = func.coalesce(func.max(func.nullif(FactSales.payment_method, '')), literal('Χωρίς τρόπο πληρωμής'))
+
+    base = (
+        select(
+            doc_key.label('document_id'),
+            func.max(FactSales.document_no).label('document_no'),
+            func.max(FactSales.doc_date).label('document_date'),
+            func.coalesce(func.max(DimBranch.name), func.max(FactSales.branch_ext_id), literal('N/A')).label('branch_name'),
+            func.coalesce(func.max(FactSales.warehouse_ext_id), literal('')).label('warehouse_code'),
+            func.coalesce(func.max(DimWarehouse.name), func.max(FactSales.warehouse_ext_id), literal('Χωρίς αποθήκη')).label('warehouse_name'),
+            func.coalesce(func.max(FactSales.eshop_code), literal('')).label('eshop_code'),
+            channel_doc_expr.label('channel_name'),
+            func.coalesce(func.max(FactSales.customer_name), literal('ΠΕΛΑΤΗΣ ΛΙΑΝΙΚΗΣ')).label('customer_name'),
+            shipment_doc_expr.label('carrier_name'),
+            city_doc_expr.label('delivery_city'),
+            payment_doc_expr.label('payment_method'),
+            func.coalesce(func.sum(qty_line_expr), 0).label('qty_total'),
+            func.coalesce(func.sum(net_line_expr), 0).label('net_value'),
+            func.coalesce(func.sum(vat_line_expr), 0).label('vat_value'),
+            func.coalesce(func.sum(gross_line_expr), 0).label('gross_value'),
+            total_charge_doc_expr.label('shipping_expense_value'),
+            shipping_charge_doc_expr.label('shipping_charge_value'),
+            cod_charge_doc_expr.label('cod_charge_value'),
+            gift_charge_doc_expr.label('gift_charge_value'),
+            other_charge_doc_expr.label('other_charge_value'),
+        )
+        .select_from(FactSales)
+        .join(DimBranch, DimBranch.external_id == FactSales.branch_ext_id, isouter=True)
+        .join(DimWarehouse, DimWarehouse.external_id == FactSales.warehouse_ext_id, isouter=True)
+        .where(*_date_range(FactSales.doc_date, date_from, date_to))
+        .where(_fact_sales_eshop_document_expr())
+    )
+    base = _apply_fact_sales_filters(
+        base,
+        branches=branches,
+        warehouses=warehouses,
+        brands=None,
+        categories=None,
+        groups=None,
+        channels=None,
+    )
+    docs_sub = base.group_by(doc_key).subquery('eshop_docs')
+
+    period_days = max((date_to - date_from).days + 1, 1)
+    prev_to = date_from - timedelta(days=1)
+    prev_from = prev_to - timedelta(days=period_days - 1)
+    prev_base = (
+        select(
+            doc_key.label('document_id'),
+            func.coalesce(func.sum(qty_line_expr), 0).label('qty_total'),
+            func.coalesce(func.sum(gross_line_expr), 0).label('gross_value'),
+            total_charge_doc_expr.label('shipping_expense_value'),
+        )
+        .select_from(FactSales)
+        .join(DimBranch, DimBranch.external_id == FactSales.branch_ext_id, isouter=True)
+        .join(DimWarehouse, DimWarehouse.external_id == FactSales.warehouse_ext_id, isouter=True)
+        .where(*_date_range(FactSales.doc_date, prev_from, prev_to))
+        .where(_fact_sales_eshop_document_expr())
+    )
+    prev_base = _apply_fact_sales_filters(
+        prev_base,
+        branches=branches,
+        warehouses=warehouses,
+        brands=None,
+        categories=None,
+        groups=None,
+        channels=None,
+    )
+    prev_docs_sub = prev_base.group_by(doc_key).subquery('eshop_prev_docs')
+
+    physical_branch_filter = None
+    if physical_branch_names:
+        normalized_branch_name = func.lower(func.trim(docs_sub.c.branch_name))
+        for accented, plain in (
+            ('ά', 'α'),
+            ('έ', 'ε'),
+            ('ή', 'η'),
+            ('ί', 'ι'),
+            ('ϊ', 'ι'),
+            ('ΐ', 'ι'),
+            ('ό', 'ο'),
+            ('ύ', 'υ'),
+            ('ϋ', 'υ'),
+            ('ΰ', 'υ'),
+            ('ώ', 'ω'),
+        ):
+            normalized_branch_name = func.replace(normalized_branch_name, accented, plain)
+        physical_branch_filter = normalized_branch_name.in_(physical_branch_names)
+
+    totals_row = (
+        await db.execute(
+            select(
+                func.coalesce(func.count(), 0).label('orders'),
+                func.coalesce(func.sum(docs_sub.c.gross_value), 0).label('gross_value'),
+                func.coalesce(func.sum(docs_sub.c.shipping_expense_value), 0).label('shipping_cost'),
+                func.coalesce(func.sum(docs_sub.c.shipping_charge_value), 0).label('shipping_charge_value'),
+                func.coalesce(func.sum(docs_sub.c.cod_charge_value), 0).label('cod_charge_value'),
+                func.coalesce(func.sum(docs_sub.c.gift_charge_value), 0).label('gift_charge_value'),
+                func.coalesce(func.sum(docs_sub.c.other_charge_value), 0).label('other_charge_value'),
+                func.coalesce(func.sum(docs_sub.c.qty_total), 0).label('qty_total'),
+                func.coalesce(func.sum(case((docs_sub.c.carrier_name != 'Χωρίς μεταφορική', 1), else_=0)), 0).label('shipments'),
+            )
+        )
+    ).mappings().one()
+
+    previous_row = (
+        await db.execute(
+            select(
+                func.coalesce(func.count(), 0).label('orders'),
+                func.coalesce(func.sum(prev_docs_sub.c.gross_value), 0).label('gross_value'),
+                func.coalesce(func.sum(prev_docs_sub.c.shipping_expense_value), 0).label('shipping_cost'),
+                func.coalesce(func.sum(prev_docs_sub.c.qty_total), 0).label('qty_total'),
+            )
+        )
+    ).mappings().one()
+
+    physical_branch_rows = (
+        await db.execute(
+            select(
+                docs_sub.c.branch_name,
+                func.coalesce(func.count(), 0).label('orders'),
+                func.coalesce(func.sum(docs_sub.c.gross_value), 0).label('gross_value'),
+                func.coalesce(func.sum(docs_sub.c.shipping_expense_value), 0).label('shipping_cost'),
+                func.coalesce(func.sum(docs_sub.c.shipping_charge_value), 0).label('shipping_charge_value'),
+                func.coalesce(func.sum(docs_sub.c.cod_charge_value), 0).label('cod_charge_value'),
+                func.coalesce(func.sum(docs_sub.c.gift_charge_value), 0).label('gift_charge_value'),
+                func.coalesce(func.sum(docs_sub.c.other_charge_value), 0).label('other_charge_value'),
+            )
+            .where(physical_branch_filter if physical_branch_filter is not None else true())
+            .group_by(docs_sub.c.branch_name)
+            .order_by(func.sum(docs_sub.c.gross_value).desc(), docs_sub.c.branch_name.asc())
+        )
+    ).mappings().all()
+
+    city_rows = (
+        await db.execute(
+            select(
+                docs_sub.c.delivery_city,
+                func.coalesce(func.count(), 0).label('orders'),
+                func.coalesce(func.sum(docs_sub.c.gross_value), 0).label('gross_value'),
+            )
+            .group_by(docs_sub.c.delivery_city)
+            .order_by(func.count().desc(), func.sum(docs_sub.c.gross_value).desc(), docs_sub.c.delivery_city.asc())
+            .limit(10)
+        )
+    ).mappings().all()
+
+    payment_rows = (
+        await db.execute(
+            select(
+                docs_sub.c.payment_method,
+                func.coalesce(func.count(), 0).label('orders'),
+                func.coalesce(func.sum(docs_sub.c.gross_value), 0).label('gross_value'),
+            )
+            .group_by(docs_sub.c.payment_method)
+            .order_by(func.sum(docs_sub.c.gross_value).desc(), docs_sub.c.payment_method.asc())
+        )
+    ).mappings().all()
+
+    all_docs_rows = (
+        await db.execute(
+            select(docs_sub)
+        )
+    ).mappings().all()
+
+    recent_total = int(
+        (
+            await db.execute(
+                select(func.coalesce(func.count(), 0))
+                .select_from(docs_sub)
+            )
+        ).scalar_one()
+        or 0
+    )
+    page = max(int(page or 1), 1)
+    page_size = max(min(int(page_size or 25), 200), 5)
+    total_pages = max((recent_total + page_size - 1) // page_size, 1)
+    if page > total_pages:
+        page = total_pages
+    offset = (page - 1) * page_size
+
+    recent_rows = (
+        await db.execute(
+            select(docs_sub)
+            .order_by(docs_sub.c.document_date.desc(), docs_sub.c.document_id.desc())
+            .offset(offset)
+            .limit(page_size)
+        )
+    ).mappings().all()
+
+    orders = int(totals_row['orders'] or 0)
+    gross_value = float(totals_row['gross_value'] or 0)
+    shipping_cost = float(totals_row['shipping_cost'] or 0)
+    shipping_charge_value = float(totals_row['shipping_charge_value'] or 0)
+    cod_charge_value = float(totals_row['cod_charge_value'] or 0)
+    gift_charge_value = float(totals_row['gift_charge_value'] or 0)
+    other_charge_value = float(totals_row['other_charge_value'] or 0)
+    qty_total = float(totals_row['qty_total'] or 0)
+    shipments = int(totals_row['shipments'] or 0)
+    shipping_cost_pct = (shipping_cost / gross_value) if gross_value else 0.0
+    avg_order_value = (gross_value / orders) if orders else 0.0
+    items_per_order = (qty_total / orders) if orders else 0.0
+    prev_orders = int(previous_row['orders'] or 0)
+    prev_gross_value = float(previous_row['gross_value'] or 0)
+    prev_shipping_cost = float(previous_row['shipping_cost'] or 0)
+    prev_qty_total = float(previous_row['qty_total'] or 0)
+    prev_avg_order_value = (prev_gross_value / prev_orders) if prev_orders else 0.0
+    prev_items_per_order = (prev_qty_total / prev_orders) if prev_orders else 0.0
+    prev_shipping_cost_pct = (prev_shipping_cost / prev_gross_value) if prev_gross_value else 0.0
+    orders_without_carrier = 0
+    top_branch = None
+    top_carrier = None
+    top_city = None
+    top_payment_method = None
+    top_flow = None
+    flow_rollup: dict[str, dict[str, object]] = {}
+    carrier_rollup: dict[str, dict[str, object]] = {}
+
+    for row in all_docs_rows:
+        warehouse_code = str(row['warehouse_code'] or '').strip()
+        warehouse_name = str(row['warehouse_name'] or '')
+        branch_name = str(row['branch_name'] or '')
+        shipping_method = str(row['carrier_name'] or '')
+        flow_type, flow_label = _warehouse_flow(warehouse_code, warehouse_name, branch_name, shipping_method)
+        display_carrier = _display_carrier_label(
+            str(row['carrier_name'] or ''),
+            warehouse_code,
+            warehouse_name,
+            branch_name,
+            shipping_method,
+        )
+        bucket = flow_rollup.setdefault(
+            flow_type,
+            {
+                'flow_type': flow_type,
+                'flow_label': flow_label,
+                'orders': 0,
+                'gross_value': 0.0,
+                'shipping_cost': 0.0,
+                'shipping_charge_value': 0.0,
+                'cod_charge_value': 0.0,
+                'gift_charge_value': 0.0,
+                'other_charge_value': 0.0,
+            },
+        )
+        bucket['orders'] = int(bucket['orders']) + 1
+        bucket['gross_value'] = float(bucket['gross_value']) + float(row['gross_value'] or 0)
+        bucket['shipping_cost'] = float(bucket['shipping_cost']) + float(row['shipping_expense_value'] or 0)
+        bucket['shipping_charge_value'] = float(bucket['shipping_charge_value']) + float(row['shipping_charge_value'] or 0)
+        bucket['cod_charge_value'] = float(bucket['cod_charge_value']) + float(row['cod_charge_value'] or 0)
+        bucket['gift_charge_value'] = float(bucket['gift_charge_value']) + float(row['gift_charge_value'] or 0)
+        bucket['other_charge_value'] = float(bucket['other_charge_value']) + float(row['other_charge_value'] or 0)
+
+        carrier_bucket = carrier_rollup.setdefault(
+            display_carrier,
+            {
+                'carrier_name': display_carrier,
+                'orders': 0,
+                'gross_value': 0.0,
+                'shipping_cost': 0.0,
+                'shipping_charge_value': 0.0,
+                'cod_charge_value': 0.0,
+                'gift_charge_value': 0.0,
+                'other_charge_value': 0.0,
+            },
+        )
+        carrier_bucket['orders'] = int(carrier_bucket['orders']) + 1
+        carrier_bucket['gross_value'] = float(carrier_bucket['gross_value']) + float(row['gross_value'] or 0)
+        carrier_bucket['shipping_cost'] = float(carrier_bucket['shipping_cost']) + float(row['shipping_expense_value'] or 0)
+        carrier_bucket['shipping_charge_value'] = float(carrier_bucket['shipping_charge_value']) + float(row['shipping_charge_value'] or 0)
+        carrier_bucket['cod_charge_value'] = float(carrier_bucket['cod_charge_value']) + float(row['cod_charge_value'] or 0)
+        carrier_bucket['gift_charge_value'] = float(carrier_bucket['gift_charge_value']) + float(row['gift_charge_value'] or 0)
+        carrier_bucket['other_charge_value'] = float(carrier_bucket['other_charge_value']) + float(row['other_charge_value'] or 0)
+
+    flow_rows = sorted(
+        [
+            {
+                'flow_type': str(v['flow_type']),
+                'flow_label': str(v['flow_label']),
+                'orders': int(v['orders']),
+                'gross_value': float(v['gross_value']),
+                'shipping_cost': float(v['shipping_cost']),
+                'shipping_charge_value': float(v['shipping_charge_value']),
+                'cod_charge_value': float(v['cod_charge_value']),
+                'gift_charge_value': float(v['gift_charge_value']),
+                'other_charge_value': float(v['other_charge_value']),
+            }
+            for v in flow_rollup.values()
+        ],
+        key=lambda r: (-r['orders'], -r['gross_value'], r['flow_type']),
+    )
+    if flow_rows:
+        top_flow = flow_rows[0]
+
+    carrier_rows = sorted(
+        [
+            {
+                'carrier_name': str(v['carrier_name']),
+                'orders': int(v['orders']),
+                'gross_value': float(v['gross_value']),
+                'shipping_cost': float(v['shipping_cost']),
+                'shipping_charge_value': float(v['shipping_charge_value']),
+                'cod_charge_value': float(v['cod_charge_value']),
+                'gift_charge_value': float(v['gift_charge_value']),
+                'other_charge_value': float(v['other_charge_value']),
+            }
+            for v in carrier_rollup.values()
+        ],
+        key=lambda r: (-r['shipping_cost'], -r['orders'], r['carrier_name']),
+    )
+
+    branch_rows = physical_branch_rows
+
+    if physical_branch_rows:
+        best_branch = max(physical_branch_rows, key=lambda r: (float(r['gross_value'] or 0), int(r['orders'] or 0), str(r['branch_name'] or '')))
+        top_branch = {
+            'branch_name': str(best_branch['branch_name'] or 'N/A'),
+            'orders': int(best_branch['orders'] or 0),
+            'gross_value': float(best_branch['gross_value'] or 0),
+        }
+
+    if carrier_rows:
+        best_carrier = max(carrier_rows, key=lambda r: (int(r['orders'] or 0), float(r['shipping_cost'] or 0), str(r['carrier_name'] or '')))
+        top_carrier = {
+            'carrier_name': str(best_carrier['carrier_name'] or 'Χωρίς μεταφορική'),
+            'orders': int(best_carrier['orders'] or 0),
+            'shipping_cost': float(best_carrier['shipping_cost'] or 0),
+        }
+        orders_without_carrier = sum(
+            int(r['orders'] or 0)
+            for r in carrier_rows
+            if str(r['carrier_name'] or 'Χωρίς μεταφορική') == 'Χωρίς μεταφορική'
+        )
+
+    if city_rows:
+        best_city = max(city_rows, key=lambda r: (int(r['orders'] or 0), float(r['gross_value'] or 0), str(r['delivery_city'] or '')))
+        top_city = {
+            'delivery_city': str(best_city['delivery_city'] or 'Χωρίς πόλη'),
+            'orders': int(best_city['orders'] or 0),
+            'gross_value': float(best_city['gross_value'] or 0),
+        }
+
+    if payment_rows:
+        best_payment = max(payment_rows, key=lambda r: (float(r['gross_value'] or 0), int(r['orders'] or 0), str(r['payment_method'] or '')))
+        top_payment_method = {
+            'payment_method': str(best_payment['payment_method'] or 'Χωρίς τρόπο πληρωμής'),
+            'orders': int(best_payment['orders'] or 0),
+            'gross_value': float(best_payment['gross_value'] or 0),
+        }
+
+    def _eshop_insight(
+        severity: str,
+        title: str,
+        message: str,
+        action: str | None = None,
+        metric_label: str | None = None,
+        metric_value: float | int | str | None = None,
+        metric_kind: str = 'text',
+        icon: str = 'activity',
+    ) -> dict[str, object]:
+        return {
+            'severity': severity,
+            'title': title,
+            'message': message,
+            'action': action,
+            'metric_label': metric_label,
+            'metric_value': metric_value,
+            'metric_kind': metric_kind,
+            'icon': icon,
+        }
+
+    def _pct_delta(current: float, previous: float) -> float | None:
+        if previous == 0:
+            return None
+        return (current - previous) / abs(previous)
+
+    def _pp_delta(current: float, previous: float) -> float | None:
+        if previous == 0 and current == 0:
+            return 0.0
+        return current - previous
+
+    insights: list[dict[str, object]] = []
+    if orders <= 0:
+        insights.append(
+            _eshop_insight(
+                'info',
+                'Δεν βρέθηκαν e-shop παραγγελίες',
+                'Για το επιλεγμένο διάστημα δεν υπάρχει e-shop όγκος με τα τρέχοντα φίλτρα.',
+                'Άλλαξε διάστημα ή φίλτρα και έλεγξε ότι τα παραστατικά έχουν e-shop κωδικό ή κανάλι.',
+                icon='info',
+            )
+        )
+    else:
+        orders_delta = _pct_delta(float(orders), float(prev_orders))
+        revenue_delta = _pct_delta(gross_value, prev_gross_value)
+        avg_order_delta = _pct_delta(avg_order_value, prev_avg_order_value)
+        items_per_order_delta = _pct_delta(items_per_order, prev_items_per_order)
+        shipping_pct_delta = _pp_delta(shipping_cost_pct, prev_shipping_cost_pct)
+
+        if revenue_delta is not None and abs(revenue_delta) >= 0.08:
+            if revenue_delta < 0:
+                insights.append(
+                    _eshop_insight(
+                        'warning',
+                        'Πτώση e-shop εσόδων',
+                        'Τα e-shop έσοδα είναι χαμηλότερα από την προηγούμενη αντίστοιχη περίοδο.',
+                        'Δες αν η πτώση έρχεται από λιγότερες παραγγελίες, χαμηλότερη μέση παραγγελία ή λιγότερα τεμάχια ανά καλάθι.',
+                        'Μεταβολή',
+                        revenue_delta,
+                        'percent',
+                        'trending-down',
+                    )
+                )
+            else:
+                insights.append(
+                    _eshop_insight(
+                        'success',
+                        'Άνοδος e-shop εσόδων',
+                        'Τα e-shop έσοδα κινούνται καλύτερα από την προηγούμενη αντίστοιχη περίοδο.',
+                        'Κράτα σημείωση ποιο μοντέλο εκτέλεσης, κανάλι ή μεταφορική οδηγεί την αύξηση και ενίσχυσέ το.',
+                        'Μεταβολή',
+                        revenue_delta,
+                        'percent',
+                        'trending-up',
+                    )
+                )
+
+        if orders_delta is not None and abs(orders_delta) >= 0.08:
+            insights.append(
+                _eshop_insight(
+                    'warning' if orders_delta < 0 else 'success',
+                    'Μεταβολή όγκου παραγγελιών',
+                    'Ο αριθμός e-shop παραγγελιών άλλαξε αισθητά σε σχέση με την προηγούμενη αντίστοιχη περίοδο.',
+                    'Αν η αξία δεν ακολουθεί τον όγκο, έλεγξε μέση παραγγελία, promo mix και προϊόντα χαμηλής αξίας.',
+                    'Μεταβολή',
+                    orders_delta,
+                    'percent',
+                    'shopping-bag',
+                )
+            )
+
+        if avg_order_delta is not None and avg_order_delta <= -0.05:
+            insights.append(
+                _eshop_insight(
+                    'warning',
+                    'Μειώθηκε η μέση παραγγελία',
+                    'Ο πελάτης αφήνει λιγότερη αξία ανά παραγγελία από πριν.',
+                    'Δούλεψε bundles, όριο δωρεάν μεταφορικών, cross-sell στο checkout και έλεγξε αν τρέχουν εκπτώσεις που χαμηλώνουν το καλάθι.',
+                    'Μεταβολή',
+                    avg_order_delta,
+                    'percent',
+                    'trending-down',
+                )
+            )
+        elif avg_order_delta is not None and avg_order_delta >= 0.05:
+            insights.append(
+                _eshop_insight(
+                    'success',
+                    'Ανέβηκε η μέση παραγγελία',
+                    'Η αξία ανά e-shop παραγγελία βελτιώθηκε σε σχέση με την προηγούμενη περίοδο.',
+                    'Βρες ποια προϊόντα ή κανάλια τη σήκωσαν και κράτα την ίδια εμπορική λογική.',
+                    'Μεταβολή',
+                    avg_order_delta,
+                    'percent',
+                    'trending-up',
+                )
+            )
+
+        if items_per_order_delta is not None and items_per_order_delta <= -0.06:
+            insights.append(
+                _eshop_insight(
+                    'warning',
+                    'Μειώθηκαν τα τεμάχια ανά παραγγελία',
+                    'Το καλάθι έχει λιγότερα τεμάχια ανά παραγγελία, άρα πιθανόν πέφτει το add-on ή το replenishment καλάθι.',
+                    'Έλεγξε προτάσεις συμπληρωματικών προϊόντων, minimum basket offers και κατηγορίες που έχασαν τεμάχια.',
+                    'Μεταβολή',
+                    items_per_order_delta,
+                    'percent',
+                    'box',
+                )
+            )
+        elif items_per_order_delta is not None and items_per_order_delta >= 0.06:
+            insights.append(
+                _eshop_insight(
+                    'success',
+                    'Ανέβηκαν τα τεμάχια ανά παραγγελία',
+                    'Το e-shop πουλά περισσότερα τεμάχια ανά καλάθι από πριν.',
+                    'Κράτα ενεργά τα bundles και δες ποια κατηγορία τραβάει πολλαπλές τεμάχιες για να την προωθήσεις.',
+                    'Μεταβολή',
+                    items_per_order_delta,
+                    'percent',
+                    'box',
+                )
+            )
+
+        if shipping_pct_delta is not None and shipping_pct_delta >= 0.01:
+            insights.append(
+                _eshop_insight(
+                    'warning',
+                    'Αυξήθηκε το βάρος των επιβαρύνσεων',
+                    'Οι επιβαρύνσεις αποστολής/αντικαταβολής τρώνε μεγαλύτερο κομμάτι του e-shop revenue από πριν.',
+                    'Δες αν άλλαξε courier mix, αντικαταβολές ή παραλαβές. Συζήτησε χρεώσεις με μεταφορικές όπου υπάρχει όγκος.',
+                    'Μεταβολή',
+                    shipping_pct_delta,
+                    'percent',
+                    'percent',
+                )
+            )
+
+        if top_flow:
+            flow_share = float(top_flow['orders'] or 0) / orders if orders else 0.0
+            insights.append(
+                _eshop_insight(
+                    'success',
+                    'Κύριο μοντέλο εκτέλεσης',
+                    f"{top_flow['flow_type']} από {top_flow['flow_label']} συγκεντρώνει {top_flow['orders']} παραγγελίες.",
+                    'Χρησιμοποίησέ το σαν baseline για SLA, προσωπικό και stock allocation.',
+                    'Μερίδιο',
+                    flow_share,
+                    'percent',
+                    'package',
+                )
+            )
+
+        if top_branch:
+            branch_share = float(top_branch['orders'] or 0) / orders if orders else 0.0
+            insights.append(
+                _eshop_insight(
+                    'info',
+                    'Top κατάστημα εκτέλεσης',
+                    f"{top_branch['branch_name']} εκτέλεσε {top_branch['orders']} e-shop παραγγελίες.",
+                    'Έλεγξε αν το συγκεκριμένο κατάστημα έχει επάρκεια stock και ανθρώπους για τον όγκο που σηκώνει.',
+                    'Έσοδα',
+                    top_branch['gross_value'],
+                    'money',
+                    'home',
+                )
+            )
+            if branch_share >= 0.45:
+                insights.append(
+                    _eshop_insight(
+                        'warning',
+                        'Συγκέντρωση εκτέλεσης',
+                        f"Το {top_branch['branch_name']} κρατά πάνω από το 45% του e-shop όγκου. Θέλει έλεγχο χωρητικότητας και SLA.",
+                        'Μοίρασε μέρος του fulfillment ή προετοίμασε stock σε δεύτερο σημείο για να μην γίνει bottleneck.',
+                        'Μερίδιο',
+                        branch_share,
+                        'percent',
+                        'alert-triangle',
+                    )
+                )
+
+        if top_carrier:
+            carrier_name = str(top_carrier['carrier_name'] or 'Χωρίς μεταφορική')
+            if carrier_name == 'Χωρίς μεταφορική':
+                insights.append(
+                    _eshop_insight(
+                        'warning',
+                        'Λείπει μεταφορική',
+                        'Η κύρια ομάδα αποστολών δεν έχει καθαρή μεταφορική. Πιθανό mapping ή πληροφορία που δεν κατεβαίνει από SoftOne.',
+                        'Διόρθωσε πρώτα το mapping, αλλιώς οι courier αναλύσεις θα οδηγούν σε λάθος αποφάσεις.',
+                        'Παραγγελίες',
+                        top_carrier['orders'],
+                        'number',
+                        'alert-circle',
+                    )
+                )
+            else:
+                insights.append(
+                    _eshop_insight(
+                        'info',
+                        'Κύρια μεταφορική',
+                        f"{carrier_name} είναι η βασική μεταφορική στο επιλεγμένο διάστημα.",
+                        'Χρησιμοποίησε τον όγκο σαν διαπραγματευτικό χαρτί για κόστος και χρόνους παράδοσης.',
+                        'Αποστολές',
+                        top_carrier['orders'],
+                        'number',
+                        'truck',
+                    )
+                )
+
+        missing_carrier_share = orders_without_carrier / orders if orders else 0.0
+        if orders_without_carrier > 0:
+            insights.append(
+                _eshop_insight(
+                    'warning' if missing_carrier_share >= 0.10 else 'info',
+                    'Παραγγελίες χωρίς μεταφορική',
+                    f"{orders_without_carrier} e-shop παραγγελίες δεν έχουν ξεκάθαρη μεταφορική. Αν είναι παραλαβές από κατάστημα είναι σωστό, αλλιώς θέλει mapping.",
+                    'Χώρισε ξεκάθαρα παραλαβές από κατάστημα και courier για να ξέρεις τι κόστος έχει κάθε μοντέλο.',
+                    'Μερίδιο',
+                    missing_carrier_share,
+                    'percent',
+                    'alert-circle',
+                )
+            )
+
+        if shipping_cost_pct >= 0.05:
+            insights.append(
+                _eshop_insight(
+                    'warning',
+                    'Υψηλές επιβαρύνσεις αποστολής',
+                    'Οι επιβαρύνσεις αποστολής, αντικαταβολής και λοιπών χρεώσεων είναι υψηλές σε σχέση με τα e-shop έσοδα.',
+                    'Δες δωρεάν μεταφορικά, minimum basket, courier τιμοκατάλογο και πόσο συχνά μπαίνει αντικαταβολή.',
+                    'Επιβάρυνση / έσοδα',
+                    shipping_cost_pct,
+                    'percent',
+                    'percent',
+                )
+            )
+        elif shipping_cost > 0:
+            insights.append(
+                _eshop_insight(
+                    'success',
+                    'Ελεγχόμενες επιβαρύνσεις',
+                    'Οι επιβαρύνσεις αποστολής κινούνται σε χαμηλό ποσοστό του e-shop revenue.',
+                    'Κράτα τη σημερινή πολιτική και παρακολούθα μόνο αν αλλάξει το courier mix.',
+                    'Επιβάρυνση / έσοδα',
+                    shipping_cost_pct,
+                    'percent',
+                    'percent',
+                )
+            )
+
+        if cod_charge_value > 0:
+            insights.append(
+                _eshop_insight(
+                    'info',
+                    'Ξεχωριστή εικόνα αντικαταβολής',
+                    'Υπάρχει αξία αντικαταβολής και πλέον διαχωρίζεται από τα έξοδα αποστολής για καθαρότερη ανάλυση.',
+                    'Μέτρα αν η αντικαταβολή αξίζει το λειτουργικό κόστος ή αν πρέπει να σπρώξεις online πληρωμές.',
+                    'Αντικαταβολή',
+                    cod_charge_value,
+                    'money',
+                    'credit-card',
+                )
+            )
+
+        if top_city:
+            city_name = str(top_city['delivery_city'] or 'Χωρίς πόλη').strip()
+            if city_name in {'0', 'Χωρίς πόλη'}:
+                insights.append(
+                    _eshop_insight(
+                        'warning',
+                        'Πόλεις παράδοσης χωρίς καθαρή τιμή',
+                        'Η μεγαλύτερη ομάδα παραδόσεων εμφανίζεται χωρίς πόλη. Αυτό μειώνει την αξία των γεωγραφικών αναλύσεων.',
+                        'Πρώτη προτεραιότητα είναι καθαρισμός/συμπλήρωση πόλης από το παραστατικό παραγγελίας.',
+                        'Παραγγελίες',
+                        top_city['orders'],
+                        'number',
+                        'map-pin',
+                    )
+                )
+            else:
+                insights.append(
+                    _eshop_insight(
+                        'info',
+                        'Top πόλη παράδοσης',
+                        f"{city_name} είναι η πόλη με τον μεγαλύτερο e-shop όγκο.",
+                        'Δες αν συμφέρει ειδική courier ρύθμιση, τοπικό stock ή targeted καμπάνια στην περιοχή.',
+                        'Έσοδα',
+                        top_city['gross_value'],
+                        'money',
+                        'map-pin',
+                    )
+                )
+
+        if top_payment_method:
+            payment_name = str(top_payment_method['payment_method'] or 'Χωρίς τρόπο πληρωμής').strip()
+            if payment_name == 'Χωρίς τρόπο πληρωμής':
+                insights.append(
+                    _eshop_insight(
+                        'warning',
+                        'Λείπουν τρόποι πληρωμής',
+                        'Δεν υπάρχει καθαρός τρόπος πληρωμής στην κυρίαρχη ομάδα. Θέλει έλεγχο στο πεδίο πληρωμής ή στο παραστατικό παραγγελίας.',
+                        'Χωρίς πληρωμή δεν μπορείς να μετρήσεις αντικαταβολές, online payments και cashflow σωστά.',
+                        'Παραγγελίες',
+                        top_payment_method['orders'],
+                        'number',
+                        'credit-card',
+                    )
+                )
+            else:
+                insights.append(
+                    _eshop_insight(
+                        'info',
+                        'Κύριος τρόπος πληρωμής',
+                        f"{payment_name} φέρνει τον μεγαλύτερο όγκο e-shop εσόδων.",
+                        'Σύνδεσέ το με κόστος πληρωμών, επιστροφές και χρόνο είσπραξης πριν αλλάξεις εμπορική πολιτική.',
+                        'Έσοδα',
+                        top_payment_method['gross_value'],
+                        'money',
+                        'credit-card',
+                    )
+                )
+
+    return {
+        'summary': {
+            'orders': orders,
+            'gross_value': gross_value,
+            'shipping_cost': shipping_cost,
+            'shipping_charge_value': shipping_charge_value,
+            'cod_charge_value': cod_charge_value,
+            'gift_charge_value': gift_charge_value,
+            'other_charge_value': other_charge_value,
+            'shipments': shipments,
+            'qty_total': qty_total,
+            'avg_order_value': avg_order_value,
+            'items_per_order': items_per_order,
+            'avg_shipping_cost': (shipping_cost / shipments) if shipments else 0.0,
+            'shipping_cost_pct': shipping_cost_pct,
+            'orders_without_carrier': orders_without_carrier,
+            'previous_period': {
+                'from': prev_from.isoformat(),
+                'to': prev_to.isoformat(),
+                'orders': prev_orders,
+                'gross_value': prev_gross_value,
+                'shipping_cost': prev_shipping_cost,
+                'qty_total': prev_qty_total,
+                'avg_order_value': prev_avg_order_value,
+                'items_per_order': prev_items_per_order,
+                'shipping_cost_pct': prev_shipping_cost_pct,
+            },
+            'deltas': {
+                'orders_pct': _pct_delta(float(orders), float(prev_orders)),
+                'gross_value_pct': _pct_delta(gross_value, prev_gross_value),
+                'avg_order_value_pct': _pct_delta(avg_order_value, prev_avg_order_value),
+                'items_per_order_pct': _pct_delta(items_per_order, prev_items_per_order),
+                'shipping_cost_pct_points': _pp_delta(shipping_cost_pct, prev_shipping_cost_pct),
+            },
+            'top_branch': top_branch,
+            'top_carrier': top_carrier,
+            'top_city': top_city,
+            'top_payment_method': top_payment_method,
+            'top_flow': top_flow,
+        },
+        'insights': insights,
+        'by_branch': [
+            {
+                'branch_name': str(r['branch_name'] or 'N/A'),
+                'orders': int(r['orders'] or 0),
+                'gross_value': float(r['gross_value'] or 0),
+                'shipping_cost': float(r['shipping_cost'] or 0),
+                'shipping_charge_value': float(r['shipping_charge_value'] or 0),
+                'cod_charge_value': float(r['cod_charge_value'] or 0),
+                'gift_charge_value': float(r['gift_charge_value'] or 0),
+                'other_charge_value': float(r['other_charge_value'] or 0),
+            }
+            for r in branch_rows
+        ],
+        'by_carrier': [
+            {
+                'carrier_name': str(r['carrier_name'] or 'Χωρίς μεταφορική'),
+                'orders': int(r['orders'] or 0),
+                'gross_value': float(r['gross_value'] or 0),
+                'shipping_cost': float(r['shipping_cost'] or 0),
+                'shipping_charge_value': float(r['shipping_charge_value'] or 0),
+                'cod_charge_value': float(r['cod_charge_value'] or 0),
+                'gift_charge_value': float(r['gift_charge_value'] or 0),
+                'other_charge_value': float(r['other_charge_value'] or 0),
+            }
+            for r in carrier_rows
+        ],
+        'by_city': [
+            {
+                'delivery_city': str(r['delivery_city'] or 'Χωρίς πόλη'),
+                'orders': int(r['orders'] or 0),
+                'gross_value': float(r['gross_value'] or 0),
+            }
+            for r in city_rows
+        ],
+        'by_payment_method': [
+            {
+                'payment_method': str(r['payment_method'] or 'Χωρίς τρόπο πληρωμής'),
+                'orders': int(r['orders'] or 0),
+                'gross_value': float(r['gross_value'] or 0),
+            }
+            for r in payment_rows
+        ],
+        'by_flow': flow_rows,
+        'recent_orders': [
+            {
+                'document_id': str(r['document_id'] or ''),
+                'document_no': str(r['document_no'] or r['document_id'] or ''),
+                'document_date': r['document_date'].isoformat() if isinstance(r['document_date'], date) else str(r['document_date'] or ''),
+                'branch_name': str(r['branch_name'] or 'N/A'),
+                'warehouse_code': str(r['warehouse_code'] or ''),
+                'warehouse_name': str(r['warehouse_name'] or 'Χωρίς αποθήκη'),
+                'eshop_code': str(r['eshop_code'] or ''),
+                'customer_name': str(r['customer_name'] or 'ΠΕΛΑΤΗΣ ΛΙΑΝΙΚΗΣ'),
+                'channel_name': str(r['channel_name'] or ''),
+                'carrier_name': _display_carrier_label(
+                    str(r['carrier_name'] or ''),
+                    str(r['warehouse_code'] or ''),
+                    str(r['warehouse_name'] or ''),
+                    str(r['branch_name'] or ''),
+                    str(r['carrier_name'] or ''),
+                ),
+                'delivery_city': str(r['delivery_city'] or 'Χωρίς πόλη'),
+                'payment_method': str(r['payment_method'] or 'Χωρίς τρόπο πληρωμής'),
+                'flow_type': _warehouse_flow(
+                    str(r['warehouse_code'] or ''),
+                    str(r['warehouse_name'] or ''),
+                    str(r['branch_name'] or ''),
+                    str(r['carrier_name'] or ''),
+                )[0],
+                'flow_label': _warehouse_flow(
+                    str(r['warehouse_code'] or ''),
+                    str(r['warehouse_name'] or ''),
+                    str(r['branch_name'] or ''),
+                    str(r['carrier_name'] or ''),
+                )[1],
+                'gross_value': float(r['gross_value'] or 0),
+                'shipping_expense_value': float(r['shipping_expense_value'] or 0),
+                'shipping_charge_value': float(r['shipping_charge_value'] or 0),
+                'cod_charge_value': float(r['cod_charge_value'] or 0),
+                'gift_charge_value': float(r['gift_charge_value'] or 0),
+                'other_charge_value': float(r['other_charge_value'] or 0),
+            }
+            for r in recent_rows
+        ],
+        'recent_orders_pagination': {
+            'page': page,
+            'page_size': page_size,
+            'total': recent_total,
+            'total_pages': total_pages,
+            'has_prev': page > 1,
+            'has_next': page < total_pages,
+        },
     }
 
 
@@ -3630,9 +5431,11 @@ async def purchases_documents_overview(
     brands: list[str] | None = None,
     categories: list[str] | None = None,
     groups: list[str] | None = None,
+    series: str | None = None,
     q: str | None = None,
     limit: int = 200,
     offset: int = 0,
+    document_series_labels: dict[str, str] | None = None,
 ):
     doc_key = _fact_purchases_document_key_expr()
     doc_no_expr = _fact_purchases_document_no_expr(doc_key)
@@ -3645,7 +5448,13 @@ async def purchases_documents_overview(
             func.coalesce(func.max(DimWarehouse.name), func.max(FactPurchases.warehouse_ext_id), literal('N/A')).label(
                 'warehouse_name'
             ),
-            func.coalesce(func.max(FactPurchases.document_series), func.max(FactPurchases.document_type), literal('Αγορές')).label(
+            func.coalesce(func.max(FactPurchases.document_series), literal('')).label('series_code'),
+            func.coalesce(
+                func.max(FactPurchases.source_payload_json['document_series_name'].astext),
+                func.max(FactPurchases.document_series),
+                func.max(FactPurchases.document_type),
+                literal('Αγορές'),
+            ).label(
                 'series_label'
             ),
             literal('').label('status_label'),
@@ -3655,8 +5464,12 @@ async def purchases_documents_overview(
             ),
             literal('').label('reason'),
             func.coalesce(func.sum(FactPurchases.qty), 0).label('qty_total'),
-            func.coalesce(func.sum(FactPurchases.net_value), 0).label('net_value'),
-            func.coalesce(func.sum(FactPurchases.cost_amount), 0).label('cost_value'),
+            func.coalesce(func.sum(_fact_purchases_signed_amount_expr(func.coalesce(FactPurchases.net_value, 0))), 0).label(
+                'net_value'
+            ),
+            func.coalesce(func.sum(_fact_purchases_signed_amount_expr(func.coalesce(FactPurchases.cost_amount, 0))), 0).label(
+                'cost_value'
+            ),
             func.count(FactPurchases.id).label('line_count'),
             func.max(FactPurchases.updated_at).label('last_update'),
         )
@@ -3674,6 +5487,17 @@ async def purchases_documents_overview(
         categories=categories,
         groups=groups,
     )
+
+    series_clean = str(series or '').strip().lower()
+    if series_clean:
+        like = f'%{series_clean}%'
+        base = base.where(
+            func.lower(cast(func.coalesce(FactPurchases.document_series, literal('')), String)).like(like)
+            | func.lower(cast(func.coalesce(FactPurchases.document_type, literal('')), String)).like(like)
+            | func.lower(cast(func.coalesce(FactPurchases.source_payload_json['document_series_name'].astext, literal('')), String)).like(
+                like
+            )
+        )
 
     q_clean = str(q or '').strip().lower()
     if q_clean:
@@ -3713,15 +5537,21 @@ async def purchases_documents_overview(
     out_rows = []
     for r in rows:
         doc_date_val = r.get('document_date')
+        branch_label = _normalize_purchase_branch_label(r.get('branch_name'), None)
+        series_label = _document_series_label(r.get('series_code'), r.get('series_label'), document_series_labels)
+        document_type_label = _normalize_purchase_document_type_label(
+            r.get('document_type'),
+            series_label=series_label,
+        )
         out_rows.append(
             {
                 'document_id': str(r.get('document_id') or ''),
                 'document_no': str(r.get('document_no') or r.get('document_id') or ''),
                 'document_date': doc_date_val.isoformat() if isinstance(doc_date_val, date) else str(doc_date_val or ''),
-                'branch': str(r.get('branch_name') or 'N/A'),
+                'branch': branch_label,
                 'warehouse': str(r.get('warehouse_name') or 'N/A'),
-                'series': str(r.get('series_label') or r.get('document_type') or 'Αγορές'),
-                'document_type': str(r.get('document_type') or 'Παραστατικό Αγορών'),
+                'series': series_label or document_type_label,
+                'document_type': document_type_label,
                 'status': str(r.get('status_label') or ''),
                 'supplier': str(r.get('supplier_name') or 'N/A'),
                 'reason': str(r.get('reason') or ''),
@@ -3738,6 +5568,9 @@ async def purchases_documents_overview(
             'documents': int(totals_row['docs_count'] or 0),
             'net_value': float(totals_row['net_value'] or 0),
             'cost_value': float(totals_row['cost_value'] or 0),
+            'vat_value': 0.0,
+            'expenses_value': 0.0,
+            'gross_value': float(totals_row['net_value'] or 0),
             'qty_total': float(totals_row['qty_total'] or 0),
         },
         'limit': int(limit),
@@ -3802,10 +5635,22 @@ async def purchase_document_detail(
         raise ValueError('Purchase document not found')
 
     first_fact: FactPurchases = rows[0][0]
-    branch_name = str(rows[0][2] or first_fact.branch_ext_id or 'N/A')
+    first_payload = first_fact.source_payload_json if isinstance(first_fact.source_payload_json, dict) else {}
+    branch_code = _strip_tenant_prefix(first_fact.branch_ext_id)
+    branch_name = _normalize_purchase_branch_label(rows[0][2], first_fact.branch_ext_id)
     warehouse_name = str(rows[0][3] or first_fact.warehouse_ext_id or 'N/A')
     supplier_name = str(rows[0][4] or first_fact.supplier_ext_id or 'N/A')
     document_no = _purchase_document_no_from_fact(first_fact, doc_id)
+    series_label = _document_series_label(
+        first_fact.document_series,
+        first_payload.get('document_series_name') or first_fact.document_series or first_fact.document_type or 'Αγορές',
+        document_series_labels,
+    )
+    document_type_label = _normalize_purchase_document_type_label(
+        first_fact.document_type,
+        series_label=series_label,
+        payload=first_payload,
+    )
 
     line_rows = []
     total_qty = 0.0
@@ -3816,6 +5661,7 @@ async def purchase_document_detail(
     for idx, row in enumerate(rows, start=1):
         fact: FactPurchases = row[0]
         payload = fact.source_payload_json if isinstance(fact.source_payload_json, dict) else {}
+        is_credit_doc = _purchase_is_credit_payload(payload)
         payload_item_name = _payload_text(
             payload,
             'item_name',
@@ -3840,8 +5686,8 @@ async def purchase_document_detail(
         )
         item_name = _clean_item_name(payload_item_name if prefer_payload_name else row[1], fact.item_code)
         qty = float(fact.qty or 0)
-        net_value = float(fact.net_value or 0)
-        cost_value = float(fact.cost_amount or 0)
+        raw_net_value = float(fact.net_value or 0)
+        raw_cost_value = float(fact.cost_amount or 0)
         vat_value = _payload_float(
             payload,
             'vat_amount',
@@ -3861,14 +5707,16 @@ async def purchase_document_detail(
             'value_total',
         )
         if vat_value is None and gross_value is not None:
-            vat_value = gross_value - net_value
+            vat_value = gross_value - raw_net_value
         if vat_value is None:
             vat_value = 0.0
         if gross_value is None:
-            gross_value = net_value + vat_value
+            gross_value = raw_net_value + vat_value
 
-        vat_value = max(0.0, float(vat_value))
-        gross_value = float(gross_value)
+        net_value = _normalize_purchase_credit_sign(raw_net_value, is_credit_doc)
+        cost_value = _normalize_purchase_credit_sign(raw_cost_value, is_credit_doc)
+        vat_value = _normalize_purchase_credit_sign(float(vat_value), is_credit_doc)
+        gross_value = _normalize_purchase_credit_sign(float(gross_value), is_credit_doc)
         unit_price = net_value / qty if qty else 0.0
 
         total_qty += qty
@@ -3965,12 +5813,14 @@ async def purchase_document_detail(
         'document_no': document_no,
         'document_date': first_fact.doc_date.isoformat() if first_fact.doc_date else '',
         'header': {
-            'branch_code': str(first_fact.branch_ext_id or ''),
+            'branch_code': branch_code,
             'branch_name': branch_name,
             'warehouse_code': str(first_fact.warehouse_ext_id or ''),
             'warehouse_name': warehouse_name,
-            'series': str(first_fact.document_series or first_fact.document_type or 'Αγορές'),
-            'document_type': str(first_fact.document_type or 'Παραστατικό Αγορών'),
+            'series': series_label,
+            'document_type': document_type_label,
+            'document_type_label': document_type_label,
+            'document_type_raw': str(first_fact.document_type or ''),
             'status': '',
             'supplier_code': str(first_fact.supplier_ext_id or ''),
             'supplier_name': supplier_name,
@@ -4010,9 +5860,11 @@ async def inventory_documents_overview(
     brands: list[str] | None = None,
     categories: list[str] | None = None,
     groups: list[str] | None = None,
+    series: str | None = None,
     q: str | None = None,
     limit: int = 200,
     offset: int = 0,
+    document_series_labels: dict[str, str] | None = None,
 ):
     doc_key = _fact_inventory_document_key_expr()
     base = (
@@ -4020,13 +5872,23 @@ async def inventory_documents_overview(
             doc_key.label('document_id'),
             func.coalesce(func.max(FactInventory.document_no), func.max(doc_key), literal('')).label('document_no'),
             func.max(FactInventory.doc_date).label('document_date'),
-            func.coalesce(func.max(DimBranch.name), func.max(FactInventory.branch_ext_id), literal('N/A')).label('branch_name'),
-            func.coalesce(func.max(FactInventory.branch_ext_id), literal('')).label('branch_code'),
-            func.coalesce(func.max(DimWarehouse.name), func.max(FactInventory.warehouse_ext_id), literal('N/A')).label(
-                'warehouse_name'
-            ),
-            func.coalesce(func.max(FactInventory.warehouse_ext_id), literal('')).label('warehouse_code'),
             func.coalesce(
+                func.max(DimBranch.name),
+                func.max(cast(FactInventory.source_payload_json['branch_name'].astext, String)),
+                func.max(FactInventory.branch_ext_id),
+                literal('N/A'),
+            ).label('branch_name'),
+            func.coalesce(func.max(FactInventory.branch_ext_id), literal('')).label('branch_code'),
+            func.coalesce(
+                func.max(DimWarehouse.name),
+                func.max(cast(FactInventory.source_payload_json['warehouse_name'].astext, String)),
+                func.max(FactInventory.warehouse_ext_id),
+                literal('N/A'),
+            ).label('warehouse_name'),
+            func.coalesce(func.max(FactInventory.warehouse_ext_id), literal('')).label('warehouse_code'),
+            func.coalesce(func.max(FactInventory.document_series), literal('')).label('series_code'),
+            func.coalesce(
+                func.max(FactInventory.source_payload_json['document_series_name'].astext),
                 func.max(FactInventory.document_series),
                 func.max(FactInventory.document_type),
                 literal('Κίνηση Αποθήκης'),
@@ -4054,15 +5916,26 @@ async def inventory_documents_overview(
     )
     branches = _effective_branch_filter(branches)
     if branches is not None:
-        base = base.where(DimBranch.external_id.in_(branches))
+        base = base.where(FactInventory.branch_ext_id.in_(branches))
     if warehouses:
-        base = base.where(DimWarehouse.external_id.in_(warehouses))
+        base = base.where(FactInventory.warehouse_ext_id.in_(warehouses))
     if brands:
         base = base.where(DimBrand.external_id.in_(brands))
     if categories:
         base = base.where(DimCategory.external_id.in_(categories))
     if groups:
         base = base.where(DimGroup.external_id.in_(groups))
+
+    series_clean = str(series or '').strip().lower()
+    if series_clean:
+        like = f'%{series_clean}%'
+        base = base.where(
+            func.lower(cast(func.coalesce(FactInventory.document_series, literal('')), String)).like(like)
+            | func.lower(cast(func.coalesce(FactInventory.document_type, literal('')), String)).like(like)
+            | func.lower(cast(func.coalesce(FactInventory.source_payload_json['document_series_name'].astext, literal('')), String)).like(
+                like
+            )
+        )
 
     q_clean = str(q or '').strip().lower()
     if q_clean:
@@ -4116,7 +5989,11 @@ async def inventory_documents_overview(
                 'warehouse_code': str(r.get('warehouse_code') or ''),
                 'branch_2': branch_name,
                 'warehouse_2': warehouse_name,
-                'series': str(r.get('series_label') or r.get('document_type') or 'Κίνηση Αποθήκης'),
+                'series': _document_series_label(
+                    r.get('series_code'),
+                    r.get('series_label') or r.get('document_type') or 'Κίνηση Αποθήκης',
+                    document_series_labels,
+                ),
                 'document_type': str(r.get('document_type') or 'Κίνηση Αποθήκης'),
                 'status': str(r.get('status_label') or ''),
                 'reason': str(r.get('reason') or ''),
@@ -4133,6 +6010,10 @@ async def inventory_documents_overview(
             'documents': int(totals_row['docs_count'] or 0),
             'value_total': float(totals_row['value_total'] or 0),
             'cost_total': float(totals_row['cost_total'] or 0),
+            'net_value': float(totals_row['value_total'] or 0),
+            'vat_value': 0.0,
+            'expenses_value': 0.0,
+            'gross_value': float(totals_row['value_total'] or 0),
             'qty_total': float(totals_row['qty_total'] or 0),
         },
         'limit': int(limit),
@@ -4151,6 +6032,7 @@ async def inventory_document_detail(
     brands: list[str] | None = None,
     categories: list[str] | None = None,
     groups: list[str] | None = None,
+    document_series_labels: dict[str, str] | None = None,
 ):
     doc_id = str(document_id or '').strip()
     if not doc_id:
@@ -4187,9 +6069,9 @@ async def inventory_document_detail(
         stmt = stmt.where(FactInventory.doc_date <= date_to)
     branches = _effective_branch_filter(branches)
     if branches is not None:
-        stmt = stmt.where(DimBranch.external_id.in_(branches))
+        stmt = stmt.where(FactInventory.branch_ext_id.in_(branches))
     if warehouses:
-        stmt = stmt.where(DimWarehouse.external_id.in_(warehouses))
+        stmt = stmt.where(FactInventory.warehouse_ext_id.in_(warehouses))
     if brands:
         stmt = stmt.where(DimBrand.external_id.in_(brands))
     if categories:
@@ -4209,10 +6091,11 @@ async def inventory_document_detail(
         raise ValueError('Inventory document not found')
 
     first_fact: FactInventory = rows[0][0]
+    first_payload = first_fact.source_payload_json if isinstance(first_fact.source_payload_json, dict) else {}
     branch_code = str(rows[0][3] or first_fact.branch_ext_id or '')
-    branch_name = str(rows[0][4] or first_fact.branch_ext_id or 'N/A')
+    branch_name = str(rows[0][4] or first_payload.get('branch_name') or first_fact.branch_ext_id or 'N/A')
     warehouse_code = str(rows[0][5] or first_fact.warehouse_ext_id or '')
-    warehouse_name = str(rows[0][6] or first_fact.warehouse_ext_id or 'N/A')
+    warehouse_name = str(rows[0][6] or first_payload.get('warehouse_name') or first_fact.warehouse_ext_id or 'N/A')
 
     line_rows = []
     total_qty = 0.0
@@ -4300,7 +6183,11 @@ async def inventory_document_detail(
             'branch_name_2': branch_name,
             'warehouse_code_2': warehouse_code,
             'warehouse_name_2': warehouse_name,
-            'series': str(first_fact.document_series or first_fact.document_type or 'Κίνηση Αποθήκης'),
+            'series': _document_series_label(
+                first_fact.document_series,
+                first_payload.get('document_series_name') or first_fact.document_series or first_fact.document_type or 'Κίνηση Αποθήκης',
+                document_series_labels,
+            ),
             'document_type': str(first_fact.document_type or 'Κίνηση Αποθήκης'),
             'status': '',
             'reason': '',
@@ -4506,34 +6393,54 @@ async def expenses_documents_overview(
     date_to: date,
     branches: list[str] | None = None,
     categories: list[str] | None = None,
+    series: str | None = None,
     q: str | None = None,
     limit: int = 200,
     offset: int = 0,
 ):
     branch_filter = _effective_branch_filter(branches)
+    branch_name_dim = aliased(DimBranch)
+    category_dim = aliased(DimExpenseCategory)
+    document_type_dim = aliased(DimDocumentType)
     doc_key = func.coalesce(FactExpense.document_no, FactExpense.external_id)
+    net_amount_expr = _fact_expenses_signed_amount_expr(func.coalesce(FactExpense.amount_net, 0))
+    tax_amount_expr = _fact_expenses_signed_amount_expr(func.coalesce(FactExpense.amount_tax, 0))
+    gross_amount_expr = _fact_expenses_signed_amount_expr(func.coalesce(FactExpense.amount_gross, 0))
     base = (
         select(
             doc_key.label('document_id'),
             func.coalesce(func.max(FactExpense.document_no), func.max(FactExpense.external_id), literal('')).label('document_no'),
             func.max(FactExpense.expense_date).label('document_date'),
-            func.coalesce(func.max(DimBranch.name), func.max(FactExpense.branch_ext_id), literal('N/A')).label('branch_name'),
+            func.coalesce(
+                func.max(DimBranch.name),
+                func.max(branch_name_dim.name),
+                func.max(FactExpense.branch_ext_id),
+                literal('N/A'),
+            ).label('branch_name'),
             func.coalesce(
                 func.max(DimExpenseCategory.category_name),
+                func.max(category_dim.category_name),
                 func.max(FactExpense.expense_category_code),
                 literal('N/A'),
             ).label('category_name'),
-            func.coalesce(func.max(FactExpense.document_type), literal('Παραστατικό Εξόδων')).label('document_type'),
+            func.coalesce(
+                func.max(document_type_dim.name),
+                func.max(FactExpense.document_type),
+                literal('Παραστατικό Εξόδων'),
+            ).label('document_type'),
             func.coalesce(func.max(DimSupplier.name), func.max(FactExpense.supplier_ext_id), literal('N/A')).label('supplier_name'),
-            func.coalesce(func.sum(FactExpense.amount_net), 0).label('amount_net'),
-            func.coalesce(func.sum(FactExpense.amount_tax), 0).label('amount_tax'),
-            func.coalesce(func.sum(FactExpense.amount_gross), 0).label('amount_gross'),
+            func.coalesce(func.sum(net_amount_expr), 0).label('amount_net'),
+            func.coalesce(func.sum(tax_amount_expr), 0).label('amount_tax'),
+            func.coalesce(func.sum(gross_amount_expr), 0).label('amount_gross'),
             func.count(FactExpense.id).label('line_count'),
             func.max(FactExpense.updated_at).label('last_update'),
         )
         .select_from(FactExpense)
         .join(DimBranch, DimBranch.id == FactExpense.branch_id, isouter=True)
         .join(DimExpenseCategory, DimExpenseCategory.id == FactExpense.category_id, isouter=True)
+        .join(branch_name_dim, branch_name_dim.external_id == FactExpense.branch_ext_id, isouter=True)
+        .join(category_dim, category_dim.category_code == FactExpense.expense_category_code, isouter=True)
+        .join(document_type_dim, document_type_dim.external_id == FactExpense.document_type, isouter=True)
         .join(DimSupplier, DimSupplier.id == FactExpense.supplier_id, isouter=True)
         .where(*_date_range(FactExpense.expense_date, date_from, date_to))
     )
@@ -4541,6 +6448,11 @@ async def expenses_documents_overview(
         base = base.where(FactExpense.branch_ext_id.in_(branch_filter))
     if categories:
         base = base.where(FactExpense.expense_category_code.in_(categories))
+    series_clean = str(series or '').strip().lower()
+    if series_clean:
+        base = base.where(
+            func.lower(cast(func.coalesce(FactExpense.document_type, literal('')), String)).like(f'%{series_clean}%')
+        )
     q_clean = str(q or '').strip().lower()
     if q_clean:
         like = f'%{q_clean}%'
@@ -4572,14 +6484,17 @@ async def expenses_documents_overview(
     out_rows = []
     for r in rows:
         doc_date_val = r.get('document_date')
+        branch_name = _normalize_expense_branch_label(r.get('branch_name'), None)
+        category_name = str(r.get('category_name') or 'N/A')
+        document_type = _normalize_expense_document_type_label(r.get('document_type'), category_name=category_name)
         out_rows.append(
             {
                 'document_id': str(r.get('document_id') or ''),
                 'document_no': str(r.get('document_no') or r.get('document_id') or ''),
                 'document_date': doc_date_val.isoformat() if isinstance(doc_date_val, date) else str(doc_date_val or ''),
-                'branch': str(r.get('branch_name') or 'N/A'),
-                'category': str(r.get('category_name') or 'N/A'),
-                'document_type': str(r.get('document_type') or 'Παραστατικό Εξόδων'),
+                'branch': branch_name,
+                'category': category_name,
+                'document_type': document_type,
                 'supplier': str(r.get('supplier_name') or 'N/A'),
                 'total_net_value': float(r.get('amount_net') or 0),
                 'total_tax_value': float(r.get('amount_tax') or 0),
@@ -4594,6 +6509,10 @@ async def expenses_documents_overview(
             'amount_net': float(totals_row['amount_net'] or 0),
             'amount_tax': float(totals_row['amount_tax'] or 0),
             'amount_gross': float(totals_row['amount_gross'] or 0),
+            'net_value': float(totals_row['amount_net'] or 0),
+            'vat_value': float(totals_row['amount_tax'] or 0),
+            'gross_value': float(totals_row['amount_gross'] or 0),
+            'expenses_value': float((totals_row['amount_gross'] or 0) - (totals_row['amount_net'] or 0) - (totals_row['amount_tax'] or 0)),
         },
         'limit': int(limit),
         'offset': int(offset),
@@ -4613,18 +6532,27 @@ async def expense_document_detail(
     if not doc_id:
         raise ValueError('Missing document id')
     branch_filter = _effective_branch_filter(branches)
+    branch_name_dim = aliased(DimBranch)
+    category_dim = aliased(DimExpenseCategory)
+    document_type_dim = aliased(DimDocumentType)
     doc_key = func.coalesce(FactExpense.document_no, FactExpense.external_id)
     stmt = (
         select(
             FactExpense,
             DimBranch.name.label('branch_name'),
             DimExpenseCategory.category_name.label('category_name'),
+            branch_name_dim.name.label('branch_name_fallback'),
+            category_dim.category_name.label('category_name_fallback'),
+            document_type_dim.name.label('document_type_name'),
             DimSupplier.name.label('supplier_name'),
             DimAccount.name.label('account_name'),
         )
         .select_from(FactExpense)
         .join(DimBranch, DimBranch.id == FactExpense.branch_id, isouter=True)
         .join(DimExpenseCategory, DimExpenseCategory.id == FactExpense.category_id, isouter=True)
+        .join(branch_name_dim, branch_name_dim.external_id == FactExpense.branch_ext_id, isouter=True)
+        .join(category_dim, category_dim.category_code == FactExpense.expense_category_code, isouter=True)
+        .join(document_type_dim, document_type_dim.external_id == FactExpense.document_type, isouter=True)
         .join(DimSupplier, DimSupplier.id == FactExpense.supplier_id, isouter=True)
         .join(DimAccount, DimAccount.id == FactExpense.account_id, isouter=True)
         .where(doc_key == doc_id)
@@ -4641,28 +6569,31 @@ async def expense_document_detail(
     if not rows:
         raise ValueError('Expense document not found')
     first_fact: FactExpense = rows[0][0]
-    branch_name = str(rows[0][1] or first_fact.branch_ext_id or 'N/A')
-    category_name = str(rows[0][2] or first_fact.expense_category_code or 'N/A')
-    supplier_name = str(rows[0][3] or first_fact.supplier_ext_id or 'N/A')
-    account_name = str(rows[0][4] or first_fact.account_ext_id or '')
+    branch_name = _normalize_expense_branch_label(rows[0][1] or rows[0][3], first_fact.branch_ext_id)
+    category_name = str(rows[0][2] or rows[0][4] or first_fact.expense_category_code or 'N/A')
+    document_type_name = _normalize_expense_document_type_label(rows[0][5] or first_fact.document_type, category_name=category_name)
+    supplier_name = str(rows[0][6] or first_fact.supplier_ext_id or 'N/A')
+    account_name = str(rows[0][7] or first_fact.account_ext_id or '')
     line_rows = []
     total_net = 0.0
     total_tax = 0.0
     total_gross = 0.0
     for idx, row in enumerate(rows, start=1):
         fact: FactExpense = row[0]
-        amount_net = float(fact.amount_net or 0)
-        amount_tax = float(fact.amount_tax or 0)
-        amount_gross = float(fact.amount_gross or 0)
+        line_category_name = str(row[2] or row[4] or fact.expense_category_code or '')
+        doc_type = _normalize_expense_document_type_label(row[5] or fact.document_type or first_fact.document_type, category_name=line_category_name)
+        amount_net = _normalize_expense_credit_sign(float(fact.amount_net or 0), doc_type)
+        amount_tax = _normalize_expense_credit_sign(float(fact.amount_tax or 0), doc_type)
+        amount_gross = _normalize_expense_credit_sign(float(fact.amount_gross or 0), doc_type)
         total_net += amount_net
         total_tax += amount_tax
         total_gross += amount_gross
         line_rows.append(
             {
                 'row_no': idx,
-                'category': str(row[2] or fact.expense_category_code or ''),
-                'supplier': str(row[3] or fact.supplier_ext_id or ''),
-                'account': str(row[4] or fact.account_ext_id or ''),
+                'category': line_category_name,
+                'supplier': str(row[6] or fact.supplier_ext_id or ''),
+                'account': str(row[7] or fact.account_ext_id or ''),
                 'net_value': amount_net,
                 'tax_value': amount_tax,
                 'gross_value': amount_gross,
@@ -4676,7 +6607,7 @@ async def expense_document_detail(
         'header': {
             'branch_name': branch_name,
             'category_name': category_name,
-            'document_type': str(first_fact.document_type or 'Παραστατικό Εξόδων'),
+            'document_type': document_type_name,
             'supplier_name': supplier_name,
             'account_name': account_name,
             'payment_status': str(first_fact.payment_status or ''),
@@ -6278,6 +8209,9 @@ def _cashflow_entry_types_for_category(category: str | None) -> set[str] | None:
         'customer_collections': {
             'customer_collections',
             'customer_collection',
+            'debtor_collections',
+            'debtor_collection',
+            'other_collections',
             'collections',
             'collection',
             'in',
@@ -6288,6 +8222,9 @@ def _cashflow_entry_types_for_category(category: str | None) -> set[str] | None:
         'customer_transfers': {
             'customer_transfers',
             'customer_transfer',
+            'debtor_transfers',
+            'debtor_transfer',
+            'other_transfers',
             'customer_bank_transfer',
             'customer_wire_transfer',
             'customer_wire',
@@ -6295,6 +8232,10 @@ def _cashflow_entry_types_for_category(category: str | None) -> set[str] | None:
         'supplier_payments': {
             'supplier_payments',
             'supplier_payment',
+            'creditor_payment',
+            'creditor_payments',
+            'other_payment',
+            'other_payments',
             'payments',
             'payment',
             'out',
@@ -6305,6 +8246,11 @@ def _cashflow_entry_types_for_category(category: str | None) -> set[str] | None:
         'supplier_transfers': {
             'supplier_transfers',
             'supplier_transfer',
+            'creditor_transfer',
+            'creditor_transfers',
+            'other_supplier_transfer',
+            'other_supplier_transfers',
+            'other_transfer_out',
             'supplier_bank_transfer',
             'supplier_wire_transfer',
             'supplier_wire',
@@ -6325,8 +8271,13 @@ def _cashflow_subcategories_for_filter(category: str | None) -> set[str]:
     if not normalized:
         return set()
     if normalized == 'supplier_payments':
-        # Keep parity with legacy BI where supplier transfers appeared in the same view.
-        return {'supplier_payments', 'supplier_transfers'}
+        return {'supplier_payments', 'creditor_payments', 'other_payments'}
+    if normalized == 'supplier_transfers':
+        return {'supplier_transfers', 'creditor_transfers', 'other_supplier_transfers'}
+    if normalized == 'customer_collections':
+        return {'customer_collections', 'debtor_collections', 'other_collections'}
+    if normalized == 'customer_transfers':
+        return {'customer_transfers', 'debtor_transfers', 'other_transfers'}
     return {normalized}
 
 
@@ -6349,19 +8300,34 @@ def _cashflow_entry_label(entry_type: str | None) -> str:
     labels = {
         'customer_collections': 'Είσπραξη πελάτη',
         'customer_collection': 'Είσπραξη πελάτη',
+        'debtor_collections': 'Είσπραξη χρεώστη',
+        'debtor_collection': 'Είσπραξη χρεώστη',
+        'other_collections': 'Λοιπή είσπραξη',
         'collections': 'Είσπραξη πελάτη',
         'collection': 'Είσπραξη πελάτη',
         'customer_transfers': 'Έμβασμα από πελάτη',
         'customer_transfer': 'Έμβασμα από πελάτη',
+        'debtor_transfers': 'Έμβασμα χρεώστη',
+        'debtor_transfer': 'Έμβασμα χρεώστη',
+        'other_transfers': 'Λοιπό έμβασμα',
         'customer_bank_transfer': 'Έμβασμα από πελάτη',
         'customer_wire_transfer': 'Έμβασμα από πελάτη',
         'customer_wire': 'Έμβασμα από πελάτη',
         'supplier_payments': 'Πληρωμή προμηθευτή',
         'supplier_payment': 'Πληρωμή προμηθευτή',
+        'creditor_payment': 'Πληρωμή πιστωτή',
+        'creditor_payments': 'Πληρωμή πιστωτή',
+        'other_payment': 'Λοιπή πληρωμή',
+        'other_payments': 'Λοιπή πληρωμή',
         'payments': 'Πληρωμή προμηθευτή',
         'payment': 'Πληρωμή προμηθευτή',
         'supplier_transfers': 'Έμβασμα σε προμηθευτή',
         'supplier_transfer': 'Έμβασμα σε προμηθευτή',
+        'creditor_transfer': 'Έμβασμα σε πιστωτή',
+        'creditor_transfers': 'Έμβασμα σε πιστωτή',
+        'other_supplier_transfer': 'Λοιπό έμβασμα προμηθευτή',
+        'other_supplier_transfers': 'Λοιπό έμβασμα προμηθευτή',
+        'other_transfer_out': 'Λοιπό έμβασμα προμηθευτή',
         'supplier_bank_transfer': 'Έμβασμα σε προμηθευτή',
         'supplier_wire_transfer': 'Έμβασμα σε προμηθευτή',
         'supplier_wire': 'Έμβασμα σε προμηθευτή',
@@ -6409,9 +8375,40 @@ def _cashflow_party_fallback(category: str | None) -> str:
 
 
 _ACCOUNT_CODE_RE = re.compile(r'(\d{1,3}(?:\.\d{1,3}){2,})')
+_TECHNICAL_SALES_TYPE_RE = re.compile(r'^sales_\d+$', re.IGNORECASE)
 
 
 def _cashflow_amount_sign(entry_type: str | None) -> float:
+    return _cashflow_amount_sign_by_behavior_or_type(None, entry_type)
+
+
+def _normalize_sales_document_type_label(raw_type: str | None, *, series_label: str | None, payload: dict | None) -> str:
+    value = str(raw_type or '').strip()
+    if value and not _TECHNICAL_SALES_TYPE_RE.match(value):
+        return value
+    if isinstance(payload, dict):
+        for key in (
+            'document_series_name',
+            'series_name',
+            'document_type_name',
+            'doc_type_name',
+            'type_name',
+        ):
+            txt = str(payload.get(key) or '').strip()
+            if txt:
+                return txt
+    fallback_series = str(series_label or '').strip()
+    if fallback_series:
+        return fallback_series
+    return 'Παραστατικό Πώλησης'
+
+
+def _cashflow_amount_sign_by_behavior_or_type(transaction_type: str | None, entry_type: str | None) -> float:
+    tx = str(transaction_type or '').strip().lower()
+    if tx.startswith('101'):
+        return 1.0
+    if tx.startswith('102'):
+        return -1.0
     normalized = str(entry_type or '').strip().lower()
     positive = {
         'in',
@@ -6436,10 +8433,19 @@ def _cashflow_amount_sign(entry_type: str | None) -> float:
         'refund',
         'supplier_payments',
         'supplier_payment',
+        'creditor_payment',
+        'creditor_payments',
+        'other_payment',
+        'other_payments',
         'payments',
         'payment',
         'supplier_transfers',
         'supplier_transfer',
+        'creditor_transfer',
+        'creditor_transfers',
+        'other_supplier_transfer',
+        'other_supplier_transfers',
+        'other_transfer_out',
         'supplier_bank_transfer',
         'supplier_wire_transfer',
         'supplier_wire',
@@ -6449,6 +8455,40 @@ def _cashflow_amount_sign(entry_type: str | None) -> float:
     if normalized in negative:
         return -1.0
     return 1.0
+
+
+def _normalize_cashflow_signed_amount(raw_amount: float, transaction_type: str | None, entry_type: str | None) -> float:
+    amount = float(raw_amount or 0.0)
+    tx = str(transaction_type or '').strip().lower()
+    if tx.startswith('101'):
+        return amount
+    if tx.startswith('102'):
+        return -abs(amount)
+    sign = _cashflow_amount_sign_by_behavior_or_type(None, entry_type)
+    return sign * abs(amount)
+
+
+def _cashflow_signed_amount_expr():
+    tx_col = func.lower(cast(func.coalesce(FactCashflow.transaction_type, literal('')), String))
+    entry_col = func.lower(cast(func.coalesce(FactCashflow.entry_type, literal('')), String))
+    subcategory_col = func.lower(cast(func.coalesce(FactCashflow.subcategory, literal('')), String))
+    positive = sorted(_cashflow_entry_types_for_category('customer_collections') or set())
+    negative = sorted((_cashflow_entry_types_for_category('supplier_payments') or set()) | {'refund'})
+    sign_expr = case(
+        (tx_col.like('101%'), literal(0.0)),
+        (tx_col.like('102%'), literal(-1.0)),
+        (subcategory_col.in_(positive), literal(1.0)),
+        (entry_col.in_(positive), literal(1.0)),
+        (subcategory_col.in_(negative), literal(-1.0)),
+        (entry_col.in_(negative), literal(-1.0)),
+        else_=literal(1.0),
+    )
+    amount_expr = func.coalesce(FactCashflow.amount, 0)
+    return case(
+        (tx_col.like('101%'), amount_expr),
+        (tx_col.like('102%'), -func.abs(amount_expr)),
+        else_=(sign_expr * func.abs(amount_expr)),
+    )
 
 
 def _is_generic_cashflow_note(note: str | None) -> bool:
@@ -6528,7 +8568,7 @@ def _build_cashflow_accounts_index(rows) -> dict[str, dict]:
         if not key:
             continue
         amount = float(fact.amount or 0)
-        signed_amount = _cashflow_amount_sign(fact.subcategory or fact.entry_type) * abs(amount)
+        signed_amount = _normalize_cashflow_signed_amount(amount, fact.transaction_type, fact.subcategory or fact.entry_type)
         note = str(fact.notes or '').strip()
         rec = accounts.get(key)
         if rec is None:
@@ -6572,6 +8612,7 @@ async def cashflow_documents_overview(
     date_to: date,
     category: str | None = None,
     branches: list[str] | None = None,
+    series: str | None = None,
     q: str | None = None,
     limit: int = 200,
     offset: int = 0,
@@ -6584,6 +8625,7 @@ async def cashflow_documents_overview(
     subcategory_col = func.lower(cast(func.coalesce(FactCashflow.subcategory, literal('')), String))
     doc_key = FactCashflow.external_id
 
+    signed_amount_expr = _cashflow_signed_amount_expr()
     base = (
         select(
             doc_key.label('document_id'),
@@ -6593,7 +8635,7 @@ async def cashflow_documents_overview(
             func.coalesce(func.max(DimBranch.external_id), literal('')).label('branch_code'),
             func.coalesce(func.max(FactCashflow.entry_type), literal('unknown')).label('entry_type'),
             func.coalesce(func.max(FactCashflow.notes), literal('')).label('notes'),
-            func.coalesce(func.sum(FactCashflow.amount), 0).label('total_value'),
+            func.coalesce(func.sum(signed_amount_expr), 0).label('total_value'),
             func.count(FactCashflow.id).label('line_count'),
             func.max(FactCashflow.updated_at).label('last_update'),
         )
@@ -6611,6 +8653,10 @@ async def cashflow_documents_overview(
             (subcategory_col.in_(sorted(allowed_subcategories or {normalized_category})))
             | (entry_type_col.in_(sorted(allowed_entry_types or set())))
         )
+    series_clean = str(series or '').strip().lower()
+    if series_clean:
+        like = f'%{series_clean}%'
+        base = base.where(entry_type_col.like(like) | subcategory_col.like(like))
 
     q_clean = str(q or '').strip().lower()
     if q_clean:
@@ -6667,6 +8713,10 @@ async def cashflow_documents_overview(
         'summary': {
             'documents': int(totals_row['docs_count'] or 0),
             'value_total': float(totals_row['value_total'] or 0),
+            'net_value': float(totals_row['value_total'] or 0),
+            'vat_value': 0.0,
+            'expenses_value': 0.0,
+            'gross_value': float(totals_row['value_total'] or 0),
             'line_count': int(totals_row['line_count'] or 0),
             'category': normalized_category,
             'category_label': _cashflow_category_label(normalized_category),
@@ -6741,7 +8791,8 @@ async def cashflow_document_detail(
     total_value = 0.0
     for idx, row in enumerate(rows, start=1):
         fact: FactCashflow = row[0]
-        line_amount = float(fact.amount or 0)
+        raw_amount = float(fact.amount or 0)
+        line_amount = _normalize_cashflow_signed_amount(raw_amount, fact.transaction_type, fact.subcategory or fact.entry_type)
         total_value += line_amount
         line_reason = str(fact.notes or '').strip()
         counterparty_name = line_reason or party_name
@@ -7406,7 +9457,7 @@ async def suppliers_overview(
             select(func.coalesce(func.sum(AggCashDaily.outflows), 0))
             .select_from(AggCashDaily)
             .where(*_date_range(AggCashDaily.doc_date, date_from, date_to))
-            .where(AggCashDaily.subcategory.in_(['supplier_payments', 'supplier_transfers']))
+            .where(AggCashDaily.subcategory.in_(['supplier_payments']))
         )
         branches = _effective_branch_filter(branches)
         if branches is not None:
@@ -7572,7 +9623,7 @@ async def suppliers_overview(
             )
             .select_from(FactCashflow)
             .where(*_date_range(FactCashflow.doc_date, date_from, date_to))
-            .where(subcategory_expr.in_(['supplier_payments', 'supplier_transfers']))
+            .where(subcategory_expr.in_(['supplier_payments']))
             .where(payment_key.in_(supplier_ids))
             .group_by(payment_key)
         )
@@ -8093,6 +10144,7 @@ async def customer_detail(
         notes_col = func.lower(cast(func.coalesce(FactCashflow.notes, literal('')), String))
         ref_col = func.lower(cast(func.coalesce(FactCashflow.reference_no, literal('')), String))
         term_filters = [notes_col.like(f'%{term}%') | ref_col.like(f'%{term}%') for term in search_terms]
+        signed_amount_expr = _cashflow_signed_amount_expr()
         collections_stmt = (
             select(
                 FactCashflow.external_id.label('document_id'),
@@ -8103,7 +10155,7 @@ async def customer_detail(
                 func.coalesce(func.max(DimBranch.name), literal('N/A')).label('branch_name'),
                 func.coalesce(func.max(FactCashflow.entry_type), literal('')).label('entry_type'),
                 func.coalesce(func.max(FactCashflow.notes), literal('')).label('notes'),
-                func.coalesce(func.sum(FactCashflow.amount), 0).label('total_value'),
+                func.coalesce(func.sum(signed_amount_expr), 0).label('total_value'),
                 func.max(FactCashflow.updated_at).label('updated_at'),
             )
             .select_from(FactCashflow)
@@ -8113,8 +10165,14 @@ async def customer_detail(
                     [
                         'customer_collections',
                         'customer_collection',
+                        'debtor_collections',
+                        'debtor_collection',
+                        'other_collections',
                         'customer_transfers',
                         'customer_transfer',
+                        'debtor_transfers',
+                        'debtor_transfer',
+                        'other_transfers',
                         'customer_bank_transfer',
                         'customer_wire_transfer',
                         'customer_wire',
@@ -8177,31 +10235,30 @@ async def cashflow_summary(
     date_to: date,
     branches: list[str] | None = None,
 ):
-    agg_has_rows = (await db.execute(select(AggCashDaily.doc_date).limit(1))).first() is not None
-    if not agg_has_rows:
-        return {'entries': 0, 'inflows': 0.0, 'outflows': 0.0, 'net': 0.0}
-
+    signed_amount_expr = _cashflow_signed_amount_expr()
     stmt = (
         select(
-            func.coalesce(func.sum(AggCashDaily.entries), 0),
-            func.coalesce(func.sum(AggCashDaily.inflows), 0),
-            func.coalesce(func.sum(AggCashDaily.outflows), 0),
+            func.coalesce(func.count(FactCashflow.id), 0).label('entries'),
+            func.coalesce(func.sum(case((signed_amount_expr > 0, signed_amount_expr), else_=literal(0.0))), 0).label('inflows'),
+            func.coalesce(func.sum(case((signed_amount_expr < 0, -signed_amount_expr), else_=literal(0.0))), 0).label('outflows'),
+            func.coalesce(func.sum(signed_amount_expr), 0).label('net'),
         )
-        .select_from(AggCashDaily)
-        .where(*_date_range(AggCashDaily.doc_date, date_from, date_to))
+        .select_from(FactCashflow)
+        .where(*_date_range(FactCashflow.doc_date, date_from, date_to))
     )
     branches = _effective_branch_filter(branches)
     if branches is not None:
-        stmt = stmt.where(AggCashDaily.branch_ext_id.in_(branches))
-    row = (await db.execute(stmt)).one()
-    entries = int(row[0] or 0)
-    inflows = float(row[1] or 0)
-    outflows = float(row[2] or 0)
+        stmt = stmt.where(FactCashflow.branch_id.in_(select(DimBranch.id).where(DimBranch.external_id.in_(branches))))
+    row = (await db.execute(stmt)).mappings().first() or {}
+    entries = int(row.get('entries') or 0)
+    inflows = float(row.get('inflows') or 0)
+    outflows = float(row.get('outflows') or 0)
+    net = float(row.get('net') or 0)
     return {
         'entries': entries,
         'inflows': inflows,
         'outflows': outflows,
-        'net': inflows - outflows,
+        'net': net,
     }
 
 
@@ -8568,6 +10625,8 @@ async def executive_dashboard_summary(
     prev_month_date = month_from - timedelta(days=1)
     prev_month_from = prev_month_date.replace(day=1)
     prev_month_to = _safe_same_day(prev_month_date.year, prev_month_date.month, anchor_date.day)
+    prev_year_month_from = date(prev1_year, anchor_date.month, 1)
+    prev_year_month_to = _safe_same_day(prev1_year, anchor_date.month, anchor_date.day)
 
     sales_windows = {
         'day': (day_from, day_anchor_date),
@@ -8603,7 +10662,7 @@ async def executive_dashboard_summary(
             'day': (day_from, day_anchor_date),
             'month': (month_from, anchor_date),
             'year': (year_from, anchor_date),
-            'prev_month': (prev_month_from, prev_month_to),
+            'prev_year_month': (prev_year_month_from, prev_year_month_to),
         },
         branches=branches,
         warehouses=warehouses,
@@ -8614,7 +10673,7 @@ async def executive_dashboard_summary(
     day_by_branch = branch_windows.get('day', [])
     month_by_branch = branch_windows.get('month', [])
     year_by_branch = branch_windows.get('year', [])
-    prev_month_by_branch = branch_windows.get('prev_month', [])
+    prev_year_month_by_branch = branch_windows.get('prev_year_month', [])
 
     # Company trend must always represent company-wide monthly totals
     # (sum of all branches), independent from detail-dimension filters.
@@ -8668,6 +10727,8 @@ async def executive_dashboard_summary(
             'prev_year_full_to': prev_year_full_to.isoformat(),
             'prev_month_from': prev_month_from.isoformat(),
             'prev_month_to': prev_month_to.isoformat(),
+            'prev_year_month_from': prev_year_month_from.isoformat(),
+            'prev_year_month_to': prev_year_month_to.isoformat(),
             'current_year': current_year,
             'prev1_year': prev1_year,
             'prev2_year': prev2_year,
@@ -8687,7 +10748,7 @@ async def executive_dashboard_summary(
             'day': day_by_branch,
             'month': month_by_branch,
             'year': year_by_branch,
-            'prev_month': prev_month_by_branch,
+            'prev_year_month': prev_year_month_by_branch,
         },
         'trend': {
             'y0': {'year': current_year, 'rows': trend_y0},
@@ -8862,40 +10923,23 @@ async def expenses_summary(
     categories: list[str] | None = None,
 ) -> dict:
     try:
-        has_aggregate_rows = (
-            await db.execute(
-                select(func.count())
-                .select_from(AggExpensesDaily)
-                .where(*_date_range(AggExpensesDaily.expense_date, date_from, date_to))
-            )
-        ).scalar_one() or 0
-
+        net_amount_expr = _fact_expenses_signed_amount_expr(func.coalesce(FactExpense.amount_net, 0))
+        tax_amount_expr = _fact_expenses_signed_amount_expr(func.coalesce(FactExpense.amount_tax, 0))
+        gross_amount_expr = _fact_expenses_signed_amount_expr(func.coalesce(FactExpense.amount_gross, 0))
         stmt = (
             select(
-                func.coalesce(func.sum(FactExpense.amount_net), 0).label('amount_net'),
-                func.coalesce(func.sum(FactExpense.amount_tax), 0).label('amount_tax'),
-                func.coalesce(func.sum(FactExpense.amount_gross), 0).label('amount_gross'),
+                func.coalesce(func.sum(net_amount_expr), 0).label('amount_net'),
+                func.coalesce(func.sum(tax_amount_expr), 0).label('amount_tax'),
+                func.coalesce(func.sum(gross_amount_expr), 0).label('amount_gross'),
                 func.count(FactExpense.id).label('entries'),
             )
             .where(*_date_range(FactExpense.expense_date, date_from, date_to))
         )
-        if has_aggregate_rows:
-            stmt = (
-                select(
-                    func.coalesce(func.sum(AggExpensesDaily.amount_net), 0).label('amount_net'),
-                    func.coalesce(func.sum(AggExpensesDaily.amount_tax), 0).label('amount_tax'),
-                    func.coalesce(func.sum(AggExpensesDaily.amount_gross), 0).label('amount_gross'),
-                    func.coalesce(func.sum(AggExpensesDaily.entries), 0).label('entries'),
-                )
-                .where(*_date_range(AggExpensesDaily.expense_date, date_from, date_to))
-            )
-            stmt = _apply_expense_filters(stmt, branches=branches, categories=categories)
-        else:
-            stmt = _apply_fact_expense_filters(stmt, branches=branches, categories=categories)
+        stmt = _apply_fact_expense_filters(stmt, branches=branches, categories=categories)
         row = (await db.execute(stmt)).mappings().first() or {}
-        total_expenses = abs(float(row.get('amount_net') or 0))
-        total_tax = abs(float(row.get('amount_tax') or 0))
-        total_gross = abs(float(row.get('amount_gross') or 0))
+        total_expenses = float(row.get('amount_net') or 0)
+        total_tax = float(row.get('amount_tax') or 0)
+        total_gross = float(row.get('amount_gross') or 0)
         entries = int(row.get('entries') or 0)
 
         sales_stmt = (
@@ -8936,43 +10980,17 @@ async def expenses_by_category(
     limit: int = 20,
 ) -> list[dict]:
     try:
-        use_daily = bool(branches)
-        if not use_daily:
-            try:
-                has_rows = (
-                    await db.execute(
-                        select(AggExpensesByCategoryDaily.expense_date)
-                        .where(*_date_range(AggExpensesByCategoryDaily.expense_date, date_from, date_to))
-                        .limit(1)
-                    )
-                ).first() is not None
-                use_daily = not has_rows
-            except Exception:
-                use_daily = True
-
-        if use_daily:
-            stmt = (
-                select(
-                    FactExpense.expense_category_code.label('category_code'),
-                    func.coalesce(func.sum(FactExpense.amount_net), 0).label('amount_net'),
-                    func.count(FactExpense.id).label('entries'),
-                )
-                .where(*_date_range(FactExpense.expense_date, date_from, date_to))
+        net_amount_expr = _fact_expenses_signed_amount_expr(func.coalesce(FactExpense.amount_net, 0))
+        stmt = (
+            select(
+                FactExpense.expense_category_code.label('category_code'),
+                func.coalesce(func.sum(net_amount_expr), 0).label('amount_net'),
+                func.count(FactExpense.id).label('entries'),
             )
-            stmt = _apply_fact_expense_filters(stmt, branches=branches, categories=categories)
-            stmt = stmt.group_by(FactExpense.expense_category_code)
-        else:
-            stmt = (
-                select(
-                    AggExpensesByCategoryDaily.expense_category_code.label('category_code'),
-                    func.coalesce(func.sum(AggExpensesByCategoryDaily.amount_net), 0).label('amount_net'),
-                    func.coalesce(func.sum(AggExpensesByCategoryDaily.entries), 0).label('entries'),
-                )
-                .where(*_date_range(AggExpensesByCategoryDaily.expense_date, date_from, date_to))
-            )
-            if categories:
-                stmt = stmt.where(AggExpensesByCategoryDaily.expense_category_code.in_(categories))
-            stmt = stmt.group_by(AggExpensesByCategoryDaily.expense_category_code)
+            .where(*_date_range(FactExpense.expense_date, date_from, date_to))
+        )
+        stmt = _apply_fact_expense_filters(stmt, branches=branches, categories=categories)
+        stmt = stmt.group_by(FactExpense.expense_category_code)
 
         stmt = stmt.order_by(literal_column('amount_net').desc()).limit(max(1, min(int(limit), 100)))
         rows = (await db.execute(stmt)).mappings().all()
@@ -8993,14 +11011,14 @@ async def expenses_by_category(
         out: list[dict] = []
         for row in rows:
             code = str(row.get('category_code') or '').strip() or '-'
-            amount_net = abs(float(row.get('amount_net') or 0))
+            amount_net = float(row.get('amount_net') or 0)
             out.append(
                 {
                     'category_code': code if code != '-' else None,
                     'category_name': name_map.get(code, code if code != '-' else 'N/A'),
                     'amount_net': amount_net,
                     'entries': int(row.get('entries') or 0),
-                    'share_pct': (amount_net / total * 100.0) if total > 0 else 0.0,
+                    'share_pct': (abs(amount_net) / total * 100.0) if total > 0 else 0.0,
                 }
             )
         return out
@@ -9018,44 +11036,17 @@ async def expenses_by_branch(
     limit: int = 20,
 ) -> list[dict]:
     try:
-        use_daily = bool(categories)
-        if not use_daily:
-            try:
-                has_rows = (
-                    await db.execute(
-                        select(AggExpensesByBranchDaily.expense_date)
-                        .where(*_date_range(AggExpensesByBranchDaily.expense_date, date_from, date_to))
-                        .limit(1)
-                    )
-                ).first() is not None
-                use_daily = not has_rows
-            except Exception:
-                use_daily = True
-
-        if use_daily:
-            stmt = (
-                select(
-                    FactExpense.branch_ext_id.label('branch_ext_id'),
-                    func.coalesce(func.sum(FactExpense.amount_net), 0).label('amount_net'),
-                    func.count(FactExpense.id).label('entries'),
-                )
-                .where(*_date_range(FactExpense.expense_date, date_from, date_to))
+        net_amount_expr = _fact_expenses_signed_amount_expr(func.coalesce(FactExpense.amount_net, 0))
+        stmt = (
+            select(
+                FactExpense.branch_ext_id.label('branch_ext_id'),
+                func.coalesce(func.sum(net_amount_expr), 0).label('amount_net'),
+                func.count(FactExpense.id).label('entries'),
             )
-            stmt = _apply_fact_expense_filters(stmt, branches=branches, categories=categories)
-            stmt = stmt.group_by(FactExpense.branch_ext_id)
-        else:
-            stmt = (
-                select(
-                    AggExpensesByBranchDaily.branch_ext_id.label('branch_ext_id'),
-                    func.coalesce(func.sum(AggExpensesByBranchDaily.amount_net), 0).label('amount_net'),
-                    func.coalesce(func.sum(AggExpensesByBranchDaily.entries), 0).label('entries'),
-                )
-                .where(*_date_range(AggExpensesByBranchDaily.expense_date, date_from, date_to))
-            )
-            branches = _effective_branch_filter(branches)
-            if branches is not None:
-                stmt = stmt.where(AggExpensesByBranchDaily.branch_ext_id.in_(branches))
-            stmt = stmt.group_by(AggExpensesByBranchDaily.branch_ext_id)
+            .where(*_date_range(FactExpense.expense_date, date_from, date_to))
+        )
+        stmt = _apply_fact_expense_filters(stmt, branches=branches, categories=categories)
+        stmt = stmt.group_by(FactExpense.branch_ext_id)
 
         stmt = stmt.order_by(literal_column('amount_net').desc()).limit(max(1, min(int(limit), 100)))
         rows = (await db.execute(stmt)).mappings().all()
@@ -9074,7 +11065,7 @@ async def expenses_by_branch(
                 {
                     'branch_ext_id': ext_id or None,
                     'branch_name': branch_name_map.get(ext_id, ext_id or 'N/A'),
-                    'amount_net': abs(float(row.get('amount_net') or 0)),
+                    'amount_net': float(row.get('amount_net') or 0),
                     'entries': int(row.get('entries') or 0),
                 }
             )
@@ -9093,11 +11084,13 @@ async def expenses_trend(
     limit: int = 60,
 ) -> list[dict]:
     try:
+        net_amount_expr = _fact_expenses_signed_amount_expr(func.coalesce(FactExpense.amount_net, 0))
+        gross_amount_expr = _fact_expenses_signed_amount_expr(func.coalesce(FactExpense.amount_gross, 0))
         stmt = (
             select(
                 FactExpense.expense_date.label('expense_date'),
-                func.coalesce(func.sum(FactExpense.amount_net), 0).label('amount_net'),
-                func.coalesce(func.sum(FactExpense.amount_gross), 0).label('amount_gross'),
+                func.coalesce(func.sum(net_amount_expr), 0).label('amount_net'),
+                func.coalesce(func.sum(gross_amount_expr), 0).label('amount_gross'),
                 func.count(FactExpense.id).label('entries'),
             )
             .where(*_date_range(FactExpense.expense_date, date_from, date_to))
@@ -9112,8 +11105,8 @@ async def expenses_trend(
         return [
             {
                 'date': _raw_scalar(row.get('expense_date')),
-                'amount_net': abs(float(row.get('amount_net') or 0)),
-                'amount_gross': abs(float(row.get('amount_gross') or 0)),
+                'amount_net': float(row.get('amount_net') or 0),
+                'amount_gross': float(row.get('amount_gross') or 0),
                 'entries': int(row.get('entries') or 0),
             }
             for row in rows

@@ -813,7 +813,7 @@
         {% set _operational_stream_open = active_page in _operational_stream_pages or (active_page == 'cashflow' and _cashflow_is_stream) %}
         {% set _dashboard_pages = ['dashboard', 'finance_dashboard', 'insights'] %}
         {% set _dashboard_open = active_page in _dashboard_pages %}
-        {% set _analytics_open = active_page in ['sales', 'pos', 'purchases', 'inventory', 'items', 'analytics_receivables_payables', 'supplier_targets', 'exports_sellout'] or (active_page == 'cashflow' and not _cashflow_is_stream) %}
+        {% set _analytics_open = active_page in ['sales', 'pos', 'eshop_analysis', 'purchases', 'inventory', 'items', 'analytics_receivables_payables', 'supplier_targets', 'exports_sellout'] or (active_page == 'cashflow' and not _cashflow_is_stream) %}
         {% set _comparison_pages = ['compare_period', 'compare_branch', 'compare_category'] %}
         {% set _comparison_open = active_page in _comparison_pages %}
         {% set _exports_open = active_page in ['exports_reports', 'exports_csv_excel'] %}
@@ -999,6 +999,9 @@
               </li>
               <li class="{% if active_page == 'pos' %}is-active{% endif %}">
                 <a class="bv-submenu-link" href="/tenant/pos"><i class="fe fe-shopping-bag"></i><span>Φυσικό Σημείο</span></a>
+              </li>
+              <li class="{% if active_page == 'eshop_analysis' %}is-active{% endif %}">
+                <a class="bv-submenu-link" href="/tenant/e-shop-analysis"><i class="fe fe-truck"></i><span>E-Shop analysis</span></a>
               </li>
               <li class="{% if active_page == 'exports_sellout' %}is-active{% endif %}">
                 <a class="bv-submenu-link" href="/tenant/exports/sellout"><i class="fe fe-trending-up"></i><span>Sell Out</span></a>
@@ -1190,7 +1193,7 @@
             <p class="bv-page-subtitle">Λίστα παραστατικών με ενιαία φίλτρα, αναζήτηση και σελιδοποίηση.</p>
             {% elif active_page in ['suppliers', 'customers'] %}
             <p class="bv-page-subtitle">Υπόλοιπα και ιστορικά στοιχεία με ενιαίο pattern πινάκων.</p>
-            {% elif active_page in ['sales', 'purchases', 'inventory', 'items', 'analytics_receivables_payables', 'supplier_targets', 'exports_sellout', 'pos'] %}
+            {% elif active_page in ['sales', 'purchases', 'inventory', 'items', 'analytics_receivables_payables', 'supplier_targets', 'exports_sellout', 'pos', 'eshop_analysis'] %}
             <p class="bv-page-subtitle">Αναλυτικά KPIs, τάσεις και breakdowns σε συνεπή διάταξη.</p>
             {% elif active_page in ['compare_period', 'compare_branch', 'compare_category'] %}
             <p class="bv-page-subtitle">Συγκρίσεις περιόδων και διαστάσεων με κοινή παρουσίαση.</p>
@@ -1212,7 +1215,7 @@
         </div>
 
         {% set _hide_page_filters = hide_page_filters if hide_page_filters is defined else false %}
-        {% if active_page in ['dashboard', 'finance_dashboard', 'sales', 'pos', 'sales_documents', 'purchases', 'purchase_documents', 'expense_documents', 'suppliers', 'warehouse_documents', 'operating_expenses', 'inventory', 'items', 'cashflow', 'customers', 'compare_period', 'compare_branch', 'compare_category', 'insights', 'analytics_receivables_payables', 'supplier_targets', 'exports_reports', 'exports_csv_excel', 'exports_sellout'] and not _hide_page_filters %}
+        {% if active_page in ['dashboard', 'finance_dashboard', 'sales', 'pos', 'eshop_analysis', 'sales_documents', 'purchases', 'purchase_documents', 'expense_documents', 'suppliers', 'warehouse_documents', 'operating_expenses', 'inventory', 'items', 'cashflow', 'customers', 'compare_period', 'compare_branch', 'compare_category', 'insights', 'analytics_receivables_payables', 'supplier_targets', 'exports_reports', 'exports_csv_excel', 'exports_sellout'] and not _hide_page_filters %}
         <div class="card filter-card mb-3">
           <div class="card-header d-flex justify-content-between align-items-center">
             <h5 class="mb-0">{{ tt(request, 'filters') }}</h5>
@@ -1793,6 +1796,19 @@
       el.value = bvToDmyDate(el.value);
     }
 
+    function bvMaskDmyValue(raw) {
+      const digits = String(raw || '').replace(/\D+/g, '').slice(0, 8);
+      if (digits.length <= 2) return digits;
+      if (digits.length <= 4) return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+      return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
+    }
+
+    function bvHandleDmyInput(el) {
+      if (!el) return;
+      const masked = bvMaskDmyValue(el.value);
+      if (el.value !== masked) el.value = masked;
+    }
+
     function findPrimaryFilterForm() {
       const byId = document.getElementById('pageFiltersCollapse');
       if (byId) {
@@ -1871,6 +1887,7 @@
       rootNode.querySelectorAll('input[data-date-format="dmy"]').forEach((el) => {
         if (el.dataset.bvDateBound !== '1') {
           el.dataset.bvDateBound = '1';
+          el.addEventListener('input', () => bvHandleDmyInput(el));
           el.addEventListener('blur', () => bvNormalizeDmyInput(el));
         }
         bvNormalizeDmyInput(el);
@@ -2336,9 +2353,10 @@
         globalDatePickerState.toIso = fromIso <= toIso ? toIso : fromIso;
         globalDatePickerState.selectingPart = 'from';
         globalDatePickerState.preset = '';
-        const leftBase = dateObjFromIso(globalDatePickerState.fromIso) || now;
-        globalDatePickerState.leftYear = leftBase.getFullYear();
-        globalDatePickerState.leftMonth = leftBase.getMonth();
+        // Always open the picker on the current year/month to avoid accidental
+        // selections on an older year (e.g. stale filters from a prior session).
+        globalDatePickerState.leftYear = now.getFullYear();
+        globalDatePickerState.leftMonth = now.getMonth();
         const rightBase = shiftMonthYear(globalDatePickerState.leftYear, globalDatePickerState.leftMonth, 1);
         globalDatePickerState.rightYear = rightBase.year;
         globalDatePickerState.rightMonth = rightBase.month;
