@@ -54,6 +54,7 @@ from app.services.kpi_queries import (
     price_control_filter_options,
     price_control_items,
     sales_filter_options,
+    executive_dashboard_cards_summary,
     executive_dashboard_summary,
     finance_dashboard_summary,
     stream_sales_summary,
@@ -98,7 +99,7 @@ from app.core.celery_sender import make_celery_sender
 router = APIRouter(tags=['kpi'])
 logger = logging.getLogger(__name__)
 celery_client = make_celery_sender('kpi_sender')
-_DASHBOARD_CACHE_TTL_SECONDS = 45
+_DASHBOARD_CACHE_TTL_SECONDS = 300
 
 
 class SupplierTargetCreateIn(BaseModel):
@@ -441,6 +442,7 @@ async def get_dashboard_executive_summary(
     brands: list[str] | None = Query(default=None),
     categories: list[str] | None = Query(default=None),
     groups: list[str] | None = Query(default=None),
+    fast: bool = Query(default=False),
     tenant_db: AsyncSession = Depends(get_tenant_db),
 ):
     params = _kpi_filter_cache_params(
@@ -452,6 +454,26 @@ async def get_dashboard_executive_summary(
         categories=categories,
         groups=groups,
     )
+    if fast:
+        data = await _cached_kpi_response(
+            request=request,
+            response=response,
+            namespace='dashboard:executive_cards',
+            params=params,
+            producer=lambda: executive_dashboard_cards_summary(
+                tenant_db,
+                date_from=date_from,
+                date_to=date_to,
+                branches=branches,
+                warehouses=warehouses,
+                brands=brands,
+                categories=categories,
+                groups=groups,
+            ),
+        )
+        out = dict(data or {})
+        out['kpi_emphasis'] = _kpi_emphasis_payload(request, 'executive')
+        return out
     data = await _cached_kpi_response(
         request=request,
         response=response,

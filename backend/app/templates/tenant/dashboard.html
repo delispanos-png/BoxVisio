@@ -1006,6 +1006,74 @@ async function fetchJsonStrict(url){
   return res.json();
 }
 
+function renderCentralKpiCards(executive, selectedFromDate, anchorDate){
+  const cards = executive?.cards || {};
+  const day = cards.day || {};
+  const week = cards.week || {};
+  const month = cards.month || {};
+  const year = cards.year || {};
+  const prevYear = cards.prev_year || {};
+  const prevYearFull = cards.prev_year_full || {};
+  const periodSales = cards.period_sales || {};
+  const purchasesPeriod = cards.purchases_period || {};
+  const purchasesYear = cards.purchases_year || {};
+
+  const currentYear = anchorDate.getFullYear();
+  const prev1Year = currentYear - 1;
+  const ytdTo = dtISO(anchorDate);
+  const prevYtdTo = dtISO(new Date(prev1Year, anchorDate.getMonth(), anchorDate.getDate()));
+  const cutoffLabel = formatDMY(ytdTo);
+  const prevCutoffLabel = formatDMY(prevYtdTo);
+
+  const yearVal = toNum(year.net_value || 0);
+  const prevYearVal = toNum(prevYear.net_value || 0);
+  const prevYearFullVal = toNum(prevYearFull.net_value || 0);
+  const periodSalesVal = toNum(periodSales.net_value || 0);
+  const periodPurchasesVal = toNum(purchasesPeriod.net_value || purchasesPeriod.cost_amount || purchasesPeriod.total_cost || 0);
+  const yearPurchasesVal = toNum(purchasesYear.net_value || purchasesYear.cost_amount || purchasesYear.total_cost || 0);
+  const selectedDays = Math.max(1, Math.floor((anchorDate - selectedFromDate) / 86400000) + 1);
+  const periodGrossProfit = periodSalesVal - periodPurchasesVal;
+  const periodMarginPct = periodSalesVal > 0 ? (periodGrossProfit / periodSalesVal) * 100 : 0;
+  const avgDailyTurnover = periodSalesVal / selectedDays;
+  const yoyAmount = yearVal - prevYearVal;
+  const yoy = prevYearVal > 0 ? ((yearVal - prevYearVal) / prevYearVal) * 100 : null;
+  const fullDeltaPct = prevYearFullVal > 0 ? ((yearVal - prevYearFullVal) / prevYearFullVal) * 100 : null;
+  const ratio = periodSalesVal > 0 ? (periodPurchasesVal / periodSalesVal) * 100 : null;
+
+  const setText = (id, value) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = value;
+  };
+
+  setText('kpiDay', money(day.net_value || 0));
+  setText('kpiWeek', money(week.net_value || 0));
+  setText('kpiMonth', money(month.net_value || 0));
+  setText('kpiPrevYearLabel', String(prev1Year));
+  setText('kpiYearLabel', String(currentYear));
+  setText('kpiPrevYear', money(prevYearVal));
+  setText('kpiPrevYearCutoff', `01/01/${prev1Year} - ${prevCutoffLabel}`);
+  setText('kpiYear', money(yearVal));
+  setText('kpiYearDelta', yoy === null
+    ? `Δ ${money(yoyAmount)} vs ${prev1Year}`
+    : `${yoy >= 0 ? '+' : '-'}${pct(Math.abs(yoy))} vs ${prev1Year} | ${cutoffLabel}`);
+  setText('kpiPrevYearFullLabel', String(prev1Year));
+  setText('kpiYearToDateLabel', String(currentYear));
+  setText('kpiPrevYearFull', money(prevYearFullVal));
+  setText('kpiPrevYearFullRange', `01/01/${prev1Year} - 31/12/${prev1Year}`);
+  setText('kpiYearToDateFullCmp', money(yearVal));
+  setText('kpiYearToDateFullCmpDelta', fullDeltaPct === null
+    ? `Δ ${money(yearVal - prevYearFullVal)} vs ${prev1Year} full`
+    : `${fullDeltaPct < 0 ? 'Υστέρηση' : 'Πάνω'} ${pct(Math.abs(fullDeltaPct))} vs ${prev1Year} full | ${cutoffLabel}`);
+  setText('kpiTotalSalesPeriod', money(periodSalesVal));
+  setText('kpiTotalPurchasesPeriod', money(periodPurchasesVal));
+  setText('kpiGrossProfitPeriod', money(periodGrossProfit));
+  setText('kpiMarginPctPeriod', pct(periodMarginPct));
+  setText('kpiPurchasesToSales', ratio === null ? '-' : pct(ratio));
+  setText('kpiAvgDailyTurnover', money(avgDailyTurnover));
+  setText('kpiGrossProfitYear', money(yearVal - yearPurchasesVal));
+  setText('kpiMonthQty', fmt0.format(Math.round(toNum(month.qty || month.quantity || month.qty_total))));
+}
+
 async function reloadCentralDashboard(e){
   if(e) e.preventDefault();
   setError(null);
@@ -1032,6 +1100,16 @@ async function reloadCentralDashboard(e){
 
     const execParams = filtersToParams();
     execParams.set('_ts', String(Date.now()));
+    const fastParams = new URLSearchParams(execParams);
+    fastParams.set('fast', '1');
+    try{
+      const fastExecutive = await fetchJsonStrict(`/v1/dashboard/executive-summary?${fastParams.toString()}`);
+      if(reloadToken !== dashboardReloadToken) return;
+      renderCentralKpiCards(fastExecutive, selectedFromDate, anchorDate);
+    }catch(fastErr){
+      console.warn('Fast dashboard cards failed', fastErr);
+    }
+
     const executive = await fetchJsonStrict(`/v1/dashboard/executive-summary?${execParams.toString()}`);
     const cards = executive?.cards || {};
     const branchBreakdown = executive?.branch_breakdown || {};
@@ -1053,6 +1131,8 @@ async function reloadCentralDashboard(e){
     const trendY0 = Array.isArray(trend?.y0?.rows) ? trend.y0.rows : [];
     const trendY1 = Array.isArray(trend?.y1?.rows) ? trend.y1.rows : [];
     const trendY2 = Array.isArray(trend?.y2?.rows) ? trend.y2.rows : [];
+
+    renderCentralKpiCards(executive, selectedFromDate, anchorDate);
 
     const yearVal=toNum(year.net_value || 0);
     const prevYearVal=toNum(prevYear.net_value || 0);

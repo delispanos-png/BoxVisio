@@ -10759,6 +10759,104 @@ async def executive_dashboard_summary(
     }
 
 
+async def executive_dashboard_cards_summary(
+    db: AsyncSession,
+    *,
+    date_from: date,
+    date_to: date,
+    branches: list[str] | None = None,
+    warehouses: list[str] | None = None,
+    brands: list[str] | None = None,
+    categories: list[str] | None = None,
+    groups: list[str] | None = None,
+) -> dict:
+    anchor_date = date_to
+    day_anchor_date = date_from if date_from == date_to else date.today()
+    day_from = day_anchor_date
+    week_from = _start_of_week(anchor_date)
+    month_from = _start_of_month(anchor_date)
+    year_from = _start_of_year(anchor_date)
+    current_year = anchor_date.year
+    prev1_year = current_year - 1
+    prev2_year = current_year - 2
+    prev_ytd_from = date(prev1_year, 1, 1)
+    prev_ytd_to = _safe_same_day(prev1_year, anchor_date.month, anchor_date.day)
+    prev_year_full_from = date(prev1_year, 1, 1)
+    prev_year_full_to = date(prev1_year, 12, 31)
+    prev_month_date = month_from - timedelta(days=1)
+    prev_month_from = prev_month_date.replace(day=1)
+    prev_month_to = _safe_same_day(prev_month_date.year, prev_month_date.month, anchor_date.day)
+    prev_year_month_from = date(prev1_year, anchor_date.month, 1)
+    prev_year_month_to = _safe_same_day(prev1_year, anchor_date.month, anchor_date.day)
+
+    sales_windows_data = await _sales_summaries_by_windows(
+        db,
+        windows={
+            'day': (day_from, day_anchor_date),
+            'week': (week_from, anchor_date),
+            'month': (month_from, anchor_date),
+            'year': (year_from, anchor_date),
+            'prev_year': (prev_ytd_from, prev_ytd_to),
+            'prev_year_full': (prev_year_full_from, prev_year_full_to),
+            'period_sales': (date_from, date_to),
+        },
+        branches=branches,
+        warehouses=warehouses,
+        brands=brands,
+        categories=categories,
+        groups=groups,
+    )
+    purchase_windows_data = await _purchases_summaries_by_windows(
+        db,
+        windows={
+            'purchases_period': (date_from, date_to),
+            'purchases_year': (year_from, anchor_date),
+        },
+        branches=branches,
+        warehouses=warehouses,
+        brands=brands,
+        categories=categories,
+        groups=groups,
+    )
+
+    empty_sales = {'records': 0, 'qty': 0.0, 'net_value': 0.0, 'gross_value': 0.0}
+    empty_purchase = {'records': 0, 'qty': 0.0, 'net_value': 0.0, 'cost_amount': 0.0}
+    return {
+        'period': {'from': date_from.isoformat(), 'to': date_to.isoformat()},
+        'anchors': {
+            'day_from': day_from.isoformat(),
+            'week_from': week_from.isoformat(),
+            'month_from': month_from.isoformat(),
+            'year_from': year_from.isoformat(),
+            'prev_ytd_from': prev_ytd_from.isoformat(),
+            'prev_ytd_to': prev_ytd_to.isoformat(),
+            'prev_year_full_from': prev_year_full_from.isoformat(),
+            'prev_year_full_to': prev_year_full_to.isoformat(),
+            'prev_month_from': prev_month_from.isoformat(),
+            'prev_month_to': prev_month_to.isoformat(),
+            'prev_year_month_from': prev_year_month_from.isoformat(),
+            'prev_year_month_to': prev_year_month_to.isoformat(),
+            'current_year': current_year,
+            'prev1_year': prev1_year,
+            'prev2_year': prev2_year,
+        },
+        'cards': {
+            'day': sales_windows_data.get('day', empty_sales),
+            'week': sales_windows_data.get('week', empty_sales),
+            'month': sales_windows_data.get('month', empty_sales),
+            'year': sales_windows_data.get('year', empty_sales),
+            'prev_year': sales_windows_data.get('prev_year', empty_sales),
+            'prev_year_full': sales_windows_data.get('prev_year_full', empty_sales),
+            'period_sales': sales_windows_data.get('period_sales', empty_sales),
+            'purchases_period': purchase_windows_data.get('purchases_period', empty_purchase),
+            'purchases_year': purchase_windows_data.get('purchases_year', empty_purchase),
+        },
+        'branch_breakdown': {},
+        'trend': {},
+        'key_alerts': [],
+    }
+
+
 async def finance_dashboard_summary(
     db: AsyncSession,
     *,
