@@ -10720,6 +10720,7 @@ async def executive_dashboard_summary(
             'day_from': day_from.isoformat(),
             'week_from': week_from.isoformat(),
             'month_from': month_from.isoformat(),
+            'month_to': anchor_date.isoformat(),
             'year_from': year_from.isoformat(),
             'prev_ytd_from': prev_ytd_from.isoformat(),
             'prev_ytd_to': prev_ytd_to.isoformat(),

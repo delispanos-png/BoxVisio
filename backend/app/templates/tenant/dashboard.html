@@ -506,7 +506,7 @@
 <div class="card border-0 shadow-sm mb-3 content-card branch-month-section">
   <div class="card-header">
     <h5 class="mb-0 fw-bold">Απόδοση Καταστημάτων — Τρέχων Μήνας</h5>
-    <div class="text-muted small mt-1">Σύγκριση τζίρου μήνα ανά κατάστημα με αντίστοιχο περσινό</div>
+    <div class="text-muted small mt-1" id="branchMonthPerfSubtitle">Σύγκριση month-to-date ανά κατάστημα με τις ίδιες ημέρες πέρσι</div>
   </div>
   <div class="card-body">
     <div id="branchMonthPerfGrid" class="branch-month-grid"></div>
@@ -923,9 +923,19 @@ function ratioByMax(v, max){
   return Math.max(0, Math.min(100, pct));
 }
 
-function renderMonthlyBranchPerformance(rows, prevRows){
+function renderMonthlyBranchPerformance(rows, prevRows, anchors){
   const wrap = document.getElementById('branchMonthPerfGrid');
   if(!wrap) return;
+  const subtitle = document.getElementById('branchMonthPerfSubtitle');
+  const currFrom = anchors?.month_from || '';
+  const currTo = anchors?.month_to || anchors?.anchor_date || anchors?.to || '';
+  const prevFrom = anchors?.prev_year_month_from || '';
+  const prevTo = anchors?.prev_year_month_to || '';
+  if(subtitle && currFrom && currTo && prevFrom && prevTo){
+    subtitle.textContent = `Σύγκριση ίδιων ημερών: ${formatDMY(currFrom)} - ${formatDMY(currTo)} vs ${formatDMY(prevFrom)} - ${formatDMY(prevTo)}`;
+  }else if(subtitle){
+    subtitle.textContent = 'Σύγκριση month-to-date ανά κατάστημα με τις ίδιες ημέρες πέρσι';
+  }
   const curr = Array.isArray(rows) ? [...rows] : [];
   const prevMap = new Map((Array.isArray(prevRows) ? prevRows : []).map(r => [String(r.branch || ''), toNum(r.net_value)]));
   curr.sort((a,b) => toNum(b.net_value) - toNum(a.net_value));
@@ -951,7 +961,7 @@ function renderMonthlyBranchPerformance(rows, prevRows){
       ? 'branch-month-fill-neutral'
       : deltaPct >= 0 ? 'branch-month-fill-up' : 'branch-month-fill-down';
     const shareLabel = prev > 0
-      ? `${fmt2.format(width)}% του αντίστοιχου περσινού μήνα`
+      ? `${fmt2.format(width)}% της αντίστοιχης περσινής περιόδου`
       : 'Δεν υπάρχει περσινή βάση σύγκρισης';
     return `
       <div class="branch-month-row">
@@ -963,7 +973,7 @@ function renderMonthlyBranchPerformance(rows, prevRows){
           <div class="branch-month-fill ${fillCls}" style="width:${width.toFixed(2)}%" aria-label="${shareLabel}"></div>
         </div>
         <div class="branch-month-foot">
-          <span>vs αντίστοιχος περσινός μήνας</span>
+          <span>vs ίδιες ημέρες πέρσι</span>
           <span class="${deltaCls}">${deltaText}</span>
         </div>
       </div>
@@ -1213,7 +1223,7 @@ async function reloadCentralDashboard(e){
     renderSmallDonut('dayByBranchDonut', dayByBranch||[]);
     renderSmallDonut('monthByBranchDonut', monthByBranch||[]);
     renderYearDonut(yearByBranch||[]);
-    renderMonthlyBranchPerformance(monthByBranch||[], prevYearMonthByBranch||[]);
+    renderMonthlyBranchPerformance(monthByBranch||[], prevYearMonthByBranch||[], executive?.anchors || {});
 
     renderDecisionInsights(Array.isArray(executive?.key_alerts) ? executive.key_alerts : []);
   }catch(err){
