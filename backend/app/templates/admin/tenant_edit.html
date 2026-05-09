@@ -222,7 +222,7 @@ body[data-theme='dark'] .tenant-sticky-actions { background: rgba(21,31,45,.94);
               <div class="tenant-section-icon"><i class="fe fe-refresh-cw"></i></div>
               <div>
                 <h5>Αυτόματη ενημέρωση</h5>
-                <p>Έλεγχος αν ο tenant θα μπαίνει στο αυτόματο incremental sync και κάθε πόσα λεπτά.</p>
+                <p>Προφίλ υπηρεσίας, συχνότητα και κόστος συγχρονισμού ανά πραγματική ανάγκη πελάτη.</p>
               </div>
             </div>
 
@@ -237,12 +237,40 @@ body[data-theme='dark'] .tenant-sticky-actions { background: rgba(21,31,45,.94);
                   <span class="tenant-field-help">Όταν είναι κλειστό, δεν ξεκινά αυτόματα scheduled sync. Τα manual sync/test παραμένουν διαθέσιμα.</span>
                 </div>
                 <div>
+                  <label class="form-label">Sync profile</label>
+                  <select class="form-select" name="auto_sync_profile">
+                    <option value="live" {% if auto_sync.profile == 'live' %}selected{% endif %}>Live - σχεδόν άμεση εικόνα</option>
+                    <option value="daily" {% if auto_sync.profile == 'daily' %}selected{% endif %}>Daily - ημερήσια ενημέρωση</option>
+                    <option value="previous_day" {% if auto_sync.profile == 'previous_day' %}selected{% endif %}>Previous Day - χθεσινά reports</option>
+                    <option value="weekly" {% if auto_sync.profile == 'weekly' %}selected{% endif %}>Weekly - εβδομαδιαία ανάλυση</option>
+                    <option value="monthly" {% if auto_sync.profile == 'monthly' %}selected{% endif %}>Monthly - μηνιαία εικόνα</option>
+                    <option value="custom" {% if auto_sync.profile == 'custom' %}selected{% endif %}>Custom - ειδική συμφωνία</option>
+                  </select>
+                  <span class="tenant-field-help">Το profile καθορίζει το εμπορικό μοντέλο και τα default τεχνικά όρια.</span>
+                </div>
+                <div>
                   <label class="form-label">Συγχρονισμός κάθε</label>
                   <div class="input-group">
-                    <input class="form-control" type="number" min="1" max="1440" name="auto_sync_interval_minutes" value="{{ auto_sync.interval_minutes }}">
+                    <input class="form-control" type="number" min="1" max="43200" name="auto_sync_interval_minutes" value="{{ auto_sync.interval_minutes }}">
                     <span class="input-group-text">λεπτά</span>
                   </div>
-                  <span class="tenant-field-help">Ελάχιστο 1 λεπτό, μέγιστο 1440 λεπτά. Προτεινόμενο: 5-15 λεπτά για ενεργό e-shop.</span>
+                  <span class="tenant-field-help">Live: 1-15 λεπτά, Daily: 1440, Weekly: 10080, Monthly: 43200.</span>
+                </div>
+                <div>
+                  <label class="form-label">Overlap ασφαλείας</label>
+                  <div class="input-group">
+                    <input class="form-control" type="number" min="0" max="1440" name="auto_sync_overlap_minutes" value="{{ auto_sync.overlap_minutes }}">
+                    <span class="input-group-text">λεπτά</span>
+                  </div>
+                  <span class="tenant-field-help">Ξαναρωτάει λίγο πίσω από το τελευταίο cursor για να μη χαθεί καθυστερημένη εγγραφή.</span>
+                </div>
+                <div>
+                  <label class="form-label">Recovery window</label>
+                  <div class="input-group">
+                    <input class="form-control" type="number" min="1" max="366" name="auto_sync_recovery_days" value="{{ auto_sync.recovery_days }}">
+                    <span class="input-group-text">ημέρες</span>
+                  </div>
+                  <span class="tenant-field-help">Για Daily/Weekly/Monthly ορίζει πόσο πίσω ξανακοιτάμε στο scheduled sync.</span>
                 </div>
                 <div>
                   <label class="form-label">Εφαρμογή</label>
@@ -253,6 +281,37 @@ body[data-theme='dark'] .tenant-sticky-actions { background: rgba(21,31,45,.94);
                   <span class="tenant-field-help">Με την αποθήκευση ενημερώνονται και οι συνδέσεις του tenant ώστε ο scheduler να διαβάζει την ίδια ρύθμιση.</span>
                 </div>
               </div>
+            </div>
+
+            <div class="tenant-rule-card mt-3">
+              <label class="form-label">Advanced ανά κύκλωμα</label>
+              <div class="table-responsive">
+                <table class="table table-sm align-middle mb-0">
+                  <thead>
+                    <tr>
+                      <th>Κύκλωμα</th>
+                      <th>Auto</th>
+                      <th>Κάθε λεπτά</th>
+                      <th>Overlap</th>
+                      <th>Recovery ημέρες</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for stream, cfg in auto_sync.stream_overrides.items() %}
+                    <tr>
+                      <td>{{ auto_sync.stream_labels.get(stream, stream) }}</td>
+                      <td>
+                        <input type="checkbox" name="stream_sync_enabled" value="{{ stream }}" {% if cfg.enabled %}checked{% endif %}>
+                      </td>
+                      <td><input class="form-control form-control-sm" type="number" min="1" max="43200" name="stream_sync_interval_minutes" value="{{ cfg.interval_minutes }}"></td>
+                      <td><input class="form-control form-control-sm" type="number" min="0" max="1440" name="stream_sync_overlap_minutes" value="{{ cfg.overlap_minutes }}"></td>
+                      <td><input class="form-control form-control-sm" type="number" min="1" max="366" name="stream_sync_recovery_days" value="{{ cfg.recovery_days }}"></td>
+                    </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+              <span class="tenant-field-help">Αν ένα κύκλωμα είναι κλειστό, δεν μπαίνει στο scheduled auto sync. Τα manual sync παραμένουν διαθέσιμα.</span>
             </div>
           </div>
         </div>

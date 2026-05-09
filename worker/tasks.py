@@ -1208,7 +1208,13 @@ def enqueue_incremental_sync(tenant_slug: str, limit: int = 500) -> dict:
     return _run_coro(_enqueue_incremental_sync(tenant_slug=tenant_slug, limit=limit))
 
 
-async def _enqueue_incremental_sync(tenant_slug: str, limit: int = 500) -> dict:
+async def _enqueue_incremental_sync(
+    tenant_slug: str,
+    limit: int = 500,
+    *,
+    stream_payloads: dict[str, dict[str, Any]] | None = None,
+    stream_intervals: dict[str, int] | None = None,
+) -> dict:
     redis = Redis.from_url(settings.redis_url, decode_responses=True)
     if bool(redis.get(tenant_delete_active_key(tenant_slug))):
         return {
@@ -1285,8 +1291,24 @@ async def _enqueue_incremental_sync(tenant_slug: str, limit: int = 500) -> dict:
 
     queued = 0
     effective_limit = max(100, int(limit))
+    now_ts = int(time.time())
     for base_job in jobs:
+        stream = str(base_job.get('stream') or '')
+        if stream_payloads is not None and stream not in stream_payloads:
+            continue
+        if stream_intervals is not None:
+            interval_seconds = max(60, int(stream_intervals.get(stream) or 0) * 60)
+            stream_key = f'ingest:auto:last_queued:{tenant_slug}:{stream}'
+            last_queued_raw = redis.get(stream_key)
+            try:
+                last_queued = int(str(last_queued_raw or '0'))
+            except Exception:
+                last_queued = 0
+            if last_queued and now_ts - last_queued < interval_seconds:
+                continue
         payload = dict(base_job.get('payload') or {})
+        if stream_payloads is not None:
+            payload.update(stream_payloads.get(stream) or {})
         planned_limit = int(payload.get('limit') or effective_limit)
         payload['limit'] = max(100, min(planned_limit, effective_limit))
         if str(base_job.get('connector') or '').strip().lower() in SQL_CONNECTOR_ALIASES:
@@ -1296,7 +1318,12 @@ async def _enqueue_incremental_sync(tenant_slug: str, limit: int = 500) -> dict:
         job.setdefault('attempt', 0)
         job.setdefault('max_retries', settings.ingest_job_max_retries)
         enqueue_tenant_job(tenant_slug, job)
+        if stream_intervals is not None:
+            redis.set(f'ingest:auto:last_queued:{tenant_slug}:{stream}', str(now_ts), ex=60 * 60 * 24 * 45)
         queued += 1
+
+    if queued <= 0:
+        return {'status': 'skipped', 'tenant': tenant_slug, 'reason': 'no_stream_due'}
 
     begin_ingest_progress(
         tenant_slug=tenant_slug,
@@ -1326,6 +1353,9 @@ def enqueue_incremental_sync_all_tenants(
 def _tenant_auto_sync_settings(tenant: Tenant) -> dict:
     flags = tenant.feature_flags if isinstance(getattr(tenant, 'feature_flags', None), dict) else {}
     cfg = flags.get('auto_sync') if isinstance(flags.get('auto_sync'), dict) else {}
+    profile = str(cfg.get('profile') or 'live').strip().lower()
+    if profile not in {'live', 'daily', 'previous_day', 'weekly', 'monthly', 'custom'}:
+        profile = 'live'
     enabled_raw = cfg.get('enabled', False)
     if isinstance(enabled_raw, str):
         enabled = enabled_raw.strip().lower() not in {'0', 'false', 'no', 'off', 'disabled'}
@@ -1335,9 +1365,22 @@ def _tenant_auto_sync_settings(tenant: Tenant) -> dict:
         interval_minutes = int(cfg.get('interval_minutes') or 0)
     except Exception:
         interval_minutes = 0
+    try:
+        overlap_minutes = int(cfg.get('overlap_minutes') or 0)
+    except Exception:
+        overlap_minutes = 0
+    try:
+        recovery_days = int(cfg.get('recovery_days') or 1)
+    except Exception:
+        recovery_days = 1
+    stream_overrides = cfg.get('stream_overrides') if isinstance(cfg.get('stream_overrides'), dict) else {}
     return {
         'enabled': enabled,
+        'profile': profile,
         'interval_minutes': max(0, interval_minutes),
+        'overlap_minutes': max(0, overlap_minutes),
+        'recovery_days': max(1, recovery_days),
+        'stream_overrides': stream_overrides,
     }
 
 
@@ -1346,6 +1389,58 @@ def _param_bool_enabled(params: dict, key: str, default: bool = True) -> bool:
     if isinstance(raw, str):
         return raw.strip().lower() not in {'0', 'false', 'no', 'off', 'disabled'}
     return bool(raw)
+
+
+def _auto_sync_stream_settings(auto_sync: dict, stream: str, default_interval: int) -> dict[str, Any]:
+    overrides = auto_sync.get('stream_overrides') if isinstance(auto_sync.get('stream_overrides'), dict) else {}
+    raw = overrides.get(stream) if isinstance(overrides.get(stream), dict) else {}
+    enabled = _param_bool_enabled(raw, 'enabled', True)
+    try:
+        interval = int(raw.get('interval_minutes') or auto_sync.get('interval_minutes') or default_interval)
+    except Exception:
+        interval = default_interval
+    try:
+        overlap = int(raw.get('overlap_minutes') or auto_sync.get('overlap_minutes') or 0)
+    except Exception:
+        overlap = 0
+    try:
+        recovery_days = int(raw.get('recovery_days') or auto_sync.get('recovery_days') or 1)
+    except Exception:
+        recovery_days = 1
+    return {
+        'enabled': enabled,
+        'interval_minutes': max(1, interval),
+        'overlap_minutes': max(0, overlap),
+        'recovery_days': max(1, recovery_days),
+    }
+
+
+def _auto_sync_payload_for_profile(profile: str, stream_cfg: dict[str, Any], limit: int) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        'limit': limit,
+        'cursor_overlap_minutes': int(stream_cfg.get('overlap_minutes') or 0),
+    }
+    if profile == 'live':
+        return payload
+
+    days = max(1, int(stream_cfg.get('recovery_days') or 1))
+    today = date.today()
+    if profile == 'previous_day':
+        from_date = today - timedelta(days=1)
+        to_date = from_date
+    else:
+        to_date = today
+        from_date = today - timedelta(days=days - 1)
+    payload.update(
+        {
+            'from_date': from_date.isoformat(),
+            'to_date': to_date.isoformat(),
+            'ignore_sync_state': True,
+            'ensure_complete': True,
+            'bulk_upsert': True,
+        }
+    )
+    return payload
 
 
 async def _enqueue_incremental_sync_all_tenants(
@@ -1407,22 +1502,29 @@ async def _enqueue_incremental_sync_all_tenants(
             if not _param_bool_enabled(params, 'auto_sync_enabled', True):
                 skipped += 1
                 continue
-            tenant_interval_minutes = int(
-                tenant_auto_sync.get('interval_minutes')
-                or params.get('sync_interval_minutes')
-                or global_interval_minutes
-            )
-            tenant_interval_minutes = max(1, tenant_interval_minutes)
+            profile = str(tenant_auto_sync.get('profile') or params.get('auto_sync_profile') or 'live').strip().lower()
+            if profile not in {'live', 'daily', 'previous_day', 'weekly', 'monthly', 'custom'}:
+                profile = 'live'
 
-            # Skip if last sync completed more recently than the tenant's interval.
-            last_sync = active_conn.last_sync_at
-            if last_sync is not None:
-                elapsed_seconds = (now - last_sync).total_seconds()
-                if elapsed_seconds < tenant_interval_minutes * 60:
-                    skipped += 1
+            stream_payloads: dict[str, dict[str, Any]] = {}
+            stream_intervals: dict[str, int] = {}
+            for stream in ALL_OPERATIONAL_STREAMS:
+                stream_cfg = _auto_sync_stream_settings(tenant_auto_sync, stream, global_interval_minutes)
+                if not bool(stream_cfg.get('enabled', True)):
                     continue
+                stream_intervals[stream] = int(stream_cfg['interval_minutes'])
+                stream_payloads[stream] = _auto_sync_payload_for_profile(profile, stream_cfg, effective_limit)
 
-            result = await _enqueue_incremental_sync(tenant_slug=tenant.slug, limit=effective_limit)
+            if not stream_payloads:
+                skipped += 1
+                continue
+
+            result = await _enqueue_incremental_sync(
+                tenant_slug=tenant.slug,
+                limit=effective_limit,
+                stream_payloads=stream_payloads,
+                stream_intervals=stream_intervals,
+            )
             if str(result.get('status')) in {'queued', 'resumed'}:
                 queued += 1
             else:

@@ -256,11 +256,34 @@ _DEFAULT_INVENTORY_ITEM_CLASSIFICATION_SETTINGS = {
 _DEFAULT_AUTO_SYNC_SETTINGS = {
     'enabled': False,
     'interval_minutes': max(1, int(getattr(settings, 'incremental_sync_interval_minutes', 5) or 5)),
+    'profile': 'live',
+    'overlap_minutes': max(0, int(getattr(settings, 'incremental_sync_overlap_minutes', 5) or 5)),
+    'recovery_days': max(1, int(getattr(settings, 'ingest_daily_recovery_days', 7) or 7)),
+    'stream_overrides': {},
 }
 
 _DEFAULT_DUPLICATE_PROTECTION_SETTINGS = {
     'enabled': True,
     'mode': 'natural_key',
+}
+
+_SYNC_PROFILE_DEFAULTS = {
+    'live': {'interval_minutes': 1, 'overlap_minutes': 5, 'recovery_days': 1},
+    'daily': {'interval_minutes': 1440, 'overlap_minutes': 10, 'recovery_days': 1},
+    'previous_day': {'interval_minutes': 1440, 'overlap_minutes': 0, 'recovery_days': 1},
+    'weekly': {'interval_minutes': 10080, 'overlap_minutes': 0, 'recovery_days': 7},
+    'monthly': {'interval_minutes': 43200, 'overlap_minutes': 0, 'recovery_days': 31},
+    'custom': {'interval_minutes': int(_DEFAULT_AUTO_SYNC_SETTINGS['interval_minutes']), 'overlap_minutes': int(_DEFAULT_AUTO_SYNC_SETTINGS['overlap_minutes']), 'recovery_days': int(_DEFAULT_AUTO_SYNC_SETTINGS['recovery_days'])},
+}
+
+_SYNC_STREAM_LABELS = {
+    'sales_documents': 'Πωλήσεις',
+    'purchase_documents': 'Αγορές',
+    'inventory_documents': 'Αποθήκη',
+    'cash_transactions': 'Ταμειακά',
+    'supplier_balances': 'Υπόλοιπα προμηθευτών',
+    'customer_balances': 'Υπόλοιπα πελατών',
+    'operating_expenses': 'Έξοδα',
 }
 
 
@@ -324,16 +347,63 @@ def _tenant_auto_sync_settings(tenant: Tenant | None) -> dict[str, object]:
         cfg = flags.get('auto_sync')
         if isinstance(cfg, dict):
             source = cfg
+    profile_raw = str(source.get('profile') or _DEFAULT_AUTO_SYNC_SETTINGS['profile']).strip().lower()
+    profile = profile_raw if profile_raw in _SYNC_PROFILE_DEFAULTS else 'live'
+    profile_defaults = _SYNC_PROFILE_DEFAULTS.get(profile, _SYNC_PROFILE_DEFAULTS['live'])
     enabled = _parse_bool_enabled(source.get('enabled'), bool(_DEFAULT_AUTO_SYNC_SETTINGS['enabled']))
     interval = _parse_int_in_range(
         source.get('interval_minutes'),
-        default=int(_DEFAULT_AUTO_SYNC_SETTINGS['interval_minutes']),
+        default=int(profile_defaults['interval_minutes']),
         min_value=1,
+        max_value=43200,
+    )
+    overlap = _parse_int_in_range(
+        source.get('overlap_minutes'),
+        default=int(profile_defaults['overlap_minutes']),
+        min_value=0,
         max_value=1440,
     )
+    recovery_days = _parse_int_in_range(
+        source.get('recovery_days'),
+        default=int(profile_defaults['recovery_days']),
+        min_value=1,
+        max_value=366,
+    )
+    raw_overrides = source.get('stream_overrides') if isinstance(source.get('stream_overrides'), dict) else {}
+    stream_overrides: dict[str, dict[str, object]] = {}
+    for stream in ALL_OPERATIONAL_STREAMS:
+        raw_stream = raw_overrides.get(stream) if isinstance(raw_overrides, dict) else {}
+        if not isinstance(raw_stream, dict):
+            raw_stream = {}
+        stream_overrides[stream] = {
+            'enabled': _parse_bool_enabled(raw_stream.get('enabled'), True),
+            'interval_minutes': _parse_int_in_range(
+                raw_stream.get('interval_minutes'),
+                default=interval,
+                min_value=1,
+                max_value=43200,
+            ),
+            'overlap_minutes': _parse_int_in_range(
+                raw_stream.get('overlap_minutes'),
+                default=overlap,
+                min_value=0,
+                max_value=1440,
+            ),
+            'recovery_days': _parse_int_in_range(
+                raw_stream.get('recovery_days'),
+                default=recovery_days,
+                min_value=1,
+                max_value=366,
+            ),
+        }
     return {
         'enabled': enabled,
+        'profile': profile,
         'interval_minutes': interval,
+        'overlap_minutes': overlap,
+        'recovery_days': recovery_days,
+        'stream_overrides': stream_overrides,
+        'stream_labels': _SYNC_STREAM_LABELS,
     }
 
 
@@ -2798,7 +2868,14 @@ async def admin_tenant_edit(
     tenant_status: str = Form(default=''),
     subscription_status: str = Form(default=''),
     auto_sync_enabled: bool = Form(default=False),
+    auto_sync_profile: str = Form(default='live'),
     auto_sync_interval_minutes: str = Form(default='5'),
+    auto_sync_overlap_minutes: str = Form(default='5'),
+    auto_sync_recovery_days: str = Form(default='7'),
+    stream_sync_enabled: list[str] = Form(default=[]),
+    stream_sync_interval_minutes: list[str] = Form(default=[]),
+    stream_sync_overlap_minutes: list[str] = Form(default=[]),
+    stream_sync_recovery_days: list[str] = Form(default=[]),
     duplicate_protection_enabled: bool = Form(default=False),
     duplicate_protection_mode: str = Form(default='natural_key'),
     status_source: str = Form(default='sales_window'),
@@ -2912,13 +2989,58 @@ async def admin_tenant_edit(
         settings_payload['slow_sales_qty_30d_max'] = max(0, settings_payload['fast_sales_qty_30d_min'] - 1)
 
     auto_sync_payload = _tenant_auto_sync_settings(tenant)
+    profile_clean = str(auto_sync_profile or '').strip().lower()
+    profile_clean = profile_clean if profile_clean in _SYNC_PROFILE_DEFAULTS else 'live'
+    profile_defaults = _SYNC_PROFILE_DEFAULTS.get(profile_clean, _SYNC_PROFILE_DEFAULTS['live'])
     auto_sync_payload['enabled'] = bool(auto_sync_enabled)
+    auto_sync_payload['profile'] = profile_clean
     auto_sync_payload['interval_minutes'] = _parse_int_in_range(
         auto_sync_interval_minutes,
-        default=int(auto_sync_payload['interval_minutes']),
+        default=int(profile_defaults['interval_minutes']),
         min_value=1,
+        max_value=43200,
+    )
+    auto_sync_payload['overlap_minutes'] = _parse_int_in_range(
+        auto_sync_overlap_minutes,
+        default=int(profile_defaults['overlap_minutes']),
+        min_value=0,
         max_value=1440,
     )
+    auto_sync_payload['recovery_days'] = _parse_int_in_range(
+        auto_sync_recovery_days,
+        default=int(profile_defaults['recovery_days']),
+        min_value=1,
+        max_value=366,
+    )
+    enabled_streams = {normalize_stream_name(v) for v in stream_sync_enabled}
+    stream_overrides: dict[str, dict[str, object]] = {}
+    intervals = list(stream_sync_interval_minutes or [])
+    overlaps = list(stream_sync_overlap_minutes or [])
+    recovery_days_values = list(stream_sync_recovery_days or [])
+    for idx, stream in enumerate(ALL_OPERATIONAL_STREAMS):
+        stream_overrides[stream] = {
+            'enabled': stream in enabled_streams,
+            'interval_minutes': _parse_int_in_range(
+                intervals[idx] if idx < len(intervals) else '',
+                default=int(auto_sync_payload['interval_minutes']),
+                min_value=1,
+                max_value=43200,
+            ),
+            'overlap_minutes': _parse_int_in_range(
+                overlaps[idx] if idx < len(overlaps) else '',
+                default=int(auto_sync_payload['overlap_minutes']),
+                min_value=0,
+                max_value=1440,
+            ),
+            'recovery_days': _parse_int_in_range(
+                recovery_days_values[idx] if idx < len(recovery_days_values) else '',
+                default=int(auto_sync_payload['recovery_days']),
+                min_value=1,
+                max_value=366,
+            ),
+        }
+    auto_sync_payload['stream_overrides'] = stream_overrides
+    auto_sync_payload['stream_labels'] = _SYNC_STREAM_LABELS
 
     duplicate_protection_payload = _tenant_duplicate_protection_settings(tenant)
     duplicate_mode_clean = str(duplicate_protection_mode or '').strip().lower()
@@ -3072,6 +3194,10 @@ async def admin_tenant_edit(
             **conn_params,
             'auto_sync_enabled': bool(auto_sync_payload['enabled']),
             'sync_interval_minutes': int(auto_sync_payload['interval_minutes']),
+            'auto_sync_profile': str(auto_sync_payload['profile']),
+            'sync_overlap_minutes': int(auto_sync_payload['overlap_minutes']),
+            'sync_recovery_days': int(auto_sync_payload['recovery_days']),
+            'stream_sync_overrides': auto_sync_payload['stream_overrides'],
         }
         db.add(conn)
 
