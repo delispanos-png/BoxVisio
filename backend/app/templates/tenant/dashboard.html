@@ -927,14 +927,14 @@ function renderMonthlyBranchPerformance(rows, prevRows, anchors){
   const wrap = document.getElementById('branchMonthPerfGrid');
   if(!wrap) return;
   const subtitle = document.getElementById('branchMonthPerfSubtitle');
-  const currFrom = anchors?.month_from || '';
-  const currTo = anchors?.month_to || anchors?.anchor_date || anchors?.to || '';
+  const currFrom = anchors?.month_completed_from || anchors?.month_from || '';
+  const currTo = anchors?.month_completed_to || anchors?.month_to || anchors?.anchor_date || anchors?.to || '';
   const prevFrom = anchors?.prev_year_month_from || '';
   const prevTo = anchors?.prev_year_month_to || '';
   if(subtitle && currFrom && currTo && prevFrom && prevTo){
-    subtitle.textContent = `Σύγκριση ίδιων ημερών: ${formatDMY(currFrom)} - ${formatDMY(currTo)} vs ${formatDMY(prevFrom)} - ${formatDMY(prevTo)}`;
+    subtitle.textContent = `Σύγκριση ολοκληρωμένων ημερών: ${formatDMY(currFrom)} - ${formatDMY(currTo)} vs ${formatDMY(prevFrom)} - ${formatDMY(prevTo)}`;
   }else if(subtitle){
-    subtitle.textContent = 'Σύγκριση month-to-date ανά κατάστημα με τις ίδιες ημέρες πέρσι';
+    subtitle.textContent = 'Σύγκριση month-to-date ανά κατάστημα με τις ολοκληρωμένες αντίστοιχες ημέρες πέρσι';
   }
   const curr = Array.isArray(rows) ? [...rows] : [];
   const prevMap = new Map((Array.isArray(prevRows) ? prevRows : []).map(r => [String(r.branch || ''), toNum(r.net_value)]));
@@ -973,7 +973,7 @@ function renderMonthlyBranchPerformance(rows, prevRows, anchors){
           <div class="branch-month-fill ${fillCls}" style="width:${width.toFixed(2)}%" aria-label="${shareLabel}"></div>
         </div>
         <div class="branch-month-foot">
-          <span>vs ίδιες ημέρες πέρσι</span>
+          <span>vs ολοκληρωμένες ίδιες ημέρες πέρσι</span>
           <span class="${deltaCls}">${deltaText}</span>
         </div>
       </div>
@@ -1153,6 +1153,7 @@ async function reloadCentralDashboard(e){
     const purchasesYear = cards.purchases_year || {};
     const dayByBranch = Array.isArray(branchBreakdown.day) ? branchBreakdown.day : [];
     const monthByBranch = Array.isArray(branchBreakdown.month) ? branchBreakdown.month : [];
+    const monthCompletedByBranch = Array.isArray(branchBreakdown.month_completed) ? branchBreakdown.month_completed : monthByBranch;
     const yearByBranch = Array.isArray(branchBreakdown.year) ? branchBreakdown.year : [];
     const prevYearMonthByBranch = Array.isArray(branchBreakdown.prev_year_month) ? branchBreakdown.prev_year_month : [];
     const trendY0 = Array.isArray(trend?.y0?.rows) ? trend.y0.rows : [];
@@ -1223,7 +1224,7 @@ async function reloadCentralDashboard(e){
     renderSmallDonut('dayByBranchDonut', dayByBranch||[]);
     renderSmallDonut('monthByBranchDonut', monthByBranch||[]);
     renderYearDonut(yearByBranch||[]);
-    renderMonthlyBranchPerformance(monthByBranch||[], prevYearMonthByBranch||[], executive?.anchors || {});
+    renderMonthlyBranchPerformance(monthCompletedByBranch||[], prevYearMonthByBranch||[], executive?.anchors || {});
 
     renderDecisionInsights(Array.isArray(executive?.key_alerts) ? executive.key_alerts : []);
   }catch(err){

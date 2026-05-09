@@ -10621,12 +10621,19 @@ async def executive_dashboard_summary(
     prev_ytd_to = _safe_same_day(prev1_year, anchor_date.month, anchor_date.day)
     prev_year_full_from = date(prev1_year, 1, 1)
     prev_year_full_to = date(prev1_year, 12, 31)
+    today = date.today()
+    completed_anchor_date = min(anchor_date, today - timedelta(days=1)) if anchor_date >= today else anchor_date
+    if completed_anchor_date < month_from:
+        # On the first day of a month there is no completed day inside the
+        # current month yet; fall back to the requested anchor to avoid an
+        # invalid empty date window.
+        completed_anchor_date = anchor_date
 
     prev_month_date = month_from - timedelta(days=1)
     prev_month_from = prev_month_date.replace(day=1)
     prev_month_to = _safe_same_day(prev_month_date.year, prev_month_date.month, anchor_date.day)
     prev_year_month_from = date(prev1_year, anchor_date.month, 1)
-    prev_year_month_to = _safe_same_day(prev1_year, anchor_date.month, anchor_date.day)
+    prev_year_month_to = _safe_same_day(prev1_year, anchor_date.month, completed_anchor_date.day)
 
     sales_windows = {
         'day': (day_from, day_anchor_date),
@@ -10661,6 +10668,7 @@ async def executive_dashboard_summary(
         windows={
             'day': (day_from, day_anchor_date),
             'month': (month_from, anchor_date),
+            'month_completed': (month_from, completed_anchor_date),
             'year': (year_from, anchor_date),
             'prev_year_month': (prev_year_month_from, prev_year_month_to),
         },
@@ -10672,6 +10680,7 @@ async def executive_dashboard_summary(
     )
     day_by_branch = branch_windows.get('day', [])
     month_by_branch = branch_windows.get('month', [])
+    month_completed_by_branch = branch_windows.get('month_completed', [])
     year_by_branch = branch_windows.get('year', [])
     prev_year_month_by_branch = branch_windows.get('prev_year_month', [])
 
@@ -10721,6 +10730,8 @@ async def executive_dashboard_summary(
             'week_from': week_from.isoformat(),
             'month_from': month_from.isoformat(),
             'month_to': anchor_date.isoformat(),
+            'month_completed_from': month_from.isoformat(),
+            'month_completed_to': completed_anchor_date.isoformat(),
             'year_from': year_from.isoformat(),
             'prev_ytd_from': prev_ytd_from.isoformat(),
             'prev_ytd_to': prev_ytd_to.isoformat(),
@@ -10748,6 +10759,7 @@ async def executive_dashboard_summary(
         'branch_breakdown': {
             'day': day_by_branch,
             'month': month_by_branch,
+            'month_completed': month_completed_by_branch,
             'year': year_by_branch,
             'prev_year_month': prev_year_month_by_branch,
         },
