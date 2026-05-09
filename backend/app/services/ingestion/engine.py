@@ -845,6 +845,170 @@ def _dedup_facts_by_external_id(facts: list[dict]) -> list[dict]:
     return list(seen.values()) + none_id_facts
 
 
+_FACT_MODEL_BY_ENTITY = {
+    'sales': FactSales,
+    'purchases': FactPurchases,
+    'inventory': FactInventory,
+    'expenses': FactExpense,
+}
+
+
+def _identity_value(value: Any) -> str:
+    if value is None:
+        return ''
+    return str(value).strip()
+
+
+def _fact_identity_keys(entity: str, fact: dict) -> list[tuple[Any, ...]]:
+    keys: list[tuple[Any, ...]] = []
+    if entity in {'sales', 'purchases', 'inventory'}:
+        event_id = _identity_value(fact.get('event_id'))
+        if event_id:
+            keys.append(('event', entity, event_id))
+
+    if entity == 'sales':
+        doc_date = fact.get('doc_date')
+        line_no = fact.get('line_no')
+        document_ref = _identity_value(fact.get('document_id')) or _identity_value(fact.get('document_no'))
+        item_code = _identity_value(fact.get('item_code'))
+        if doc_date and document_ref and item_code and line_no is not None:
+            keys.append(
+                (
+                    'sales_doc_line',
+                    entity,
+                    str(doc_date),
+                    document_ref,
+                    _identity_value(fact.get('document_series')),
+                    _identity_value(fact.get('branch_ext_id')),
+                    item_code,
+                    str(line_no),
+                )
+            )
+    elif entity == 'expenses':
+        expense_date = fact.get('expense_date')
+        document_no = _identity_value(fact.get('document_no'))
+        if expense_date and document_no:
+            keys.append(
+                (
+                    'expense_doc',
+                    entity,
+                    str(expense_date),
+                    document_no,
+                    _identity_value(fact.get('document_type')),
+                    _identity_value(fact.get('branch_ext_id')),
+                    _identity_value(fact.get('supplier_ext_id')),
+                    _identity_value(fact.get('expense_category_code')),
+                    _identity_value(fact.get('amount_net')),
+                    _identity_value(fact.get('amount_tax')),
+                    _identity_value(fact.get('amount_gross')),
+                )
+            )
+    return keys
+
+
+async def _find_existing_external_id_by_identity(
+    tenant_db: AsyncSession,
+    entity: str,
+    fact: dict,
+    key: tuple[Any, ...],
+) -> str | None:
+    model = _FACT_MODEL_BY_ENTITY.get(entity)
+    if model is None:
+        return None
+
+    key_type = str(key[0])
+    stmt = None
+    if key_type == 'event' and hasattr(model, 'event_id'):
+        stmt = select(model.external_id).where(model.event_id == str(key[2])).limit(1)
+    elif key_type == 'sales_doc_line' and entity == 'sales':
+        doc_ref_clause = (
+            FactSales.document_id == fact.get('document_id')
+            if fact.get('document_id')
+            else FactSales.document_no == fact.get('document_no')
+        )
+        stmt = (
+            select(FactSales.external_id)
+            .where(
+                FactSales.doc_date == fact.get('doc_date'),
+                FactSales.line_no == fact.get('line_no'),
+                FactSales.item_code == fact.get('item_code'),
+                FactSales.branch_ext_id == fact.get('branch_ext_id'),
+                FactSales.document_series == fact.get('document_series'),
+                doc_ref_clause,
+            )
+            .limit(1)
+        )
+    elif key_type == 'expense_doc' and entity == 'expenses':
+        stmt = (
+            select(FactExpense.external_id)
+            .where(
+                FactExpense.expense_date == fact.get('expense_date'),
+                FactExpense.document_no == fact.get('document_no'),
+                FactExpense.document_type == fact.get('document_type'),
+                FactExpense.branch_ext_id == fact.get('branch_ext_id'),
+                FactExpense.supplier_ext_id == fact.get('supplier_ext_id'),
+                FactExpense.expense_category_code == fact.get('expense_category_code'),
+                FactExpense.amount_net == (fact.get('amount_net') or 0),
+                FactExpense.amount_tax == (fact.get('amount_tax') or 0),
+                FactExpense.amount_gross == (fact.get('amount_gross') or 0),
+            )
+            .limit(1)
+        )
+
+    if stmt is None:
+        return None
+    found = (await tenant_db.execute(stmt)).scalar_one_or_none()
+    return _identity_value(found) or None
+
+
+async def _canonicalize_fact_external_id(
+    tenant_db: AsyncSession,
+    entity: str,
+    fact: dict,
+    identity_cache: dict[tuple[Any, ...], str],
+) -> None:
+    current_external_id = _identity_value(fact.get('external_id'))
+    keys = _fact_identity_keys(entity, fact)
+    if not current_external_id or not keys:
+        return
+
+    for key in keys:
+        cached = identity_cache.get(key)
+        if cached:
+            if cached != current_external_id:
+                logger.warning(
+                    'ingest_duplicate_in_batch_resolved entity=%s document_no=%s cached_external_id=%s new_external_id=%s',
+                    entity,
+                    fact.get('document_no'),
+                    cached,
+                    current_external_id,
+                )
+                fact['external_id'] = cached
+                fact['event_id'] = fact.get('event_id') or cached
+            return
+
+    for key in keys:
+        existing = await _find_existing_external_id_by_identity(tenant_db, entity, fact, key)
+        if existing:
+            if existing != current_external_id:
+                logger.warning(
+                    'ingest_duplicate_natural_key_resolved entity=%s document_no=%s document_series=%s old_external_id=%s new_external_id=%s',
+                    entity,
+                    fact.get('document_no'),
+                    fact.get('document_series') or fact.get('document_type'),
+                    existing,
+                    current_external_id,
+                )
+                fact['external_id'] = existing
+                fact['event_id'] = fact.get('event_id') or existing
+            for cache_key in keys:
+                identity_cache[cache_key] = existing
+            return
+
+    for key in keys:
+        identity_cache[key] = current_external_id
+
+
 def _build_fact_upsert_stmt(entity: str, facts: list[dict]):
     if not facts:
         return None
@@ -2394,6 +2558,7 @@ async def process_job(job: dict[str, Any]) -> dict[str, Any]:
     skipped_company_mismatch = 0
     dim_id_cache: dict[tuple[str, str], Any] = {}
     expense_category_cache: dict[str, Any] = {}
+    fact_identity_cache: dict[tuple[Any, ...], str] = {}
 
     async def _resolve_dim_id_cached(model, external_id: str | None):
         if not external_id:
@@ -2486,6 +2651,7 @@ async def process_job(job: dict[str, Any]) -> dict[str, Any]:
                         await _mark_staging_row_processed(tenant_db, stream=stream, stage_id=stage_id)
                     continue
 
+                await _canonicalize_fact_external_id(tenant_db, entity, fact, fact_identity_cache)
                 await _upsert_dims_from_row(tenant_db, entity, row, fact, dim_seen_cache=dim_seen_cache)
                 if entity == 'sales':
                     if not fast_backfill_mode:
