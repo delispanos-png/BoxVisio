@@ -199,9 +199,10 @@ def _as_optional_doc_date(raw: Any):
 
 
 def _update_incremental_state(last_ts: datetime | None, last_id: str | None, incremental_val: Any) -> tuple[datetime | None, str | None]:
-    if isinstance(incremental_val, datetime):
-        if last_ts is None or incremental_val > last_ts:
-            return incremental_val, last_id
+    parsed_ts = _as_datetime(incremental_val)
+    if parsed_ts is not None:
+        if last_ts is None or parsed_ts > last_ts:
+            return parsed_ts, last_id
         return last_ts, last_id
 
     if incremental_val is not None:

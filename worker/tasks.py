@@ -1366,7 +1366,9 @@ async def _enqueue_incremental_sync_all_tenants(
             await control_db.execute(
                 select(Tenant).where(
                     Tenant.status == TenantStatus.active,
-                    Tenant.subscription_status.in_([SubscriptionStatus.active, SubscriptionStatus.trial]),
+                    Tenant.subscription_status.in_(
+                        [SubscriptionStatus.active, SubscriptionStatus.trial, SubscriptionStatus.past_due]
+                    ),
                 )
             )
         ).scalars().all()
@@ -1378,6 +1380,9 @@ async def _enqueue_incremental_sync_all_tenants(
 
             tenant_auto_sync = _tenant_auto_sync_settings(tenant)
             if not bool(tenant_auto_sync.get('enabled', True)):
+                skipped += 1
+                continue
+            if get_ingest_circuit_reason(tenant.slug):
                 skipped += 1
                 continue
 
