@@ -859,12 +859,33 @@ def _identity_value(value: Any) -> str:
     return str(value).strip()
 
 
-def _fact_identity_keys(entity: str, fact: dict) -> list[tuple[Any, ...]]:
+def _duplicate_protection_settings_from_flags(flags: Any) -> dict[str, Any]:
+    source = {}
+    if isinstance(flags, dict):
+        cfg = flags.get('duplicate_protection')
+        if isinstance(cfg, dict):
+            source = cfg
+    enabled_raw = source.get('enabled', True)
+    if isinstance(enabled_raw, str):
+        enabled = enabled_raw.strip().lower() not in {'0', 'false', 'no', 'off', 'disabled'}
+    else:
+        enabled = bool(enabled_raw)
+    mode_raw = str(source.get('mode') or 'natural_key').strip().lower()
+    return {
+        'enabled': enabled,
+        'mode': mode_raw if mode_raw in {'event_id', 'natural_key'} else 'natural_key',
+    }
+
+
+def _fact_identity_keys(entity: str, fact: dict, *, mode: str = 'natural_key') -> list[tuple[Any, ...]]:
     keys: list[tuple[Any, ...]] = []
     if entity in {'sales', 'purchases', 'inventory'}:
         event_id = _identity_value(fact.get('event_id'))
         if event_id:
             keys.append(('event', entity, event_id))
+
+    if mode == 'event_id':
+        return keys
 
     if entity == 'sales':
         doc_date = fact.get('doc_date')
@@ -966,9 +987,11 @@ async def _canonicalize_fact_external_id(
     entity: str,
     fact: dict,
     identity_cache: dict[tuple[Any, ...], str],
+    *,
+    mode: str = 'natural_key',
 ) -> None:
     current_external_id = _identity_value(fact.get('external_id'))
-    keys = _fact_identity_keys(entity, fact)
+    keys = _fact_identity_keys(entity, fact, mode=mode)
     if not current_external_id or not keys:
         return
 
@@ -2423,6 +2446,7 @@ async def process_job(job: dict[str, Any]) -> dict[str, Any]:
     tenant_db_password: str | None = None
     connection_id: int | None = None
     context: ConnectorContext | None = None
+    duplicate_protection = {'enabled': True, 'mode': 'natural_key'}
 
     # Load control metadata in a short-lived session so long-running fetch/ingest
     # does not keep the control DB connection open.
@@ -2455,6 +2479,7 @@ async def process_job(job: dict[str, Any]) -> dict[str, Any]:
         tenant_db_name = str(tenant.db_name)
         tenant_db_user = str(tenant.db_user)
         tenant_db_password = str(tenant.db_password)
+        duplicate_protection = _duplicate_protection_settings_from_flags(tenant.feature_flags)
         if connection is not None and getattr(connection, 'id', None) is not None:
             connection_id = int(connection.id)
 
@@ -2651,7 +2676,14 @@ async def process_job(job: dict[str, Any]) -> dict[str, Any]:
                         await _mark_staging_row_processed(tenant_db, stream=stream, stage_id=stage_id)
                     continue
 
-                await _canonicalize_fact_external_id(tenant_db, entity, fact, fact_identity_cache)
+                if duplicate_protection.get('enabled', True):
+                    await _canonicalize_fact_external_id(
+                        tenant_db,
+                        entity,
+                        fact,
+                        fact_identity_cache,
+                        mode=str(duplicate_protection.get('mode') or 'natural_key'),
+                    )
                 await _upsert_dims_from_row(tenant_db, entity, row, fact, dim_seen_cache=dim_seen_cache)
                 if entity == 'sales':
                     if not fast_backfill_mode:

@@ -260,6 +260,47 @@ body[data-theme='dark'] .tenant-sticky-actions { background: rgba(21,31,45,.94);
         <div class="card tenant-form-card">
           <div class="card-body">
             <div class="tenant-section-head">
+              <div class="tenant-section-icon"><i class="fe fe-shield"></i></div>
+              <div>
+                <h5>Προστασία διπλοκαταχωρίσεων</h5>
+                <p>Έλεγχος πριν την καταχώριση παραστατικών, ώστε ίδιο παραστατικό ή ίδια γραμμή να ενημερώνει την υπάρχουσα εγγραφή.</p>
+              </div>
+            </div>
+
+            <div class="tenant-rule-card">
+              <div class="tenant-rule-grid">
+                <div>
+                  <label class="form-label">Κατάσταση προστασίας</label>
+                  <div class="form-check form-switch mt-2">
+                    <input class="form-check-input" type="checkbox" role="switch" name="duplicate_protection_enabled" id="tenantDuplicateProtectionEnabled" value="true" {% if duplicate_protection.enabled %}checked{% endif %}>
+                    <label class="form-check-label" for="tenantDuplicateProtectionEnabled">Ενεργή προστασία από διπλά</label>
+                  </div>
+                  <span class="tenant-field-help">Προτεινόμενο ενεργό. Προστατεύει όταν ο connector ξαναστείλει το ίδιο παραστατικό με διαφορετικό external id.</span>
+                </div>
+                <div>
+                  <label class="form-label">Τρόπος ελέγχου</label>
+                  <select class="form-select" name="duplicate_protection_mode">
+                    <option value="natural_key" {% if duplicate_protection.mode != 'event_id' %}selected{% endif %}>Event ID + φυσικό κλειδί παραστατικού</option>
+                    <option value="event_id" {% if duplicate_protection.mode == 'event_id' %}selected{% endif %}>Μόνο Event ID</option>
+                  </select>
+                  <span class="tenant-field-help">Το φυσικό κλειδί χρησιμοποιεί ημερομηνία, παραστατικό, σειρά, σημείο, είδος και γραμμή όπου υπάρχουν.</span>
+                </div>
+                <div>
+                  <label class="form-label">Πρόταση χρήσης</label>
+                  <div class="tenant-meta">
+                    <span>Recommended</span>
+                    <strong>Natural Key</strong>
+                  </div>
+                  <span class="tenant-field-help">Για ενεργά e-shop κρατάμε την πλήρη προστασία. Το Event ID only είναι για ειδικές περιπτώσεις migration/debug.</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card tenant-form-card">
+          <div class="card-body">
+            <div class="tenant-section-head">
               <div class="tenant-section-icon"><i class="fe fe-box"></i></div>
               <div>
                 <h5>Χαρακτηρισμός ειδών αποθήκης</h5>

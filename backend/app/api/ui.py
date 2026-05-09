@@ -258,6 +258,11 @@ _DEFAULT_AUTO_SYNC_SETTINGS = {
     'interval_minutes': max(1, int(getattr(settings, 'incremental_sync_interval_minutes', 5) or 5)),
 }
 
+_DEFAULT_DUPLICATE_PROTECTION_SETTINGS = {
+    'enabled': True,
+    'mode': 'natural_key',
+}
+
 
 def _parse_int_in_range(raw: object, *, default: int, min_value: int, max_value: int) -> int:
     try:
@@ -329,6 +334,24 @@ def _tenant_auto_sync_settings(tenant: Tenant | None) -> dict[str, object]:
     return {
         'enabled': enabled,
         'interval_minutes': interval,
+    }
+
+
+def _tenant_duplicate_protection_settings(tenant: Tenant | None) -> dict[str, object]:
+    flags = tenant.feature_flags if tenant is not None else None
+    source = {}
+    if isinstance(flags, dict):
+        cfg = flags.get('duplicate_protection')
+        if isinstance(cfg, dict):
+            source = cfg
+    mode_raw = str(source.get('mode') or _DEFAULT_DUPLICATE_PROTECTION_SETTINGS['mode']).strip().lower()
+    mode = mode_raw if mode_raw in {'event_id', 'natural_key'} else 'natural_key'
+    return {
+        'enabled': _parse_bool_enabled(
+            source.get('enabled'),
+            bool(_DEFAULT_DUPLICATE_PROTECTION_SETTINGS['enabled']),
+        ),
+        'mode': mode,
     }
 
 
@@ -2755,6 +2778,7 @@ async def admin_tenant_edit_get_redirect(
             'tenant': tenant,
             'inventory_item_classification': _tenant_inventory_item_classification_settings(tenant),
             'auto_sync': auto_sync,
+            'duplicate_protection': _tenant_duplicate_protection_settings(tenant),
             'eshop_fulfillment': _tenant_eshop_fulfillment_settings(tenant),
             'document_series_labels': _tenant_document_series_labels_settings(tenant),
             'active_page': 'tenants',
@@ -2775,6 +2799,8 @@ async def admin_tenant_edit(
     subscription_status: str = Form(default=''),
     auto_sync_enabled: bool = Form(default=False),
     auto_sync_interval_minutes: str = Form(default='5'),
+    duplicate_protection_enabled: bool = Form(default=False),
+    duplicate_protection_mode: str = Form(default='natural_key'),
     status_source: str = Form(default='sales_window'),
     active_last_sale_days: str = Form(default='60'),
     fast_sales_qty_30d_min: str = Form(default='50'),
@@ -2838,6 +2864,7 @@ async def admin_tenant_edit(
         'tenant_status': tenant.status.value,
         'subscription_status': tenant.subscription_status.value,
         'auto_sync': _tenant_auto_sync_settings(tenant),
+        'duplicate_protection': _tenant_duplicate_protection_settings(tenant),
         'inventory_item_classification': _tenant_inventory_item_classification_settings(tenant),
         'eshop_fulfillment': _tenant_eshop_fulfillment_settings(tenant),
         'document_series_labels': _tenant_document_series_labels_settings(tenant),
@@ -2892,6 +2919,11 @@ async def admin_tenant_edit(
         min_value=1,
         max_value=1440,
     )
+
+    duplicate_protection_payload = _tenant_duplicate_protection_settings(tenant)
+    duplicate_mode_clean = str(duplicate_protection_mode or '').strip().lower()
+    duplicate_protection_payload['enabled'] = bool(duplicate_protection_enabled)
+    duplicate_protection_payload['mode'] = duplicate_mode_clean if duplicate_mode_clean in {'event_id', 'natural_key'} else 'natural_key'
 
     current_fulfillment = _tenant_eshop_fulfillment_settings(tenant)
     pickup_map: dict[str, str] = {}
@@ -3025,6 +3057,7 @@ async def admin_tenant_edit(
 
     flags = dict(tenant.feature_flags or {})
     flags['auto_sync'] = auto_sync_payload
+    flags['duplicate_protection'] = duplicate_protection_payload
     flags['inventory_item_classification'] = settings_payload
     flags['eshop_fulfillment'] = eshop_fulfillment_payload
     flags['document_series_labels'] = normalize_document_series_labels_config(document_series_label_map)
@@ -3058,6 +3091,7 @@ async def admin_tenant_edit(
                     'tenant_status': tenant.status.value,
                     'subscription_status': sub.status.value,
                     'auto_sync': auto_sync_payload,
+                    'duplicate_protection': duplicate_protection_payload,
                     'inventory_item_classification': settings_payload,
                     'eshop_fulfillment': eshop_fulfillment_payload,
                     'document_series_labels': flags['document_series_labels'],
