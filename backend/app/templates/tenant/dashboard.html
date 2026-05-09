@@ -911,7 +911,7 @@ function renderSmallDonut(canvasId, rows){
 function ratioByMax(v, max){
   if(max <= 0) return 0;
   const pct = (toNum(v) / max) * 100;
-  return Math.max(6, Math.min(100, pct));
+  return Math.max(0, Math.min(100, pct));
 }
 
 function renderMonthlyBranchPerformance(rows, prevRows){
@@ -924,7 +924,7 @@ function renderMonthlyBranchPerformance(rows, prevRows){
     wrap.innerHTML = '<div class="text-muted">Δεν υπάρχουν δεδομένα για το τρέχον μήνα.</div>';
     return;
   }
-  const maxVal = curr.reduce((m,r) => Math.max(m, toNum(r.net_value)), 0);
+  const maxVal = curr.reduce((m,r) => Math.max(m, Math.max(0, toNum(r.net_value))), 0);
   wrap.innerHTML = curr.map((r)=>{
     const branch = String(r.branch || '-');
     const value = toNum(r.net_value);
@@ -937,14 +937,17 @@ function renderMonthlyBranchPerformance(rows, prevRows){
     const deltaText = prev > 0
       ? `Δ ${money(deltaAmount)} | ${deltaPct >= 0 ? '+' : ''}${fmt2.format(deltaPct)}%`
       : 'Δ - | n/a';
-    const width = ratioByMax(value, maxVal);
+    const width = ratioByMax(Math.max(0, value), maxVal);
+    const shareLabel = maxVal > 0 ? `${fmt2.format(width)}% του κορυφαίου` : '0,00%';
     return `
       <div class="branch-month-row">
         <div class="branch-month-head">
           <div class="branch-month-name">${branch}</div>
           <div class="branch-month-value">${money(value)}</div>
         </div>
-        <div class="branch-month-track"><div class="branch-month-fill" style="width:${width}%"></div></div>
+        <div class="branch-month-track" title="${shareLabel}">
+          <div class="branch-month-fill" style="width:${width.toFixed(2)}%" aria-label="${shareLabel}"></div>
+        </div>
         <div class="branch-month-foot">
           <span>vs αντίστοιχος περσινός μήνας</span>
           <span class="${deltaCls}">${deltaText}</span>
