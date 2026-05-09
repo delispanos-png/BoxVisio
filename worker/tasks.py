@@ -1324,7 +1324,7 @@ def enqueue_incremental_sync_all_tenants(
 def _tenant_auto_sync_settings(tenant: Tenant) -> dict:
     flags = tenant.feature_flags if isinstance(getattr(tenant, 'feature_flags', None), dict) else {}
     cfg = flags.get('auto_sync') if isinstance(flags.get('auto_sync'), dict) else {}
-    enabled_raw = cfg.get('enabled', True)
+    enabled_raw = cfg.get('enabled', False)
     if isinstance(enabled_raw, str):
         enabled = enabled_raw.strip().lower() not in {'0', 'false', 'no', 'off', 'disabled'}
     else:

@@ -254,7 +254,7 @@ _DEFAULT_INVENTORY_ITEM_CLASSIFICATION_SETTINGS = {
 }
 
 _DEFAULT_AUTO_SYNC_SETTINGS = {
-    'enabled': True,
+    'enabled': False,
     'interval_minutes': max(1, int(getattr(settings, 'incremental_sync_interval_minutes', 5) or 5)),
 }
 
