@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from datetime import date as date_cls, datetime
+from datetime import date as date_cls, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import func, select
@@ -2331,9 +2331,47 @@ async def process_job(job: dict[str, Any]) -> dict[str, Any]:
             initial_last_id = seed_state.last_sync_id
             await tenant_db.commit()
 
+    if (
+        connector_type in SQL_CONNECTOR_ALIASES
+        and not ignore_sync_state
+        and initial_last_ts is None
+        and not payload.get('from_date')
+        and payload.get('lookback_days') is not None
+    ):
+        try:
+            lookback_days = max(1, int(payload.get('lookback_days') or 1))
+            payload = dict(payload)
+            payload['from_date'] = (date_cls.today() - timedelta(days=lookback_days)).isoformat()
+        except (TypeError, ValueError):
+            pass
+
+    fetch_last_ts = None if ignore_sync_state else initial_last_ts
+    fetch_last_id = None if ignore_sync_state else initial_last_id
+    cursor_overlap_minutes = 0
+    if (
+        connector_type in SQL_CONNECTOR_ALIASES
+        and not ignore_sync_state
+        and isinstance(initial_last_ts, datetime)
+        and not bool(payload.get('disable_cursor_overlap'))
+    ):
+        try:
+            cursor_overlap_minutes = max(
+                0,
+                int(
+                    payload.get('cursor_overlap_minutes')
+                    or getattr(settings, 'incremental_sync_overlap_minutes', 5)
+                    or 0
+                ),
+            )
+        except (TypeError, ValueError):
+            cursor_overlap_minutes = 5
+        if cursor_overlap_minutes > 0:
+            fetch_last_ts = initial_last_ts - timedelta(minutes=cursor_overlap_minutes)
+            fetch_last_id = None
+
     inc_state = IncrementalState(
-        last_sync_timestamp=None if ignore_sync_state else initial_last_ts,
-        last_sync_id=None if ignore_sync_state else initial_last_id,
+        last_sync_timestamp=fetch_last_ts,
+        last_sync_id=fetch_last_id,
     )
     # Connectors backed by pyodbc (SQL Server) execute synchronous blocking I/O.
     # Running that in the event-loop thread freezes all coroutines (lock heartbeat,
@@ -2582,6 +2620,7 @@ async def process_job(job: dict[str, Any]) -> dict[str, Any]:
         'skipped_company_mismatch': skipped_company_mismatch,
         'last_sync_timestamp': last_ts.isoformat() if isinstance(last_ts, datetime) else None,
         'last_sync_id': last_id,
+        'cursor_overlap_minutes': cursor_overlap_minutes,
     }
 
 

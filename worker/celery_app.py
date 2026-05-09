@@ -32,6 +32,7 @@ celery.conf.task_routes = {
     'worker.tasks.enqueue_external_ingest': {'queue': 'ingest'},
     'worker.tasks.enqueue_incremental_sync': {'queue': 'ingest'},
     'worker.tasks.enqueue_incremental_sync_all_tenants': {'queue': 'ingest'},
+    'worker.tasks.enqueue_daily_recovery_sync_all_tenants': {'queue': 'ingest'},
     # Backfill fan-out should not wait behind tenant ingest jobs on the same queue.
     # Run the planner on the default queue, then let it enqueue stream jobs to ingest.
     'worker.tasks.enqueue_sql_backfill': {'queue': 'default'},
@@ -61,6 +62,10 @@ celery.conf.beat_schedule = {
     'auto-recover-stuck-ingest': {
         'task': 'worker.tasks.auto_recover_stuck_ingest',
         'schedule': timedelta(seconds=max(30, int(settings.ingest_auto_recover_interval_seconds or 60))),
+    },
+    'daily-recovery-sync-all-tenants': {
+        'task': 'worker.tasks.enqueue_daily_recovery_sync_all_tenants',
+        'schedule': timedelta(days=1),
     },
     'audit-sync-completeness': {
         'task': 'worker.tasks.audit_sync_completeness',

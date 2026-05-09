@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import date, timedelta
 from typing import Any
 
 from sqlalchemy import select
@@ -181,12 +180,6 @@ async def plan_tenant_sync_jobs(
         sync_defaults = params.get('sync_defaults')
         if isinstance(sync_defaults, dict):
             payload = dict(sync_defaults)
-            lookback_days = payload.pop('lookback_days', None)
-            if lookback_days is not None and 'from_date' not in payload:
-                try:
-                    payload['from_date'] = (date.today() - timedelta(days=int(lookback_days))).isoformat()
-                except (TypeError, ValueError):
-                    pass
 
         jobs.append(
             {

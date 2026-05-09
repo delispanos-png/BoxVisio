@@ -1289,6 +1289,8 @@ async def _enqueue_incremental_sync(tenant_slug: str, limit: int = 500) -> dict:
         payload = dict(base_job.get('payload') or {})
         planned_limit = int(payload.get('limit') or effective_limit)
         payload['limit'] = max(100, min(planned_limit, effective_limit))
+        if str(base_job.get('connector') or '').strip().lower() in SQL_CONNECTOR_ALIASES:
+            payload.setdefault('bulk_upsert', True)
         job = dict(base_job)
         job['payload'] = payload
         job.setdefault('attempt', 0)
@@ -1392,6 +1394,7 @@ async def _enqueue_incremental_sync_all_tenants(
                     select(TenantConnection).where(
                         TenantConnection.tenant_id == tenant.id,
                         TenantConnection.is_active.is_(True),
+                        TenantConnection.connector_type.in_(list(SQL_CONNECTOR_ALIASES)),
                     ).limit(1)
                 )
             ).scalar_one_or_none()
@@ -1432,6 +1435,127 @@ async def _enqueue_incremental_sync_all_tenants(
         'tenants_checked': tenants_checked,
         'queued': queued,
         'skipped': skipped,
+    }
+
+
+@shared_task(
+    name='worker.tasks.enqueue_daily_recovery_sync_all_tenants',
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_kwargs={'max_retries': 3},
+)
+def enqueue_daily_recovery_sync_all_tenants(
+    limit: int | None = None,
+    max_tenants: int | None = None,
+    days: int | None = None,
+) -> dict:
+    return _run_coro(
+        _enqueue_daily_recovery_sync_all_tenants(limit=limit, max_tenants=max_tenants, days=days)
+    )
+
+
+async def _enqueue_daily_recovery_sync_all_tenants(
+    limit: int | None = None,
+    max_tenants: int | None = None,
+    days: int | None = None,
+) -> dict:
+    if not bool(getattr(settings, 'ingest_daily_recovery_enabled', True)):
+        return {'status': 'disabled'}
+
+    effective_limit = max(100, int(limit or settings.ingest_recovery_limit or settings.incremental_sync_limit or 500))
+    cap = max(1, int(max_tenants or settings.incremental_sync_max_tenants_per_run or 100))
+    recovery_days = max(1, int(days or getattr(settings, 'ingest_daily_recovery_days', 7) or 7))
+    to_date = date.today()
+    from_date = to_date - timedelta(days=recovery_days - 1)
+    redis = Redis.from_url(settings.redis_url, decode_responses=True)
+    tenants_checked = 0
+    tenants_queued = 0
+    jobs_queued = 0
+    skipped = 0
+
+    async with ControlSessionLocal() as control_db:
+        tenants = (
+            await control_db.execute(
+                select(Tenant).where(
+                    Tenant.status == TenantStatus.active,
+                    Tenant.subscription_status.in_(
+                        [SubscriptionStatus.active, SubscriptionStatus.trial, SubscriptionStatus.past_due]
+                    ),
+                )
+            )
+        ).scalars().all()
+
+        for tenant in tenants:
+            if tenants_checked >= cap:
+                break
+            tenants_checked += 1
+
+            tenant_auto_sync = _tenant_auto_sync_settings(tenant)
+            if not bool(tenant_auto_sync.get('enabled', False)):
+                skipped += 1
+                continue
+            if get_ingest_circuit_reason(tenant.slug):
+                skipped += 1
+                continue
+            if int(redis.llen(tenant_queue_name(tenant.slug))) > 0 or bool(redis.get(f'lock:ingest:{tenant.slug}')):
+                skipped += 1
+                continue
+
+            active_conn = (
+                await control_db.execute(
+                    select(TenantConnection).where(
+                        TenantConnection.tenant_id == tenant.id,
+                        TenantConnection.is_active.is_(True),
+                    ).limit(1)
+                )
+            ).scalar_one_or_none()
+            if not active_conn:
+                skipped += 1
+                continue
+            params = active_conn.connection_parameters if isinstance(active_conn.connection_parameters, dict) else {}
+            if not _param_bool_enabled(params, 'auto_sync_enabled', True):
+                skipped += 1
+                continue
+
+            connector = str(active_conn.connector_type or 'sql_connector').strip().lower()
+
+            recovery_meta = _enqueue_recovery_sweep_jobs(
+                tenant.slug,
+                from_date=from_date,
+                to_date=to_date,
+                fallback_limit=effective_limit,
+                connector=connector,
+            )
+            tenant_jobs = int(recovery_meta.get('jobs') or 0)
+            if tenant_jobs <= 0:
+                skipped += 1
+                continue
+
+            current_depth = int(redis.llen(tenant_queue_name(tenant.slug)))
+            begin_ingest_progress(
+                tenant_slug=tenant.slug,
+                operation='recovery_sync',
+                status='queued',
+                total_jobs=tenant_jobs,
+                start_queue_depth=current_depth,
+                target_queue_depth=max(0, current_depth - tenant_jobs),
+                from_date=recovery_meta.get('from_date'),
+                to_date=recovery_meta.get('to_date'),
+            )
+            drain_tenant_ingest_queue.delay(tenant_slug=tenant.slug)
+            tenants_queued += 1
+            jobs_queued += tenant_jobs
+
+    return {
+        'status': 'ok',
+        'tenants_checked': tenants_checked,
+        'tenants_queued': tenants_queued,
+        'jobs_queued': jobs_queued,
+        'skipped': skipped,
+        'from_date': from_date.isoformat(),
+        'to_date': to_date.isoformat(),
+        'days': recovery_days,
+        'limit': effective_limit,
     }
 
 

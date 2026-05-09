@@ -90,10 +90,13 @@ class Settings(BaseSettings):
     incremental_sync_interval_minutes: int = 5
     incremental_sync_limit: int = 500
     incremental_sync_max_tenants_per_run: int = 100
+    incremental_sync_overlap_minutes: int = 5
     ingest_recovery_enabled: bool = True
-    ingest_recovery_on_incremental: bool = True
+    ingest_recovery_on_incremental: bool = False
     ingest_recovery_on_backfill: bool = True
     ingest_recovery_incremental_days: int = 2
+    ingest_daily_recovery_enabled: bool = True
+    ingest_daily_recovery_days: int = 7
     ingest_recovery_chunk_days: int = 1
     ingest_recovery_limit: int = 500
     ingest_recovery_max_jobs: int = 5000
