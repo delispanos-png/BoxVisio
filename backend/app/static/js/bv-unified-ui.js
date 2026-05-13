@@ -190,10 +190,188 @@
     });
   }
 
+  function multiEls(prefix) {
+    return {
+      root: document.getElementById(`${prefix}Multi`),
+      select: document.getElementById(prefix),
+      toggle: document.getElementById(`${prefix}Toggle`),
+      menu: document.getElementById(`${prefix}Menu`),
+      search: document.getElementById(`${prefix}Search`),
+      all: document.getElementById(`${prefix}All`),
+      clear: document.getElementById(`${prefix}Clear`),
+      options: document.getElementById(`${prefix}Options`),
+      chips: document.getElementById(`${prefix}Chips`),
+    };
+  }
+
+  function multiOptionLabel(option) {
+    return option?.dataset?.label || option?.textContent || option?.value || '';
+  }
+
+  function multiSelectedValues(prefix) {
+    const select = document.getElementById(prefix);
+    return Array.from(select?.selectedOptions || []).map((option) => option.value);
+  }
+
+  function preserveWindowScroll(callback) {
+    const x = window.scrollX;
+    const y = window.scrollY;
+    const out = callback?.();
+    requestAnimationFrame(() => window.scrollTo(x, y));
+    return out;
+  }
+
+  function focusWithoutScroll(el) {
+    if (!el) return;
+    try {
+      el.focus({ preventScroll: true });
+    } catch (_err) {
+      const x = window.scrollX;
+      const y = window.scrollY;
+      el.focus();
+      window.scrollTo(x, y);
+    }
+  }
+
+  function multiSync(prefix, config = {}) {
+    const els = multiEls(prefix);
+    if (!els.select || !els.options || !els.toggle) return;
+
+    const label = config.label || els.toggle.dataset.label || 'Επιλογή';
+    const selectText = config.selectText || els.toggle.dataset.selectText || 'Επιλογή';
+    const emptyText = config.emptyText || 'Δεν υπάρχουν διαθέσιμες επιλογές';
+    const filterText = config.filterText ?? els.search?.value ?? '';
+    const normalized = String(filterText || '').trim().toLowerCase();
+    const selected = multiSelectedValues(prefix);
+
+    els.options.innerHTML = '';
+    Array.from(els.select.options || [])
+      .filter((option) => {
+        const value = String(option.value || '').toLowerCase();
+        const display = String(multiOptionLabel(option)).toLowerCase();
+        return !normalized || value.includes(normalized) || display.includes(normalized);
+      })
+      .forEach((option) => {
+        const row = document.createElement('label');
+        row.className = 'bv-multi-opt';
+
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.checked = option.selected;
+        checkbox.addEventListener('change', () => {
+          preserveWindowScroll(() => {
+            option.selected = checkbox.checked;
+            els.select.dispatchEvent(new Event('change', { bubbles: true }));
+            multiSync(prefix, config);
+          });
+        });
+
+        const span = document.createElement('span');
+        span.textContent = option.textContent || option.value;
+
+        row.append(checkbox, span);
+        els.options.appendChild(row);
+      });
+
+    if (!els.options.children.length) {
+      const empty = document.createElement('div');
+      empty.className = 'bv-multi-empty';
+      empty.textContent = emptyText;
+      els.options.appendChild(empty);
+    }
+
+    if (els.chips) {
+      els.chips.innerHTML = '';
+      selected.forEach((value) => {
+        const option = Array.from(els.select.options || []).find((item) => item.value === value);
+        const chip = document.createElement('span');
+        chip.className = 'bv-chip';
+        chip.textContent = option ? (option.textContent || option.value) : value;
+        els.chips.appendChild(chip);
+      });
+    }
+
+    els.toggle.textContent = selected.length ? `${label} (${selected.length})` : selectText;
+  }
+
+  function multiBind(prefix, config = {}) {
+    const els = multiEls(prefix);
+    if (!els.select || !els.toggle || !els.menu || els.toggle.dataset.bvMultiBound === '1') return;
+    els.toggle.dataset.bvMultiBound = '1';
+    els.toggle.dataset.label = config.label || els.toggle.dataset.label || 'Επιλογή';
+    els.toggle.dataset.selectText = config.selectText || els.toggle.dataset.selectText || 'Επιλογή';
+
+    els.toggle.addEventListener('click', (event) => {
+      event.stopPropagation();
+      els.menu.hidden = !els.menu.hidden;
+      if (!els.menu.hidden) focusWithoutScroll(els.search);
+    });
+
+    els.search?.addEventListener('input', () => multiSync(prefix, config));
+    els.all?.addEventListener('click', () => {
+      preserveWindowScroll(() => {
+        Array.from(els.select.options || []).forEach((option) => { option.selected = true; });
+        els.select.dispatchEvent(new Event('change', { bubbles: true }));
+        multiSync(prefix, config);
+      });
+    });
+    els.clear?.addEventListener('click', () => {
+      preserveWindowScroll(() => {
+        Array.from(els.select.options || []).forEach((option) => { option.selected = false; });
+        els.select.dispatchEvent(new Event('change', { bubbles: true }));
+        multiSync(prefix, config);
+      });
+    });
+
+    document.addEventListener('click', (event) => {
+      if (!els.root?.contains(event.target)) els.menu.hidden = true;
+    });
+
+    multiSync(prefix, config);
+  }
+
+  function multiPopulate(prefix, values, labels = {}, config = {}) {
+    const els = multiEls(prefix);
+    if (!els.select) return;
+    const previous = new Set(multiSelectedValues(prefix));
+    els.select.innerHTML = '';
+    const ordered = Array.from(values || []).sort((a, b) =>
+      String(labels[a] || a).localeCompare(String(labels[b] || b), 'el', { sensitivity: 'base' })
+    );
+    ordered.forEach((value) => {
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = labels[value] || value;
+      option.dataset.label = labels[value] || value;
+      option.selected = previous.has(value);
+      els.select.appendChild(option);
+    });
+    multiSync(prefix, config);
+  }
+
+  function multiSetSelected(prefix, values, config = {}) {
+    const els = multiEls(prefix);
+    if (!els.select) return;
+    const wanted = new Set(values || []);
+    Array.from(els.select.options || []).forEach((option) => {
+      option.selected = wanted.has(option.value);
+    });
+    els.select.dispatchEvent(new Event('change', { bubbles: true }));
+    multiSync(prefix, config);
+  }
+
   function init() {
     initPageBreadCrumb();
     document.querySelectorAll('table[data-bv-admin-table="1"]').forEach(attachAdminTable);
   }
+
+  window.BvMultiSelect = {
+    bind: multiBind,
+    populate: multiPopulate,
+    selectedValues: multiSelectedValues,
+    setSelected: multiSetSelected,
+    sync: multiSync,
+  };
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);

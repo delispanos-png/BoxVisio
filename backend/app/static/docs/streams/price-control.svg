@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="360" viewBox="0 0 1200 360" role="img" aria-label="Έλεγχος Τιμών">
+  <defs>
+    <linearGradient id="bgPriceControl" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#eef2ff"/>
+      <stop offset="100%" stop-color="#ecfeff"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="1200" height="360" fill="url(#bgPriceControl)"/>
+  <text x="40" y="54" font-family="Arial, sans-serif" font-size="34" font-weight="700" fill="#4338ca">Έλεγχος Τιμών</text>
+  <text x="40" y="88" font-family="Arial, sans-serif" font-size="18" fill="#475569">Η τιμή κτήσης είναι σταθμισμένος μέσος όρος αξίας / συνολικής ποσότητας.</text>
+
+  <rect x="40" y="124" rx="16" ry="16" width="250" height="150" fill="#ffffff" stroke="#c7d2fe" stroke-width="2"/>
+  <text x="68" y="160" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="#312e81">1η Αγορά</text>
+  <text x="68" y="195" font-family="Arial, sans-serif" font-size="16" fill="#0f172a">100 τεμ. x 2,00 €</text>
+  <text x="68" y="225" font-family="Arial, sans-serif" font-size="22" font-weight="700" fill="#4338ca">Αξία 200 €</text>
+
+  <rect x="325" y="124" rx="16" ry="16" width="250" height="150" fill="#ffffff" stroke="#99f6e4" stroke-width="2"/>
+  <text x="353" y="160" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="#115e59">Δωρεάν Ποσότητα</text>
+  <text x="353" y="195" font-family="Arial, sans-serif" font-size="16" fill="#0f172a">10 τεμ. δώρο</text>
+  <text x="353" y="225" font-family="Arial, sans-serif" font-size="22" font-weight="700" fill="#0f766e">Αξία 0 €</text>
+
+  <rect x="610" y="124" rx="16" ry="16" width="250" height="150" fill="#ffffff" stroke="#fde68a" stroke-width="2"/>
+  <text x="638" y="160" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="#92400e">2η Αγορά</text>
+  <text x="638" y="195" font-family="Arial, sans-serif" font-size="16" fill="#0f172a">50 τεμ. x 2,50 €</text>
+  <text x="638" y="225" font-family="Arial, sans-serif" font-size="22" font-weight="700" fill="#b45309">Αξία 125 €</text>
+
+  <rect x="895" y="112" rx="18" ry="18" width="265" height="174" fill="#ffffff" stroke="#818cf8" stroke-width="3"/>
+  <text x="924" y="152" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="#312e81">Τιμή Κτήσης</text>
+  <text x="924" y="188" font-family="Arial, sans-serif" font-size="16" fill="#0f172a">(200 + 0 + 125)</text>
+  <text x="924" y="215" font-family="Arial, sans-serif" font-size="16" fill="#0f172a">/ (100 + 10 + 50)</text>
+  <text x="924" y="252" font-family="Arial, sans-serif" font-size="28" font-weight="800" fill="#4338ca">2,03125 €</text>
+
+  <path d="M294 199 L318 199" stroke="#6366f1" stroke-width="4"/>
+  <polygon points="318,199 306,191 306,207" fill="#6366f1"/>
+  <path d="M579 199 L603 199" stroke="#6366f1" stroke-width="4"/>
+  <polygon points="603,199 591,191 591,207" fill="#6366f1"/>
+  <path d="M864 199 L888 199" stroke="#6366f1" stroke-width="4"/>
+  <polygon points="888,199 876,191 876,207" fill="#6366f1"/>
+
+  <text x="40" y="322" font-family="Arial, sans-serif" font-size="16" fill="#475569">Τα δωρεάν τεμάχια αυξάνουν την ποσότητα και μειώνουν τη σταθμισμένη τιμή κτήσης.</text>
+</svg>

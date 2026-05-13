@@ -33,20 +33,51 @@
 
   <div class="col-xl-4 col-md-6">
     <label class="form-label">{{ tt(request, 'categories') }}</label>
-    <input type="search" id="pcCategoriesSearch" class="form-control form-control-sm mb-1" placeholder="Αναζήτηση κατηγορίας...">
-    <select id="pcCategories" class="form-select" multiple size="4"></select>
-    <small class="text-muted">Ctrl/Cmd για πολλαπλή επιλογή</small>
+    <div class="bv-multi" id="pcCategoriesMulti">
+      <button type="button" class="form-select bv-multi-toggle text-start" id="pcCategoriesToggle">Επιλογή</button>
+      <div class="bv-multi-menu" id="pcCategoriesMenu" hidden>
+        <div class="d-flex gap-2 mb-2">
+          <input type="text" class="form-control form-control-sm" id="pcCategoriesSearch" placeholder="Αναζήτηση...">
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="pcCategoriesAll">Όλα</button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="pcCategoriesClear">Καθαρισμός</button>
+        </div>
+        <div id="pcCategoriesOptions" class="bv-multi-options"></div>
+      </div>
+      <div id="pcCategoriesChips" class="bv-chip-wrap mt-2"></div>
+      <select id="pcCategories" multiple hidden></select>
+    </div>
   </div>
   <div class="col-xl-4 col-md-6">
     <label class="form-label">{{ tt(request, 'groups') }}</label>
-    <input type="search" id="pcGroupsSearch" class="form-control form-control-sm mb-1" placeholder="Αναζήτηση ομάδας...">
-    <select id="pcGroups" class="form-select" multiple size="4"></select>
-    <small class="text-muted">Ctrl/Cmd για πολλαπλή επιλογή</small>
+    <div class="bv-multi" id="pcGroupsMulti">
+      <button type="button" class="form-select bv-multi-toggle text-start" id="pcGroupsToggle">Επιλογή</button>
+      <div class="bv-multi-menu" id="pcGroupsMenu" hidden>
+        <div class="d-flex gap-2 mb-2">
+          <input type="text" class="form-control form-control-sm" id="pcGroupsSearch" placeholder="Αναζήτηση...">
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="pcGroupsAll">Όλα</button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="pcGroupsClear">Καθαρισμός</button>
+        </div>
+        <div id="pcGroupsOptions" class="bv-multi-options"></div>
+      </div>
+      <div id="pcGroupsChips" class="bv-chip-wrap mt-2"></div>
+      <select id="pcGroups" multiple hidden></select>
+    </div>
   </div>
   <div class="col-xl-4 col-md-12">
     <label class="form-label">{{ tt(request, 'item_codes') }}</label>
-    <input type="search" id="pcItemsSearch" class="form-control form-control-sm mb-1" placeholder="Αναζήτηση είδους / κωδικού...">
-    <select id="pcItems" class="form-select" multiple size="4"></select>
+    <div class="bv-multi" id="pcItemsMulti">
+      <button type="button" class="form-select bv-multi-toggle text-start" id="pcItemsToggle">Επιλογή</button>
+      <div class="bv-multi-menu" id="pcItemsMenu" hidden>
+        <div class="d-flex gap-2 mb-2">
+          <input type="text" class="form-control form-control-sm" id="pcItemsSearch" placeholder="Αναζήτηση...">
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="pcItemsAll">Όλα</button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="pcItemsClear">Καθαρισμός</button>
+        </div>
+        <div id="pcItemsOptions" class="bv-multi-options"></div>
+      </div>
+      <div id="pcItemsChips" class="bv-chip-wrap mt-2"></div>
+      <select id="pcItems" multiple hidden></select>
+    </div>
     <small class="text-muted">Όταν επιλέγεις στόχο, εμφανίζονται μόνο τα είδη του στόχου.</small>
   </div>
 
@@ -59,29 +90,112 @@
 
 {% block content %}
 <style>
-  .bv-kpi-box .kpi-value { font-size: 1.35rem; line-height: 1.15; word-break: break-all; }
-  .bv-kpi-box .kpi-title { font-size: .75rem; }
-  .bv-kpi-box .kpi-meta  { font-size: .72rem; }
+  body.tenant-shell #pcTable {
+    width: max-content;
+    min-width: 3000px;
+    table-layout: fixed;
+  }
+
+  body.tenant-shell .pc-table-wrap {
+    max-height: calc(100vh - 230px);
+    overflow: auto !important;
+    position: relative;
+  }
+
+  body.tenant-shell #pcTable thead th,
+  body.tenant-shell #pcTable tbody td {
+    padding: 16px 24px !important;
+    line-height: 1.55;
+  }
+
+  body.tenant-shell #pcTable thead th {
+    position: sticky;
+    top: 0;
+    z-index: 8;
+    background: color-mix(in srgb, var(--panel-bg) 96%, #ffffff) !important;
+    box-shadow: 0 2px 0 var(--panel-border);
+    white-space: normal !important;
+    line-height: 1.25;
+    vertical-align: middle;
+  }
+
+  body.tenant-shell #pcTable th:nth-child(1),
+  body.tenant-shell #pcTable td:nth-child(1) { width: 340px; }
+  body.tenant-shell #pcTable th:nth-child(2),
+  body.tenant-shell #pcTable td:nth-child(2) { width: 165px; }
+  body.tenant-shell #pcTable th:nth-child(3),
+  body.tenant-shell #pcTable td:nth-child(3) { width: 330px; }
+  body.tenant-shell #pcTable th:nth-child(4),
+  body.tenant-shell #pcTable td:nth-child(4) { width: 220px; }
+  body.tenant-shell #pcTable th:nth-child(5),
+  body.tenant-shell #pcTable td:nth-child(5) { width: 430px; }
+  body.tenant-shell #pcTable th:nth-child(6),
+  body.tenant-shell #pcTable td:nth-child(6) { width: 190px; }
+  body.tenant-shell #pcTable th:nth-child(7),
+  body.tenant-shell #pcTable td:nth-child(7),
+  body.tenant-shell #pcTable th:nth-child(8),
+  body.tenant-shell #pcTable td:nth-child(8),
+  body.tenant-shell #pcTable th:nth-child(9),
+  body.tenant-shell #pcTable td:nth-child(9) { width: 165px; }
+  body.tenant-shell #pcTable th:nth-child(10),
+  body.tenant-shell #pcTable td:nth-child(10) { width: 170px; }
+  body.tenant-shell #pcTable th:nth-child(11),
+  body.tenant-shell #pcTable td:nth-child(11) { width: 185px; }
+  body.tenant-shell #pcTable th:nth-child(12),
+  body.tenant-shell #pcTable td:nth-child(12) { width: 145px; }
+  body.tenant-shell #pcTable th:nth-child(13),
+  body.tenant-shell #pcTable td:nth-child(13) { width: 240px; }
+
+  body.tenant-shell #pcTable .pc-wrap {
+    white-space: normal;
+    overflow-wrap: break-word;
+    word-break: normal;
+  }
+
+  body.tenant-shell #pcTable .pc-nowrap {
+    white-space: nowrap;
+  }
+
+  body.tenant-shell #pcTable .pc-item-code {
+    display: block;
+    margin-top: 4px;
+    font-size: .76rem;
+    line-height: 1.2;
+  }
 </style>
 <div id="pcError" class="alert alert-danger d-none mb-3"></div>
 
 <div class="row g-3 mb-3">
-  <div class="col-lg-4">
+  <div class="col-md-6 col-xl">
     <div class="bv-kpi-box bv-kpi-blue" data-kpi-what="Πόσοι κωδικοί ειδών συμμετέχουν στον έλεγχο τιμών με τα τρέχοντα φίλτρα." data-kpi-formula="Item Codes = count(item_code) όλων των ειδών που πέρασαν τα φίλτρα.">
       <div class="kpi-title">{{ tt(request, 'item_codes') }}</div>
       <div id="pcItemsCount" class="kpi-value">0</div>
     </div>
   </div>
-  <div class="col-lg-4">
+  <div class="col-md-6 col-xl">
     <div class="bv-kpi-box bv-kpi-green" data-kpi-what="Το μέσο ποσοστό περιθωρίου των ειδών που εμφανίζονται." data-kpi-formula="Μέσο Margin = μέσος όρος του ((τιμή πώλησης - κόστος) / τιμή πώλησης) * 100 για όλα τα items του result set.">
       <div class="kpi-title">{{ tt(request, 'margin') }}</div>
       <div id="pcAvgMargin" class="kpi-value">0.00%</div>
     </div>
   </div>
-  <div class="col-lg-4">
+  <div class="col-md-6 col-xl">
     <div class="bv-kpi-box bv-kpi-orange" data-kpi-what="Η μέση πραγματική έκπτωση που εφαρμόζεται στα είδη που βλέπεις." data-kpi-formula="Μέση Έκπτωση % = μέσος όρος του ((τιμή καταλόγου - τελική τιμή) / τιμή καταλόγου) * 100 για όλα τα items του result set.">
       <div class="kpi-title">{{ tt(request, 'discount_pct') }}</div>
       <div id="pcEffectiveDiscount" class="kpi-value">0.00%</div>
+    </div>
+  </div>
+  <div class="col-md-6 col-xl">
+    <div class="bv-kpi-box bv-kpi-cyan" role="button" tabindex="0" id="pcAbovePredictedCard" data-price-category="above" data-kpi-what="Πόσα προϊόντα έχουν τιμή λιανικής πάνω από την τιμή στόχου με βάση την τιμή κτήσης και τον στόχο περιθωρίου." data-kpi-formula="Τιμή Στόχου = Τιμή Κτήσης / (1 - Στόχος Περιθωρίου%). Μετράμε όσα έχουν Τιμή Λιανικής >= Τιμή Στόχου.">
+      <div class="kpi-icon" title="Ανάλυση ειδών πάνω από την προβλεπόμενη τιμή"><i class="fe fe-arrow-up-circle"></i></div>
+      <div class="kpi-title">Πάνω από Προβλ.</div>
+      <div id="pcAbovePredictedCount" class="kpi-value">0</div>
+    </div>
+  </div>
+  <div class="col-md-6 col-xl">
+    <div class="bv-kpi-box bv-kpi-red" role="button" tabindex="0" id="pcBelowPredictedCard" data-price-category="below" data-kpi-what="Πόσα προϊόντα έχουν τιμή λιανικής κάτω από την τιμή στόχου με βάση την τιμή κτήσης και τον στόχο περιθωρίου." data-kpi-formula="Τιμή Στόχου = Τιμή Κτήσης / (1 - Στόχος Περιθωρίου%). Μετράμε όσα έχουν Τιμή Λιανικής < Τιμή Στόχου.">
+      <div class="kpi-icon" title="Ανάλυση ειδών κάτω από την προβλεπόμενη τιμή"><i class="fe fe-arrow-down-circle"></i></div>
+      <div class="kpi-title">Κάτω από Προβλ.</div>
+      <div id="pcBelowPredictedCount" class="kpi-value">0</div>
     </div>
   </div>
 </div>
@@ -90,7 +204,7 @@
   <div class="card-header">
     <h5 class="mb-0">{{ tt(request, 'price_control') }}</h5>
   </div>
-  <div class="card-body table-responsive">
+  <div class="card-body table-responsive pc-table-wrap">
     <table class="table table-sm table-hover align-middle bv-unified-table" id="pcTable">
       <thead>
         <tr>
@@ -102,15 +216,48 @@
           <th>{{ tt(request, 'groups') }}</th>
           <th class="text-end">{{ tt(request, 'wholesale_unit') }}</th>
           <th class="text-end">{{ tt(request, 'acquisition_after_discount') }}</th>
+          <th class="text-end">{{ tt(request, 'retail_unit') }}</th>
+          <th class="text-end">{{ tt(request, 'target_sale_unit') }}</th>
           <th class="text-end">{{ tt(request, 'sale_unit') }}</th>
-          <th class="text-end">{{ tt(request, 'unit_profit') }}</th>
           <th class="text-end">{{ tt(request, 'margin') }}</th>
-          <th class="text-end">{{ tt(request, 'required_total_discount') }}</th>
           <th class="text-end">{{ tt(request, 'recommended_discount') }}</th>
         </tr>
       </thead>
       <tbody></tbody>
     </table>
+  </div>
+</div>
+
+<div class="modal fade bv-modal bv-modal--responsive bv-modal--xl" id="pcPriceCategoryModal" tabindex="-1" aria-hidden="true" data-bv-modal="true" data-bv-close-on-backdrop="true">
+  <div class="modal-dialog modal-dialog-centered modal-xl">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title mb-0" id="pcPriceCategoryTitle">Ανάλυση ειδών</h5>
+          <div class="text-muted small" id="pcPriceCategorySubtitle"></div>
+        </div>
+        <button type="button" class="btn-close" data-bv-modal-close data-bs-dismiss="modal" aria-label="Κλείσιμο"></button>
+      </div>
+      <div class="modal-body">
+        <div class="table-responsive">
+          <table class="table table-sm table-hover align-middle mb-0">
+            <thead>
+              <tr>
+                <th>Είδος</th>
+                <th>Προμηθευτής</th>
+                <th class="text-end">Τιμή Κτήσης</th>
+                <th class="text-end">Τιμή Στόχου</th>
+                <th class="text-end">Τιμή Λιανικής</th>
+                <th class="text-end">Τιμή Πώλησης</th>
+                <th class="text-end">Διαφορά</th>
+                <th class="text-end">Διαφορά %</th>
+              </tr>
+            </thead>
+            <tbody id="pcPriceCategoryBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 {% endblock %}
@@ -132,16 +279,32 @@
   const categoriesEl = document.getElementById('pcCategories');
   const groupsEl = document.getElementById('pcGroups');
   const itemsEl = document.getElementById('pcItems');
-  const pcMultiState = {
-    pcCategories: { rows: [], selected: new Set(), searchEl: document.getElementById('pcCategoriesSearch') },
-    pcGroups: { rows: [], selected: new Set(), searchEl: document.getElementById('pcGroupsSearch') },
-    pcItems: { rows: [], selected: new Set(), searchEl: document.getElementById('pcItemsSearch') },
-  };
+  const multiDefs = [
+    { id: 'pcCategories', label: '{{ tt(request, 'categories') }}' },
+    { id: 'pcGroups', label: '{{ tt(request, 'groups') }}' },
+    { id: 'pcItems', label: '{{ tt(request, 'item_codes') }}' },
+  ];
 
   const summaryItemsEl = document.getElementById('pcItemsCount');
   const summaryAvgEl = document.getElementById('pcAvgMargin');
   const summaryDiscEl = document.getElementById('pcEffectiveDiscount');
+  const abovePredictedEl = document.getElementById('pcAbovePredictedCount');
+  const belowPredictedEl = document.getElementById('pcBelowPredictedCount');
+  const priceCategoryBody = document.getElementById('pcPriceCategoryBody');
+  const priceCategoryTitle = document.getElementById('pcPriceCategoryTitle');
+  const priceCategorySubtitle = document.getElementById('pcPriceCategorySubtitle');
   const tbody = document.querySelector('#pcTable tbody');
+  let currentRows = [];
+  let priceCategoryModal = null;
+
+  function esc(value){
+    return String(value ?? '')
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#39;');
+  }
 
   function setError(msg){
     if(!msg){ errEl.classList.add('d-none'); errEl.textContent=''; return; }
@@ -150,58 +313,25 @@
   }
 
   function selectedValues(el){
-    const state = pcMultiState[el?.id];
-    if(state) return Array.from(state.selected).filter(Boolean);
+    if(window.BvMultiSelect && el?.id) return window.BvMultiSelect.selectedValues(el.id).filter(Boolean);
     return Array.from(el?.selectedOptions || []).map(o=>o.value).filter(Boolean);
   }
 
-  function syncManagedSelection(el){
-    const state = pcMultiState[el?.id];
-    if(!state) return;
-    Array.from(el.options || []).forEach((opt)=>{
-      if(opt.selected) state.selected.add(opt.value);
-      else state.selected.delete(opt.value);
-    });
-  }
-
-  function renderManagedMulti(el){
-    const state = pcMultiState[el?.id];
-    if(!state) return;
-    const query = String(state.searchEl?.value || '').trim().toLowerCase();
-    const rows = state.rows.filter((r)=>{
-      const label = String(r.label || r.value || '').toLowerCase();
-      const value = String(r.value || '').toLowerCase();
-      return !query || label.includes(query) || value.includes(query);
-    });
-    el.innerHTML = '';
-    rows.forEach((r)=>{
-      const opt = document.createElement('option');
-      opt.value = r.value;
-      opt.textContent = r.label || r.value;
-      opt.selected = state.selected.has(opt.value);
-      el.appendChild(opt);
-    });
-  }
-
   function clearAndFillSelect(el, rows){
-    const state = pcMultiState[el?.id];
-    const prev = new Set(selectedValues(el));
-    const ordered = [...(rows || [])].sort((a, b) =>
-      String(a.label || a.value || '').localeCompare(String(b.label || b.value || ''), 'el', { sensitivity: 'base' })
-    );
-    if(state){
-      const allowed = new Set(ordered.map((r)=>String(r.value)));
-      state.selected = new Set([...prev].filter((v)=>allowed.has(String(v))));
-      state.rows = ordered.map((r)=>({ value: String(r.value), label: String(r.label || r.value) }));
-      renderManagedMulti(el);
+    const id = el?.id;
+    const def = multiDefs.find((item)=>item.id === id);
+    const values = (rows || []).map((r)=>String(r.value));
+    const labels = {};
+    (rows || []).forEach((r)=>{ labels[String(r.value)] = String(r.label || r.value); });
+    if(window.BvMultiSelect && id){
+      window.BvMultiSelect.populate(id, values, labels, { label: def?.label || 'Επιλογή' });
       return;
     }
     el.innerHTML = '';
-    ordered.forEach(r=>{
+    (rows || []).forEach(r=>{
       const opt=document.createElement('option');
       opt.value = r.value;
       opt.textContent = r.label || r.value;
-      if(prev.has(opt.value)) opt.selected = true;
       el.appendChild(opt);
     });
   }
@@ -278,26 +408,75 @@
     }
     rows.forEach(r=>{
       const tr = document.createElement('tr');
-      const req = r.required_total_discount_pct == null ? '-' : fmtPct(r.required_total_discount_pct);
       const rec = r.recommended_extra_discount_pct == null ? '-' : fmtPct(r.recommended_extra_discount_pct);
       const recClass = Number(r.recommended_extra_discount_pct || 0) > 0 ? 'text-danger fw-bold' : 'text-success fw-bold';
       tr.innerHTML = `
-        <td><div class="fw-semibold">${r.item_name || '-'}</div><div class="small text-muted">${r.item_code || '-'}</div></td>
-        <td>${r.barcode || '-'}</td>
-        <td>${r.supplier || '-'}</td>
-        <td>${r.brand || '-'}</td>
-        <td>${r.category || '-'}</td>
-        <td>${r.group || '-'}</td>
-        <td class="text-end">${fmtMoney(r.wholesale_unit)}</td>
-        <td class="text-end">${fmtMoney(r.acquisition_after_discount)}</td>
-        <td class="text-end">${fmtMoney(r.sale_unit)}</td>
-        <td class="text-end">${fmtMoney(r.unit_profit)}</td>
-        <td class="text-end fw-bold">${fmtPct(r.margin_pct)}</td>
-        <td class="text-end">${req}</td>
-        <td class="text-end ${recClass}">${rec}</td>
+        <td class="pc-wrap"><div class="fw-semibold">${esc(r.item_name || '-')}</div><span class="text-muted pc-item-code">${esc(r.item_code || '-')}</span></td>
+        <td class="pc-nowrap">${esc(r.barcode || '-')}</td>
+        <td class="pc-wrap">${esc(r.supplier || '-')}</td>
+        <td class="pc-wrap">${esc(r.brand || '-')}</td>
+        <td class="pc-wrap">${esc(r.category || '-')}</td>
+        <td class="pc-wrap">${esc(r.group || '-')}</td>
+        <td class="text-end pc-nowrap">${fmtMoney(r.wholesale_unit)}</td>
+        <td class="text-end pc-nowrap">${fmtMoney(r.acquisition_after_discount)}</td>
+        <td class="text-end pc-nowrap">${fmtMoney(r.retail_unit)}</td>
+        <td class="text-end pc-nowrap">${fmtMoney(r.target_sale_unit || r.predicted_sale_unit)}</td>
+        <td class="text-end pc-nowrap">${fmtMoney(r.sale_unit)}</td>
+        <td class="text-end fw-bold pc-nowrap">${fmtPct(r.margin_pct)}</td>
+        <td class="text-end pc-nowrap ${recClass}">${rec}</td>
       `;
       tbody.appendChild(tr);
     });
+  }
+
+  function categoryRows(kind){
+    return currentRows
+      .filter((r)=>{
+        const predicted = Number(r.predicted_sale_unit || 0);
+        const retail = Number(r.retail_unit || 0);
+        if(predicted <= 0 || retail <= 0) return false;
+        return kind === 'above' ? retail >= predicted : retail < predicted;
+      })
+      .sort((a, b)=>Math.abs(Number(b.price_gap_value || 0)) - Math.abs(Number(a.price_gap_value || 0)));
+  }
+
+  function renderPriceCategoryCounts(){
+    abovePredictedEl.textContent = String(categoryRows('above').length);
+    belowPredictedEl.textContent = String(categoryRows('below').length);
+  }
+
+  function openPriceCategory(kind){
+    const rows = categoryRows(kind);
+    const title = kind === 'above' ? 'Προϊόντα πάνω από την προβλεπόμενη τιμή' : 'Προϊόντα κάτω από την προβλεπόμενη τιμή';
+    priceCategoryTitle.textContent = title;
+    priceCategorySubtitle.textContent = `Τιμή Στόχου = Τιμή Κτήσης / (1 - Στόχος Περιθωρίου%). Η σύγκριση γίνεται με την τιμή λιανικής. Εμφάνιση ${rows.length} ειδών.`;
+    if(!rows.length){
+      priceCategoryBody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-3">Δεν υπάρχουν διαθέσιμα είδη σε αυτή την κατηγορία.</td></tr>';
+    }else{
+      priceCategoryBody.innerHTML = rows.map((r)=>{
+        const gap = Number(r.price_gap_value || 0);
+        const gapPct = Number(r.price_gap_pct || 0);
+        const tone = gap < 0 ? 'text-danger fw-bold' : 'text-success fw-bold';
+        return `<tr>
+          <td><div class="fw-semibold">${esc(r.item_name || '-')}</div><div class="small text-muted">${esc(r.item_code || '')}</div></td>
+          <td>${esc(r.supplier || '-')}</td>
+          <td class="text-end">${fmtMoney(r.acquisition_after_discount)}</td>
+          <td class="text-end">${fmtMoney(r.target_sale_unit || r.predicted_sale_unit)}</td>
+          <td class="text-end">${fmtMoney(r.retail_unit)}</td>
+          <td class="text-end">${fmtMoney(r.sale_unit)}</td>
+          <td class="text-end ${tone}">${fmtMoney(gap)}</td>
+          <td class="text-end ${tone}">${fmtPct(gapPct)}</td>
+        </tr>`;
+      }).join('');
+    }
+    const el = document.getElementById('pcPriceCategoryModal');
+    if(window.BVModalSystem){
+      priceCategoryModal = priceCategoryModal || window.BVModalSystem.create(el, { closeOnBackdrop: true, keyboard: true });
+      priceCategoryModal.show();
+    }else{
+      priceCategoryModal = priceCategoryModal || window.bootstrap.Modal.getOrCreateInstance(el);
+      priceCategoryModal.show();
+    }
   }
 
   async function loadTable(){
@@ -311,8 +490,10 @@
     const summary = data.summary || {};
     summaryItemsEl.textContent = String(summary.items || 0);
     summaryAvgEl.textContent = fmtPct(summary.avg_margin_pct || 0);
-    summaryDiscEl.textContent = fmtPct(data.effective_discount_pct || 0);
-    renderRows(data.rows || []);
+    summaryDiscEl.textContent = fmtPct(summary.avg_discount_pct ?? data.effective_discount_pct ?? 0);
+    currentRows = data.rows || [];
+    renderPriceCategoryCounts();
+    renderRows(currentRows);
   }
 
   async function refreshAndLoad(){
@@ -332,20 +513,26 @@
     targetEl.value = '';
     targetMarginEl.value = '{{ default_target_margin }}';
     discountEl.value = '0';
-    Array.from(categoriesEl.options).forEach(o=>{o.selected=false;});
-    Array.from(groupsEl.options).forEach(o=>{o.selected=false;});
-    Array.from(itemsEl.options).forEach(o=>{o.selected=false;});
-    Object.values(pcMultiState).forEach((state)=>{ state.selected.clear(); if(state.searchEl) state.searchEl.value = ''; });
-    renderManagedMulti(categoriesEl);
-    renderManagedMulti(groupsEl);
-    renderManagedMulti(itemsEl);
+    multiDefs.forEach((def)=>window.BvMultiSelect?.setSelected(def.id, [], { label: def.label }));
     refreshAndLoad();
   });
 
-  [categoriesEl, groupsEl, itemsEl].forEach((el)=>{
-    el.addEventListener('change', ()=>syncManagedSelection(el));
-    const state = pcMultiState[el.id];
-    state.searchEl?.addEventListener('input', ()=>renderManagedMulti(el));
+  multiDefs.forEach((def)=>{
+    window.BvMultiSelect?.bind(def.id, { label: def.label });
+  });
+
+  document.querySelectorAll('[data-price-category]').forEach((card)=>{
+    const handler = (event)=>{
+      event?.preventDefault?.();
+      event?.stopPropagation?.();
+      openPriceCategory(card.dataset.priceCategory);
+    };
+    card.addEventListener('click', handler);
+    card.addEventListener('keydown', (event)=>{
+      if(event.key === 'Enter' || event.key === ' '){
+        handler(event);
+      }
+    });
   });
 
   refreshAndLoad();
