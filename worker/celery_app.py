@@ -33,6 +33,8 @@ celery.conf.task_routes = {
     'worker.tasks.enqueue_incremental_sync': {'queue': 'ingest'},
     'worker.tasks.enqueue_incremental_sync_all_tenants': {'queue': 'ingest'},
     'worker.tasks.enqueue_daily_recovery_sync_all_tenants': {'queue': 'ingest'},
+    'worker.tasks.enqueue_daily_reconciliation_checks': {'queue': 'default'},
+    'worker.tasks.run_daily_reconciliation_for_tenant': {'queue': 'default'},
     # Backfill fan-out should not wait behind tenant ingest jobs on the same queue.
     # Run the planner on the default queue, then let it enqueue stream jobs to ingest.
     'worker.tasks.enqueue_sql_backfill': {'queue': 'default'},
@@ -66,6 +68,10 @@ celery.conf.beat_schedule = {
     'daily-recovery-sync-all-tenants': {
         'task': 'worker.tasks.enqueue_daily_recovery_sync_all_tenants',
         'schedule': timedelta(days=1),
+    },
+    'daily-reconciliation-checks': {
+        'task': 'worker.tasks.enqueue_daily_reconciliation_checks',
+        'schedule': timedelta(minutes=5),
     },
     'audit-sync-completeness': {
         'task': 'worker.tasks.audit_sync_completeness',

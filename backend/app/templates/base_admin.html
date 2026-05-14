@@ -177,11 +177,18 @@
     .dashboard-shell {
       padding: 22px;
     }
+    .sidebar-version-footer {
+      flex: 0 0 auto;
+      display: grid;
+      gap: 6px;
+      padding: 10px 12px 12px;
+      border-top: 1px solid var(--panel-border);
+      background: var(--panel-bg);
+    }
     .powered-by-cloudon {
-      position: fixed;
-      right: 16px;
-      bottom: 12px;
-      z-index: 99999;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
       font-size: 11px;
       font-weight: 700;
       letter-spacing: .6px;
@@ -190,13 +197,13 @@
       padding: 4px 8px;
       border-radius: 8px;
       border: 1px solid #e5e7eb;
-      pointer-events: none;
+      line-height: 1.2;
+      text-align: center;
     }
     .app-version-badge {
-      position: fixed;
-      right: 16px;
-      bottom: 44px;
-      z-index: 99999;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
       font-size: 11px;
       font-weight: 700;
       letter-spacing: .6px;
@@ -205,7 +212,8 @@
       padding: 4px 8px;
       border-radius: 8px;
       border: 1px solid #e5e7eb;
-      pointer-events: none;
+      line-height: 1.2;
+      text-align: center;
     }
     body[data-theme='dark'] {
       --shell-bg: #0b1220;
@@ -318,11 +326,9 @@
       .left-sidebar .menu.main-sidebar .list {
         padding-bottom: 88px;
       }
-      .powered-by-cloudon {
-        right: 10px;
-        bottom: 8px;
-        font-size: 10px;
-      }
+      .sidebar-version-footer { padding: 8px 10px 10px; }
+      .app-version-badge,
+      .powered-by-cloudon { font-size: 10px; }
     }
   </style>
 </head>
@@ -406,6 +412,10 @@
           </li>
           {% endif %}
         </ul>
+      </div>
+      <div class="sidebar-version-footer" aria-label="Application version">
+        <div class="app-version-badge">Version {{ app_version }}</div>
+        <div class="powered-by-cloudon">{{ tt(request, 'powered_by') }}</div>
       </div>
     </aside>
   </section>
@@ -743,7 +753,5 @@
     });
   </script>
   {% block scripts %}{% endblock %}
-  <div class="app-version-badge">Version {{ app_version }}</div>
-  <div class="powered-by-cloudon">{{ tt(request, 'powered_by') }}</div>
 </body>
 </html>

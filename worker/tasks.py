@@ -6,6 +6,7 @@ import time
 from datetime import date, datetime, timedelta
 from typing import Any
 from urllib.parse import quote_plus
+from zoneinfo import ZoneInfo
 
 from celery import current_app, shared_task
 from redis import Redis
@@ -28,6 +29,7 @@ from app.models.control import (
     TenantRuleOverride,
     TenantStatus,
 )
+from app.models.tenant import Insight
 from app.observability.metrics import (
     ingest_dead_letters_total,
     ingest_job_duration_seconds,
@@ -64,6 +66,7 @@ from app.services.ingestion.completeness_audit import (
 )
 from app.services.ingestion.engine import persist_dead_letter
 from app.services.ingestion.progress import begin_ingest_progress, queue_depth, update_ingest_progress
+from app.services.ingestion.reconciliation import STREAM_CONFIGS, reconcile_tenant_streams
 from app.services.ingestion.sync_planner import SQL_CONNECTOR_ALIASES, plan_tenant_sync_jobs
 from app.services.intelligence_service import generate_daily_insights
 from app.services.kpi_cache import invalidate_tenant_cache
@@ -1317,6 +1320,9 @@ async def _enqueue_incremental_sync(
         job['payload'] = payload
         job.setdefault('attempt', 0)
         job.setdefault('max_retries', settings.ingest_job_max_retries)
+        if str(job.get('connector') or '').strip().lower() in SQL_CONNECTOR_ALIASES:
+            sql_job_retries = max(0, int(getattr(settings, 'sqlserver_ingest_job_max_retries', 0) or 0))
+            job['max_retries'] = min(int(job.get('max_retries') or 0), sql_job_retries)
         enqueue_tenant_job(tenant_slug, job)
         if stream_intervals is not None:
             redis.set(f'ingest:auto:last_queued:{tenant_slug}:{stream}', str(now_ts), ex=60 * 60 * 24 * 45)
@@ -1384,6 +1390,81 @@ def _tenant_auto_sync_settings(tenant: Tenant) -> dict:
     }
 
 
+def _tenant_reconciliation_settings(tenant: Tenant) -> dict[str, Any]:
+    flags = tenant.feature_flags if isinstance(getattr(tenant, 'feature_flags', None), dict) else {}
+    cfg = flags.get('daily_reconciliation') if isinstance(flags.get('daily_reconciliation'), dict) else {}
+    enabled = _param_bool_enabled(cfg, 'enabled', False)
+    time_text = str(cfg.get('time') or '23:30').strip()[:5]
+    if not time_text or ':' not in time_text:
+        time_text = '23:30'
+    hour_text, minute_text = (time_text.split(':', 1) + ['00'])[:2]
+    try:
+        hour = max(0, min(23, int(hour_text)))
+        minute = max(0, min(59, int(minute_text)))
+    except Exception:
+        hour, minute = 23, 30
+    timezone_name = str(cfg.get('timezone') or getattr(settings, 'timezone', 'Europe/Athens') or 'Europe/Athens').strip()
+    try:
+        lookback_days = int(cfg.get('lookback_days') or 1)
+    except Exception:
+        lookback_days = 1
+    stream_values = cfg.get('streams') if isinstance(cfg.get('streams'), list) else []
+    streams = []
+    for raw in stream_values:
+        stream = normalize_stream_name(raw)
+        if stream in STREAM_CONFIGS and stream not in streams:
+            streams.append(stream)
+    if not streams:
+        streams = [
+            'sales_documents',
+            'purchase_documents',
+            'inventory_documents',
+            'cash_transactions',
+            'operating_expenses',
+        ]
+    return {
+        'enabled': enabled,
+        'time': f'{hour:02d}:{minute:02d}',
+        'timezone': timezone_name,
+        'lookback_days': max(1, min(366, lookback_days)),
+        'streams': streams,
+    }
+
+
+def _parse_hhmm_minutes(raw: Any, fallback: str) -> int:
+    text = str(raw or fallback).strip()[:5]
+    if ':' not in text:
+        text = fallback
+    hour_text, minute_text = (text.split(':', 1) + ['00'])[:2]
+    try:
+        hour = max(0, min(23, int(hour_text)))
+        minute = max(0, min(59, int(minute_text)))
+    except Exception:
+        hour, minute = [int(part) for part in fallback.split(':', 1)]
+    return hour * 60 + minute
+
+
+def _auto_sync_within_business_hours(auto_sync: dict[str, Any], now_utc: datetime) -> bool:
+    raw = auto_sync.get('business_hours') if isinstance(auto_sync.get('business_hours'), dict) else {}
+    mode = str(raw.get('mode') or 'always').strip().lower()
+    if mode != 'business_hours':
+        return True
+    timezone_name = str(raw.get('timezone') or 'Europe/Athens').strip() or 'Europe/Athens'
+    try:
+        tz = ZoneInfo(timezone_name)
+    except Exception:
+        tz = ZoneInfo('Europe/Athens')
+    local_now = now_utc.replace(tzinfo=ZoneInfo('UTC')).astimezone(tz)
+    current = local_now.hour * 60 + local_now.minute
+    start = _parse_hhmm_minutes(raw.get('start'), '08:00')
+    end = _parse_hhmm_minutes(raw.get('end'), '22:00')
+    if start == end:
+        return True
+    if start < end:
+        return start <= current < end
+    return current >= start or current < end
+
+
 def _param_bool_enabled(params: dict, key: str, default: bool = True) -> bool:
     raw = params.get(key, default)
     if isinstance(raw, str):
@@ -1394,6 +1475,7 @@ def _param_bool_enabled(params: dict, key: str, default: bool = True) -> bool:
 def _auto_sync_stream_settings(auto_sync: dict, stream: str, default_interval: int) -> dict[str, Any]:
     overrides = auto_sync.get('stream_overrides') if isinstance(auto_sync.get('stream_overrides'), dict) else {}
     raw = overrides.get(stream) if isinstance(overrides.get(stream), dict) else {}
+    explicitly_configured = stream in overrides and isinstance(overrides.get(stream), dict)
     enabled = _param_bool_enabled(raw, 'enabled', True)
     try:
         interval = int(raw.get('interval_minutes') or auto_sync.get('interval_minutes') or default_interval)
@@ -1409,6 +1491,7 @@ def _auto_sync_stream_settings(auto_sync: dict, stream: str, default_interval: i
         recovery_days = 1
     return {
         'enabled': enabled,
+        'explicitly_configured': explicitly_configured,
         'interval_minutes': max(1, interval),
         'overlap_minutes': max(0, overlap),
         'recovery_days': max(1, recovery_days),
@@ -1441,6 +1524,23 @@ def _auto_sync_payload_for_profile(profile: str, stream_cfg: dict[str, Any], lim
         }
     )
     return payload
+
+
+def _looks_like_external_sql_timeout(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return any(
+        token in text
+        for token in (
+            'timeout',
+            'timed out',
+            'lock request time out',
+            'sqlstate hyt00',
+            'sqlstate hyt01',
+            '08s01',
+            '10060',
+            'tcp provider',
+        )
+    )
 
 
 async def _enqueue_incremental_sync_all_tenants(
@@ -1479,6 +1579,9 @@ async def _enqueue_incremental_sync_all_tenants(
             if not bool(tenant_auto_sync.get('enabled', True)):
                 skipped += 1
                 continue
+            if not _auto_sync_within_business_hours(tenant_auto_sync, now):
+                skipped += 1
+                continue
             if get_ingest_circuit_reason(tenant.slug):
                 skipped += 1
                 continue
@@ -1508,12 +1611,35 @@ async def _enqueue_incremental_sync_all_tenants(
 
             stream_payloads: dict[str, dict[str, Any]] = {}
             stream_intervals: dict[str, int] = {}
+            heavy_streams = {'supplier_balances', 'customer_balances'}
+            heavy_min_interval = max(
+                60,
+                int(getattr(settings, 'auto_sync_heavy_stream_min_interval_minutes', 1440) or 1440),
+            )
             for stream in ALL_OPERATIONAL_STREAMS:
                 stream_cfg = _auto_sync_stream_settings(tenant_auto_sync, stream, global_interval_minutes)
                 if not bool(stream_cfg.get('enabled', True)):
                     continue
-                stream_intervals[stream] = int(stream_cfg['interval_minutes'])
+                # Balance snapshots can scan a large part of the SoftOne ledger.
+                # Keep them out of the high-frequency/live cycle unless a tenant
+                # explicitly opts in from Advanced stream settings.
+                if (
+                    profile == 'live'
+                    and stream in heavy_streams
+                    and not bool(stream_cfg.get('explicitly_configured'))
+                ):
+                    continue
+                interval_minutes = int(stream_cfg['interval_minutes'])
+                if profile == 'live' and stream in heavy_streams:
+                    interval_minutes = max(interval_minutes, heavy_min_interval)
+                    stream_cfg['interval_minutes'] = interval_minutes
                 stream_payloads[stream] = _auto_sync_payload_for_profile(profile, stream_cfg, effective_limit)
+                if profile == 'live' and stream in heavy_streams:
+                    stream_payloads[stream]['safe_heavy_stream'] = True
+                    stream_payloads[stream]['limit'] = min(int(stream_payloads[stream]['limit']), 250)
+                    stream_payloads[stream]['ensure_complete'] = False
+                    stream_payloads[stream]['backfill'] = False
+                stream_intervals[stream] = interval_minutes
 
             if not stream_payloads:
                 skipped += 1
@@ -2565,19 +2691,20 @@ async def _drain_tenant_ingest_queue(tenant_slug: str, max_jobs: int) -> dict:
                     and entity in {
                     'sales',
                     'purchases',
-                    'inventory',
                     'cashflows',
                     'supplier_balances',
                     'customer_balances',
                     'expenses',
                 }
                 ):
+                    agg_from_date = min_doc_date
+                    agg_to_date = max_doc_date
                     if is_backfill_job:
-                        bucket = backfill_entity_ranges.setdefault(entity, {'from': str(min_doc_date), 'to': str(max_doc_date)})
-                        if str(min_doc_date) < bucket['from']:
-                            bucket['from'] = str(min_doc_date)
-                        if str(max_doc_date) > bucket['to']:
-                            bucket['to'] = str(max_doc_date)
+                        bucket = backfill_entity_ranges.setdefault(entity, {'from': str(agg_from_date), 'to': str(agg_to_date)})
+                        if str(agg_from_date) < bucket['from']:
+                            bucket['from'] = str(agg_from_date)
+                        if str(agg_to_date) > bucket['to']:
+                            bucket['to'] = str(agg_to_date)
                     else:
                         # Incremental jobs stay visible quickly. Backfills refresh once at
                         # the end of the whole requested range to avoid hundreds of slow,
@@ -2585,8 +2712,8 @@ async def _drain_tenant_ingest_queue(tenant_slug: str, max_jobs: int) -> dict:
                         refresh_aggregates_for_entity.delay(
                             tenant_slug=tenant_slug,
                             entity=entity,
-                            from_date_str=min_doc_date,
-                            to_date_str=max_doc_date,
+                            from_date_str=agg_from_date,
+                            to_date_str=agg_to_date,
                         )
                         aggregates_refreshed += 1
                 update_ingest_progress(tenant_slug, status='running', job_completed=True)
@@ -2624,6 +2751,13 @@ async def _drain_tenant_ingest_queue(tenant_slug: str, max_jobs: int) -> dict:
                         'Missing clientID',      # SoftOne API-level auth rejection
                     )
                 )
+                _external_sql_timeout = (
+                    str(job.get('connector') or '').strip().lower() in SQL_CONNECTOR_ALIASES
+                    and _looks_like_external_sql_timeout(exc)
+                )
+                if _external_sql_timeout:
+                    max_retries = 0
+
                 if _permanent_error:
                     permanent_failures += 1
                     open_ingest_circuit(tenant_slug, str(exc)[:500])
@@ -4248,6 +4382,225 @@ async def _generate_insights_for_tenant(tenant_slug: str, as_of_date_str: str | 
             )
             return {'status': 'ok', 'tenant': tenant_slug, 'as_of': str(as_of_date), **result}
     return {'status': 'ok', 'tenant': tenant_slug, 'as_of': str(as_of_date), 'generated': 0, 'rules_enabled': 0}
+
+
+def _daily_reconciliation_due(settings_cfg: dict[str, Any], now_utc: datetime) -> tuple[bool, str, date]:
+    timezone_name = str(settings_cfg.get('timezone') or 'Europe/Athens')
+    try:
+        tz = ZoneInfo(timezone_name)
+    except Exception:
+        tz = ZoneInfo('Europe/Athens')
+        timezone_name = 'Europe/Athens'
+    local_now = now_utc.replace(tzinfo=ZoneInfo('UTC')).astimezone(tz)
+    hour, minute = [int(part) for part in str(settings_cfg.get('time') or '23:30').split(':', 1)]
+    due_now = local_now.hour > hour or (local_now.hour == hour and local_now.minute >= minute)
+    return due_now, timezone_name, local_now.date()
+
+
+@shared_task(name='worker.tasks.enqueue_daily_reconciliation_checks', autoretry_for=(Exception,), retry_backoff=True, retry_kwargs={'max_retries': 3})
+def enqueue_daily_reconciliation_checks(max_tenants: int | None = None) -> dict:
+    return _run_coro(_enqueue_daily_reconciliation_checks(max_tenants=max_tenants))
+
+
+async def _enqueue_daily_reconciliation_checks(max_tenants: int | None = None) -> dict:
+    cap = max(1, int(max_tenants or settings.incremental_sync_max_tenants_per_run or 100))
+    redis = Redis.from_url(settings.redis_url, decode_responses=True)
+    now_utc = datetime.utcnow()
+    checked = 0
+    queued = 0
+    skipped = 0
+
+    async with ControlSessionLocal() as control_db:
+        tenants = (
+            await control_db.execute(
+                select(Tenant).where(
+                    Tenant.status == TenantStatus.active,
+                    Tenant.subscription_status.in_([SubscriptionStatus.active, SubscriptionStatus.trial, SubscriptionStatus.past_due]),
+                )
+            )
+        ).scalars().all()
+        for tenant in tenants:
+            if checked >= cap:
+                break
+            checked += 1
+            cfg = _tenant_reconciliation_settings(tenant)
+            if not bool(cfg.get('enabled')):
+                skipped += 1
+                continue
+            due, timezone_name, local_date = _daily_reconciliation_due(cfg, now_utc)
+            if not due:
+                skipped += 1
+                continue
+            last_key = f'reconcile:daily:last_queued:{tenant.slug}'
+            if redis.get(last_key) == local_date.isoformat():
+                skipped += 1
+                continue
+            if redis.get(tenant_delete_active_key(tenant.slug)) or redis.get(tenant_stop_key(tenant.slug)):
+                skipped += 1
+                continue
+            if int(redis.llen(tenant_queue_name(tenant.slug))) > 0 or bool(redis.get(f'lock:ingest:{tenant.slug}')):
+                skipped += 1
+                continue
+            run_daily_reconciliation_for_tenant.delay(
+                tenant_slug=tenant.slug,
+                as_of_date_str=local_date.isoformat(),
+            )
+            redis.set(last_key, local_date.isoformat(), ex=60 * 60 * 48)
+            queued += 1
+
+    return {'status': 'ok', 'checked': checked, 'queued': queued, 'skipped': skipped}
+
+
+@shared_task(name='worker.tasks.run_daily_reconciliation_for_tenant', autoretry_for=(Exception,), retry_backoff=True, retry_kwargs={'max_retries': 2})
+def run_daily_reconciliation_for_tenant(tenant_slug: str, as_of_date_str: str | None = None) -> dict:
+    return _run_coro(_run_daily_reconciliation_for_tenant(tenant_slug, as_of_date_str))
+
+
+async def _run_daily_reconciliation_for_tenant(tenant_slug: str, as_of_date_str: str | None = None) -> dict:
+    redis = Redis.from_url(settings.redis_url, decode_responses=True)
+    if redis.get(tenant_delete_active_key(tenant_slug)):
+        return {'status': 'skipped', 'tenant': tenant_slug, 'reason': 'tenant_delete_active'}
+    if redis.get(tenant_stop_key(tenant_slug)):
+        return {'status': 'skipped', 'tenant': tenant_slug, 'reason': 'tenant_stop_requested'}
+
+    as_of_date = date.fromisoformat(as_of_date_str) if as_of_date_str else date.today()
+    async with ControlSessionLocal() as control_db:
+        tenant = (await control_db.execute(select(Tenant).where(Tenant.slug == tenant_slug))).scalar_one_or_none()
+        if tenant is None:
+            return {'status': 'not_found', 'tenant': tenant_slug}
+        cfg = _tenant_reconciliation_settings(tenant)
+        if not bool(cfg.get('enabled')):
+            return {'status': 'disabled', 'tenant': tenant_slug}
+        conn = (
+            await control_db.execute(
+                select(TenantConnection)
+                .where(
+                    TenantConnection.tenant_id == tenant.id,
+                    TenantConnection.is_active.is_(True),
+                    TenantConnection.connector_type.in_(list(SQL_CONNECTOR_ALIASES)),
+                )
+                .order_by(TenantConnection.id.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if conn is None:
+            return {'status': 'skipped', 'tenant': tenant_slug, 'reason': 'no_sql_connector'}
+
+        lookback_days = max(1, int(cfg.get('lookback_days') or 1))
+        # Default: compare completed days only. If the check runs on 2026-05-09,
+        # the period ends on 2026-05-08.
+        period_to = as_of_date - timedelta(days=1)
+        period_from = period_to - timedelta(days=lookback_days - 1)
+        streams = [stream for stream in cfg.get('streams', []) if stream in STREAM_CONFIGS]
+
+        async for tenant_db in get_tenant_db_session(
+            tenant_key=str(tenant.id),
+            db_name=tenant.db_name,
+            db_user=tenant.db_user,
+            db_password=tenant.db_password,
+        ):
+            result = await reconcile_tenant_streams(
+                tenant,
+                tenant_db,
+                conn,
+                from_date=period_from,
+                to_date=period_to,
+                streams=streams,
+            )
+            mismatches = {
+                stream: stream_result
+                for stream, stream_result in result.get('streams', {}).items()
+                if int(stream_result.get('mismatch_count') or 0) > 0
+            }
+            existing = (
+                await tenant_db.execute(
+                    select(Insight).where(
+                        Insight.rule_code == 'daily_reconciliation_mismatch',
+                        Insight.entity_type == 'tenant',
+                        Insight.entity_external_id == tenant.slug,
+                        Insight.period_from == period_from,
+                        Insight.period_to == period_to,
+                    )
+                )
+            ).scalar_one_or_none()
+            if mismatches:
+                mismatch_stream_labels = ', '.join(sorted(mismatches.keys()))
+                total_mismatches = sum(int(row.get('mismatch_count') or 0) for row in mismatches.values())
+                metadata = {
+                    'kind': 'daily_reconciliation',
+                    'streams': mismatches,
+                    'all_streams_checked': streams,
+                    'timezone': cfg.get('timezone'),
+                    'scheduled_time': cfg.get('time'),
+                    'actions': [
+                        'Άνοιξε την κατάσταση συγχρονισμού και τρέξε recovery sync για τα κυκλώματα με απόκλιση.',
+                        'Αν η απόκλιση αφορά αποθήκη ή υπόλοιπα, έλεγξε πρώτα αν το query συγκρίνει ίδιο dataset με το BI.',
+                    ],
+                }
+                if existing is None:
+                    tenant_db.add(
+                        Insight(
+                            rule_code='daily_reconciliation_mismatch',
+                            category='sync',
+                            severity='critical',
+                            title='Απόκλιση SoftOne - BI στον ημερήσιο έλεγχο',
+                            message=(
+                                f'Ο ημερήσιος έλεγχος για {period_from} έως {period_to} βρήκε '
+                                f'{total_mismatches} αποκλίσεις σε: {mismatch_stream_labels}.'
+                            ),
+                            entity_type='tenant',
+                            entity_external_id=tenant.slug,
+                            entity_name=tenant.name,
+                            period_from=period_from,
+                            period_to=period_to,
+                            value=total_mismatches,
+                            baseline_value=0,
+                            delta_value=total_mismatches,
+                            delta_pct=None,
+                            metadata_json=metadata,
+                            status='open',
+                            created_at=datetime.utcnow(),
+                        )
+                    )
+                    insight_action = 'created'
+                else:
+                    existing.severity = 'critical'
+                    existing.title = 'Απόκλιση SoftOne - BI στον ημερήσιο έλεγχο'
+                    existing.message = (
+                        f'Ο ημερήσιος έλεγχος για {period_from} έως {period_to} βρήκε '
+                        f'{total_mismatches} αποκλίσεις σε: {mismatch_stream_labels}.'
+                    )
+                    existing.value = total_mismatches
+                    existing.baseline_value = 0
+                    existing.delta_value = total_mismatches
+                    existing.metadata_json = metadata
+                    if existing.status == 'resolved':
+                        existing.status = 'open'
+                        existing.acknowledged_at = None
+                        existing.acknowledged_by = None
+                    insight_action = 'updated'
+            else:
+                if existing is not None and existing.status != 'resolved':
+                    existing.status = 'resolved'
+                    existing.metadata_json = {
+                        **dict(existing.metadata_json or {}),
+                        'resolved_by': 'daily_reconciliation',
+                        'resolved_at': datetime.utcnow().isoformat(),
+                    }
+                    insight_action = 'resolved'
+                else:
+                    insight_action = 'none'
+            await tenant_db.commit()
+            return {
+                'status': 'ok',
+                'tenant': tenant_slug,
+                'from': period_from.isoformat(),
+                'to': period_to.isoformat(),
+                'streams_checked': streams,
+                'mismatch_count': int(result.get('mismatch_count') or 0),
+                'insight': insight_action,
+            }
+    return {'status': 'tenant_db_unavailable', 'tenant': tenant_slug}
 
 
 @shared_task(name='worker.tasks.generate_daily_insights_all_tenants', autoretry_for=(Exception,), retry_backoff=True, retry_kwargs={'max_retries': 3})

@@ -227,103 +227,539 @@
     color: #64748b;
     font-size: 12px;
   }
+  .purchases-workbench {
+    display: grid;
+    gap: 16px;
+  }
+  .purchase-command-panel {
+    background: #fff;
+    border: 1px solid #dbe3ef;
+    border-radius: 8px;
+    box-shadow: 0 10px 26px rgba(15, 23, 42, .05);
+    display: grid;
+    gap: 16px;
+    grid-template-columns: minmax(280px, .75fr) minmax(0, 1.25fr);
+    padding: 18px;
+  }
+  .purchase-command-copy {
+    align-content: space-between;
+    display: grid;
+    gap: 18px;
+  }
+  .purchase-command-kicker {
+    color: #4f46e5;
+    font-size: .72rem;
+    font-weight: 900;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+  }
+  .purchase-command-title {
+    color: #0f172a;
+    font-size: 1.28rem;
+    font-weight: 900;
+    line-height: 1.15;
+    margin-top: 4px;
+  }
+  .purchase-command-text {
+    color: #475569;
+    font-size: .82rem;
+    font-weight: 650;
+    line-height: 1.45;
+    margin-top: 7px;
+    max-width: 620px;
+  }
+  .purchase-command-status {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .purchase-status-pill {
+    align-items: center;
+    background: #eef2ff;
+    border: 1px solid #c7d2fe;
+    border-radius: 999px;
+    color: #3730a3;
+    display: inline-flex;
+    font-size: .72rem;
+    font-weight: 850;
+    gap: 7px;
+    padding: 7px 10px;
+  }
+  .purchase-kpi-grid {
+    display: grid;
+    gap: 10px;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  .purchase-kpi {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    box-shadow: none;
+    min-height: 122px;
+    padding: 13px;
+    position: relative;
+  }
+  .purchase-kpi::before {
+    background: var(--mc-color, #64748b);
+    border-radius: 8px 8px 0 0;
+    content: "";
+    height: 3px;
+    left: -1px;
+    position: absolute;
+    right: -1px;
+    top: -1px;
+  }
+  .purchase-kpi .mc-icon {
+    align-items: center;
+    background: color-mix(in srgb, var(--mc-color, #64748b) 14%, #fff);
+    border-radius: 8px;
+    color: var(--mc-color, #64748b);
+    display: flex;
+    height: 34px;
+    justify-content: center;
+    margin-left: auto;
+    width: 34px;
+  }
+  .purchase-kpi .mc-label {
+    color: #64748b;
+    font-size: .68rem;
+    font-weight: 900;
+    letter-spacing: .02em;
+    margin-top: -26px;
+    max-width: calc(100% - 42px);
+    text-transform: uppercase;
+  }
+  .purchase-kpi .mc-value {
+    color: #0f172a;
+    font-size: 1.25rem;
+    font-weight: 900;
+    line-height: 1.1;
+    margin-top: 10px;
+  }
+  .purchase-kpi .mc-meta {
+    color: #64748b;
+    font-size: .73rem;
+    font-weight: 750;
+    margin-top: 9px;
+  }
+  .purchase-intel-panel {
+    background: #fff;
+    border: 1px solid #dbe3ef;
+    border-radius: 8px;
+    box-shadow: 0 10px 26px rgba(15, 23, 42, .05);
+    overflow: hidden;
+  }
+  .purchase-intel-head {
+    align-items: center;
+    border-bottom: 1px solid #e2e8f0;
+    display: flex;
+    gap: 12px;
+    justify-content: space-between;
+    padding: 15px 18px;
+  }
+  .purchase-intel-title {
+    color: #0f172a;
+    font-size: 1rem;
+    font-weight: 850;
+  }
+  .purchase-intel-subtitle {
+    color: #64748b;
+    font-size: .78rem;
+    font-weight: 650;
+    margin-top: 2px;
+  }
+  .purchase-intel-badge {
+    border-radius: 999px;
+    font-size: .72rem;
+    font-weight: 850;
+    padding: 7px 10px;
+    white-space: nowrap;
+  }
+  .purchase-intel-badge.good { background: #dcfce7; color: #166534; }
+  .purchase-intel-badge.watch { background: #fef3c7; color: #92400e; }
+  .purchase-intel-badge.risk { background: #fee2e2; color: #991b1b; }
+  .purchase-intel-grid {
+    display: grid;
+    gap: 12px;
+    grid-template-columns: 1.2fr 1fr 1fr;
+    padding: 16px 18px;
+  }
+  .purchase-intel-card {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    min-height: 132px;
+    padding: 14px;
+    position: relative;
+  }
+  .purchase-intel-card::before {
+    background: var(--pi-color, #64748b);
+    border-radius: 8px 8px 0 0;
+    content: "";
+    height: 3px;
+    left: -1px;
+    position: absolute;
+    right: -1px;
+    top: -1px;
+  }
+  .purchase-intel-label {
+    color: #64748b;
+    font-size: .68rem;
+    font-weight: 850;
+    letter-spacing: .02em;
+    text-transform: uppercase;
+  }
+  .purchase-intel-value {
+    color: #0f172a;
+    font-size: 1.18rem;
+    font-weight: 900;
+    margin-top: 7px;
+  }
+  .purchase-intel-text {
+    color: #475569;
+    font-size: .78rem;
+    font-weight: 650;
+    line-height: 1.38;
+    margin-top: 7px;
+  }
+  .purchase-intel-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 0 18px 16px;
+  }
+  .purchase-intel-chip {
+    align-items: center;
+    background: #fff;
+    border: 1px solid #dbe3ef;
+    border-radius: 999px;
+    color: #334155;
+    display: inline-flex;
+    font-size: .72rem;
+    font-weight: 800;
+    gap: 7px;
+    max-width: 100%;
+    padding: 7px 10px;
+  }
+  .purchase-intel-chip strong {
+    color: #0f172a;
+    font-weight: 900;
+  }
+  .purchase-intel-actions {
+    border-top: 1px solid #e2e8f0;
+    display: grid;
+    gap: 10px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    padding: 14px 18px 16px;
+  }
+  .purchase-intel-action {
+    align-items: flex-start;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    display: flex;
+    gap: 10px;
+    min-height: 74px;
+    padding: 11px;
+  }
+  .purchase-intel-action i {
+    color: #4f46e5;
+    margin-top: 2px;
+  }
+  .purchase-intel-action div {
+    color: #334155;
+    font-size: .76rem;
+    font-weight: 750;
+    line-height: 1.35;
+  }
+  @media (max-width: 991.98px) {
+    .purchase-command-panel {
+      grid-template-columns: 1fr;
+    }
+    .purchase-kpi-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .purchase-intel-grid,
+    .purchase-intel-actions {
+      grid-template-columns: 1fr;
+    }
+  }
+  @media (max-width: 575.98px) {
+    .purchase-kpi-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+  .purchase-ops-grid {
+    display: grid;
+    gap: 16px;
+    grid-template-columns: minmax(0, 1.45fr) minmax(320px, .8fr);
+  }
+  .purchase-side-stack {
+    display: grid;
+    gap: 16px;
+  }
+  .purchase-analysis-grid {
+    display: grid;
+    gap: 16px;
+    grid-template-columns: 1fr;
+  }
+  .purchase-secondary-grid {
+    display: grid;
+    gap: 16px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .purchase-panel {
+    background: #fff;
+    border: 1px solid #dbe3ef;
+    border-radius: 8px;
+    box-shadow: 0 10px 26px rgba(15, 23, 42, .05);
+    overflow: hidden;
+  }
+  .purchase-panel-head {
+    align-items: center;
+    border-bottom: 1px solid #e2e8f0;
+    display: flex;
+    gap: 12px;
+    justify-content: space-between;
+    min-height: 58px;
+    padding: 14px 16px;
+  }
+  .purchase-panel-title {
+    color: #0f172a;
+    font-size: .95rem;
+    font-weight: 900;
+    margin: 0;
+  }
+  .purchase-panel-subtitle {
+    color: #64748b;
+    font-size: .74rem;
+    font-weight: 650;
+    margin-top: 2px;
+  }
+  .purchase-panel-body {
+    padding: 16px;
+  }
+  .purchase-chart-wrap {
+    height: 280px;
+    position: relative;
+  }
+  .purchase-chart-wrap.compact {
+    height: 220px;
+  }
+  .purchase-table-scroll {
+    max-height: 760px;
+    overflow: auto;
+  }
+  .purchase-margin-panel .bv-unified-table {
+    min-width: 980px;
+  }
+  .purchase-margin-panel .bv-unified-table th,
+  .purchase-margin-panel .bv-unified-table td {
+    white-space: nowrap;
+  }
+  .purchase-margin-panel .bv-unified-table th:first-child,
+  .purchase-margin-panel .bv-unified-table td:first-child {
+    min-width: 360px;
+    white-space: normal;
+  }
+  .purchase-items-scroll {
+    max-height: 640px;
+    overflow: auto;
+  }
+  .purchase-items-panel {
+    min-width: 0;
+  }
+  .purchase-items-panel .purchase-panel-head {
+    align-items: flex-start;
+  }
+  .purchase-items-panel .purchase-panel-subtitle {
+    max-width: 760px;
+  }
+  .purchase-items-panel .purchases-items-table {
+    min-width: 1320px;
+  }
+  .purchase-items-panel .purchases-items-table th,
+  .purchase-items-panel .purchases-items-table td {
+    white-space: nowrap;
+  }
+  .purchase-items-panel .purchases-items-table th:nth-child(3),
+  .purchase-items-panel .purchases-items-table td:nth-child(3) {
+    min-width: 360px;
+    white-space: normal;
+  }
+  .purchase-cost-scroll {
+    max-height: 290px;
+    overflow: auto;
+  }
+  @media (max-width: 1199.98px) {
+    .purchase-ops-grid,
+    .purchase-analysis-grid,
+    .purchase-secondary-grid {
+      grid-template-columns: 1fr;
+    }
+  }
 </style>
 
-<div class="row g-3 mb-3">
-  <div class="col-xl-3 col-md-6">
-    <div class="bv-metric-card" style="--mc-color:#8b5cf6" data-kpi-what="Η αξία αγορών πριν αφαιρεθούν οι εκπτώσεις γραμμής." data-kpi-formula="Σύνολο Αγορών = Καθαρή αξία μετά εκπτώσεων + εκπτώσεις γραμμών αγορών, στο [Από, Έως]."><div class="mc-icon"><i class="fe fe-shopping-bag"></i></div><div class="mc-label">Σύνολο Αγορών</div><div id="cardTotalPurchases" class="mc-value">—</div><div class="mc-meta">Πριν τις εκπτώσεις</div></div>
-  </div>
-  <div class="col-xl-3 col-md-6">
-    <div class="bv-metric-card" style="--mc-color:#3b82f6" data-kpi-what="Η καθαρή αξία αγορών μετά τις εκπτώσεις γραμμής." data-kpi-formula="Κόστος Αγορών = άθροισμα net_value των παραστατικών αγορών, δηλαδή αξία μετά τις εκπτώσεις στο [Από, Έως]."><div class="mc-icon"><i class="fe fe-credit-card"></i></div><div class="mc-label">Κόστος Αγορών</div><div id="cardCost" class="mc-value">—</div><div class="mc-meta">Μετά τις εκπτώσεις</div></div>
-  </div>
-  <div class="col-xl-3 col-md-6">
-    <div class="bv-metric-card" style="--mc-color:#22c55e" data-kpi-what="Οι συνολικές μονάδες που αγοράστηκαν στο επιλεγμένο διάστημα." data-kpi-formula="Αγορασθείσα Ποσότητα = άθροισμα qty όλων των γραμμών αγορών στο [Από, Έως]."><div class="mc-icon"><i class="fe fe-layers"></i></div><div class="mc-label">{{ tt(request, 'purchased_qty') }}</div><div id="cardQty" class="mc-value">—</div><div class="mc-meta">{{ tt(request, 'units') }}</div></div>
-  </div>
-  <div class="col-xl-3 col-md-6">
-    <div class="bv-metric-card" style="--mc-color:#f97316" data-kpi-what="Το ποσοστό έκπτωσης που πέτυχαν οι αγορές στο επιλεγμένο διάστημα." data-kpi-formula="Περιθώριο % = ((Αξία πριν εκπτώσεις - Αξία μετά εκπτώσεις) / Αξία πριν εκπτώσεις) * 100."><div class="mc-icon"><i class="fe fe-activity"></i></div><div class="mc-label">Περιθώριο %</div><div id="cardMarginProxy" class="mc-value">—</div><div class="mc-meta">Έκπτωση επί αγορών</div></div>
-  </div>
-</div>
-
-<div class="card border-0 shadow-sm content-card mb-3">
-  <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
-    <div>
-      <h5 class="mb-0">Είδη που συμμετέχουν στις αγορές</h5>
-      <div id="purchasesItemsPeriods" class="text-muted small mt-1"></div>
+<div class="purchases-workbench">
+  <section class="purchase-command-panel">
+    <div class="purchase-command-copy">
+      <div>
+        <div class="purchase-command-kicker">Procurement Control</div>
+        <div class="purchase-command-title">Αγορές με εικόνα κόστους, συγκέντρωσης και διαπραγμάτευσης</div>
+        <div class="purchase-command-text">Η περίοδος διαβάζεται σαν κύκλωμα: τι αγοράστηκε, ποιος προμηθευτής οδηγεί τη δαπάνη, πόση έκπτωση κερδίζεται και πού αλλάζει το κόστος.</div>
+      </div>
+      <div class="purchase-command-status">
+        <span class="purchase-status-pill"><i class="fe fe-calendar"></i><span id="purchaseCommandPeriod">Περίοδος φόρτωσης</span></span>
+        <span class="purchase-status-pill"><i class="fe fe-users"></i><span id="purchaseCommandSuppliers">Προμηθευτές —</span></span>
+      </div>
     </div>
-    <button class="btn btn-sm btn-light" type="button" id="togglePurchasesItems">
-      <i class="fe fe-chevron-down me-1"></i><span>Εμφάνιση λεπτομερειών</span>
-    </button>
-  </div>
-  <div class="card-body table-responsive d-none" id="purchasesItemsBody">
-    <table class="table table-sm bv-unified-table purchases-items-table" id="purchasesItemsTable">
-      <thead>
-        <tr>
-          <th>Κωδικός είδους</th>
-          <th>Barcode</th>
-          <th>Ονομασία είδους</th>
-          <th class="text-end">YTD αγορές αξία</th>
-          <th class="text-end">YTD αγορές ποσότητα</th>
-          <th class="text-end">YTD έκπτωση %</th>
-          <th class="text-end">PYTD αγορές αξία</th>
-          <th class="text-end">PYTD αγορές ποσότητα</th>
-          <th class="text-end">PYTD έκπτωση %</th>
-        </tr>
-      </thead>
-      <tbody></tbody>
-    </table>
-  </div>
-</div>
-
-<div class="row g-3 mb-3">
-  <div class="col-lg-7">
-    <div class="card border-0 shadow-sm h-100 content-card">
-      <div class="card-header"><h5 class="mb-0">{{ tt(request, 'purchase_trend') }}</h5></div>
-      <div class="card-body"><canvas id="purchaseTrendChart" height="120"></canvas></div>
+    <div class="purchase-kpi-grid">
+      <div class="purchase-kpi bv-metric-card" style="--mc-color:#4f46e5" data-kpi-what="Η αξία αγορών πριν αφαιρεθούν οι εκπτώσεις γραμμής." data-kpi-formula="Σύνολο Αγορών = Καθαρή αξία μετά εκπτώσεων + εκπτώσεις γραμμών αγορών, στο [Από, Έως]."><div class="mc-icon"><i class="fe fe-shopping-bag"></i></div><div class="mc-label">Σύνολο Αγορών</div><div id="cardTotalPurchases" class="mc-value">—</div><div class="mc-meta">Πριν τις εκπτώσεις</div></div>
+      <div class="purchase-kpi bv-metric-card" style="--mc-color:#0ea5e9" data-kpi-what="Η καθαρή αξία αγορών μετά τις εκπτώσεις γραμμής." data-kpi-formula="Κόστος Αγορών = άθροισμα net_value των παραστατικών αγορών, δηλαδή αξία μετά τις εκπτώσεις στο [Από, Έως]."><div class="mc-icon"><i class="fe fe-credit-card"></i></div><div class="mc-label">Κόστος Αγορών</div><div id="cardCost" class="mc-value">—</div><div class="mc-meta">Μετά τις εκπτώσεις</div></div>
+      <div class="purchase-kpi bv-metric-card" style="--mc-color:#16a34a" data-kpi-what="Οι συνολικές μονάδες που αγοράστηκαν στο επιλεγμένο διάστημα." data-kpi-formula="Αγορασθείσα Ποσότητα = άθροισμα qty όλων των γραμμών αγορών στο [Από, Έως]."><div class="mc-icon"><i class="fe fe-layers"></i></div><div class="mc-label">{{ tt(request, 'purchased_qty') }}</div><div id="cardQty" class="mc-value">—</div><div class="mc-meta">{{ tt(request, 'units') }}</div></div>
+      <div class="purchase-kpi bv-metric-card" style="--mc-color:#f97316" data-kpi-what="Το ποσοστό έκπτωσης που πέτυχαν οι αγορές στο επιλεγμένο διάστημα." data-kpi-formula="Περιθώριο % = ((Αξία πριν εκπτώσεις - Αξία μετά εκπτώσεις) / Αξία πριν εκπτώσεις) * 100."><div class="mc-icon"><i class="fe fe-activity"></i></div><div class="mc-label">Περιθώριο %</div><div id="cardMarginProxy" class="mc-value">—</div><div class="mc-meta">Έκπτωση επί αγορών</div></div>
     </div>
-  </div>
-  <div class="col-lg-5">
-    <div class="card border-0 shadow-sm h-100 content-card">
-      <div class="card-header"><h5 class="mb-0">{{ tt(request, 'supplier_distribution') }}</h5></div>
-      <div class="card-body"><canvas id="supplierDonutChart" height="120"></canvas></div>
-    </div>
-  </div>
-</div>
+  </section>
 
-<div class="row g-3">
-  <div class="col-lg-7">
-    <div class="card border-0 shadow-sm h-100 content-card">
-      <div class="card-header"><h5 class="mb-0">{{ tt(request, 'margin_by_supplier') }}</h5></div>
-      <div class="card-body table-responsive">
+  <section class="purchase-intel-panel">
+    <div class="purchase-intel-head">
+      <div>
+        <div class="purchase-intel-title">Αγοραστική Πυξίδα</div>
+        <div class="purchase-intel-subtitle" id="purchaseIntelSubtitle">Έξυπνη ανάγνωση δαπάνης, προμηθευτών, εκπτώσεων και μεταβολών κόστους.</div>
+      </div>
+      <div class="purchase-intel-badge watch" id="purchaseIntelBadge">ΥΠΟΛΟΓΙΣΜΟΣ</div>
+    </div>
+    <div class="purchase-intel-grid">
+      <div class="purchase-intel-card" style="--pi-color:#22c55e">
+        <div class="purchase-intel-label">Ευκαιρία διαπραγμάτευσης</div>
+        <div class="purchase-intel-value" id="purchaseNegotiationValue">—</div>
+        <div class="purchase-intel-text" id="purchaseNegotiationText">Αναμονή δεδομένων.</div>
+      </div>
+      <div class="purchase-intel-card" style="--pi-color:#ef4444">
+        <div class="purchase-intel-label">Ρίσκο εξάρτησης</div>
+        <div class="purchase-intel-value" id="purchaseDependencyValue">—</div>
+        <div class="purchase-intel-text" id="purchaseDependencyText">Αναμονή δεδομένων.</div>
+      </div>
+      <div class="purchase-intel-card" style="--pi-color:#f97316">
+        <div class="purchase-intel-label">Μεταβολές κόστους</div>
+        <div class="purchase-intel-value" id="purchaseCostSignalValue">—</div>
+        <div class="purchase-intel-text" id="purchaseCostSignalText">Αναμονή δεδομένων.</div>
+      </div>
+    </div>
+    <div class="purchase-intel-strip" id="purchaseIntelSuppliers"></div>
+    <div class="purchase-intel-actions">
+      <div class="purchase-intel-action"><i class="fe fe-target"></i><div id="purchaseIntelActionOne">Φόρτωση πρότασης.</div></div>
+      <div class="purchase-intel-action"><i class="fe fe-percent"></i><div id="purchaseIntelActionTwo">Φόρτωση πρότασης.</div></div>
+      <div class="purchase-intel-action"><i class="fe fe-alert-triangle"></i><div id="purchaseIntelActionThree">Φόρτωση πρότασης.</div></div>
+    </div>
+  </section>
+
+  <section class="purchase-ops-grid">
+    <div class="purchase-panel purchase-margin-panel">
+      <div class="purchase-panel-head">
+        <div>
+          <h5 class="purchase-panel-title">{{ tt(request, 'purchase_trend') }}</h5>
+          <div class="purchase-panel-subtitle">Μηνιαία κατεύθυνση δαπάνης και ρυθμού αγορών</div>
+        </div>
+      </div>
+      <div class="purchase-panel-body">
+        <div class="purchase-chart-wrap"><canvas id="purchaseTrendChart"></canvas></div>
+      </div>
+    </div>
+    <div class="purchase-side-stack">
+      <div class="purchase-panel">
+        <div class="purchase-panel-head">
+          <div>
+            <h5 class="purchase-panel-title">{{ tt(request, 'supplier_distribution') }}</h5>
+            <div class="purchase-panel-subtitle">Συμμετοχή κορυφαίων προμηθευτών</div>
+          </div>
+        </div>
+        <div class="purchase-panel-body">
+          <div class="purchase-chart-wrap compact"><canvas id="supplierDonutChart"></canvas></div>
+        </div>
+      </div>
+      <div class="purchase-panel">
+        <div class="purchase-panel-head">
+          <div>
+            <h5 class="purchase-panel-title">{{ tt(request, 'cost_change_detection') }}</h5>
+            <div class="purchase-panel-subtitle">Προμηθευτές που άλλαξαν έντονα κόστος</div>
+          </div>
+        </div>
+        <div class="purchase-panel-body purchase-cost-scroll">
+          <ul id="costChangeAlerts" class="mb-0"></ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="purchase-analysis-grid">
+    <div class="purchase-panel">
+      <div class="purchase-panel-head">
+        <div>
+          <h5 class="purchase-panel-title">{{ tt(request, 'margin_by_supplier') }}</h5>
+          <div class="purchase-panel-subtitle">Πού κερδίζουμε ή χάνουμε περιθώριο από τις εκπτώσεις</div>
+        </div>
+      </div>
+      <div class="purchase-panel-body purchase-table-scroll table-responsive">
         <table class="table table-sm bv-unified-table" id="marginBySupplierTable">
           <thead><tr><th>{{ tt(request, 'supplier') }}</th><th>{{ tt(request, 'net') }}</th><th>Κόστος</th><th>Μικτό Κέρδος</th><th>Περιθώριο</th></tr></thead>
           <tbody></tbody>
         </table>
       </div>
     </div>
-  </div>
-  <div class="col-lg-5">
-    <div class="card border-0 shadow-sm h-100 content-card">
-      <div class="card-header"><h5 class="mb-0">{{ tt(request, 'cost_change_detection') }}</h5></div>
-      <div class="card-body">
-        <ul id="costChangeAlerts" class="mb-0"></ul>
-      </div>
-    </div>
-  </div>
-</div>
+  </section>
 
-<div class="row g-3 mt-1">
-  <div class="col-lg-6">
-    <div class="card border-0 shadow-sm h-100 content-card">
-      <div class="card-header"><h5 class="mb-0">{{ tt(request, 'seasonality_purchases') }}</h5></div>
-      <div class="card-body">
-        <div style="height:260px"><canvas id="purchasesSeasonalityChart"></canvas></div>
+  <section class="purchase-panel purchase-items-panel">
+      <div class="purchase-panel-head">
+        <div>
+          <h5 class="purchase-panel-title">Είδη που συμμετέχουν στις αγορές</h5>
+          <div id="purchasesItemsPeriods" class="purchase-panel-subtitle"></div>
+        </div>
+        <button class="btn btn-sm btn-light" type="button" id="togglePurchasesItems">
+          <i class="fe fe-chevron-down me-1"></i><span>Εμφάνιση</span>
+        </button>
+      </div>
+      <div class="purchase-panel-body table-responsive purchase-items-scroll d-none" id="purchasesItemsBody">
+        <table class="table table-sm bv-unified-table purchases-items-table" id="purchasesItemsTable">
+          <thead>
+            <tr>
+              <th>Κωδικός είδους</th>
+              <th>Barcode</th>
+              <th>Ονομασία είδους</th>
+              <th class="text-end">YTD αγορές αξία</th>
+              <th class="text-end">YTD αγορές ποσότητα</th>
+              <th class="text-end">YTD έκπτωση %</th>
+              <th class="text-end">PYTD αγορές αξία</th>
+              <th class="text-end">PYTD αγορές ποσότητα</th>
+              <th class="text-end">PYTD έκπτωση %</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+  </section>
+
+  <section class="purchase-secondary-grid">
+    <div class="purchase-panel">
+      <div class="purchase-panel-head">
+        <div>
+          <h5 class="purchase-panel-title">{{ tt(request, 'seasonality_purchases') }}</h5>
+          <div class="purchase-panel-subtitle">Αξία και ποσότητα ανά εποχικό μοτίβο</div>
+        </div>
+      </div>
+      <div class="purchase-panel-body">
+        <div class="purchase-chart-wrap compact"><canvas id="purchasesSeasonalityChart"></canvas></div>
       </div>
     </div>
-  </div>
-  <div class="col-lg-6">
-    <div class="card border-0 shadow-sm h-100 content-card">
-      <div class="card-header"><h5 class="mb-0">{{ tt(request, 'new_codes_purchases') }}</h5></div>
-      <div class="card-body table-responsive">
+    <div class="purchase-panel">
+      <div class="purchase-panel-head">
+        <div>
+          <h5 class="purchase-panel-title">{{ tt(request, 'new_codes_purchases') }}</h5>
+          <div class="purchase-panel-subtitle">Νέοι κωδικοί που μπήκαν στο κύκλωμα</div>
+        </div>
+      </div>
+      <div class="purchase-panel-body table-responsive">
         <table class="table table-sm bv-unified-table" id="purchasesNewCodesTbl">
           <thead>
             <tr>
@@ -337,7 +773,7 @@
         </table>
       </div>
     </div>
-  </div>
+  </section>
 </div>
 {% endblock %}
 
@@ -412,91 +848,15 @@ function params(){
 }
 
 function syncPurchasesMultiUI(prefix, label, filterText=''){
-  const select=document.getElementById(prefix);
-  const optionsWrap=document.getElementById(`${prefix}Options`);
-  const chips=document.getElementById(`${prefix}Chips`);
-  const toggle=document.getElementById(`${prefix}Toggle`);
-  if(!select || !optionsWrap || !chips || !toggle) return;
-
-  const selected = Array.from(select.options).filter(o=>o.selected).map(o=>o.value);
-  const normalized = (filterText||'').toLowerCase().trim();
-
-  optionsWrap.innerHTML='';
-  Array.from(select.options)
-    .filter(o=>{
-      const display=(o.dataset.label||o.textContent||o.value).toLowerCase();
-      return !normalized || o.value.toLowerCase().includes(normalized) || display.includes(normalized);
-    })
-    .forEach(o=>{
-      const row=document.createElement('label');
-      row.className='bv-multi-opt';
-      const cb=document.createElement('input');
-      cb.type='checkbox';
-      cb.checked=o.selected;
-      cb.addEventListener('change', ()=>{
-        o.selected=cb.checked;
-        select.dispatchEvent(new Event('change'));
-        syncPurchasesMultiUI(prefix, label, document.getElementById(`${prefix}Search`)?.value||'');
-      });
-      const span=document.createElement('span');
-      span.textContent=o.textContent || o.value;
-      row.appendChild(cb);
-      row.appendChild(span);
-      optionsWrap.appendChild(row);
-    });
-  if(!optionsWrap.children.length){
-    const empty=document.createElement('div');
-    empty.className='bv-multi-empty';
-    empty.textContent='Δεν υπάρχουν διαθέσιμες επιλογές';
-    optionsWrap.appendChild(empty);
-  }
-
-  chips.innerHTML='';
-  selected.forEach(v=>{
-    const chip=document.createElement('span');
-    chip.className='bv-chip';
-    const opt = Array.from(select.options).find(o=>o.value===v);
-    chip.textContent=(opt && opt.textContent) ? opt.textContent : v;
-    chips.appendChild(chip);
-  });
-  toggle.textContent = selected.length ? `${label} (${selected.length})` : 'Επιλογή';
+  BvMultiSelect.sync(prefix, { label, filterText });
 }
 
 function initPurchasesMulti(prefix, label){
-  const toggle=document.getElementById(`${prefix}Toggle`);
-  const menu=document.getElementById(`${prefix}Menu`);
-  const search=document.getElementById(`${prefix}Search`);
-  const btnAll=document.getElementById(`${prefix}All`);
-  const btnClear=document.getElementById(`${prefix}Clear`);
-  const select=document.getElementById(prefix);
-  if(!toggle || !menu || !search || !btnAll || !btnClear || !select || toggle.dataset.bound==='1') return;
-  toggle.dataset.bound='1';
-
-  toggle.addEventListener('click', ()=>{menu.hidden=!menu.hidden;});
-  search.addEventListener('input', ()=>syncPurchasesMultiUI(prefix, label, search.value));
-  btnAll.addEventListener('click', ()=>{Array.from(select.options).forEach(o=>o.selected=true); syncPurchasesMultiUI(prefix, label, search.value);});
-  btnClear.addEventListener('click', ()=>{Array.from(select.options).forEach(o=>o.selected=false); syncPurchasesMultiUI(prefix, label, search.value);});
-  document.addEventListener('click', (e)=>{ if(!document.getElementById(`${prefix}Multi`)?.contains(e.target)) menu.hidden=true; });
+  BvMultiSelect.bind(prefix, { label });
 }
 
 function populatePurchasesSelect(prefix, label, values, labels={}){
-  const select=document.getElementById(prefix);
-  if(!select) return;
-  const prev = new Set(Array.from(select.selectedOptions || []).map(o=>o.value));
-  select.innerHTML='';
-  const ordered = [...(values || [])].sort((a,b)=>
-    String(labels[a] || a).localeCompare(String(labels[b] || b), 'el', { sensitivity:'base' })
-  );
-  ordered.forEach(v=>{
-    const opt=document.createElement('option');
-    opt.value=v;
-    const txt = labels[v] ? `${labels[v]}` : v;
-    opt.textContent=txt;
-    opt.dataset.label = labels[v] || v;
-    if(prev.has(v)) opt.selected=true;
-    select.appendChild(opt);
-  });
-  syncPurchasesMultiUI(prefix, label, document.getElementById(`${prefix}Search`)?.value||'');
+  BvMultiSelect.populate(prefix, values, labels, { label });
 }
 
 function selectedValues(selectId){
@@ -509,7 +869,7 @@ function setSelectedByValues(selectId, values){
   if(!sel) return;
   const vset = new Set(values || []);
   Array.from(sel.options || []).forEach(o => { o.selected = vset.has(o.value); });
-  syncPurchasesMultiUI(selectId, purchasesUiFieldDefs.find(f => f.selectId === selectId)?.label || 'Επιλογή');
+  BvMultiSelect.sync(selectId, { label: purchasesUiFieldDefs.find(f => f.selectId === selectId)?.label || 'Επιλογή' });
 }
 
 function rebuildPurchasesHiddenCategories(){
@@ -655,6 +1015,96 @@ function renderCards(summary){
   document.getElementById('cardMarginProxy').textContent=pct(marginPct);
 }
 
+function setPurchaseIntelText(id, value){
+  const el = document.getElementById(id);
+  if(el) el.textContent = value;
+}
+
+function renderPurchasesIntelligence(data){
+  const summary = data?.summary || {};
+  const suppliers = Array.isArray(data?.supplier_distribution) ? data.supplier_distribution : [];
+  const costAlerts = Array.isArray(data?.cost_change_detection?.alerts) ? data.cost_change_detection.alerts : [];
+  const afterDiscounts = toNum(summary.after_discount_value ?? summary.net_value);
+  let beforeDiscounts = toNum(summary.before_discount_value ?? summary.gross_value);
+  const discountAmount = toNum(summary.discount_amount);
+  if(!beforeDiscounts && (afterDiscounts || discountAmount)) beforeDiscounts = afterDiscounts + discountAmount;
+  const discountPct = beforeDiscounts ? ((beforeDiscounts - afterDiscounts) / Math.abs(beforeDiscounts)) * 100 : 0;
+  const opportunity1pt = Math.max(0, beforeDiscounts * 0.01);
+  const top = suppliers[0] || {};
+  const topName = supplierName(top);
+  const topValue = toNum(top.net_value);
+  const topShare = afterDiscounts ? (topValue / Math.abs(afterDiscounts)) * 100 : 0;
+  const top3Share = suppliers.slice(0, 3).reduce((sum, row) => sum + (afterDiscounts ? toNum(row.net_value) / Math.abs(afterDiscounts) * 100 : 0), 0);
+  const biggestAlert = costAlerts[0] || {};
+  const biggestAlertName = supplierName(biggestAlert);
+  const biggestDelta = toNum(biggestAlert.delta_pct);
+  const activeSuppliers = suppliers.filter(r => Math.abs(toNum(r.net_value)) > 0).length;
+  setPurchaseIntelText('purchaseCommandSuppliers', `Προμηθευτές ${fmt0.format(activeSuppliers)}`);
+
+  const badge = document.getElementById('purchaseIntelBadge');
+  if(badge){
+    badge.classList.remove('good', 'watch', 'risk');
+    const state = (topShare >= 45 || Math.abs(biggestDelta) >= 25 || discountPct < 5) ? 'risk' : (topShare >= 28 || Math.abs(biggestDelta) >= 10 ? 'watch' : 'good');
+    badge.classList.add(state);
+    badge.textContent = state === 'risk' ? 'ΘΕΛΕΙ ΑΜΕΣΟ ΕΛΕΓΧΟ' : (state === 'watch' ? 'ΥΠΑΡΧΟΥΝ ΕΥΚΑΙΡΙΕΣ' : 'ΚΑΛΗ ΑΓΟΡΑΣΤΙΚΗ ΡΟΗ');
+  }
+
+  if(!afterDiscounts && !beforeDiscounts){
+    setPurchaseIntelText('purchaseIntelSubtitle', 'Δεν υπάρχουν δεδομένα αγορών για την επιλεγμένη περίοδο.');
+    setPurchaseIntelText('purchaseNegotiationValue', '—');
+    setPurchaseIntelText('purchaseNegotiationText', 'Επίλεξε περίοδο με αγορές για να εμφανιστεί εκτίμηση διαπραγμάτευσης.');
+    setPurchaseIntelText('purchaseDependencyValue', '—');
+    setPurchaseIntelText('purchaseDependencyText', 'Δεν υπολογίζεται εξάρτηση χωρίς δαπάνη.');
+    setPurchaseIntelText('purchaseCostSignalValue', '—');
+    setPurchaseIntelText('purchaseCostSignalText', 'Δεν υπάρχουν μεταβολές κόστους για αξιολόγηση.');
+    setPurchaseIntelText('purchaseIntelActionOne', 'Φόρτωσε περίοδο με πραγματικές αγορές.');
+    setPurchaseIntelText('purchaseIntelActionTwo', 'Άνοιξε φίλτρα προμηθευτή ή κατηγορίας για πιο στοχευμένη εικόνα.');
+    setPurchaseIntelText('purchaseIntelActionThree', 'Χρησιμοποίησε μεγαλύτερο διάστημα για να εμφανιστούν τάσεις κόστους.');
+    const strip = document.getElementById('purchaseIntelSuppliers');
+    if(strip) strip.innerHTML = '';
+    return;
+  }
+
+  setPurchaseIntelText(
+    'purchaseIntelSubtitle',
+    `Η περίοδος έχει ${money(afterDiscounts)} καθαρή δαπάνη, ${activeSuppliers} ενεργούς προμηθευτές και οι 3 πρώτοι κρατούν ${pct(top3Share)}.`
+  );
+  setPurchaseIntelText('purchaseNegotiationValue', `${money(opportunity1pt)} €`);
+  setPurchaseIntelText(
+    'purchaseNegotiationText',
+    `Κάθε +1 μονάδα έκπτωσης στην τρέχουσα βάση αγορών αξίζει περίπου ${money(opportunity1pt)} €. Τώρα η έκπτωση είναι ${pct(discountPct)}.`
+  );
+  setPurchaseIntelText('purchaseDependencyValue', pct(topShare));
+  setPurchaseIntelText(
+    'purchaseDependencyText',
+    `${topName} είναι ο #1 προμηθευτής με ${money(topValue)}. ${topShare >= 28 ? 'Θέλει έλεγχο εναλλακτικής προσφοράς και κλίμακας έκπτωσης.' : 'Η εξάρτηση φαίνεται ελεγχόμενη.'}`
+  );
+  setPurchaseIntelText('purchaseCostSignalValue', costAlerts.length ? `${costAlerts.length} alerts` : '0 alerts');
+  setPurchaseIntelText(
+    'purchaseCostSignalText',
+    costAlerts.length
+      ? `Μεγαλύτερη μεταβολή: ${biggestAlertName} με ${pct(Math.abs(biggestDelta))}. Έλεγξε τιμές, εκπτώσεις και ποσότητες πριν την επόμενη παραγγελία.`
+      : 'Δεν εντοπίστηκαν έντονες μεταβολές κόστους στην περίοδο.'
+  );
+
+  const strip = document.getElementById('purchaseIntelSuppliers');
+  if(strip){
+    strip.innerHTML = suppliers.slice(0, 6).map((row, idx) => {
+      const share = afterDiscounts ? toNum(row.net_value) / Math.abs(afterDiscounts) * 100 : 0;
+      return `<span class="purchase-intel-chip"><strong>#${idx + 1}</strong> ${esc(supplierName(row))} · ${pct(share)} · ${money(row.net_value)}</span>`;
+    }).join('');
+  }
+
+  setPurchaseIntelText('purchaseIntelActionOne', `Ξεκίνα διαπραγμάτευση από ${topName}, γιατί επηρεάζει το μεγαλύτερο κομμάτι της δαπάνης.`);
+  setPurchaseIntelText('purchaseIntelActionTwo', `Στόχος επόμενης συμφωνίας: +1 μονάδα έκπτωσης, αξία περίπου ${money(opportunity1pt)} στην επιλεγμένη περίοδο.`);
+  setPurchaseIntelText(
+    'purchaseIntelActionThree',
+    costAlerts.length
+      ? `Άνοιξε τον “Εντοπισμό Μεταβολής Κόστους” και έλεγξε πρώτα ${biggestAlertName}.`
+      : 'Συνέχισε με έλεγχο χαμηλού περιθωρίου στον πίνακα “Περιθώριο ανά Προμηθευτή”.'
+  );
+}
+
 function renderTrend(rows){
   const labels=rows.map(r=>r.month_start); const data=rows.map(r=>toNum(r.net_value));
   if(purchaseTrendChart) purchaseTrendChart.destroy();
@@ -670,7 +1120,7 @@ function renderSupplierDistribution(rows){
 
 function renderMarginBySupplier(rows){
   const tbody=document.querySelector('#marginBySupplierTable tbody'); tbody.innerHTML='';
-  (rows||[]).slice(0,12).forEach(r=>{
+  (rows||[]).slice(0,50).forEach(r=>{
     const name = supplierName(r);
     const code = r.supplier_code || r.supplier || '';
     const badgeClass = marginBadgeClass(r.margin_pct);
@@ -827,6 +1277,12 @@ async function reloadPurchases(e){
   setError(null);
   try{
     const p=params();
+    const fromLabel = p.get('from') || '-';
+    const toLabel = p.get('to') || '-';
+    setPurchaseIntelText(
+      'purchaseCommandPeriod',
+      `Περίοδος ${window.bvToDmyDate ? window.bvToDmyDate(fromLabel) : fromLabel} - ${window.bvToDmyDate ? window.bvToDmyDate(toLabel) : toLabel}`
+    );
     const res=await fetch(`/v1/kpi/purchases/decision-pack?${p.toString()}`);
     if(!res.ok){
       if(res.status===403) throw new Error('{{ tt(request, "purchases_plan_required") }}');
@@ -838,6 +1294,7 @@ async function reloadPurchases(e){
     renderSupplierDistribution(data.supplier_distribution||[]);
     renderMarginBySupplier(data.margin_by_supplier||[]);
     renderCostChange(data.cost_change_detection||{alerts:[]});
+    renderPurchasesIntelligence(data);
     renderPurchasesSeasonality(data.seasonality||[]);
     renderPurchasesNewCodes(data.new_codes||[]);
     renderPurchasesItems(data.item_breakdown||{rows:[]});

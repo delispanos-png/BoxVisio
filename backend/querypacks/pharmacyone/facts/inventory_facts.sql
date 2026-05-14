@@ -6,11 +6,18 @@ SELECT
   ) AS branch_external_id,
   CAST(ISNULL(I.CODE, S.MTRL) AS nvarchar(128)) AS item_external_id,
   CAST(ISNULL(S.WHOUSE, 0) AS nvarchar(64)) AS warehouse_external_id,
-  CAST(ISNULL(S.QTY1, 0) AS decimal(18,4)) AS qty,
-  CAST(ISNULL(S.QTY1, 0) AS decimal(18,4)) AS qty_on_hand,
+  CAST(ISNULL(S.IMPQTY1, 0) - ISNULL(S.EXPQTY1, 0) AS decimal(18,4)) AS qty,
+  CAST(ISNULL(S.IMPQTY1, 0) - ISNULL(S.EXPQTY1, 0) AS decimal(18,4)) AS qty_on_hand,
   CAST(0 AS decimal(18,4)) AS qty_reserved,
   CAST(ISNULL(S.IMPVAL, 0) - ISNULL(S.EXPVAL, 0) AS decimal(18,4)) AS cost_amount,
-  CAST(ISNULL(S.IMPVAL, 0) - ISNULL(S.EXPVAL, 0) AS decimal(18,4)) AS value_amount,
+  CAST(
+    (ISNULL(S.IMPQTY1, 0) - ISNULL(S.EXPQTY1, 0)) * ISNULL(I.PRICEW, 0)
+    AS decimal(18,4)
+  ) AS value_amount,
+  CAST(
+    (ISNULL(S.IMPQTY1, 0) - ISNULL(S.EXPQTY1, 0)) * ISNULL(I.PRICER, 0)
+    AS decimal(18,4)
+  ) AS retail_value_amount,
   CAST(
     'IS|' + CAST(ISNULL(S.COMPANY, 0) AS nvarchar(32)) + '|' + CAST(ISNULL(S.FISCPRD, 0) AS nvarchar(16)) + '|'
     + CAST(ISNULL(S.WHOUSE, 0) AS nvarchar(32)) + '|' + CAST(ISNULL(S.MTRL, 0) AS nvarchar(40))
@@ -57,13 +64,28 @@ SELECT
   CAST(0 AS int) AS redirect_module_id,
   CAST(12 AS int) AS source_entity_id,
   CAST(S.FISCPRD AS int) AS object_id
-FROM MTRFINDATA S WITH (NOLOCK)
+FROM MTRBALSHEET S WITH (NOLOCK)
 INNER JOIN (
   SELECT COMPANY, MAX(FISCPRD) AS FISCPRD
-  FROM MTRFINDATA WITH (NOLOCK)
+  FROM MTRBALSHEET WITH (NOLOCK)
   WHERE (@company_id IS NULL OR COMPANY = @company_id)
+    AND PERIOD = 0
   GROUP BY COMPANY
-) _sp ON _sp.COMPANY = S.COMPANY AND _sp.FISCPRD = S.FISCPRD
+) _sp ON _sp.COMPANY = S.COMPANY AND _sp.FISCPRD = S.FISCPRD AND S.PERIOD = 0
+INNER JOIN (
+  SELECT
+    COMPANY,
+    FISCPRD,
+    MTRL
+  FROM MTRBALSHEET WITH (NOLOCK)
+  WHERE (@company_id IS NULL OR COMPANY = @company_id)
+    AND PERIOD = 0
+  GROUP BY COMPANY, FISCPRD, MTRL
+  HAVING ABS(SUM(ISNULL(IMPQTY1, 0) - ISNULL(EXPQTY1, 0))) > 0.0001
+) _item_stock
+  ON _item_stock.COMPANY = S.COMPANY
+ AND _item_stock.FISCPRD = S.FISCPRD
+ AND _item_stock.MTRL = S.MTRL
 LEFT JOIN WHOUSE W WITH (NOLOCK)
   ON W.WHOUSE = S.WHOUSE
  AND W.COMPANY = S.COMPANY
@@ -97,7 +119,7 @@ WHERE
   (@company_id IS NULL OR S.COMPANY = @company_id)
   AND ISNULL(W.ISACTIVE, 1) = 1
   AND ISNULL(I.SODTYPE, 0) = 51
-  AND ABS(ISNULL(S.QTY1, 0)) > 0.0001
+  AND ABS(ISNULL(S.IMPQTY1, 0) - ISNULL(S.EXPQTY1, 0)) > 0.0001
   -- Snapshot reflects current stock. Only run on first-ever sync (no prior sync state)
   -- or explicit backfill to today. Skip on incremental syncs where prior state exists,
   -- because movements already capture changes; snapshot re-runs only via full backfill.
@@ -128,6 +150,7 @@ SELECT
   CAST(0 AS decimal(18,4)) AS qty_reserved,
   CAST(COALESCE(TRY_CAST(ISNULL(L.SALESCVAL, ISNULL(L.NETLINEVAL, ISNULL(L.LINEVAL, 0))) AS decimal(18,4)), 0) AS decimal(18,4)) AS cost_amount,
   CAST(COALESCE(TRY_CAST(ISNULL(L.NETLINEVAL, ISNULL(L.LINEVAL, 0)) AS decimal(18,4)), 0) AS decimal(18,4)) AS value_amount,
+  CAST(COALESCE(TRY_CAST(ISNULL(L.PRICE, ISNULL(L.NETLINEVAL, ISNULL(L.LINEVAL, 0))) AS decimal(18,4)), 0) * COALESCE(TRY_CAST(ISNULL(L.QTY1, ISNULL(L.QTY, 0)) AS decimal(18,4)), 0) AS decimal(18,4)) AS retail_value_amount,
   CAST('IW|' + CAST(F.FINDOC AS nvarchar(40)) + '|' + CAST(ISNULL(L.MTRLINES, ISNULL(L.LINENUM, 0)) AS nvarchar(40)) AS nvarchar(128)) AS external_id,
   CAST(ISNULL(F.UPDDATE, F.TRNDATE) AS datetime2) AS updated_at,
 

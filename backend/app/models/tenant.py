@@ -291,6 +291,36 @@ class FactSales(TenantBase):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
 
+class FactSalesDocumentCharge(TenantBase):
+    __tablename__ = 'fact_sales_document_charges'
+    __table_args__ = (
+        UniqueConstraint('external_id', name='uq_fact_sales_document_charges_external_id'),
+        UniqueConstraint('document_id', 'charge_code', name='uq_fact_sales_document_charges_doc_charge'),
+        Index('ix_fact_sales_document_charges_doc_date', 'doc_date'),
+        Index('ix_fact_sales_document_charges_document_id', 'document_id'),
+        Index('ix_fact_sales_document_charges_document_no', 'document_no'),
+        Index('ix_fact_sales_document_charges_charge_code', 'charge_code'),
+    )
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, server_default=text('gen_random_uuid()'))
+    external_id: Mapped[str] = mapped_column(String(160), nullable=False, index=True)
+    doc_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    branch_ext_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    document_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    document_no: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    document_series: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    document_type: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    charge_code: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    charge_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    amount_net: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False, default=0)
+    amount_tax: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False, default=0)
+    amount_gross: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False, default=0)
+    source_connector_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    source_payload_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
 class FactPurchases(TenantBase):
     __tablename__ = 'fact_purchases'
     __table_args__ = (

@@ -14,6 +14,7 @@ from app.db.control_session import ControlSessionLocal
 from app.models.control import Tenant
 from app.middleware.error_handler import error_handler_middleware
 from app.middleware.admin_audit import admin_audit_middleware
+from app.middleware.canonical_path import canonical_path_middleware
 from app.middleware.csrf import csrf_middleware
 from app.middleware.host_access_guard import host_access_guard_middleware
 from app.middleware.plan_guard import plan_guard_middleware
@@ -67,6 +68,7 @@ app.add_middleware(
 )
 app.middleware('http')(secure_headers_middleware)
 app.middleware('http')(rate_limit_middleware)
+app.middleware('http')(canonical_path_middleware)
 app.middleware('http')(host_access_guard_middleware)
 app.middleware('http')(ui_auth_redirect_middleware)
 app.middleware('http')(rbac_guard_middleware)
@@ -89,6 +91,11 @@ app.include_router(whmcs.router)
 app.include_router(ui.router)
 
 app.state.control_sessionmaker = ControlSessionLocal
+
+
+@app.api_route('/favicon.ico', methods=['GET', 'HEAD'], include_in_schema=False)
+async def favicon():
+    return RedirectResponse(url='/static/azea/images/favicon.ico', status_code=307)
 
 
 @app.exception_handler(RequestValidationError)

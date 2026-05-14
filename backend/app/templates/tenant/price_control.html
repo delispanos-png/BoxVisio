@@ -23,7 +23,7 @@
     </select>
   </div>
   <div class="col-xl-2 col-md-6">
-    <label class="form-label">{{ tt(request, 'target_margin') }}</label>
+    <label class="form-label">Στόχος Μικτού Περιθωρίου %</label>
     <input id="pcTargetMargin" type="number" min="0" max="95" step="0.1" class="form-control" value="{{ default_target_margin }}">
   </div>
   <div class="col-xl-2 col-md-6">
@@ -142,9 +142,11 @@
   body.tenant-shell #pcTable th:nth-child(11),
   body.tenant-shell #pcTable td:nth-child(11) { width: 185px; }
   body.tenant-shell #pcTable th:nth-child(12),
-  body.tenant-shell #pcTable td:nth-child(12) { width: 145px; }
+  body.tenant-shell #pcTable td:nth-child(12) { width: 105px; }
   body.tenant-shell #pcTable th:nth-child(13),
-  body.tenant-shell #pcTable td:nth-child(13) { width: 240px; }
+  body.tenant-shell #pcTable td:nth-child(13) { width: 145px; }
+  body.tenant-shell #pcTable th:nth-child(14),
+  body.tenant-shell #pcTable td:nth-child(14) { width: 240px; }
 
   body.tenant-shell #pcTable .pc-wrap {
     white-space: normal;
@@ -173,8 +175,8 @@
     </div>
   </div>
   <div class="col-md-6 col-xl">
-    <div class="bv-kpi-box bv-kpi-green" data-kpi-what="Το μέσο ποσοστό περιθωρίου των ειδών που εμφανίζονται." data-kpi-formula="Μέσο Margin = μέσος όρος του ((τιμή πώλησης - κόστος) / τιμή πώλησης) * 100 για όλα τα items του result set.">
-      <div class="kpi-title">{{ tt(request, 'margin') }}</div>
+    <div class="bv-kpi-box bv-kpi-green" data-kpi-what="Το μέσο πραγματικό περιθώριο των ειδών με βάση την καθαρή λιανική. Η λιανική SoftOne περιλαμβάνει ΦΠΑ, άρα πρώτα αφαιρείται ο ΦΠΑ του είδους." data-kpi-formula="Καθαρή Λιανική = Λιανική με ΦΠΑ / (1 + ΦΠΑ%). Περιθώριο Λιανικής % = ((Καθαρή Λιανική - Τιμή Κτήσης) / Καθαρή Λιανική) * 100. Παράδειγμα: 32,86 με ΦΠΑ 24% = 26,50 καθαρά, άρα με κόστος 13,48 το margin είναι 49,13%.">
+      <div class="kpi-title">Μέσο Περιθώριο Λιανικής</div>
       <div id="pcAvgMargin" class="kpi-value">0.00%</div>
     </div>
   </div>
@@ -185,14 +187,14 @@
     </div>
   </div>
   <div class="col-md-6 col-xl">
-    <div class="bv-kpi-box bv-kpi-cyan" role="button" tabindex="0" id="pcAbovePredictedCard" data-price-category="above" data-kpi-what="Πόσα προϊόντα έχουν τιμή λιανικής πάνω από την τιμή στόχου με βάση την τιμή κτήσης και τον στόχο περιθωρίου." data-kpi-formula="Τιμή Στόχου = Τιμή Κτήσης / (1 - Στόχος Περιθωρίου%). Μετράμε όσα έχουν Τιμή Λιανικής >= Τιμή Στόχου.">
+    <div class="bv-kpi-box bv-kpi-cyan" role="button" tabindex="0" id="pcAbovePredictedCard" data-price-category="above" data-kpi-what="Πόσα προϊόντα έχουν λιανική με ΦΠΑ πάνω από την τιμή στόχου με ΦΠΑ." data-kpi-formula="Καθαρή Τιμή Στόχου = Τιμή Κτήσης / (1 - Στόχος Περιθωρίου%). Τιμή Στόχου με ΦΠΑ = Καθαρή Τιμή Στόχου * (1 + ΦΠΑ%). Για κόστος 13,48, στόχο 25% και ΦΠΑ 24%: 13,48 / 0,75 * 1,24 = 22,29.">
       <div class="kpi-icon" title="Ανάλυση ειδών πάνω από την προβλεπόμενη τιμή"><i class="fe fe-arrow-up-circle"></i></div>
       <div class="kpi-title">Πάνω από Προβλ.</div>
       <div id="pcAbovePredictedCount" class="kpi-value">0</div>
     </div>
   </div>
   <div class="col-md-6 col-xl">
-    <div class="bv-kpi-box bv-kpi-red" role="button" tabindex="0" id="pcBelowPredictedCard" data-price-category="below" data-kpi-what="Πόσα προϊόντα έχουν τιμή λιανικής κάτω από την τιμή στόχου με βάση την τιμή κτήσης και τον στόχο περιθωρίου." data-kpi-formula="Τιμή Στόχου = Τιμή Κτήσης / (1 - Στόχος Περιθωρίου%). Μετράμε όσα έχουν Τιμή Λιανικής < Τιμή Στόχου.">
+    <div class="bv-kpi-box bv-kpi-red" role="button" tabindex="0" id="pcBelowPredictedCard" data-price-category="below" data-kpi-what="Πόσα προϊόντα έχουν λιανική με ΦΠΑ κάτω από την τιμή στόχου με ΦΠΑ." data-kpi-formula="Καθαρή Τιμή Στόχου = Τιμή Κτήσης / (1 - Στόχος Περιθωρίου%). Τιμή Στόχου με ΦΠΑ = Καθαρή Τιμή Στόχου * (1 + ΦΠΑ%). Για κόστος 13,48, στόχο 25% και ΦΠΑ 24%: 13,48 / 0,75 * 1,24 = 22,29.">
       <div class="kpi-icon" title="Ανάλυση ειδών κάτω από την προβλεπόμενη τιμή"><i class="fe fe-arrow-down-circle"></i></div>
       <div class="kpi-title">Κάτω από Προβλ.</div>
       <div id="pcBelowPredictedCount" class="kpi-value">0</div>
@@ -216,10 +218,11 @@
           <th>{{ tt(request, 'groups') }}</th>
           <th class="text-end">{{ tt(request, 'wholesale_unit') }}</th>
           <th class="text-end">{{ tt(request, 'acquisition_after_discount') }}</th>
-          <th class="text-end">{{ tt(request, 'retail_unit') }}</th>
-          <th class="text-end">{{ tt(request, 'target_sale_unit') }}</th>
+          <th class="text-end">Τιμή Λιανικής με ΦΠΑ</th>
+          <th class="text-end">Τιμή Στόχου με ΦΠΑ</th>
           <th class="text-end">{{ tt(request, 'sale_unit') }}</th>
-          <th class="text-end">{{ tt(request, 'margin') }}</th>
+          <th class="text-end">ΦΠΑ</th>
+          <th class="text-end">Περιθώριο Λιανικής</th>
           <th class="text-end">{{ tt(request, 'recommended_discount') }}</th>
         </tr>
       </thead>
@@ -246,8 +249,9 @@
                 <th>Είδος</th>
                 <th>Προμηθευτής</th>
                 <th class="text-end">Τιμή Κτήσης</th>
-                <th class="text-end">Τιμή Στόχου</th>
-                <th class="text-end">Τιμή Λιανικής</th>
+                <th class="text-end">Τιμή Στόχου με ΦΠΑ</th>
+                <th class="text-end">Τιμή Λιανικής με ΦΠΑ</th>
+                <th class="text-end">ΦΠΑ</th>
                 <th class="text-end">Τιμή Πώλησης</th>
                 <th class="text-end">Διαφορά</th>
                 <th class="text-end">Διαφορά %</th>
@@ -403,7 +407,7 @@
   function renderRows(rows){
     tbody.innerHTML = '';
     if(!rows.length){
-      tbody.innerHTML = `<tr><td colspan="13" class="text-center text-muted py-3">{{ tt(request, 'no_data_available') }}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="14" class="text-center text-muted py-3">{{ tt(request, 'no_data_available') }}</td></tr>`;
       return;
     }
     rows.forEach(r=>{
@@ -422,6 +426,7 @@
         <td class="text-end pc-nowrap">${fmtMoney(r.retail_unit)}</td>
         <td class="text-end pc-nowrap">${fmtMoney(r.target_sale_unit || r.predicted_sale_unit)}</td>
         <td class="text-end pc-nowrap">${fmtMoney(r.sale_unit)}</td>
+        <td class="text-end pc-nowrap">${fmtPct(r.vat_pct)}</td>
         <td class="text-end fw-bold pc-nowrap">${fmtPct(r.margin_pct)}</td>
         <td class="text-end pc-nowrap ${recClass}">${rec}</td>
       `;
@@ -449,9 +454,9 @@
     const rows = categoryRows(kind);
     const title = kind === 'above' ? 'Προϊόντα πάνω από την προβλεπόμενη τιμή' : 'Προϊόντα κάτω από την προβλεπόμενη τιμή';
     priceCategoryTitle.textContent = title;
-    priceCategorySubtitle.textContent = `Τιμή Στόχου = Τιμή Κτήσης / (1 - Στόχος Περιθωρίου%). Η σύγκριση γίνεται με την τιμή λιανικής. Εμφάνιση ${rows.length} ειδών.`;
+    priceCategorySubtitle.textContent = `Οι υπολογισμοί margin γίνονται καθαρά: λιανική με ΦΠΑ / (1 + ΦΠΑ%). Η σύγκριση εδώ γίνεται με τιμές λιανικής και στόχου με ΦΠΑ. Εμφάνιση ${rows.length} ειδών.`;
     if(!rows.length){
-      priceCategoryBody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-3">Δεν υπάρχουν διαθέσιμα είδη σε αυτή την κατηγορία.</td></tr>';
+      priceCategoryBody.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-3">Δεν υπάρχουν διαθέσιμα είδη σε αυτή την κατηγορία.</td></tr>';
     }else{
       priceCategoryBody.innerHTML = rows.map((r)=>{
         const gap = Number(r.price_gap_value || 0);
@@ -463,6 +468,7 @@
           <td class="text-end">${fmtMoney(r.acquisition_after_discount)}</td>
           <td class="text-end">${fmtMoney(r.target_sale_unit || r.predicted_sale_unit)}</td>
           <td class="text-end">${fmtMoney(r.retail_unit)}</td>
+          <td class="text-end">${fmtPct(r.vat_pct)}</td>
           <td class="text-end">${fmtMoney(r.sale_unit)}</td>
           <td class="text-end ${tone}">${fmtMoney(gap)}</td>
           <td class="text-end ${tone}">${fmtPct(gapPct)}</td>

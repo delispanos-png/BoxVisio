@@ -5,7 +5,7 @@ from app.core.security import expected_audience_for_host, safe_decode
 
 
 def _protected_ui_path(path: str) -> bool:
-    return path.startswith('/tenant/') or path.startswith('/admin/')
+    return path.startswith('/tenant/') or path == '/admin' or path.startswith('/admin/')
 
 
 async def ui_auth_redirect_middleware(request: Request, call_next):

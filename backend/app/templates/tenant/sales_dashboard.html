@@ -697,22 +697,6 @@
     font-weight: 700;
     color: #334155;
   }
-  .sales-doc-modal {
-    --bv-modal-max-width: 1380px;
-    --bv-modal-max-height: 92vh;
-  }
-  .sales-doc-modal .modal-body {
-    overflow-y: auto;
-    overflow-x: hidden;
-  }
-  .sales-doc-lines-wrap {
-    max-height: min(34vh, 360px);
-    overflow: auto;
-  }
-  .sales-doc-modal textarea.form-control {
-    min-height: 120px;
-    resize: vertical;
-  }
   @media (max-width: 991.98px) {
     .sales-docs-table-wrap {
       max-height: 420px;
@@ -780,10 +764,10 @@
         <button type="button" class="btn btn-outline-secondary btn-sm" id="salesDocsPageGo">Μετάβαση</button>
       </div>
       <div class="bv-pager-nav" role="group" aria-label="Πλοήγηση σελίδων">
-        <button type="button" class="btn btn-outline-secondary btn-sm" id="salesDocsFirstPage" title="Πρώτη σελίδα" aria-label="Πρώτη σελίδα">&laquo;</button>
-        <button type="button" class="btn btn-outline-secondary btn-sm" id="salesDocsPrevPage" title="Προηγούμενη σελίδα" aria-label="Προηγούμενη σελίδα">&lsaquo;</button>
-        <button type="button" class="btn btn-outline-secondary btn-sm" id="salesDocsNextPage" title="Επόμενη σελίδα" aria-label="Επόμενη σελίδα">&rsaquo;</button>
-        <button type="button" class="btn btn-outline-secondary btn-sm" id="salesDocsLastPage" title="Τελευταία σελίδα" aria-label="Τελευταία σελίδα">&raquo;</button>
+        <button type="button" class="bv-page-icon" id="salesDocsFirstPage" title="Πρώτη σελίδα" aria-label="Πρώτη σελίδα">&laquo;</button>
+        <button type="button" class="bv-page-icon" id="salesDocsPrevPage" title="Προηγούμενη σελίδα" aria-label="Προηγούμενη σελίδα">&lsaquo;</button>
+        <button type="button" class="bv-page-icon" id="salesDocsNextPage" title="Επόμενη σελίδα" aria-label="Επόμενη σελίδα">&rsaquo;</button>
+        <button type="button" class="bv-page-icon" id="salesDocsLastPage" title="Τελευταία σελίδα" aria-label="Τελευταία σελίδα">&raquo;</button>
       </div>
       <small id="salesDocsPageInfo" class="bv-pager-info">1 / 1</small>
     </div>
@@ -1110,7 +1094,7 @@
                 <input type="text" class="form-control form-control-sm" id="salesDocFCustomer" readonly>
               </div>
               <div class="col-md-6">
-                <label class="form-label mb-1">Έξοδα αποστολής</label>
+                <label class="form-label mb-1">Έξοδα παραστατικού</label>
                 <input type="text" class="form-control form-control-sm" id="salesDocFStatus" readonly>
               </div>
               <div class="col-md-6">
@@ -1531,6 +1515,10 @@ function renderSalesDocumentsTable(rows){
   }
   (rows || []).forEach((r)=>{
     const docId = String(r.document_id || '').trim();
+    const docNo = textOrDash(r.document_no);
+    const docCell = docId
+      ? `<button type="button" class="doc-open-btn" data-doc-id="${escapeHtml(docId)}" title="Άνοιγμα παραστατικού ${escapeHtml(docNo)}"><i class="fe fe-external-link"></i><span>${escapeHtml(docNo)}</span></button>`
+      : escapeHtml(docNo);
     const tr = document.createElement('tr');
     tr.dataset.docId = docId;
     tr.tabIndex = 0;
@@ -1542,7 +1530,7 @@ function renderSalesDocumentsTable(rows){
       <td>${escapeHtml(combineCodeName(r.warehouse_code, r.warehouse))}</td>
       <td>${escapeHtml(textOrDash(r.series))}</td>
       <td>${escapeHtml(textOrDash(r.channel_name, ''))}</td>
-      <td>${escapeHtml(textOrDash(r.document_no))}</td>
+      <td>${docCell}</td>
       <td>${escapeHtml(textOrDash(r.eshop_code, ''))}</td>
       <td>${escapeHtml(textOrDash(r.customer, 'ΠΕΛΑΤΗΣ ΛΙΑΝΙΚΗΣ'))}</td>
       <td>${escapeHtml(textOrDash(r.delivery_info, ''))}</td>
@@ -1558,6 +1546,10 @@ function renderSalesDocumentsTable(rows){
       salesDocActiveId = docId;
       body.querySelectorAll('tr.is-active').forEach((row)=>row.classList.remove('is-active'));
       tr.classList.add('is-active');
+    });
+    tr.querySelector('.doc-open-btn')?.addEventListener('click', (event) => {
+      event.stopPropagation();
+      openSalesDocument(docId, event.currentTarget);
     });
     tr.addEventListener('dblclick', () => {
       if(docId) openSalesDocument(docId, tr);
@@ -1588,7 +1580,13 @@ function renderSalesDocumentsSummary(summary, meta={}){
   const expenses = Number.isFinite(Number(summary?.expenses_value))
     ? toNum(summary?.expenses_value)
     : (gross - net - vat);
-  el.textContent = `Παραστατικά: ${fmt0.format(Math.round(docs))} | Σύνολο καθαρής αξίας: ${money(net)} | Σύνολο εξόδων: ${money(expenses)} | Σύνολο ΦΠΑ: ${money(vat)} | Γενικό Σύνολο: ${money(gross)}`;
+  window.bvRenderFooterSummary?.(el, [
+    { label: 'Παραστατικά', value: fmt0.format(Math.round(docs)) },
+    { label: 'Καθαρή αξία', value: money(net) },
+    { label: 'Έξοδα', value: money(expenses), tone: expenses < 0 ? 'negative' : '' },
+    { label: 'ΦΠΑ', value: money(vat) },
+    { label: 'Γενικό σύνολο', value: money(gross), tone: 'total' },
+  ]);
 
   const limit = Math.max(1, Number(meta.limit || document.getElementById('salesDocsPageSize')?.value || 200));
   const offset = Math.max(0, Number(meta.offset || 0));
@@ -1814,91 +1812,15 @@ function insightsDetailsHref(){
 
 
 function syncSalesMultiUI(prefix, label, filterText=''){
-  const select=document.getElementById(`${prefix}`);
-  const optionsWrap=document.getElementById(`${prefix}Options`);
-  const chips=document.getElementById(`${prefix}Chips`);
-  const toggle=document.getElementById(`${prefix}Toggle`);
-  if(!select || !optionsWrap || !chips || !toggle) return;
-
-  const selected = Array.from(select.options).filter(o=>o.selected).map(o=>o.value);
-  const normalized = (filterText||'').toLowerCase().trim();
-
-  optionsWrap.innerHTML='';
-  Array.from(select.options)
-    .filter(o=>{
-      const display=(o.dataset.label||o.textContent||o.value).toLowerCase();
-      return !normalized || o.value.toLowerCase().includes(normalized) || display.includes(normalized);
-    })
-    .forEach(o=>{
-      const row=document.createElement('label');
-      row.className='bv-multi-opt';
-      const cb=document.createElement('input');
-      cb.type='checkbox';
-      cb.checked=o.selected;
-      cb.addEventListener('change', ()=>{
-        o.selected=cb.checked;
-        select.dispatchEvent(new Event('change'));
-        syncSalesMultiUI(prefix, label, document.getElementById(`${prefix}Search`)?.value||'');
-      });
-      const span=document.createElement('span');
-      span.textContent=o.textContent || o.value;
-      row.appendChild(cb);
-      row.appendChild(span);
-      optionsWrap.appendChild(row);
-    });
-  if(!optionsWrap.children.length){
-    const empty=document.createElement('div');
-    empty.className='bv-multi-empty';
-    empty.textContent='Δεν υπάρχουν διαθέσιμες επιλογές';
-    optionsWrap.appendChild(empty);
-  }
-
-  chips.innerHTML='';
-  selected.forEach(v=>{
-    const chip=document.createElement('span');
-    chip.className='bv-chip';
-    const opt = Array.from(select.options).find(o=>o.value===v);
-    chip.textContent=(opt && opt.textContent) ? opt.textContent : v;
-    chips.appendChild(chip);
-  });
-  toggle.textContent = selected.length ? `${label} (${selected.length})` : 'Επιλογή';
+  BvMultiSelect.sync(prefix, { label, filterText });
 }
 
 function initSalesMulti(prefix, label){
-  const toggle=document.getElementById(`${prefix}Toggle`);
-  const menu=document.getElementById(`${prefix}Menu`);
-  const search=document.getElementById(`${prefix}Search`);
-  const btnAll=document.getElementById(`${prefix}All`);
-  const btnClear=document.getElementById(`${prefix}Clear`);
-  const select=document.getElementById(`${prefix}`);
-  if(!toggle || !menu || !search || !btnAll || !btnClear || !select || toggle.dataset.bound==='1') return;
-  toggle.dataset.bound='1';
-
-  toggle.addEventListener('click', ()=>{menu.hidden=!menu.hidden;});
-  search.addEventListener('input', ()=>syncSalesMultiUI(prefix, label, search.value));
-  btnAll.addEventListener('click', ()=>{Array.from(select.options).forEach(o=>o.selected=true); syncSalesMultiUI(prefix, label, search.value);});
-  btnClear.addEventListener('click', ()=>{Array.from(select.options).forEach(o=>o.selected=false); syncSalesMultiUI(prefix, label, search.value);});
-  document.addEventListener('click', (e)=>{ if(!document.getElementById(`${prefix}Multi`)?.contains(e.target)) menu.hidden=true; });
+  BvMultiSelect.bind(prefix, { label });
 }
 
 function populateSalesSelect(prefix, label, values, labels={}){
-  const select=document.getElementById(prefix);
-  if(!select) return;
-  const prev = new Set(Array.from(select.selectedOptions || []).map(o=>o.value));
-  select.innerHTML='';
-  const ordered = [...(values || [])].sort((a,b)=>
-    String(labels[a] || a).localeCompare(String(labels[b] || b), 'el', { sensitivity:'base' })
-  );
-  ordered.forEach(v=>{
-    const opt=document.createElement('option');
-    opt.value=v;
-    const txt = labels[v] ? `${labels[v]}` : v;
-    opt.textContent=txt;
-    opt.dataset.label = labels[v] || v;
-    if(prev.has(v)) opt.selected=true;
-    select.appendChild(opt);
-  });
-  syncSalesMultiUI(prefix, label, document.getElementById(`${prefix}Search`)?.value||'');
+  BvMultiSelect.populate(prefix, values, labels, { label });
 }
 
 function selectedValues(selectId){
@@ -1911,7 +1833,7 @@ function setSelectedByValues(selectId, values){
   if(!sel) return;
   const vset = new Set(values || []);
   Array.from(sel.options || []).forEach(o => { o.selected = vset.has(o.value); });
-  syncSalesMultiUI(selectId, salesUiFieldDefs.find(f => f.selectId === selectId)?.label || 'Επιλογή');
+  BvMultiSelect.sync(selectId, { label: salesUiFieldDefs.find(f => f.selectId === selectId)?.label || 'Επιλογή' });
 }
 
 function rebuildSalesHiddenCategories(){

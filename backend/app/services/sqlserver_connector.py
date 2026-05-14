@@ -37,7 +37,29 @@ def _connect(connection_string: str, query_timeout: int = 0):
     # pyodbc cursors do not expose a .timeout attribute, so hasattr(cur, 'timeout') is always False.
     if query_timeout > 0:
         conn.timeout = query_timeout
+    _prepare_read_session(conn)
     return conn
+
+
+def _prepare_read_session(conn: Any) -> None:
+    statements: list[str] = []
+    if bool(getattr(settings, 'sqlserver_read_uncommitted', True)):
+        statements.append('SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED')
+    lock_timeout_ms = int(getattr(settings, 'sqlserver_lock_timeout_ms', 15000) or 0)
+    if lock_timeout_ms > 0:
+        statements.append(f'SET LOCK_TIMEOUT {max(1000, min(lock_timeout_ms, 120000))}')
+    statements.append('SET DEADLOCK_PRIORITY LOW')
+    if not statements:
+        return
+    cur = conn.cursor()
+    try:
+        for statement in statements:
+            cur.execute(statement)
+    finally:
+        try:
+            cur.close()
+        except Exception:
+            pass
 
 
 def _quote_identifier(identifier: str) -> str:
@@ -81,6 +103,31 @@ def _build_final_query(
         "ORDER BY src.{inc_col} ASC, src.{id_col} ASC"
     ).format(date_col=dt_col, inc_col=inc_col, id_col=id_col)
     return wrapped
+
+
+def _template_has_bound_filters(query_template: str) -> bool:
+    text = str(query_template or '').lower()
+    return any(token in text for token in ('@last_sync_ts', '@from_date', '@to_date', '@company_id'))
+
+
+def _add_top_to_select(query: str, limit: int | None) -> str:
+    if limit is None:
+        return query
+    top_n = max(1, min(int(limit), 10000))
+    text = str(query or '').lstrip()
+    leading_ws_len = len(query) - len(text)
+    if not text[:6].lower() == 'select':
+        return query
+    if text[:20].lower().startswith('select top '):
+        return query
+    return query[:leading_ws_len] + f'SELECT TOP {top_n} ' + text[6:].lstrip()
+
+
+def _append_final_order_by(query: str, incremental_column: str, id_column: str) -> str:
+    base = str(query or '').strip().rstrip(';')
+    inc_col = _safe_identifier(incremental_column)
+    id_col = _safe_identifier(id_column)
+    return f'{base} ORDER BY {inc_col} ASC, {id_col} ASC'
 
 
 def _bind_template_params(
@@ -247,7 +294,8 @@ def fetch_incremental_rows(
     last_sync_timestamp = _normalize_param_datetime(last_sync_timestamp)
 
     fetch_batch_size = max(100, int(settings.sqlserver_fetch_batch_size or 1000))
-    query_timeout = max(30, int(settings.sqlserver_query_timeout_seconds or 180))
+    query_timeout = max(30, int(settings.sqlserver_query_timeout_seconds or 120))
+    retries = max(1, int(getattr(settings, 'sqlserver_query_retries', retries) or retries))
     page_limit = max(1, min(int(limit), 10000)) if limit is not None else None
     cursor_ts = last_sync_timestamp
     cursor_id: Any = last_sync_id
@@ -279,25 +327,33 @@ def fetch_incremental_rows(
                 last_sync_id=cursor_id,
                 company_id=company_id,
             )
-            effective_query = _build_final_query(
-                templated_query,
-                incremental_column=incremental_column,
-                id_column=id_column,
-                date_column=date_column,
-                limit=page_limit,
-            )
-            filter_params = [
-                from_date,
-                from_date,
-                to_date,
-                to_date,
-                cursor_ts,
-                cursor_ts,
-                cursor_ts,
-                cursor_id,
-                cursor_id,
-            ]
-            params = template_params + filter_params
+            if _template_has_bound_filters(query_template):
+                effective_query = _append_final_order_by(
+                    _add_top_to_select(templated_query, page_limit),
+                    incremental_column=incremental_column,
+                    id_column=id_column,
+                )
+                params = template_params
+            else:
+                effective_query = _build_final_query(
+                    templated_query,
+                    incremental_column=incremental_column,
+                    id_column=id_column,
+                    date_column=date_column,
+                    limit=page_limit,
+                )
+                filter_params = [
+                    from_date,
+                    from_date,
+                    to_date,
+                    to_date,
+                    cursor_ts,
+                    cursor_ts,
+                    cursor_ts,
+                    cursor_id,
+                    cursor_id,
+                ]
+                params = template_params + filter_params
             page_rows = 0
             page_last_ts = cursor_ts
             page_last_id = cursor_id

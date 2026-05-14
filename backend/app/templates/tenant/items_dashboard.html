@@ -100,12 +100,6 @@
 {% block content %}
 <div id="itemsError" class="alert alert-danger d-none mb-3"></div>
 <div id="itemsScopeInfo" class="alert alert-warning d-none mb-3"></div>
-<style>
-  .items-footer {
-    border-top: 1px solid #e5e7eb;
-    background: #f8fafc;
-  }
-</style>
 
 <div class="row g-3 mb-3">
   <div class="col-xl-2 col-md-4">
@@ -180,10 +174,10 @@
         <button type="button" class="btn btn-outline-secondary btn-sm" id="itPageGo">Μετάβαση</button>
       </div>
       <div class="bv-pager-nav" role="group" aria-label="Πλοήγηση σελίδων ειδών">
-        <button type="button" class="btn btn-outline-secondary btn-sm" id="itFirstPage" title="Πρώτη σελίδα" aria-label="Πρώτη σελίδα">&laquo;</button>
-        <button type="button" class="btn btn-outline-secondary btn-sm" id="itPrevPage" title="Προηγούμενη σελίδα" aria-label="Προηγούμενη σελίδα">&lsaquo;</button>
-        <button type="button" class="btn btn-outline-secondary btn-sm" id="itNextPage" title="Επόμενη σελίδα" aria-label="Επόμενη σελίδα">&rsaquo;</button>
-        <button type="button" class="btn btn-outline-secondary btn-sm" id="itLastPage" title="Τελευταία σελίδα" aria-label="Τελευταία σελίδα">&raquo;</button>
+        <button type="button" class="bv-page-icon" id="itFirstPage" title="Πρώτη σελίδα" aria-label="Πρώτη σελίδα">&laquo;</button>
+        <button type="button" class="bv-page-icon" id="itPrevPage" title="Προηγούμενη σελίδα" aria-label="Προηγούμενη σελίδα">&lsaquo;</button>
+        <button type="button" class="bv-page-icon" id="itNextPage" title="Επόμενη σελίδα" aria-label="Επόμενη σελίδα">&rsaquo;</button>
+        <button type="button" class="bv-page-icon" id="itLastPage" title="Τελευταία σελίδα" aria-label="Τελευταία σελίδα">&raquo;</button>
       </div>
       <small id="itPageInfo" class="bv-pager-info">1 / 1</small>
     </div>
@@ -577,82 +571,15 @@
   }
 
   function syncMulti(prefix, label, filterText=''){
-    const select=document.getElementById(prefix);
-    const optionsWrap=document.getElementById(`${prefix}Options`);
-    const chips=document.getElementById(`${prefix}Chips`);
-    const toggle=document.getElementById(`${prefix}Toggle`);
-    if(!select || !optionsWrap || !chips || !toggle) return;
-    const selected = Array.from(select.options).filter(o=>o.selected).map(o=>o.value);
-    const normalized = (filterText||'').toLowerCase().trim();
-    optionsWrap.innerHTML='';
-    Array.from(select.options)
-      .filter(o=>(o.textContent||o.value).toLowerCase().includes(normalized))
-      .forEach(o=>{
-        const row=document.createElement('label');
-        row.className='bv-multi-opt';
-        const cb=document.createElement('input');
-        cb.type='checkbox'; cb.checked=o.selected;
-        cb.addEventListener('change', ()=>{
-          o.selected=cb.checked;
-          syncMulti(prefix,label,document.getElementById(`${prefix}Search`)?.value||'');
-          select.dispatchEvent(new Event('change', { bubbles: true }));
-        });
-        const span=document.createElement('span');
-        span.textContent=o.textContent||o.value;
-        row.append(cb,span);
-        optionsWrap.appendChild(row);
-      });
-    chips.innerHTML='';
-    selected.forEach(v=>{
-      const chip=document.createElement('span');
-      chip.className='bv-chip';
-      const opt = Array.from(select.options).find(o=>o.value===v);
-      chip.textContent=opt?.textContent||v;
-      chips.appendChild(chip);
-    });
-    toggle.textContent = selected.length ? `${label} (${selected.length})` : '{{ tt(request, "select") }}';
+    BvMultiSelect.sync(prefix, { label, filterText, selectText: '{{ tt(request, "select") }}' });
   }
 
   function initMulti(prefix, label){
-    const toggle=document.getElementById(`${prefix}Toggle`);
-    const menu=document.getElementById(`${prefix}Menu`);
-    const search=document.getElementById(`${prefix}Search`);
-    const btnAll=document.getElementById(`${prefix}All`);
-    const btnClear=document.getElementById(`${prefix}Clear`);
-    const select=document.getElementById(prefix);
-    if(!toggle || toggle.dataset.bound==='1') return;
-    toggle.dataset.bound='1';
-    toggle.addEventListener('click', ()=>{menu.hidden=!menu.hidden;});
-    search.addEventListener('input', ()=>syncMulti(prefix,label,search.value));
-    btnAll.addEventListener('click', ()=>{
-      Array.from(select.options).forEach(o=>o.selected=true);
-      syncMulti(prefix,label,search.value);
-      select.dispatchEvent(new Event('change', { bubbles: true }));
-    });
-    btnClear.addEventListener('click', ()=>{
-      Array.from(select.options).forEach(o=>o.selected=false);
-      syncMulti(prefix,label,search.value);
-      select.dispatchEvent(new Event('change', { bubbles: true }));
-    });
-    document.addEventListener('click', (e)=>{ if(!document.getElementById(`${prefix}Multi`)?.contains(e.target)) menu.hidden=true; });
+    BvMultiSelect.bind(prefix, { label, selectText: '{{ tt(request, "select") }}' });
   }
 
   function populateSelect(selectId, label, values, labels={}){
-    const select=document.getElementById(selectId);
-    if(!select) return;
-    const prev = new Set(Array.from(select.selectedOptions).map(o=>o.value));
-    select.innerHTML='';
-    const ordered = [...(values || [])].sort((a,b)=>
-      String(labels[a] || a).localeCompare(String(labels[b] || b), 'el', { sensitivity:'base' })
-    );
-    ordered.forEach(v=>{
-      const opt=document.createElement('option');
-      opt.value=v;
-      opt.textContent=labels[v] || v;
-      if(prev.has(v)) opt.selected=true;
-      select.appendChild(opt);
-    });
-    syncMulti(selectId, label);
+    BvMultiSelect.populate(selectId, values, labels, { label, selectText: '{{ tt(request, "select") }}' });
   }
 
   function selectedValues(selectId){
@@ -666,7 +593,7 @@
     const wanted = new Set(values || []);
     Array.from(sel.options || []).forEach(o => { o.selected = wanted.has(o.value); });
     const label = (uiFieldDefs.find(f => f.selectId === selectId)?.label) || '{{ tt(request, "select") }}';
-    syncMulti(selectId, label);
+    BvMultiSelect.sync(selectId, { label, selectText: '{{ tt(request, "select") }}' });
   }
 
   function rebuildHiddenCategories(){

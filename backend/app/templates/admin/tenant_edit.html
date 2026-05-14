@@ -89,8 +89,53 @@
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
 }
+.tenant-check-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px 12px;
+}
+.tenant-inline-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: .82rem;
+  color: var(--bv-admin-text, #101828);
+}
+.tenant-inline-check span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .tenant-textarea-lg { min-height: 132px; resize: vertical; }
 .tenant-textarea-sm { min-height: 96px; resize: vertical; }
+.tenant-sync-note {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  background: #eff6ff;
+  color: #1e3a8a;
+  font-size: .86rem;
+}
+.tenant-sync-note strong { display: block; color: #1e40af; }
+.tenant-sync-note i { margin-top: 2px; }
+.tenant-effective-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #ecfdf3;
+  color: #047857;
+  font-size: .74rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
 .tenant-sticky-actions {
   position: sticky;
   bottom: 10px;
@@ -108,6 +153,12 @@
   backdrop-filter: blur(8px);
 }
 body[data-theme='dark'] .tenant-sticky-actions { background: rgba(21,31,45,.94); }
+body[data-theme='dark'] .tenant-sync-note {
+  background: rgba(30, 58, 138, .22);
+  border-color: #1d4ed8;
+  color: #bfdbfe;
+}
+body[data-theme='dark'] .tenant-sync-note strong { color: #dbeafe; }
 .tenant-side-card .list-group-item {
   display: flex;
   align-items: center;
@@ -126,7 +177,8 @@ body[data-theme='dark'] .tenant-sticky-actions { background: rgba(21,31,45,.94);
 @media (max-width: 767.98px) {
   .tenant-hero { align-items: flex-start; flex-direction: column; }
   .tenant-meta-grid,
-  .tenant-rule-grid { grid-template-columns: 1fr; }
+  .tenant-rule-grid,
+  .tenant-check-grid { grid-template-columns: 1fr; }
   .tenant-sticky-actions { position: static; flex-direction: column; align-items: stretch; }
 }
 </style>
@@ -219,14 +271,79 @@ body[data-theme='dark'] .tenant-sticky-actions { background: rgba(21,31,45,.94);
         <div class="card tenant-form-card">
           <div class="card-body">
             <div class="tenant-section-head">
-              <div class="tenant-section-icon"><i class="fe fe-refresh-cw"></i></div>
+              <div class="tenant-section-icon"><i class="fe fe-check-circle"></i></div>
               <div>
-                <h5>Αυτόματη ενημέρωση</h5>
-                <p>Προφίλ υπηρεσίας, συχνότητα και κόστος συγχρονισμού ανά πραγματική ανάγκη πελάτη.</p>
+                <h5>Ημερήσιος έλεγχος συμφωνίας</h5>
+                <p>Συγκρίνει SoftOne με BI σε προγραμματισμένη ώρα και ανοίγει ειδοποίηση όταν βρεθούν αποκλίσεις.</p>
               </div>
             </div>
 
             <div class="tenant-rule-card">
+              <div class="tenant-rule-grid">
+                <div>
+                  <label class="form-label">Κατάσταση ελέγχου</label>
+                  <div class="form-check form-switch mt-2">
+                    <input class="form-check-input" type="checkbox" role="switch" name="daily_reconciliation_enabled" id="tenantDailyReconciliationEnabled" value="true" {% if daily_reconciliation.enabled %}checked{% endif %}>
+                    <label class="form-check-label" for="tenantDailyReconciliationEnabled">Ενεργός ημερήσιος έλεγχος</label>
+                  </div>
+                  <span class="tenant-field-help">Ο έλεγχος τρέχει μία φορά την ημέρα, μόνο όταν δεν υπάρχει ενεργό sync/queue για τον tenant.</span>
+                </div>
+                <div>
+                  <label class="form-label">Ώρα εκτέλεσης</label>
+                  <input class="form-control" type="time" name="daily_reconciliation_time" value="{{ daily_reconciliation.time }}">
+                  <span class="tenant-field-help">Σύγκριση ολοκληρωμένων ημερών. Αν τρέξει σήμερα, ελέγχει μέχρι χθες.</span>
+                </div>
+                <div>
+                  <label class="form-label">Timezone</label>
+                  <input class="form-control" type="text" name="daily_reconciliation_timezone" value="{{ daily_reconciliation.timezone }}">
+                  <span class="tenant-field-help">Παράδειγμα: Europe/Athens.</span>
+                </div>
+                <div>
+                  <label class="form-label">Παράθυρο ελέγχου</label>
+                  <div class="input-group">
+                    <input class="form-control" type="number" min="1" max="366" name="daily_reconciliation_lookback_days" value="{{ daily_reconciliation.lookback_days }}">
+                    <span class="input-group-text">ημέρες</span>
+                  </div>
+                  <span class="tenant-field-help">1 = χθεσινή ημέρα. 7 = τελευταίες 7 ολοκληρωμένες ημέρες.</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="tenant-rule-card mt-3">
+              <label class="form-label">Κυκλώματα που ελέγχονται</label>
+              <div class="tenant-check-grid">
+                {% for stream, label in daily_reconciliation.stream_labels.items() %}
+                <label class="tenant-inline-check">
+                  <input type="checkbox" name="daily_reconciliation_streams" value="{{ stream }}" {% if stream in daily_reconciliation.streams %}checked{% endif %}>
+                  <span>{{ label }}</span>
+                </label>
+                {% endfor %}
+              </div>
+              <span class="tenant-field-help">Για βαριά κυκλώματα όπως υπόλοιπα πελατών/προμηθευτών άνοιξέ το μόνο όταν το query είναι επιβεβαιωμένα σωστό για τον tenant.</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="card tenant-form-card">
+          <div class="card-body">
+            <div class="tenant-section-head">
+              <div class="tenant-section-icon"><i class="fe fe-refresh-cw"></i></div>
+              <div>
+                <h5>Αυτόματη ενημέρωση</h5>
+                <p>Το profile ορίζει τη γενική υπηρεσία. Οι πραγματικές συχνότητες εκτέλεσης ορίζονται ανά κύκλωμα στον πίνακα πιο κάτω.</p>
+              </div>
+            </div>
+
+            <div class="tenant-sync-note">
+              <i class="fe fe-info"></i>
+              <div>
+                <strong>Τι λαμβάνει υπόψιν ο αυτόματος συγχρονισμός;</strong>
+                Ο scheduler χρησιμοποιεί το γενικό profile για τη λογική του sync και τις γραμμές στο “Advanced ανά κύκλωμα” για το κάθε πότε τρέχει κάθε ροή. Δηλαδή αν οι Πωλήσεις γράφουν 5 λεπτά και τα Έξοδα 2 λεπτά, αυτές είναι οι ενεργές τιμές.
+              </div>
+            </div>
+
+            <div class="tenant-rule-card">
+              <label class="form-label">Γενικό profile υπηρεσίας</label>
               <div class="tenant-rule-grid">
                 <div>
                   <label class="form-label">Κατάσταση auto sync</label>
@@ -249,28 +366,28 @@ body[data-theme='dark'] .tenant-sticky-actions { background: rgba(21,31,45,.94);
                   <span class="tenant-field-help">Το profile καθορίζει το εμπορικό μοντέλο και τα default τεχνικά όρια.</span>
                 </div>
                 <div>
-                  <label class="form-label">Συγχρονισμός κάθε</label>
+                  <label class="form-label">Default συγχρονισμός κάθε</label>
                   <div class="input-group">
                     <input class="form-control" type="number" min="1" max="43200" name="auto_sync_interval_minutes" value="{{ auto_sync.interval_minutes }}">
                     <span class="input-group-text">λεπτά</span>
                   </div>
-                  <span class="tenant-field-help">Live: 1-15 λεπτά, Daily: 1440, Weekly: 10080, Monthly: 43200.</span>
+                  <span class="tenant-field-help">Χρησιμοποιείται ως default. Αν υπάρχει τιμή στον πίνακα ανά κύκλωμα, υπερισχύει η τιμή του πίνακα.</span>
                 </div>
                 <div>
-                  <label class="form-label">Overlap ασφαλείας</label>
+                  <label class="form-label">Default overlap ασφαλείας</label>
                   <div class="input-group">
                     <input class="form-control" type="number" min="0" max="1440" name="auto_sync_overlap_minutes" value="{{ auto_sync.overlap_minutes }}">
                     <span class="input-group-text">λεπτά</span>
                   </div>
-                  <span class="tenant-field-help">Ξαναρωτάει λίγο πίσω από το τελευταίο cursor για να μη χαθεί καθυστερημένη εγγραφή.</span>
+                  <span class="tenant-field-help">Default fallback. Το overlap ανά κύκλωμα είναι η ενεργή τιμή όταν έχει συμπληρωθεί.</span>
                 </div>
                 <div>
-                  <label class="form-label">Recovery window</label>
+                  <label class="form-label">Default recovery window</label>
                   <div class="input-group">
                     <input class="form-control" type="number" min="1" max="366" name="auto_sync_recovery_days" value="{{ auto_sync.recovery_days }}">
                     <span class="input-group-text">ημέρες</span>
                   </div>
-                  <span class="tenant-field-help">Για Daily/Weekly/Monthly ορίζει πόσο πίσω ξανακοιτάμε στο scheduled sync.</span>
+                  <span class="tenant-field-help">Default fallback για Daily/Weekly/Monthly. Αν το κύκλωμα έχει άλλη τιμή, χρησιμοποιείται εκείνη.</span>
                 </div>
                 <div>
                   <label class="form-label">Εφαρμογή</label>
@@ -284,12 +401,43 @@ body[data-theme='dark'] .tenant-sticky-actions { background: rgba(21,31,45,.94);
             </div>
 
             <div class="tenant-rule-card mt-3">
-              <label class="form-label">Advanced ανά κύκλωμα</label>
+              <label class="form-label">Ωράριο λειτουργίας auto sync</label>
+              <div class="tenant-rule-grid">
+                <div>
+                  <label class="form-label">Λειτουργία</label>
+                  <select class="form-select" name="auto_sync_business_hours_mode">
+                    <option value="always" {% if auto_sync.business_hours.mode == 'always' %}selected{% endif %}>Πάντα ενεργό</option>
+                    <option value="business_hours" {% if auto_sync.business_hours.mode == 'business_hours' %}selected{% endif %}>Μόνο σε ωράριο</option>
+                  </select>
+                  <span class="tenant-field-help">Εκτός ωραρίου δεν γίνονται scheduled SQL calls. Τα manual sync παραμένουν διαθέσιμα.</span>
+                </div>
+                <div>
+                  <label class="form-label">Από</label>
+                  <input class="form-control" type="time" name="auto_sync_business_hours_start" value="{{ auto_sync.business_hours.start }}">
+                  <span class="tenant-field-help">Ώρα έναρξης αυτόματων sync.</span>
+                </div>
+                <div>
+                  <label class="form-label">Έως</label>
+                  <input class="form-control" type="time" name="auto_sync_business_hours_end" value="{{ auto_sync.business_hours.end }}">
+                  <span class="tenant-field-help">Ώρα λήξης αυτόματων sync.</span>
+                </div>
+                <div>
+                  <label class="form-label">Timezone</label>
+                  <input class="form-control" type="text" name="auto_sync_business_hours_timezone" value="{{ auto_sync.business_hours.timezone }}">
+                  <span class="tenant-field-help">Παράδειγμα: Europe/Athens.</span>
+                </div>
+              </div>
+              <span class="tenant-field-help">Όταν ανοίξει ξανά το ωράριο, το πρώτο sync συνεχίζει από το τελευταίο cursor και πιάνει το κενό.</span>
+            </div>
+
+            <div class="tenant-rule-card mt-3">
+              <label class="form-label">Ενεργές ρυθμίσεις ανά κύκλωμα</label>
               <div class="table-responsive">
                 <table class="table table-sm align-middle mb-0">
                   <thead>
                     <tr>
                       <th>Κύκλωμα</th>
+                      <th>Χρήση</th>
                       <th>Auto</th>
                       <th>Κάθε λεπτά</th>
                       <th>Overlap</th>
@@ -300,6 +448,7 @@ body[data-theme='dark'] .tenant-sticky-actions { background: rgba(21,31,45,.94);
                     {% for stream, cfg in auto_sync.stream_overrides.items() %}
                     <tr>
                       <td>{{ auto_sync.stream_labels.get(stream, stream) }}</td>
+                      <td><span class="tenant-effective-pill"><i class="fe fe-check"></i>Ενεργό override</span></td>
                       <td>
                         <input type="checkbox" name="stream_sync_enabled" value="{{ stream }}" {% if cfg.enabled %}checked{% endif %}>
                       </td>
@@ -311,7 +460,7 @@ body[data-theme='dark'] .tenant-sticky-actions { background: rgba(21,31,45,.94);
                   </tbody>
                 </table>
               </div>
-              <span class="tenant-field-help">Αν ένα κύκλωμα είναι κλειστό, δεν μπαίνει στο scheduled auto sync. Τα manual sync παραμένουν διαθέσιμα.</span>
+              <span class="tenant-field-help">Αυτός ο πίνακας είναι η τελική ρύθμιση που διαβάζει ο scheduler ανά κύκλωμα. Αν ένα κύκλωμα είναι κλειστό, δεν μπαίνει στο scheduled auto sync. Τα manual sync παραμένουν διαθέσιμα.</span>
             </div>
           </div>
         </div>

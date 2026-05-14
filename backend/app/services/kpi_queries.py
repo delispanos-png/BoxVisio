@@ -855,6 +855,26 @@ def _normalize_purchase_branch_label(branch_name: str | None, branch_ext_id: str
     return ext or 'N/A'
 
 
+_KNOWN_SALES_BRANCH_LABELS = {
+    '1000': 'Εδρα',
+    '1001': 'Μαρίνου Αντύπα',
+    '1002': 'Κηφισιά Κασσαβέτη',
+    '1003': 'Ελληνικό',
+    '2000': 'Σπάτα',
+    '8000': 'Περιστέρι',
+}
+
+
+def _normalize_sales_branch_label(branch_name: str | None, branch_ext_id: str | None) -> str:
+    ext = _strip_tenant_prefix(branch_ext_id)
+    if ext in _KNOWN_SALES_BRANCH_LABELS:
+        return _KNOWN_SALES_BRANCH_LABELS[ext]
+    label = str(branch_name or '').strip()
+    if label and label.upper() != 'N/A':
+        return _strip_tenant_prefix(label)
+    return ext or 'N/A'
+
+
 def _normalize_purchase_document_type_label(
     raw_type: str | None,
     *,
@@ -2275,8 +2295,8 @@ def _map_branch_window_rows(
         cost_amount = float(row.get(f'{key_prefix}_cost') or 0)
         if net_value == 0 and gross_value == 0 and cost_amount == 0:
             continue
-        branch = row.get('branch_name') or row.get('branch_ext_id') or 'N/A'
         branch_code = row.get('branch_ext_id') or 'N/A'
+        branch = _normalize_sales_branch_label(row.get('branch_name'), branch_code)
         bucket = prepped_by_branch.setdefault(
             branch,
             {
@@ -6962,7 +6982,6 @@ async def expenses_documents_overview(
         amount_net = float(r.get('amount_net') or 0)
         amount_tax = float(r.get('amount_tax') or 0)
         amount_gross = float(r.get('amount_gross') or 0)
-        expenses_value = amount_net
         out_rows.append(
             {
                 'document_id': str(r.get('document_id') or ''),
@@ -6972,25 +6991,25 @@ async def expenses_documents_overview(
                 'category': category_name,
                 'document_type': document_type,
                 'supplier': str(r.get('supplier_name') or 'N/A'),
-                'total_net_value': 0.0,
-                'total_expenses_value': expenses_value,
+                'total_net_value': amount_net,
+                'total_expenses_value': 0.0,
                 'total_tax_value': amount_tax,
                 'total_gross_value': amount_gross,
                 'line_count': int(r.get('line_count') or 0),
                 'last_update': _raw_scalar(r.get('last_update')),
             }
         )
-    summary_expenses = float(totals_row['amount_net'] or 0)
+    summary_net = float(totals_row['amount_net'] or 0)
     return {
         'summary': {
             'documents': int(totals_row['docs_count'] or 0),
             'amount_net': float(totals_row['amount_net'] or 0),
             'amount_tax': float(totals_row['amount_tax'] or 0),
             'amount_gross': float(totals_row['amount_gross'] or 0),
-            'net_value': 0.0,
+            'net_value': summary_net,
             'vat_value': float(totals_row['amount_tax'] or 0),
             'gross_value': float(totals_row['amount_gross'] or 0),
-            'expenses_value': summary_expenses,
+            'expenses_value': 0.0,
         },
         'limit': int(limit),
         'offset': int(offset),
@@ -7092,8 +7111,8 @@ async def expense_document_detail(
             'cost_center': str(first_fact.cost_center or ''),
         },
         'totals': {
-            'net_value': 0.0,
-            'expenses_value': total_net,
+            'net_value': total_net,
+            'expenses_value': 0.0,
             'tax_value': total_tax,
             'gross_value': total_gross,
             'line_count': len(line_rows),
@@ -8847,6 +8866,58 @@ def _cashflow_entry_types_for_category(category: str | None) -> set[str] | None:
     return mapping.get(normalized)
 
 
+def _customer_collection_subcategories() -> list[str]:
+    return [
+        'customer_collections',
+        'customer_transfers',
+        'customer_cheques',
+        'debtor_cheques',
+        'other_customer_cheques',
+    ]
+
+
+def _supplier_payment_subcategories() -> list[str]:
+    return [
+        'supplier_payments',
+        'supplier_transfers',
+        'supplier_cheques',
+        'creditor_cheques',
+        'other_supplier_cheques',
+    ]
+
+
+async def _cashflow_totals_by_counterparty(
+    db: AsyncSession,
+    *,
+    counterparty_ids: list[str],
+    date_from: date,
+    date_to: date,
+    subcategories: list[str],
+    branches: list[str] | None = None,
+) -> dict[str, float]:
+    ids = [str(item or '').strip() for item in counterparty_ids if str(item or '').strip()]
+    if not ids:
+        return {}
+    subcategory_expr = _cashflow_subcategory_expr()
+    payment_key = func.coalesce(FactCashflow.counterparty_id, FactCashflow.reference_no, FactCashflow.external_id)
+    stmt = (
+        select(
+            payment_key.label('counterparty_id'),
+            func.coalesce(func.sum(func.abs(FactCashflow.amount)), 0).label('total_value'),
+        )
+        .select_from(FactCashflow)
+        .where(*_date_range(FactCashflow.doc_date, date_from, date_to))
+        .where(subcategory_expr.in_(subcategories))
+        .where(payment_key.in_(ids))
+        .group_by(payment_key)
+    )
+    branches = _effective_branch_filter(branches)
+    if branches is not None:
+        stmt = stmt.where(FactCashflow.branch_id.in_(select(DimBranch.id).where(DimBranch.external_id.in_(branches))))
+    rows = (await db.execute(stmt)).mappings().all()
+    return {str(r.get('counterparty_id') or '').strip(): float(r.get('total_value') or 0) for r in rows}
+
+
 def _cashflow_subcategories_for_filter(category: str | None) -> set[str]:
     normalized = _normalize_cashflow_category(category)
     if not normalized:
@@ -8988,7 +9059,7 @@ def _cashflow_amount_sign_by_behavior_or_type(transaction_type: str | None, entr
     tx = str(transaction_type or '').strip().lower()
     if tx.startswith('101'):
         return 1.0
-    if tx.startswith('102'):
+    if tx.startswith('102') or tx == '2':
         return -1.0
     normalized = str(entry_type or '').strip().lower()
     positive = {
@@ -9043,7 +9114,7 @@ def _normalize_cashflow_signed_amount(raw_amount: float, transaction_type: str |
     tx = str(transaction_type or '').strip().lower()
     if tx.startswith('101'):
         return amount
-    if tx.startswith('102'):
+    if tx.startswith('102') or tx == '2':
         return -abs(amount)
     sign = _cashflow_amount_sign_by_behavior_or_type(None, entry_type)
     return sign * abs(amount)
@@ -9057,7 +9128,7 @@ def _cashflow_signed_amount_expr():
     negative = sorted((_cashflow_entry_types_for_category('supplier_payments') or set()) | {'refund'})
     sign_expr = case(
         (tx_col.like('101%'), literal(0.0)),
-        (tx_col.like('102%'), literal(-1.0)),
+        (or_(tx_col.like('102%'), tx_col == '2'), literal(-1.0)),
         (subcategory_col.in_(positive), literal(1.0)),
         (entry_col.in_(positive), literal(1.0)),
         (subcategory_col.in_(negative), literal(-1.0)),
@@ -9067,7 +9138,7 @@ def _cashflow_signed_amount_expr():
     amount_expr = func.coalesce(FactCashflow.amount, 0)
     return case(
         (tx_col.like('101%'), amount_expr),
-        (tx_col.like('102%'), -func.abs(amount_expr)),
+        (or_(tx_col.like('102%'), tx_col == '2'), -func.abs(amount_expr)),
         else_=(sign_expr * func.abs(amount_expr)),
     )
 
@@ -9717,6 +9788,7 @@ async def customers_overview(
                     else str(balance_date_val or ''),
                     'turnover': 0.0,
                     'gross_turnover': 0.0,
+                    'collections_total': 0.0,
                     'sales_docs': 0,
                     'last_sale_date': '',
                     'updated_at': _raw_scalar(snapshot.get('updated_at')),
@@ -9733,10 +9805,22 @@ async def customers_overview(
         safe_offset = max(0, int(offset))
         total = len(rows)
         paged_rows = rows[safe_offset : safe_offset + safe_limit]
+        page_ids = [str(item.get('customer_id') or '').strip() for item in paged_rows if str(item.get('customer_id') or '').strip()]
+        collections_map = await _cashflow_totals_by_counterparty(
+            db,
+            counterparty_ids=page_ids,
+            date_from=date_from,
+            date_to=date_to,
+            subcategories=_customer_collection_subcategories(),
+        )
+        for item in paged_rows:
+            customer_id = str(item.get('customer_id') or '').strip()
+            item['collections_total'] = float(collections_map.get(customer_id, 0.0))
         return {
             'summary': {
                 'customers': int(total),
                 'turnover': 0.0,
+                'collections_total': float(sum(float(item.get('collections_total') or 0) for item in paged_rows)),
                 'open_balance': float(sum(float(item.get('open_balance') or 0) for item in rows)),
                 'overdue_balance': float(sum(float(item.get('overdue_balance') or 0) for item in rows)),
             },
@@ -9794,6 +9878,32 @@ async def customers_overview(
     ).mappings().all()
 
     customer_ids = [str(r.get('customer_id') or '').strip() for r in rows if str(r.get('customer_id') or '').strip()]
+    collection_candidates: dict[str, set[str]] = {}
+    customer_names = [str(r.get('customer_name') or '').strip() for r in rows if str(r.get('customer_name') or '').strip()]
+    dim_codes_by_name: dict[str, set[str]] = {}
+    if customer_names:
+        dim_rows = (
+            await db.execute(
+                select(DimCustomer.name, DimCustomer.external_id).where(DimCustomer.name.in_(customer_names))
+            )
+        ).all()
+        for name_val, external_id_val in dim_rows:
+            name_key = str(name_val or '').strip()
+            external_id = str(external_id_val or '').strip()
+            if name_key and external_id:
+                dim_codes_by_name.setdefault(name_key, set()).add(external_id)
+    for row in rows:
+        customer_id = str(row.get('customer_id') or '').strip()
+        if not customer_id:
+            continue
+        candidates = {customer_id}
+        customer_code = str(row.get('customer_code') or '').strip()
+        if customer_code:
+            candidates.add(customer_code)
+        customer_name = str(row.get('customer_name') or '').strip()
+        candidates.update(dim_codes_by_name.get(customer_name, set()))
+        collection_candidates[customer_id] = {value for value in candidates if value}
+    all_collection_ids = sorted({value for values in collection_candidates.values() for value in values})
     latest_profiles: dict[str, FactSales] = {}
     if include_profile and customer_ids:
         latest_rn = over(
@@ -9829,6 +9939,17 @@ async def customers_overview(
         as_of=date_to,
         customer_ids=customer_ids,
     )
+    raw_collections_map = await _cashflow_totals_by_counterparty(
+        db,
+        counterparty_ids=all_collection_ids,
+        date_from=date_from,
+        date_to=date_to,
+        subcategories=_customer_collection_subcategories(),
+    )
+    collections_map = {
+        customer_id: float(sum(float(raw_collections_map.get(candidate, 0.0)) for candidate in candidates))
+        for customer_id, candidates in collection_candidates.items()
+    }
 
     out_rows = []
     open_balance_total = 0.0
@@ -9850,6 +9971,7 @@ async def customers_overview(
         last_sale = row.get('last_sale_date')
         open_balance = float(balance_row.get('open_balance') or profile.get('balance') or 0)
         overdue_balance = float(balance_row.get('overdue_balance') or 0)
+        collections_total = float(collections_map.get(customer_id, 0.0))
         balance_date_val = balance_row.get('balance_date')
         last_collection_date_val = balance_row.get('last_collection_date')
         open_balance_total += open_balance
@@ -9880,6 +10002,7 @@ async def customers_overview(
                 'balance_date': balance_date_val.isoformat() if isinstance(balance_date_val, date) else str(balance_date_val or ''),
                 'turnover': float(row.get('turnover') or 0),
                 'gross_turnover': float(row.get('gross_turnover') or 0),
+                'collections_total': collections_total,
                 'sales_docs': int(row.get('sales_docs') or 0),
                 'last_sale_date': last_sale.isoformat() if isinstance(last_sale, date) else str(last_sale or ''),
                 'updated_at': _raw_scalar(row.get('updated_at')),
@@ -9890,6 +10013,7 @@ async def customers_overview(
         'summary': {
             'customers': int(totals_row.get('customers') or 0),
             'turnover': float(totals_row.get('turnover') or 0),
+            'collections_total': float(sum(collections_map.values()) if collections_map else 0.0),
             'open_balance': float(open_balance_total),
             'overdue_balance': float(overdue_balance_total),
         },
@@ -9968,6 +10092,15 @@ async def suppliers_overview(
         ).mappings().all()
         supplier_ids = [str(r.get('supplier_id') or '').strip() for r in rows if str(r.get('supplier_id') or '').strip()]
 
+        payments_map = await _cashflow_totals_by_counterparty(
+            db,
+            counterparty_ids=supplier_ids,
+            date_from=date_from,
+            date_to=date_to,
+            subcategories=_supplier_payment_subcategories(),
+            branches=branches,
+        )
+
         balances_map: dict[str, dict[str, object]] = {}
         if supplier_ids:
             balance_supplier_key = func.coalesce(
@@ -10038,7 +10171,7 @@ async def suppliers_overview(
             select(func.coalesce(func.sum(AggCashDaily.outflows), 0))
             .select_from(AggCashDaily)
             .where(*_date_range(AggCashDaily.doc_date, date_from, date_to))
-            .where(AggCashDaily.subcategory.in_(['supplier_payments']))
+            .where(AggCashDaily.subcategory.in_(_supplier_payment_subcategories()))
         )
         branches = _effective_branch_filter(branches)
         if branches is not None:
@@ -10079,7 +10212,7 @@ async def suppliers_overview(
                     'name': str(row.get('supplier_name') or 'N/A'),
                     'purchases_net': float(row.get('purchases_net') or 0),
                     'purchases_cost': float(row.get('purchases_cost') or 0),
-                    'payments_total': 0.0,
+                    'payments_total': float(payments_map.get(supplier_id, 0.0)),
                     'open_balance': open_balance,
                     'overdue_balance': overdue_balance,
                     'aging_bucket_0_30': aging_bucket_0_30,
@@ -10195,21 +10328,14 @@ async def suppliers_overview(
 
     payments_map: dict[str, float] = {}
     if supplier_ids:
-        subcategory_expr = _cashflow_subcategory_expr()
-        payment_key = func.coalesce(FactCashflow.counterparty_id, FactCashflow.reference_no, FactCashflow.external_id)
-        payments_stmt = (
-            select(
-                payment_key.label('supplier_id'),
-                func.coalesce(func.sum(func.abs(FactCashflow.amount)), 0).label('payments_total'),
-            )
-            .select_from(FactCashflow)
-            .where(*_date_range(FactCashflow.doc_date, date_from, date_to))
-            .where(subcategory_expr.in_(['supplier_payments']))
-            .where(payment_key.in_(supplier_ids))
-            .group_by(payment_key)
+        payments_map = await _cashflow_totals_by_counterparty(
+            db,
+            counterparty_ids=supplier_ids,
+            date_from=date_from,
+            date_to=date_to,
+            subcategories=_supplier_payment_subcategories(),
+            branches=branches,
         )
-        payments_rows = (await db.execute(payments_stmt)).mappings().all()
-        payments_map = {str(r.get('supplier_id') or '').strip(): float(r.get('payments_total') or 0) for r in payments_rows}
 
     balances_map: dict[str, dict[str, object]] = {}
     if supplier_ids:
@@ -10720,11 +10846,16 @@ async def customer_detail(
     if len(name_term) >= 4:
         search_terms.append(name_term)
 
-    if search_terms:
-        entry_type_col = func.lower(cast(func.coalesce(FactCashflow.entry_type, literal('')), String))
-        notes_col = func.lower(cast(func.coalesce(FactCashflow.notes, literal('')), String))
-        ref_col = func.lower(cast(func.coalesce(FactCashflow.reference_no, literal('')), String))
-        term_filters = [notes_col.like(f'%{term}%') | ref_col.like(f'%{term}%') for term in search_terms]
+    counterparty_col = func.lower(cast(func.coalesce(FactCashflow.counterparty_id, literal('')), String))
+    notes_col = func.lower(cast(func.coalesce(FactCashflow.notes, literal('')), String))
+    ref_col = func.lower(cast(func.coalesce(FactCashflow.reference_no, literal('')), String))
+    term_filters = [notes_col.like(f'%{term}%') | ref_col.like(f'%{term}%') for term in search_terms]
+    identity_filters = [counterparty_col == target.lower()]
+    if term_filters:
+        identity_filters.append(or_(*term_filters))
+
+    if identity_filters:
+        subcategory_expr = _cashflow_subcategory_expr()
         signed_amount_expr = _cashflow_signed_amount_expr()
         collections_stmt = (
             select(
@@ -10741,26 +10872,8 @@ async def customer_detail(
             )
             .select_from(FactCashflow)
             .join(DimBranch, FactCashflow.branch_id == DimBranch.id, isouter=True)
-            .where(
-                entry_type_col.in_(
-                    [
-                        'customer_collections',
-                        'customer_collection',
-                        'debtor_collections',
-                        'debtor_collection',
-                        'other_collections',
-                        'customer_transfers',
-                        'customer_transfer',
-                        'debtor_transfers',
-                        'debtor_transfer',
-                        'other_transfers',
-                        'customer_bank_transfer',
-                        'customer_wire_transfer',
-                        'customer_wire',
-                    ]
-                )
-            )
-            .where(or_(*term_filters))
+            .where(subcategory_expr.in_(_customer_collection_subcategories()))
+            .where(or_(*identity_filters))
         )
         if date_from is not None:
             collections_stmt = collections_stmt.where(FactCashflow.doc_date >= date_from)
@@ -13288,6 +13401,16 @@ async def price_control_items(
     discount_pct: float = 0.0,
     limit: int = 500,
 ):
+    def _vat_pct_from_label(value: object) -> float:
+        text = str(value or '')
+        match = re.search(r'(\d+(?:[,.]\d+)?)\s*%', text)
+        if not match:
+            return 0.0
+        try:
+            return max(0.0, min(100.0, float(match.group(1).replace(',', '.'))))
+        except ValueError:
+            return 0.0
+
     selected_target_supplier: str | None = None
     selected_target_rebate = 0.0
     target_item_codes: set[str] = set()
@@ -13415,7 +13538,7 @@ async def price_control_items(
             )
         )
     ).scalar_one_or_none()
-    retail_unit_map: dict[str, float] = {}
+    retail_unit_map: dict[str, dict[str, float]] = {}
     if latest_inventory_date:
         retail_value_expr = cast(
             func.nullif(FactInventory.source_payload_json['retail_value_amount'].astext, ''),
@@ -13427,6 +13550,7 @@ async def price_control_items(
                     FactInventory.item_code,
                     func.coalesce(func.sum(FactInventory.qty_on_hand), 0).label('qty_on_hand'),
                     func.coalesce(func.sum(retail_value_expr), 0).label('retail_value'),
+                    func.max(FactInventory.source_payload_json['vat_label'].astext).label('vat_label'),
                 )
                 .where(
                     FactInventory.doc_date == latest_inventory_date,
@@ -13437,7 +13561,10 @@ async def price_control_items(
             )
         ).all()
         retail_unit_map = {
-            str(r[0]): (float(r[2] or 0) / float(r[1] or 0))
+            str(r[0]): {
+                'gross': float(r[2] or 0) / float(r[1] or 0),
+                'vat_pct': _vat_pct_from_label(r[3]),
+            }
             for r in inventory_rows
             if r[0] and float(r[1] or 0) > 0 and float(r[2] or 0) > 0
         }
@@ -13514,14 +13641,20 @@ async def price_control_items(
         acquisition_unit = (purchase_after_invoice_discount / p['qty']) if p['qty'] > 0 else 0.0
         simulated_acquisition_unit = acquisition_unit * (1 - effective_discount_pct / 100.0)
         sale_unit = (s['value'] / s['qty']) if s['qty'] > 0 else 0.0
-        retail_unit = float(retail_unit_map.get(code) or 0.0)
-        target_sale_unit = (
+        retail_info = retail_unit_map.get(code) or {'gross': 0.0, 'vat_pct': 0.0}
+        retail_unit = float(retail_info.get('gross') or 0.0)
+        vat_pct = float(retail_info.get('vat_pct') or 0.0)
+        vat_factor = 1 + (vat_pct / 100.0)
+        retail_unit_net = (retail_unit / vat_factor) if retail_unit > 0 and vat_factor > 0 else 0.0
+        target_sale_unit_net = (
             acquisition_unit / (1 - target_margin_pct / 100.0)
             if acquisition_unit > 0 and target_margin_pct < 100
             else 0.0
         )
-        unit_profit = retail_unit - acquisition_unit if retail_unit > 0 else sale_unit - acquisition_unit
-        margin_pct = ((unit_profit / retail_unit) * 100.0) if retail_unit > 0 else (((unit_profit / sale_unit) * 100.0) if sale_unit > 0 else 0.0)
+        target_sale_unit = target_sale_unit_net * vat_factor if target_sale_unit_net > 0 else 0.0
+        margin_base_unit = retail_unit_net if retail_unit_net > 0 else sale_unit
+        unit_profit = margin_base_unit - acquisition_unit
+        margin_pct = ((unit_profit / margin_base_unit) * 100.0) if margin_base_unit > 0 else 0.0
         price_gap_value = retail_unit - target_sale_unit
         price_gap_pct = (price_gap_value / target_sale_unit * 100.0) if target_sale_unit > 0 else 0.0
 
@@ -13550,9 +13683,12 @@ async def price_control_items(
                 'discount_pct': invoice_discount_pct + effective_discount_pct,
                 'acquisition_after_discount': acquisition_unit,
                 'simulated_acquisition_unit': simulated_acquisition_unit,
+                'vat_pct': vat_pct,
                 'retail_unit': retail_unit,
+                'retail_unit_net': retail_unit_net,
                 'sale_unit': sale_unit,
                 'target_sale_unit': target_sale_unit,
+                'target_sale_unit_net': target_sale_unit_net,
                 'predicted_sale_unit': target_sale_unit,
                 'price_gap_value': price_gap_value,
                 'price_gap_pct': price_gap_pct,

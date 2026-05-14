@@ -1,11 +1,13 @@
 /*
   BoxVisio BI Bridge for SoftOne Advanced JavaScript
-  Version: 2026-05-08_12-07-46
+  Version: 2026-05-11_18-57-20
 
   Purpose
   - Extract Sales, Purchases, Inventory, Cash, Balances, Expenses data directly from SoftOne tables.
   - Return API-friendly JSON records for BoxVisio BI ingestion.
   - No custom browser list dependency.
+  - Safe live defaults: GetAll excludes heavy balance streams unless explicitly requested.
+  - Read queries are decorated with NOLOCK hints where possible to reduce pressure on live SoftOne SQL.
 
   Intended use
   - Install in SoftOne Advanced JavaScript package (example: myWS).
@@ -21,7 +23,7 @@
       /s1services/JS/myWS/GetAllForBI
 */
 
-var BVBI_VERSION = "2026-05-08_12-07-46";
+var BVBI_VERSION = "2026-05-11_18-57-20";
 var _BVBI_COL_CACHE = {};
 
 function _bv_is_array(v) {
@@ -98,6 +100,56 @@ function _bv_int(v, fallbackValue, minValue, maxValue) {
 function _bv_top_clause(limitValue) {
   var n = _bv_int(limitValue, 0, 0, 200000);
   return n > 0 ? "TOP " + n + " " : "";
+}
+
+function _bv_balance_top_clause(cfg) {
+  if (cfg && cfg.allowFullBalanceSync) return _bv_top_clause(cfg.limit);
+  var n = _bv_int(cfg && cfg.limit, 0, 0, 5000);
+  if (n <= 0) n = _bv_int(cfg && cfg.balanceLimit, 500, 100, 5000);
+  return _bv_top_clause(n);
+}
+
+function _bv_sqlserver_read_hints(sql) {
+  var out = _bv_text(sql, "");
+  var replacements = [
+    ["FROM FINDOC F ", "FROM FINDOC F WITH (NOLOCK) "],
+    ["FROM FINDOC ORIGF ", "FROM FINDOC ORIGF WITH (NOLOCK) "],
+    ["INNER JOIN MTRLINES L ON", "INNER JOIN MTRLINES L WITH (NOLOCK) ON"],
+    ["LEFT JOIN MTRDOC MD ON", "LEFT JOIN MTRDOC MD WITH (NOLOCK) ON"],
+    ["LEFT JOIN MTRDOC OMD ON", "LEFT JOIN MTRDOC OMD WITH (NOLOCK) ON"],
+    ["LEFT JOIN WHOUSE W ON", "LEFT JOIN WHOUSE W WITH (NOLOCK) ON"],
+    ["LEFT JOIN TRDR C ON", "LEFT JOIN TRDR C WITH (NOLOCK) ON"],
+    ["LEFT JOIN TRDR S ON", "LEFT JOIN TRDR S WITH (NOLOCK) ON"],
+    ["LEFT JOIN TRDR T ON", "LEFT JOIN TRDR T WITH (NOLOCK) ON"],
+    ["LEFT JOIN TRDR CA ON", "LEFT JOIN TRDR CA WITH (NOLOCK) ON"],
+    ["LEFT JOIN MTRL I ON", "LEFT JOIN MTRL I WITH (NOLOCK) ON"],
+    ["LEFT JOIN MTRGROUP MG ON", "LEFT JOIN MTRGROUP MG WITH (NOLOCK) ON"],
+    ["LEFT JOIN SALDOC SD ON", "LEFT JOIN SALDOC SD WITH (NOLOCK) ON"],
+    ["LEFT JOIN TRDBRANCH CB ON", "LEFT JOIN TRDBRANCH CB WITH (NOLOCK) ON"],
+    ["LEFT JOIN TRDBRANCH OCB ON", "LEFT JOIN TRDBRANCH OCB WITH (NOLOCK) ON"],
+    ["FROM EXPANAL EA ", "FROM EXPANAL EA WITH (NOLOCK) "],
+    ["FROM EXPANAL EA2 ", "FROM EXPANAL EA2 WITH (NOLOCK) "],
+    ["LEFT JOIN EXPN EN ON", "LEFT JOIN EXPN EN WITH (NOLOCK) ON"],
+    ["LEFT JOIN EXPN EN2 ON", "LEFT JOIN EXPN EN2 WITH (NOLOCK) ON"],
+    ["FROM MTRL I ", "FROM MTRL I WITH (NOLOCK) "],
+    ["FROM MTRSUBSTITUTE MS ", "FROM MTRSUBSTITUTE MS WITH (NOLOCK) "],
+    ["LEFT JOIN VAT VT ON", "LEFT JOIN VAT VT WITH (NOLOCK) ON"],
+    ["LEFT JOIN MTRMARK MK ON", "LEFT JOIN MTRMARK MK WITH (NOLOCK) ON"],
+    ["LEFT JOIN MTRMANFCTR MF ON", "LEFT JOIN MTRMANFCTR MF WITH (NOLOCK) ON"],
+    ["LEFT JOIN CCC88POCAT1 PC1 ON", "LEFT JOIN CCC88POCAT1 PC1 WITH (NOLOCK) ON"],
+    ["LEFT JOIN CCC88POCAT2 PC2 ON", "LEFT JOIN CCC88POCAT2 PC2 WITH (NOLOCK) ON"],
+    ["LEFT JOIN CCC88POCAT3 PC3 ON", "LEFT JOIN CCC88POCAT3 PC3 WITH (NOLOCK) ON"],
+    ["LEFT JOIN MTRPCATEGORY CG ON", "LEFT JOIN MTRPCATEGORY CG WITH (NOLOCK) ON"],
+    ["LEFT JOIN ACCOUNT AC ON", "LEFT JOIN ACCOUNT AC WITH (NOLOCK) ON"],
+    ["FROM CCC88ECHANNEL E ", "FROM CCC88ECHANNEL E WITH (NOLOCK) "],
+    ["FROM PAYMENT OP ", "FROM PAYMENT OP WITH (NOLOCK) "],
+    ["FROM PAYMENT P ", "FROM PAYMENT P WITH (NOLOCK) "]
+  ];
+  var i;
+  for (i = 0; i < replacements.length; i++) {
+    out = out.split(replacements[i][0]).join(replacements[i][1]);
+  }
+  return out;
 }
 
 function _bv_ds_first(ds) {
@@ -249,8 +301,10 @@ function _bv_require_client(obj) {
 function _bv_resolve_request(obj) {
   var r = {};
   r.company = _bv_int(obj && obj.company, _bv_int(X.SYS.COMPANY, 0, 1, 99999999), 1, 99999999);
-  // default limit=0 => no SQL TOP cap (deterministic full extraction by default)
+  // default limit=0 => no SQL TOP cap for document streams (balances are capped unless explicitly allowed)
   r.limit = _bv_int(obj && obj.limit, 0, 0, 200000);
+  r.balanceLimit = _bv_int(obj && obj.balanceLimit, 500, 100, 5000);
+  r.allowFullBalanceSync = _bv_bool(obj && obj.allowFullBalanceSync, false);
   r.fromDate = _bv_norm_date(obj && obj.fromDate);
   r.toDate = _bv_norm_date(obj && obj.toDate);
   r.debug = _bv_bool(obj && obj.debug, false);
@@ -259,8 +313,8 @@ function _bv_resolve_request(obj) {
   r.includePurchases = _bv_bool(obj && obj.includePurchases, true);
   r.includeInventory = _bv_bool(obj && obj.includeInventory, true);
   r.includeCashTransactions = _bv_bool(obj && (obj.includeCashTransactions !== undefined ? obj.includeCashTransactions : obj.includeCash), true);
-  r.includeSupplierBalances = _bv_bool(obj && obj.includeSupplierBalances, true);
-  r.includeCustomerBalances = _bv_bool(obj && obj.includeCustomerBalances, true);
+  r.includeSupplierBalances = _bv_bool(obj && obj.includeSupplierBalances, false);
+  r.includeCustomerBalances = _bv_bool(obj && obj.includeCustomerBalances, false);
   r.includeOperatingExpenses = _bv_bool(obj && obj.includeOperatingExpenses, true);
 
   r.salesSourceCodes = _bv_parse_source_codes(obj && obj.salesSourceCodes, "1351,11351");
@@ -276,7 +330,7 @@ function _bv_resolve_request(obj) {
     obj && obj.customerBalanceSourceCodes,
     "1351,1381,1413"
   );
-  r.expenseSourceCodes = _bv_parse_source_codes(obj && obj.expenseSourceCodes, "1261");
+  r.expenseSourceCodes = _bv_parse_source_codes(obj && obj.expenseSourceCodes, "1261,1653");
 
   return r;
 }
@@ -287,7 +341,7 @@ function _bv_findoc_common_exprs() {
     company: _bv_col_expr("F", "FINDOC", ["COMPANY"], "0"),
     trnDate: _bv_col_expr("F", "FINDOC", ["TRNDATE"], "F.TRNDATE"),
     updDate: _bv_col_expr("F", "FINDOC", ["UPDDATE", "UPDATED", "LASTUPDATE", "TRNDATE"], "F.TRNDATE"),
-    dueDate: _bv_col_expr("F", "FINDOC", ["DUEDATE", "LPAYDATE", "TRNDATE"], "F.TRNDATE"),
+    dueDate: _bv_col_expr("F", "FINDOC", ["LPAYDATE", "DUEDATE", "TRNDATE"], "F.TRNDATE"),
     branch: _bv_col_expr("F", "FINDOC", ["BRANCH"], "0"),
     series: _bv_col_expr("F", "FINDOC", ["SERIES"], "0"),
     finCode: _bv_col_expr("F", "FINDOC", ["FINCODE", "TRNNO", "DOCNUM"], "F.FINDOC"),
@@ -403,9 +457,11 @@ function _bv_sales_sql(cfg) {
   var shippingComments = "COALESCE(NULLIF(" + _bv_col_expr("ORIG", "FINDOC", ["CCC88ESHIPCOM"], "''") + ",''), NULLIF(" + _bv_col_expr("F", "FINDOC", ["CCC88ESHIPCOM"], "''") + ",''), '')";
   var giftComments = "COALESCE(NULLIF(" + _bv_col_expr("ORIG", "FINDOC", ["CCC88EGIFTCOM"], "''") + ",''), NULLIF(" + _bv_col_expr("F", "FINDOC", ["CCC88EGIFTCOM"], "''") + ",''), '')";
   var marketplaceInternalId = "COALESCE(NULLIF(" + _bv_col_expr("ORIG", "FINDOC", ["CCC88ELOGIKAID"], "''") + ",''), NULLIF(" + _bv_col_expr("F", "FINDOC", ["CCC88ELOGIKAID"], "''") + ",''), '')";
-  var sourceCreatedAt = _bv_col_expr("F", "FINDOC", ["SOTIME", "INSDATE"], "NULL");
+  var sourceCreatedAt = "COALESCE(" + _bv_col_expr("F", "FINDOC", ["INSDATE", "CREATED", "CREATEDAT", "INSERTDATE"], "NULL") + ", " + c.updDate + ")";
   var isCancel = _bv_col_expr("F", "FINDOC", ["ISCANCEL"], "0");
   var finStates = _bv_col_expr("F", "FINDOC", ["FINSTATES"], "0");
+  var itemBrand = _bv_col_expr("I", "MTRL", ["MTRMARK"], "0");
+  var brandName = _bv_col_expr("MK", "MTRMARK", ["NAME"], "''");
   var itemGroup = _bv_col_expr("I", "MTRL", ["MTRGROUP"], "0");
   var groupName = _bv_col_expr("MG", "MTRGROUP", ["NAME"], "''");
   var shippingExpenseValueExpr = "0";
@@ -430,6 +486,14 @@ function _bv_sales_sql(cfg) {
   var expenseApplySql = "";
   var docNetTotal = _bv_col_expr("F", "FINDOC", ["NETAMNT"], c.sumAmount);
   var docGrossTotal = _bv_col_expr("F", "FINDOC", ["SUMAMNT"], "(ISNULL(" + docNetTotal + ",0) + ISNULL(" + c.taxAmount + ",0))");
+  var salesSign =
+    "(CASE " +
+    "WHEN ISNULL(F.SOSOURCE,0)=1351 AND ISNULL(F.TFPRMS,0) IN (151,152,181) THEN -1 " +
+    "WHEN ISNULL(F.SOSOURCE,0)<>1351 AND ISNULL(F.TFPRMS,0) IN (102,181) THEN -1 " +
+    "ELSE 1 END)";
+  var findocExpensesNet = _bv_col_expr("F", "FINDOC", ["EXPN", "TEXPN", "LEXPN"], "0");
+  var saldocExpensesRaw = _bv_col_expr("SD", "SALDOC", ["EXPN"], findocExpensesNet);
+  var saldocExpensesNet = "(" + salesSign + " * COALESCE(TRY_CAST(ISNULL(" + saldocExpensesRaw + ",0) AS decimal(28,8)),0))";
   var paymentExpr =
     "COALESCE(NULLIF(" +
     originPaymentName +
@@ -452,11 +516,6 @@ function _bv_sales_sql(cfg) {
   var lVat = _bv_col_expr("L", "MTRLINES", ["VATAMNT", "TAXAMNT", "FPAAMNT", "LINEVAT", "LINETAX", "LINEVATAMNT", "LINETAXAMNT"], "NULL");
   var lGross = _bv_col_expr("L", "MTRLINES", ["GROSSVAL", "SUMAMNT", "TOTVAL", "LINEGROSS"], "NULL");
   var lCost = _bv_col_expr("L", "MTRLINES", ["COSTVAL", "COSTVALUE", "LCOST", "COST", "LINEVAL"], lNet);
-  var salesSign =
-    "(CASE " +
-    "WHEN ISNULL(F.SOSOURCE,0)=1351 AND ISNULL(F.TFPRMS,0) IN (151,152,181) THEN -1 " +
-    "WHEN ISNULL(F.SOSOURCE,0)<>1351 AND ISNULL(F.TFPRMS,0) IN (102,181) THEN -1 " +
-    "ELSE 1 END)";
   var docNetAbsTotal = "NULLIF(SUM(ABS(ISNULL(" + lNet + ",0))) OVER (PARTITION BY " + c.findoc + "),0)";
   var lineTaxAbs = "ABS(ISNULL(" + lVat + ",0))";
   var lineTaxDocAbsTotal = "SUM(" + lineTaxAbs + ") OVER (PARTITION BY " + c.findoc + ")";
@@ -490,7 +549,7 @@ function _bv_sales_sql(cfg) {
     var expName2 = _bv_table_exists("EXPN") ? ("COALESCE(" + _bv_col_expr("EN2", "EXPN", ["NAME"], "NULL") + "," + expDesc2 + ")") : expDesc2;
     var expJoin = _bv_table_exists("EXPN") ? (" LEFT JOIN EXPN EN ON EN.EXPN=" + expCode + " AND EN.COMPANY=EA.COMPANY ") : "";
     var expJoin2 = _bv_table_exists("EXPN") ? (" LEFT JOIN EXPN EN2 ON EN2.EXPN=" + expCode2 + " AND EN2.COMPANY=EA2.COMPANY ") : "";
-    shippingExpenseValueExpr = "ISNULL(EXA.SHIPPING_EXPENSE_VALUE,0)";
+    shippingExpenseValueExpr = "ISNULL(EXA.CHARGE_REVENUE_NET_VALUE,0)";
     shippingExpenseDescriptionExpr = "ISNULL(EXA.SHIPPING_EXPENSE_DESCRIPTION,'')";
     chargeRevenueNetValueExpr = "ISNULL(EXA.CHARGE_REVENUE_NET_VALUE,0)";
     chargeRevenueVatValueExpr = "ISNULL(EXA.CHARGE_REVENUE_VAT_VALUE,0)";
@@ -512,16 +571,16 @@ function _bv_sales_sql(cfg) {
     expenseApplySql =
       " OUTER APPLY (" +
       "SELECT " +
-      "CAST(COALESCE(SUM(EX.exp_net_value),0) AS FLOAT) AS SHIPPING_EXPENSE_VALUE," +
+      "CAST(CASE WHEN ABS(COALESCE(TRY_CAST(ISNULL(" + saldocExpensesNet + ",0) AS decimal(28,8)),0)) > 0 THEN COALESCE(TRY_CAST(ISNULL(" + saldocExpensesNet + ",0) AS decimal(28,8)),0) ELSE COALESCE(SUM(EX.exp_net_value),0) END AS FLOAT) AS SHIPPING_EXPENSE_VALUE," +
       "CAST(ISNULL(STUFF((SELECT DISTINCT ' | ' + CAST(NULLIF(LTRIM(RTRIM(" + expName2 + ")), '') AS NVARCHAR(255)) " +
       "FROM EXPANAL EA2 " +
       expJoin2 +
       "WHERE " + _bv_col_expr("EA2", "EXPANAL", ["FINDOC"], c.findoc) + "=" + c.findoc + " AND " + _bv_col_expr("EA2", "EXPANAL", ["COMPANY"], c.company) + "=F.COMPANY " +
       "AND NULLIF(LTRIM(RTRIM(" + expName2 + ")), '') IS NOT NULL " +
       "FOR XML PATH(''), TYPE).value('.', 'nvarchar(max)'),1,3,''),'') AS NVARCHAR(1024)) AS SHIPPING_EXPENSE_DESCRIPTION," +
-      "CAST(COALESCE(SUM(EX.exp_net_value),0) AS FLOAT) AS CHARGE_REVENUE_NET_VALUE," +
+      "CAST(CASE WHEN ABS(COALESCE(TRY_CAST(ISNULL(" + saldocExpensesNet + ",0) AS decimal(28,8)),0)) > 0 THEN COALESCE(TRY_CAST(ISNULL(" + saldocExpensesNet + ",0) AS decimal(28,8)),0) ELSE COALESCE(SUM(EX.exp_net_value),0) END AS FLOAT) AS CHARGE_REVENUE_NET_VALUE," +
       "CAST(COALESCE(SUM(EX.exp_vat_value),0) AS FLOAT) AS CHARGE_REVENUE_VAT_VALUE," +
-      "CAST(COALESCE(SUM(EX.exp_gross_value),0) AS FLOAT) AS CHARGE_REVENUE_GROSS_VALUE," +
+      "CAST((CASE WHEN ABS(COALESCE(TRY_CAST(ISNULL(" + saldocExpensesNet + ",0) AS decimal(28,8)),0)) > 0 THEN COALESCE(TRY_CAST(ISNULL(" + saldocExpensesNet + ",0) AS decimal(28,8)),0) ELSE COALESCE(SUM(EX.exp_net_value),0) END) + COALESCE(SUM(EX.exp_vat_value),0) AS FLOAT) AS CHARGE_REVENUE_GROSS_VALUE," +
       "CAST(ISNULL(STUFF((SELECT DISTINCT ' | ' + CAST(NULLIF(LTRIM(RTRIM(" + expName2 + ")), '') AS NVARCHAR(255)) " +
       "FROM EXPANAL EA2 " +
       expJoin2 +
@@ -538,15 +597,15 @@ function _bv_sales_sql(cfg) {
       "CAST(COALESCE(SUM(CASE WHEN EX.expense_group='gift' THEN EX.exp_net_value ELSE 0 END),0) AS FLOAT) AS GIFT_CHARGE_NET_VALUE," +
       "CAST(COALESCE(SUM(CASE WHEN EX.expense_group='gift' THEN EX.exp_vat_value ELSE 0 END),0) AS FLOAT) AS GIFT_CHARGE_VAT_VALUE," +
       "CAST(COALESCE(SUM(CASE WHEN EX.expense_group='gift' THEN EX.exp_gross_value ELSE 0 END),0) AS FLOAT) AS GIFT_CHARGE_GROSS_VALUE," +
-      "CAST(COALESCE(SUM(CASE WHEN EX.expense_group='other' THEN EX.exp_net_value ELSE 0 END),0) AS FLOAT) AS OTHER_CHARGE_NET_VALUE," +
+      "CAST(COALESCE(SUM(CASE WHEN EX.expense_group='other' THEN EX.exp_net_value ELSE 0 END),0) + CASE WHEN ABS(COALESCE(TRY_CAST(ISNULL(" + saldocExpensesNet + ",0) AS decimal(28,8)),0)) > 0 AND ABS(COALESCE(TRY_CAST(ISNULL(" + saldocExpensesNet + ",0) AS decimal(28,8)),0) - COALESCE(SUM(EX.exp_net_value),0)) > 0.004 THEN COALESCE(TRY_CAST(ISNULL(" + saldocExpensesNet + ",0) AS decimal(28,8)),0) - COALESCE(SUM(EX.exp_net_value),0) ELSE 0 END AS FLOAT) AS OTHER_CHARGE_NET_VALUE," +
       "CAST(COALESCE(SUM(CASE WHEN EX.expense_group='other' THEN EX.exp_vat_value ELSE 0 END),0) AS FLOAT) AS OTHER_CHARGE_VAT_VALUE," +
-      "CAST(COALESCE(SUM(CASE WHEN EX.expense_group='other' THEN EX.exp_gross_value ELSE 0 END),0) AS FLOAT) AS OTHER_CHARGE_GROSS_VALUE " +
+      "CAST(COALESCE(SUM(CASE WHEN EX.expense_group='other' THEN EX.exp_gross_value ELSE 0 END),0) + CASE WHEN ABS(COALESCE(TRY_CAST(ISNULL(" + saldocExpensesNet + ",0) AS decimal(28,8)),0)) > 0 AND ABS(COALESCE(TRY_CAST(ISNULL(" + saldocExpensesNet + ",0) AS decimal(28,8)),0) - COALESCE(SUM(EX.exp_net_value),0)) > 0.004 THEN COALESCE(TRY_CAST(ISNULL(" + saldocExpensesNet + ",0) AS decimal(28,8)),0) - COALESCE(SUM(EX.exp_net_value),0) ELSE 0 END AS FLOAT) AS OTHER_CHARGE_GROSS_VALUE " +
       "FROM (" +
       "SELECT " +
       "LOWER(ISNULL(NULLIF(LTRIM(RTRIM(" + expName + ")),''),'')) AS exp_name_norm," +
-      "COALESCE(TRY_CAST(ISNULL(" + expValue + ",0) AS decimal(28,8)),0) AS exp_net_value," +
-      "COALESCE(TRY_CAST(ISNULL(" + expVat + ",0) AS decimal(28,8)),0) AS exp_vat_value," +
-      "(COALESCE(TRY_CAST(ISNULL(" + expValue + ",0) AS decimal(28,8)),0) + COALESCE(TRY_CAST(ISNULL(" + expVat + ",0) AS decimal(28,8)),0)) AS exp_gross_value," +
+      "(" + salesSign + " * COALESCE(TRY_CAST(ISNULL(" + expValue + ",0) AS decimal(28,8)),0)) AS exp_net_value," +
+      "(" + salesSign + " * COALESCE(TRY_CAST(ISNULL(" + expVat + ",0) AS decimal(28,8)),0)) AS exp_vat_value," +
+      "(" + salesSign + " * (COALESCE(TRY_CAST(ISNULL(" + expValue + ",0) AS decimal(28,8)),0) + COALESCE(TRY_CAST(ISNULL(" + expVat + ",0) AS decimal(28,8)),0))) AS exp_gross_value," +
       "(CASE " +
       "WHEN LOWER(ISNULL(NULLIF(LTRIM(RTRIM(" + expName + ")),''),'')) LIKE N'%αντικαταβολ%' OR LOWER(ISNULL(NULLIF(LTRIM(RTRIM(" + expName + ")),''),'')) LIKE '%cod%' THEN 'cod' " +
       "WHEN LOWER(ISNULL(NULLIF(LTRIM(RTRIM(" + expName + ")),''),'')) LIKE N'%δωρ%' OR LOWER(ISNULL(NULLIF(LTRIM(RTRIM(" + expName + ")),''),'')) LIKE '%gift%' THEN 'gift' " +
@@ -555,6 +614,12 @@ function _bv_sales_sql(cfg) {
       "FROM EXPANAL EA " + expJoin + "WHERE " + expFindoc + "=" + c.findoc + " AND " + expCompany + "=F.COMPANY" +
       ") EX" +
       ") EXA ";
+  } else {
+    shippingExpenseValueExpr = "COALESCE(TRY_CAST(ISNULL(" + saldocExpensesNet + ",0) AS decimal(28,8)),0)";
+    chargeRevenueNetValueExpr = shippingExpenseValueExpr;
+    chargeRevenueGrossValueExpr = shippingExpenseValueExpr;
+    otherChargeNetValueExpr = shippingExpenseValueExpr;
+    otherChargeGrossValueExpr = shippingExpenseValueExpr;
   }
 
   var mdWhouse = _bv_col_expr("MD", "MTRDOC", ["WHOUSE"], "0");
@@ -637,6 +702,12 @@ function _bv_sales_sql(cfg) {
     "CAST(ISNULL(" +
     iName +
     ", '') AS VARCHAR(255)) AS ITEM_NAME," +
+    "CAST(NULLIF(CAST(ISNULL(" +
+    itemBrand +
+    ",0) AS VARCHAR(64)), '0') AS VARCHAR(64)) AS BRAND_EXTERNAL_ID," +
+    "CAST(ISNULL(" +
+    brandName +
+    ", '') AS VARCHAR(255)) AS BRAND_NAME," +
     "CAST(NULLIF(CAST(ISNULL(" +
     itemGroup +
     ",0) AS VARCHAR(64)), '0') AS VARCHAR(64)) AS GROUP_EXT_ID," +
@@ -816,6 +887,11 @@ function _bv_sales_sql(cfg) {
     "CAST(" +
     salesSign +
     " * ISNULL(" +
+    saldocExpensesRaw +
+    ",0) AS FLOAT) AS DOC_EXPENSES_TOTAL," +
+    "CAST(" +
+    salesSign +
+    " * ISNULL(" +
     c.taxAmount +
     ",0) AS FLOAT) AS DOC_TAX_TOTAL," +
     "CAST(" +
@@ -863,6 +939,7 @@ function _bv_sales_sql(cfg) {
     "LEFT JOIN MTRL I ON I.MTRL=" +
     lMtrl +
     " AND I.COMPANY=F.COMPANY " +
+    "LEFT JOIN MTRMARK MK ON MK.MTRMARK=I.MTRMARK AND MK.COMPANY=I.COMPANY " +
     "LEFT JOIN MTRGROUP MG ON MG.MTRGROUP=I.MTRGROUP AND MG.COMPANY=I.COMPANY " +
     (_bv_table_exists("SALDOC") ? ("LEFT JOIN SALDOC SD ON SD.FINDOC=" + c.findoc + " AND SD.COMPANY=F.COMPANY ") : "") +
     "LEFT JOIN TRDBRANCH CB ON CB.TRDBRANCH=F.TRDBRANCH AND (CB.COMPANY=F.COMPANY OR CB.COMPANY=0) " +
@@ -904,12 +981,25 @@ function _bv_purchases_sql(cfg) {
   var disc1Pct = _bv_col_expr("L", "MTRLINES", ["DISC1PRC", "DISC1", "DISCOUNT1"], "NULL");
   var disc2Pct = _bv_col_expr("L", "MTRLINES", ["DISC2PRC", "DISC2", "DISCOUNT2"], "NULL");
   var disc3Pct = _bv_col_expr("L", "MTRLINES", ["DISC3PRC", "DISC3", "DISCOUNT3"], "NULL");
+  var paymentCode = _bv_col_expr("PM", "PAYMENT", ["CODE"], "''");
+  var paymentName = _bv_col_expr("PM", "PAYMENT", ["NAME"], "''");
+  var sourceCreatedAt = "COALESCE(" + _bv_col_expr("F", "FINDOC", ["SOTIME", "INSDATE", "CREATED", "CREATEDAT", "INSERTDATE"], "NULL") + ", " + c.updDate + ")";
+  var paymentExpr =
+    "COALESCE(NULLIF(" +
+    paymentName +
+    ",''), NULLIF(" +
+    paymentCode +
+    ",''), NULLIF(CAST(ISNULL(F.PAYMENT,0) AS VARCHAR(128)),'0'), '')";
   var grossLineExpr = "(ABS(ISNULL(" + lPrice + ",0)) * ABS(ISNULL(" + lQty + ",0)))";
   var discAmtExpr = "(CASE WHEN " + lPrice + " IS NOT NULL AND " + grossLineExpr + " > ABS(ISNULL(" + lNet + ",0))" +
     " THEN " + grossLineExpr + " - ABS(ISNULL(" + lNet + ",0)) ELSE 0 END)";
   var purchaseSign = "(CASE WHEN ISNULL(F.TFPRMS,0) IN (151,152) THEN -1 ELSE 1 END)";
+  var docNetTotal = _bv_col_expr("F", "FINDOC", ["NETAMNT"], c.sumAmount);
+  var docExpensesTotal = _bv_col_expr("F", "FINDOC", ["EXPN", "TEXPN", "LEXPN"], "0");
+  var docGrossTotal = _bv_col_expr("F", "FINDOC", ["SUMAMNT"], "(ISNULL(" + docNetTotal + ",0) + ISNULL(" + docExpensesTotal + ",0) + ISNULL(" + c.taxAmount + ",0))");
   var expenseLikeSeriesExpr =
-    "(ISNULL(" + c.series + ",0) IN (1001,1002,1003,1007,1009,1102,3201)" +
+    "((ISNULL(" + c.sosource + ",0)=1253 AND ISNULL(F.TFPRMS,0)=101)" +
+    " OR ISNULL(" + c.series + ",0) IN (1001,1002,1003,1006,1007,1009,1102,3201)" +
     " OR ISNULL(" + seriesInfo.seriesNameExpr + ",'') LIKE N'%Δαπαν%'" +
     " OR ISNULL(" + seriesInfo.seriesNameExpr + ",'') LIKE N'%παροχής υπηρεσι%'" +
     " OR ISNULL(" + seriesInfo.seriesNameExpr + ",'') LIKE N'%Αγοράς Παγίων%'" +
@@ -949,7 +1039,7 @@ function _bv_purchases_sql(cfg) {
     ",0)=12 AND F.SOSOURCE IN (" +
     cfg.purchaseSourceCodes +
     ")" +
-    " AND ISNULL(F.TFPRMS,0) NOT IN (100,101,154,201,202,301,500,501)" +
+    " AND ISNULL(F.TFPRMS,0) IN (102,103,151,152)" +
     " AND NOT " + expenseLikeSeriesExpr;
   whereSql +=
     " AND ISNULL(" + c.finCode + ",'') NOT LIKE N'ΠΑΡ%'" +
@@ -991,6 +1081,9 @@ function _bv_purchases_sql(cfg) {
     ", " +
     c.trnDate +
     "), 126) AS UPDATED_AT," +
+    "CONVERT(VARCHAR(19), " +
+    sourceCreatedAt +
+    ", 126) AS SOURCE_CREATED_AT," +
     "CAST(ISNULL(" +
     c.branch +
     ",0) AS VARCHAR(64)) AS BRANCH_EXT_ID," +
@@ -1042,6 +1135,26 @@ function _bv_purchases_sql(cfg) {
     "CAST(" +
     purchaseSign +
     " * ABS(ISNULL(" +
+    docNetTotal +
+    ",0)) AS FLOAT) AS DOC_NET_TOTAL," +
+    "CAST(" +
+    purchaseSign +
+    " * ABS(ISNULL(" +
+    docExpensesTotal +
+    ",0)) AS FLOAT) AS DOC_EXPENSES_TOTAL," +
+    "CAST(" +
+    purchaseSign +
+    " * ABS(ISNULL(" +
+    c.taxAmount +
+    ",0)) AS FLOAT) AS DOC_TAX_TOTAL," +
+    "CAST(" +
+    purchaseSign +
+    " * ABS(ISNULL(" +
+    docGrossTotal +
+    ",0)) AS FLOAT) AS DOC_GROSS_TOTAL," +
+    "CAST(" +
+    purchaseSign +
+    " * ABS(ISNULL(" +
     lCost +
     ",0)) AS FLOAT) AS COST_AMOUNT," +
     "CAST(" +
@@ -1059,6 +1172,19 @@ function _bv_purchases_sql(cfg) {
     "CAST(ISNULL(" +
     c.sodtype +
     ",0) AS INT) AS SOURCE_ENTITY_ID," +
+    "CAST(ISNULL(F.TFPRMS,0) AS INT) AS DOCUMENT_BEHAVIOR_CODE," +
+    "CASE WHEN ISNULL(F.TFPRMS,0) IN (151,152) THEN 'credit_or_return' ELSE 'purchase' END AS PURCHASE_FLOW," +
+    "CASE WHEN ISNULL(F.TFPRMS,0) IN (151,152) THEN 1 ELSE 0 END AS IS_CREDIT_OR_RETURN," +
+    "CONVERT(VARCHAR(10), " +
+    c.dueDate +
+    ", 23) AS DUE_DATE," +
+    "CAST(DATEDIFF(day, " +
+    c.trnDate +
+    ", " +
+    c.dueDate +
+    ") AS INT) AS PAYMENT_TERMS_DAYS," +
+    paymentExpr +
+    " AS PAYMENT_METHOD," +
     "CAST(ISNULL(" +
     c.sosource +
     ",0) + ISNULL(" +
@@ -1077,6 +1203,7 @@ function _bv_purchases_sql(cfg) {
     "LEFT JOIN TRDR S ON S.TRDR=" +
     c.trdr +
     " AND S.COMPANY=F.COMPANY " +
+    "OUTER APPLY (SELECT TOP 1 P.CODE, P.NAME FROM PAYMENT P WHERE P.PAYMENT=F.PAYMENT AND P.SODTYPE=F.SODTYPE AND (P.COMPANY=F.COMPANY OR P.COMPANY=1000) ORDER BY CASE WHEN P.COMPANY=F.COMPANY THEN 0 ELSE 1 END) PM " +
     "LEFT JOIN MTRL I ON I.MTRL=" +
     lMtrl +
     " AND I.COMPANY=F.COMPANY " +
@@ -1114,9 +1241,11 @@ function _bv_inventory_sql(cfg) {
     "FOR XML PATH(''), TYPE).value('.', 'varchar(max)'), 1, 1, ''), '')";
   var lQty = _bv_col_expr("L", "MTRLINES", ["QTY1", "QTY"], "0");
   var lVal = _bv_col_expr("L", "MTRLINES", ["LINEVAL", "NETLINEVAL", "NETVAL", "NETAMNT"], "0");
+  var lCost = _bv_col_expr("L", "MTRLINES", ["SALESCVAL", "COSTVAL", "COSTVALUE", "LCOST", "COST"], lVal);
   var mdWhouse = _bv_col_expr("MD", "MTRDOC", ["WHOUSE"], "0");
   var activeExpr = _bv_col_expr("I", "MTRL", ["ISACTIVE"], "1");
   var vatExpr = _bv_col_expr("I", "MTRL", ["VAT"], "NULL");
+  var snapshotAsOf = cfg.toDate !== "" ? _bv_sql_quote(cfg.toDate) : "GETDATE()";
 
   var whereSql = " WHERE F.COMPANY=" + cfg.company + " AND F.SOSOURCE IN (" + cfg.inventorySourceCodes + ")";
   whereSql += " AND ISNULL(" + iSoType + ",0)=" + cfg.inventoryItemSoType;
@@ -1136,135 +1265,57 @@ function _bv_inventory_sql(cfg) {
 
   var snapshotSql =
     "SELECT " +
-    _bv_top_clause(cfg.limit) +
-    "CAST(" +
-    c.findoc +
-    " AS VARCHAR(40)) + '-' + CAST(ISNULL(" +
-    lLineId +
-    ",0) AS VARCHAR(40)) AS EVENT_ID," +
-    "CAST(" +
-    c.findoc +
-    " AS VARCHAR(40)) AS DOCUMENT_ID," +
-    "CAST(" +
-    c.finCode +
-    " AS VARCHAR(128)) AS DOCUMENT_NO," +
-    "CAST(" +
-    c.series +
-    " AS VARCHAR(128)) AS DOCUMENT_SERIES," +
-    seriesInfo.seriesNameExpr +
-    " AS DOCUMENT_SERIES_NAME," +
-    "CAST(ISNULL(" +
-    seriesInfo.seriesNameExpr +
-    ",'inventory_' + CAST(ISNULL(" +
-    c.sosource +
-    ",0) + ISNULL(" +
-    c.soredir +
-    ",0) AS VARCHAR(16))) AS VARCHAR(255)) AS DOCUMENT_TYPE," +
-    "CONVERT(VARCHAR(10), " +
-    c.trnDate +
-    ", 23) AS DOC_DATE," +
-    "CONVERT(VARCHAR(19), ISNULL(" +
-    c.updDate +
-    ", " +
-    c.trnDate +
-    "), 126) AS UPDATED_AT," +
-    "CAST(ISNULL(" +
-    c.branch +
-    ",0) AS VARCHAR(64)) AS BRANCH_EXT_ID," +
-    branchInfo.branchNameExpr +
-    " AS BRANCH_NAME," +
-    "CAST(ISNULL(" +
-    c.company +
-    ",0) AS VARCHAR(64)) AS COMPANY_ID," +
-    "CAST(ISNULL(" +
-    mdWhouse +
-    ",0) AS VARCHAR(64)) AS WAREHOUSE_EXT_ID," +
-    "CAST(ISNULL(I.CODE, " +
-    lMtrl +
-    ") AS VARCHAR(128)) AS ITEM_CODE," +
-    "CAST(ISNULL(" +
-    iSoType +
-    ",0) AS INT) AS SOFTONE_SOTYPE," +
-    "CAST(ISNULL(" +
-    iName +
-    ", '') AS VARCHAR(255)) AS ITEM_NAME," +
-    "CAST(NULLIF(ISNULL(I.CODE1, ''), '') AS VARCHAR(128)) AS BARCODE," +
-    "CAST(" +
-    iAltBarcodeExpr +
-    " AS VARCHAR(1024)) AS ALTERNATE_BARCODES," +
-    "CAST(" +
-    vatExpr +
-    " AS DECIMAL(18,4)) AS VAT_RATE," +
-    "CAST(ISNULL(VT.NAME, '') AS VARCHAR(255)) AS VAT_LABEL," +
-    "CAST(ISNULL(" +
-    iCat1 +
-    ", '') AS VARCHAR(255)) AS CATEGORY_1," +
-    "CAST(ISNULL(" +
-    iCat2 +
-    ", '') AS VARCHAR(255)) AS CATEGORY_2," +
-    "CAST(ISNULL(" +
-    iCat3 +
-    ", '') AS VARCHAR(255)) AS CATEGORY_3," +
-    "CAST(NULLIF(CAST(ISNULL(" +
-    iBrand +
-    ",0) AS VARCHAR(64)), '0') AS VARCHAR(64)) AS BRAND_EXTERNAL_ID," +
-    "CAST(ISNULL(MK.NAME, '') AS VARCHAR(255)) AS BRAND_NAME," +
-    "CAST(NULLIF(CAST(ISNULL(" +
-    iManufacturer +
-    ",0) AS VARCHAR(128)), '0') AS VARCHAR(128)) AS MANUFACTURER_CODE," +
-    "CAST(ISNULL(MF.NAME, '') AS VARCHAR(255)) AS MANUFACTURER_NAME," +
-    "CAST(ISNULL(" +
-    lQty +
-    ",0) AS FLOAT) AS QTY," +
-    "CAST(ISNULL(" +
-    lVal +
-    ",0) AS FLOAT) AS VALUE_AMOUNT," +
-    "CAST(ISNULL(" +
-    activeExpr +
-    ",1) AS INT) AS IS_ACTIVE_SOURCE," +
-    "CASE WHEN ISNULL(" +
-    lQty +
-    ",0) >= 0 THEN 'entry' ELSE 'exit' END AS MOVEMENT_TYPE," +
-    "CAST(ISNULL(" +
-    c.sosource +
-    ",0) AS INT) AS SOURCE_MODULE_ID," +
-    "CAST(ISNULL(" +
-    c.soredir +
-    ",0) AS INT) AS REDIRECT_MODULE_ID," +
-    "CAST(ISNULL(" +
-    c.sodtype +
-    ",0) AS INT) AS SOURCE_ENTITY_ID," +
-    "CAST(ISNULL(" +
-    c.sosource +
-    ",0) + ISNULL(" +
-    c.soredir +
-    ",0) AS INT) AS OBJECT_ID " +
-    "FROM FINDOC F " +
-    "INNER JOIN MTRLINES L ON L.FINDOC=" +
-    c.findoc +
-    " AND L.COMPANY=F.COMPANY " +
-    "LEFT JOIN MTRDOC MD ON MD.FINDOC=" +
-    c.findoc +
-    " AND MD.COMPANY=F.COMPANY " +
-    "LEFT JOIN MTRL I ON I.MTRL=" +
-    lMtrl +
-    " AND I.COMPANY=F.COMPANY " +
-    "LEFT JOIN VAT VT ON VT.VAT = I.VAT " +
-    "LEFT JOIN MTRMARK MK ON MK.MTRMARK = I.MTRMARK AND MK.COMPANY = I.COMPANY " +
-    "LEFT JOIN MTRMANFCTR MF ON MF.MTRMANFCTR = I.MTRMANFCTR AND MF.COMPANY = I.COMPANY " +
-    "LEFT JOIN CCC88POCAT1 PC1 ON PC1.CCC88POCAT1 = I.CCC88POCAT1 " +
-    "LEFT JOIN CCC88POCAT2 PC2 ON PC2.CCC88POCAT2 = I.CCC88POCAT2 " +
-    "LEFT JOIN CCC88POCAT3 PC3 ON PC3.CCC88POCAT3 = I.CCC88POCAT3 " +
-    branchInfo.joinSql +
-    seriesInfo.joinSql +
-    whereSql +
-    " ORDER BY " +
-    c.trnDate +
-    " ASC, " +
-    c.findoc +
-    " ASC, " +
-    lLineId +
-    " ASC";
+    "CAST('IS|' + CAST(ISNULL(S.COMPANY,0) AS VARCHAR(32)) + '|' + CAST(ISNULL(S.FISCPRD,0) AS VARCHAR(16)) + '|' + CAST(ISNULL(S.WHOUSE,0) AS VARCHAR(32)) + '|' + CAST(ISNULL(S.MTRL,0) AS VARCHAR(40)) AS VARCHAR(128)) AS EVENT_ID," +
+    "CAST('INVSNAP-' + CAST(ISNULL(S.FISCPRD,0) AS VARCHAR(16)) AS VARCHAR(128)) AS DOCUMENT_ID," +
+    "CAST('Inventory Snapshot ' + CAST(ISNULL(S.FISCPRD,0) AS VARCHAR(16)) AS VARCHAR(128)) AS DOCUMENT_NO," +
+    "CAST('SNAPSHOT' AS VARCHAR(128)) AS DOCUMENT_SERIES," +
+    "CAST('Υπόλοιπο Αποθέματος' AS VARCHAR(255)) AS DOCUMENT_SERIES_NAME," +
+    "CAST('Υπόλοιπο Αποθέματος' AS VARCHAR(255)) AS DOCUMENT_TYPE," +
+    "CONVERT(VARCHAR(10), CAST(" + snapshotAsOf + " AS DATE), 23) AS DOC_DATE," +
+    "CONVERT(VARCHAR(19), CAST(" + snapshotAsOf + " AS DATETIME), 126) AS UPDATED_AT," +
+    "CAST(CAST(ISNULL(S.COMPANY,0) AS VARCHAR(32)) + ':' + CAST(ISNULL(BR.BRANCH, ISNULL(NULLIF(W.WHOUSEG,0), ISNULL(S.WHOUSE,0))) AS VARCHAR(32)) AS VARCHAR(64)) AS BRANCH_EXT_ID," +
+    "CAST(ISNULL(BR.NAME, CAST(ISNULL(NULLIF(W.WHOUSEG,0), ISNULL(S.WHOUSE,0)) AS VARCHAR(255))) AS VARCHAR(255)) AS BRANCH_NAME," +
+    "CAST(ISNULL(S.COMPANY,0) AS VARCHAR(64)) AS COMPANY_ID," +
+    "CAST(ISNULL(S.WHOUSE,0) AS VARCHAR(64)) AS WAREHOUSE_EXT_ID," +
+    "CAST(ISNULL(I.CODE, S.MTRL) AS VARCHAR(128)) AS ITEM_CODE," +
+    "CAST(ISNULL(I.SODTYPE,0) AS INT) AS SOFTONE_SOTYPE," +
+    "CAST(ISNULL(I.NAME,'') AS VARCHAR(255)) AS ITEM_NAME," +
+    "CAST(NULLIF(ISNULL(I.CODE1,''),'') AS VARCHAR(128)) AS BARCODE," +
+    "CAST(" + iAltBarcodeExpr + " AS VARCHAR(1024)) AS ALTERNATE_BARCODES," +
+    "CAST(I.VAT AS DECIMAL(18,4)) AS VAT_RATE," +
+    "CAST(ISNULL(VT.NAME,'') AS VARCHAR(255)) AS VAT_LABEL," +
+    "CAST(ISNULL(PC1.NAME,'') AS VARCHAR(255)) AS CATEGORY_1," +
+    "CAST(ISNULL(PC2.NAME,'') AS VARCHAR(255)) AS CATEGORY_2," +
+    "CAST(ISNULL(PC3.NAME,'') AS VARCHAR(255)) AS CATEGORY_3," +
+    "CAST(NULLIF(CAST(ISNULL(I.MTRMARK,0) AS VARCHAR(64)), '0') AS VARCHAR(64)) AS BRAND_EXTERNAL_ID," +
+    "CAST(ISNULL(MK.NAME,'') AS VARCHAR(255)) AS BRAND_NAME," +
+    "CAST(NULLIF(CAST(ISNULL(I.MTRMANFCTR,0) AS VARCHAR(128)), '0') AS VARCHAR(128)) AS MANUFACTURER_CODE," +
+    "CAST(ISNULL(MF.NAME,'') AS VARCHAR(255)) AS MANUFACTURER_NAME," +
+    "CAST(ISNULL(S.IMPQTY1,0)-ISNULL(S.EXPQTY1,0) AS FLOAT) AS QTY," +
+    "CAST(ISNULL(S.IMPVAL,0)-ISNULL(S.EXPVAL,0) AS FLOAT) AS COST_AMOUNT," +
+    "CAST((ISNULL(S.IMPQTY1,0)-ISNULL(S.EXPQTY1,0)) * ISNULL(I.PRICEW,0) AS FLOAT) AS VALUE_AMOUNT," +
+    "CAST((ISNULL(S.IMPQTY1,0)-ISNULL(S.EXPQTY1,0)) * ISNULL(I.PRICER,0) AS FLOAT) AS RETAIL_VALUE_AMOUNT," +
+    "CAST(ISNULL(S.IMPVAL,0)-ISNULL(S.EXPVAL,0) AS FLOAT) AS FINANCIAL_VALUE_AMOUNT," +
+    "CAST(ISNULL(I.ISACTIVE,1) AS INT) AS IS_ACTIVE_SOURCE," +
+    "CAST('snapshot' AS VARCHAR(32)) AS MOVEMENT_TYPE," +
+    "CAST(ISNULL(S.FISCPRD,0) AS INT) AS SOURCE_MODULE_ID," +
+    "CAST(0 AS INT) AS REDIRECT_MODULE_ID," +
+    "CAST(12 AS INT) AS SOURCE_ENTITY_ID," +
+    "CAST(ISNULL(S.FISCPRD,0) AS INT) AS OBJECT_ID " +
+    "FROM MTRBALSHEET S " +
+    "INNER JOIN (SELECT COMPANY, MAX(FISCPRD) AS FISCPRD FROM MTRBALSHEET WHERE COMPANY=" + cfg.company + " AND PERIOD=0 GROUP BY COMPANY) SP ON SP.COMPANY=S.COMPANY AND SP.FISCPRD=S.FISCPRD AND S.PERIOD=0 " +
+    "INNER JOIN (SELECT COMPANY, FISCPRD, MTRL FROM MTRBALSHEET WHERE COMPANY=" + cfg.company + " AND PERIOD=0 GROUP BY COMPANY, FISCPRD, MTRL HAVING ABS(SUM(ISNULL(IMPQTY1,0)-ISNULL(EXPQTY1,0)))>0.0001) ITEM_STOCK ON ITEM_STOCK.COMPANY=S.COMPANY AND ITEM_STOCK.FISCPRD=S.FISCPRD AND ITEM_STOCK.MTRL=S.MTRL " +
+    "LEFT JOIN WHOUSE W ON W.WHOUSE=S.WHOUSE AND W.COMPANY=S.COMPANY " +
+    "LEFT JOIN BRANCH BR ON BR.BRANCH=ISNULL(NULLIF(W.WHOUSEG,0), ISNULL(S.WHOUSE,0)) AND BR.COMPANY=S.COMPANY " +
+    "LEFT JOIN MTRL I ON I.MTRL=S.MTRL AND I.COMPANY=S.COMPANY " +
+    "LEFT JOIN VAT VT ON VT.VAT=I.VAT " +
+    "LEFT JOIN MTRMARK MK ON MK.MTRMARK=I.MTRMARK AND MK.COMPANY=I.COMPANY " +
+    "LEFT JOIN MTRMANFCTR MF ON MF.MTRMANFCTR=I.MTRMANFCTR AND MF.COMPANY=I.COMPANY " +
+    "LEFT JOIN CCC88POCAT1 PC1 ON PC1.CCC88POCAT1=I.CCC88POCAT1 " +
+    "LEFT JOIN CCC88POCAT2 PC2 ON PC2.CCC88POCAT2=I.CCC88POCAT2 " +
+    "LEFT JOIN CCC88POCAT3 PC3 ON PC3.CCC88POCAT3=I.CCC88POCAT3 " +
+    "WHERE S.COMPANY=" + cfg.company + " AND ISNULL(W.ISACTIVE,1)=1 AND ISNULL(I.SODTYPE,0)=" + cfg.inventoryItemSoType +
+    " AND ABS(ISNULL(S.IMPQTY1,0)-ISNULL(S.EXPQTY1,0))>0.0001";
 
   var adjustmentSql =
     "SELECT " +
@@ -1345,8 +1396,19 @@ function _bv_inventory_sql(cfg) {
     lQty +
     ",0) AS FLOAT) AS QTY," +
     "CAST(ISNULL(" +
+    lCost +
+    ",0) AS FLOAT) AS COST_AMOUNT," +
+    "CAST(ISNULL(" +
     lVal +
     ",0) AS FLOAT) AS VALUE_AMOUNT," +
+    "CAST(ISNULL(" +
+    _bv_col_expr("L", "MTRLINES", ["PRICE", "PRICEM"], lVal) +
+    ",0) * ISNULL(" +
+    lQty +
+    ",0) AS FLOAT) AS RETAIL_VALUE_AMOUNT," +
+    "CAST(ISNULL(" +
+    lCost +
+    ",0) AS FLOAT) AS FINANCIAL_VALUE_AMOUNT," +
     "CAST(ISNULL(" +
     activeExpr +
     ",1) AS INT) AS IS_ACTIVE_SOURCE," +
@@ -1556,7 +1618,7 @@ function _bv_cash_sql(cfg) {
     ",'') AS VARCHAR(1024)) AS NOTES," +
     "CASE " +
     "WHEN ISNULL(F.TFPRMS,0)=101 AND ISNULL(" + c.sumAmount + ",0) < 0 THEN '102' " +
-    "WHEN ISNULL(F.TFPRMS,0) IN (102,181) THEN '102' " +
+    "WHEN ISNULL(F.TFPRMS,0) IN (2,102,181) THEN '102' " +
     "WHEN ISNULL(F.TFPRMS,0)=101 THEN '101' " +
     "WHEN ISNULL(" +
     c.sumAmount +
@@ -1644,7 +1706,7 @@ function _bv_supplier_balances_sql(cfg) {
 
   var sql =
     "SELECT " +
-    _bv_top_clause(cfg.limit) +
+    _bv_balance_top_clause(cfg) +
     "CAST(ISNULL(T.CODE, " +
     c.trdr +
     ") AS VARCHAR(64)) AS SUPPLIER_EXT_ID," +
@@ -1736,7 +1798,7 @@ function _bv_customer_balances_sql(cfg) {
 
   var sql =
     "SELECT " +
-    _bv_top_clause(cfg.limit) +
+    _bv_balance_top_clause(cfg) +
     "CAST(ISNULL(T.CODE, " +
     c.trdr +
     ") AS VARCHAR(64)) AS CUSTOMER_EXT_ID," +
@@ -1817,7 +1879,8 @@ function _bv_expenses_sql(cfg) {
   var expenseSign = "(CASE WHEN ISNULL(F.TFPRMS,0) IN (151,152) THEN -1 ELSE 1 END)";
   var specialExpenseSign = "(CASE WHEN ISNULL(F.TFPRMS,0)=102 THEN -1 ELSE 1 END)";
   var expenseLikeSeriesExpr =
-    "(ISNULL(" + c.series + ",0) IN (1001,1002,1003,1007,1009,1102,3201)" +
+    "((ISNULL(" + c.sosource + ",0)=1253 AND ISNULL(F.TFPRMS,0)=101)" +
+    " OR ISNULL(" + c.series + ",0) IN (1001,1002,1003,1006,1007,1009,1102,3201)" +
     " OR ISNULL(" + seriesInfo.seriesNameExpr + ",'') LIKE N'%Δαπαν%'" +
     " OR ISNULL(" + seriesInfo.seriesNameExpr + ",'') LIKE N'%παροχής υπηρεσι%'" +
     " OR ISNULL(" + seriesInfo.seriesNameExpr + ",'') LIKE N'%Αγοράς Παγίων%'" +
@@ -2018,6 +2081,8 @@ function _bv_sales_record(ds) {
     entity_ext_id: _bv_text(_bv_field(ds, "CUSTOMER_EXT_ID", ""), ""),
     item_code: _bv_text(_bv_field(ds, "ITEM_CODE", ""), ""),
     item_name: _bv_text(_bv_field(ds, "ITEM_NAME", ""), ""),
+    brand_external_id: _bv_text(_bv_field(ds, "BRAND_EXTERNAL_ID", ""), ""),
+    brand_name: _bv_text(_bv_field(ds, "BRAND_NAME", ""), ""),
     group_ext_id: _bv_text(_bv_field(ds, "GROUP_EXT_ID", ""), ""),
     group_name: _bv_text(_bv_field(ds, "GROUP_NAME", ""), ""),
     channel_ext_id: _bv_text(_bv_field(ds, "CHANNEL_EXT_ID", ""), ""),
@@ -2071,6 +2136,10 @@ function _bv_sales_record(ds) {
     net_value: _bv_num(_bv_field(ds, "NET_VALUE", 0), 0),
     gross_value: _bv_num(_bv_field(ds, "GROSS_VALUE", 0), 0),
     vat_amount: _bv_num(_bv_field(ds, "VAT_AMOUNT", 0), 0),
+    doc_net_total: _bv_num(_bv_field(ds, "DOC_NET_TOTAL", 0), 0),
+    doc_expenses_total: _bv_num(_bv_field(ds, "DOC_EXPENSES_TOTAL", 0), 0),
+    doc_tax_total: _bv_num(_bv_field(ds, "DOC_TAX_TOTAL", 0), 0),
+    doc_gross_total: _bv_num(_bv_field(ds, "DOC_GROSS_TOTAL", 0), 0),
     cost_amount: _bv_num(_bv_field(ds, "COST_AMOUNT", 0), 0)
   };
   return _bv_attach_org_fields(_bv_attach_common_doc_fields(rec, ds), ds);
@@ -2083,11 +2152,18 @@ function _bv_purchase_record(ds) {
     external_id: eventId,
     doc_date: _bv_text(_bv_field(ds, "DOC_DATE", ""), ""),
     updated_at: _bv_text(_bv_field(ds, "UPDATED_AT", ""), ""),
+    source_created_at: _bv_text(_bv_field(ds, "SOURCE_CREATED_AT", ""), ""),
     document_type: _bv_text(_bv_field(ds, "DOCUMENT_TYPE", "purchase"), "purchase"),
     document_id: _bv_text(_bv_field(ds, "DOCUMENT_ID", ""), ""),
     document_no: _bv_text(_bv_field(ds, "DOCUMENT_NO", ""), ""),
     document_series: _bv_text(_bv_field(ds, "DOCUMENT_SERIES", ""), ""),
     document_series_name: _bv_text(_bv_field(ds, "DOCUMENT_SERIES_NAME", ""), ""),
+    document_behavior_code: _bv_num(_bv_field(ds, "DOCUMENT_BEHAVIOR_CODE", 0), 0),
+    purchase_flow: _bv_text(_bv_field(ds, "PURCHASE_FLOW", "purchase"), "purchase"),
+    is_credit_or_return: _bv_bool(_bv_field(ds, "IS_CREDIT_OR_RETURN", 0), false),
+    due_date: _bv_text(_bv_field(ds, "DUE_DATE", ""), ""),
+    payment_terms_days: _bv_num(_bv_field(ds, "PAYMENT_TERMS_DAYS", 0), 0),
+    payment_method: _bv_text(_bv_field(ds, "PAYMENT_METHOD", ""), ""),
     branch_ext_id: _bv_text(_bv_field(ds, "BRANCH_EXT_ID", ""), ""),
     warehouse_ext_id: _bv_text(_bv_field(ds, "WAREHOUSE_EXT_ID", ""), ""),
     warehouse_name: _bv_text(_bv_field(ds, "WAREHOUSE_NAME", ""), ""),
@@ -2110,6 +2186,9 @@ function _bv_inventory_record(ds) {
   var documentType = _bv_text(_bv_field(ds, "DOCUMENT_TYPE", "inventory"), "inventory");
   var seriesName = _bv_text(_bv_field(ds, "DOCUMENT_SERIES_NAME", ""), "");
   var valueAmount = _bv_num(_bv_field(ds, "VALUE_AMOUNT", 0), 0);
+  var retailValueAmount = _bv_num(_bv_field(ds, "RETAIL_VALUE_AMOUNT", valueAmount), valueAmount);
+  var costAmount = _bv_num(_bv_field(ds, "COST_AMOUNT", 0), 0);
+  var financialValueAmount = _bv_num(_bv_field(ds, "FINANCIAL_VALUE_AMOUNT", costAmount), costAmount);
   var financialFlag = _bv_inventory_is_financial(documentType, seriesName);
 
   var rec = {
@@ -2138,10 +2217,12 @@ function _bv_inventory_record(ds) {
     category_3: _bv_text(_bv_field(ds, "CATEGORY_3", ""), ""),
     is_active: _bv_bool(_bv_field(ds, "IS_ACTIVE_SOURCE", 1), true),
     qty: _bv_num(_bv_field(ds, "QTY", 0), 0),
+    cost_amount: costAmount,
     value_amount: valueAmount,
+    retail_value_amount: retailValueAmount,
     is_financial_doc: financialFlag === true,
     financial_impact_type: financialFlag === true ? "expense" : financialFlag === false ? "quantity_only" : "unknown",
-    financial_value_amount: financialFlag === true ? valueAmount : 0
+    financial_value_amount: financialFlag === true ? financialValueAmount : 0
   };
   return _bv_attach_org_fields(_bv_attach_common_doc_fields(rec, ds), ds);
 }
@@ -2272,7 +2353,7 @@ function _bv_expense_record(ds) {
 }
 
 function _bv_query_records(sql, mapper) {
-  var ds = X.GETSQLDATASET(sql, null);
+  var ds = X.GETSQLDATASET(_bv_sqlserver_read_hints(sql), null);
   return _bv_dataset_records(ds, mapper);
 }
 
@@ -2555,6 +2636,10 @@ function HealthCheckBIBridge(obj) {
       },
       defaults: {
         limit: 0,
+        balanceLimit: 500,
+        allowFullBalanceSync: false,
+        includeSupplierBalances: false,
+        includeCustomerBalances: false,
         salesSourceCodes: "1351,11351",
         purchaseSourceCodes: "1251,1253",
         inventorySourceCodes: "1151",
@@ -2562,7 +2647,7 @@ function HealthCheckBIBridge(obj) {
         cashSourceCodes: "1261,1281,1381,1412,1413,1414,1415,1416,1481",
         supplierBalanceSourceCodes: "1251,1253,1261,1281,1412,1416,1653",
         customerBalanceSourceCodes: "1351,1381,1413",
-        expenseSourceCodes: "1261"
+        expenseSourceCodes: "1261,1653"
       }
     };
   } catch (e) {

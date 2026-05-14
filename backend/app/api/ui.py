@@ -259,7 +259,27 @@ _DEFAULT_AUTO_SYNC_SETTINGS = {
     'profile': 'live',
     'overlap_minutes': max(0, int(getattr(settings, 'incremental_sync_overlap_minutes', 5) or 5)),
     'recovery_days': max(1, int(getattr(settings, 'ingest_daily_recovery_days', 7) or 7)),
+    'business_hours': {
+        'mode': 'always',
+        'start': '08:00',
+        'end': '22:00',
+        'timezone': 'Europe/Athens',
+    },
     'stream_overrides': {},
+}
+
+_DEFAULT_DAILY_RECONCILIATION_SETTINGS = {
+    'enabled': False,
+    'time': '23:30',
+    'timezone': 'Europe/Athens',
+    'lookback_days': 1,
+    'streams': [
+        'sales_documents',
+        'purchase_documents',
+        'inventory_documents',
+        'cash_transactions',
+        'operating_expenses',
+    ],
 }
 
 _DEFAULT_DUPLICATE_PROTECTION_SETTINGS = {
@@ -370,6 +390,29 @@ def _tenant_auto_sync_settings(tenant: Tenant | None) -> dict[str, object]:
         max_value=366,
     )
     raw_overrides = source.get('stream_overrides') if isinstance(source.get('stream_overrides'), dict) else {}
+    raw_hours = source.get('business_hours') if isinstance(source.get('business_hours'), dict) else {}
+    default_hours = _DEFAULT_AUTO_SYNC_SETTINGS['business_hours']
+    business_mode_raw = str(raw_hours.get('mode') or default_hours['mode']).strip().lower()
+    business_mode = business_mode_raw if business_mode_raw in {'always', 'business_hours'} else 'always'
+
+    def _clean_hhmm(raw: object, fallback: str) -> str:
+        text = str(raw or fallback).strip()[:5]
+        if ':' not in text:
+            text = fallback
+        hour_text, minute_text = (text.split(':', 1) + ['00'])[:2]
+        try:
+            hour = max(0, min(23, int(hour_text)))
+            minute = max(0, min(59, int(minute_text)))
+        except Exception:
+            hour, minute = [int(part) for part in fallback.split(':', 1)]
+        return f'{hour:02d}:{minute:02d}'
+
+    business_hours = {
+        'mode': business_mode,
+        'start': _clean_hhmm(raw_hours.get('start'), str(default_hours['start'])),
+        'end': _clean_hhmm(raw_hours.get('end'), str(default_hours['end'])),
+        'timezone': str(raw_hours.get('timezone') or default_hours['timezone']).strip() or 'Europe/Athens',
+    }
     stream_overrides: dict[str, dict[str, object]] = {}
     for stream in ALL_OPERATIONAL_STREAMS:
         raw_stream = raw_overrides.get(stream) if isinstance(raw_overrides, dict) else {}
@@ -402,7 +445,50 @@ def _tenant_auto_sync_settings(tenant: Tenant | None) -> dict[str, object]:
         'interval_minutes': interval,
         'overlap_minutes': overlap,
         'recovery_days': recovery_days,
+        'business_hours': business_hours,
         'stream_overrides': stream_overrides,
+        'stream_labels': _SYNC_STREAM_LABELS,
+    }
+
+
+def _tenant_daily_reconciliation_settings(tenant: Tenant | None) -> dict[str, object]:
+    flags = tenant.feature_flags if tenant is not None else None
+    source = {}
+    if isinstance(flags, dict):
+        cfg = flags.get('daily_reconciliation')
+        if isinstance(cfg, dict):
+            source = cfg
+    raw_time = str(source.get('time') or _DEFAULT_DAILY_RECONCILIATION_SETTINGS['time']).strip()[:5]
+    if ':' not in raw_time:
+        raw_time = str(_DEFAULT_DAILY_RECONCILIATION_SETTINGS['time'])
+    hour_text, minute_text = (raw_time.split(':', 1) + ['00'])[:2]
+    try:
+        hour = max(0, min(23, int(hour_text)))
+        minute = max(0, min(59, int(minute_text)))
+    except Exception:
+        hour, minute = 23, 30
+    source_streams = source.get('streams') if isinstance(source.get('streams'), list) else []
+    streams: list[str] = []
+    for raw_stream in source_streams:
+        stream = normalize_stream_name(raw_stream)
+        if stream in ALL_OPERATIONAL_STREAMS and stream not in streams:
+            streams.append(stream)
+    if not streams:
+        streams = list(_DEFAULT_DAILY_RECONCILIATION_SETTINGS['streams'])
+    return {
+        'enabled': _parse_bool_enabled(
+            source.get('enabled'),
+            bool(_DEFAULT_DAILY_RECONCILIATION_SETTINGS['enabled']),
+        ),
+        'time': f'{hour:02d}:{minute:02d}',
+        'timezone': str(source.get('timezone') or _DEFAULT_DAILY_RECONCILIATION_SETTINGS['timezone']).strip() or 'Europe/Athens',
+        'lookback_days': _parse_int_in_range(
+            source.get('lookback_days'),
+            default=int(_DEFAULT_DAILY_RECONCILIATION_SETTINGS['lookback_days']),
+            min_value=1,
+            max_value=366,
+        ),
+        'streams': streams,
         'stream_labels': _SYNC_STREAM_LABELS,
     }
 
@@ -2848,6 +2934,7 @@ async def admin_tenant_edit_get_redirect(
             'tenant': tenant,
             'inventory_item_classification': _tenant_inventory_item_classification_settings(tenant),
             'auto_sync': auto_sync,
+            'daily_reconciliation': _tenant_daily_reconciliation_settings(tenant),
             'duplicate_protection': _tenant_duplicate_protection_settings(tenant),
             'eshop_fulfillment': _tenant_eshop_fulfillment_settings(tenant),
             'document_series_labels': _tenant_document_series_labels_settings(tenant),
@@ -2872,10 +2959,19 @@ async def admin_tenant_edit(
     auto_sync_interval_minutes: str = Form(default='5'),
     auto_sync_overlap_minutes: str = Form(default='5'),
     auto_sync_recovery_days: str = Form(default='7'),
+    auto_sync_business_hours_mode: str = Form(default='always'),
+    auto_sync_business_hours_start: str = Form(default='08:00'),
+    auto_sync_business_hours_end: str = Form(default='22:00'),
+    auto_sync_business_hours_timezone: str = Form(default='Europe/Athens'),
     stream_sync_enabled: list[str] = Form(default=[]),
     stream_sync_interval_minutes: list[str] = Form(default=[]),
     stream_sync_overlap_minutes: list[str] = Form(default=[]),
     stream_sync_recovery_days: list[str] = Form(default=[]),
+    daily_reconciliation_enabled: bool = Form(default=False),
+    daily_reconciliation_time: str = Form(default='23:30'),
+    daily_reconciliation_timezone: str = Form(default='Europe/Athens'),
+    daily_reconciliation_lookback_days: str = Form(default='1'),
+    daily_reconciliation_streams: list[str] = Form(default=[]),
     duplicate_protection_enabled: bool = Form(default=False),
     duplicate_protection_mode: str = Form(default='natural_key'),
     status_source: str = Form(default='sales_window'),
@@ -2941,6 +3037,7 @@ async def admin_tenant_edit(
         'tenant_status': tenant.status.value,
         'subscription_status': tenant.subscription_status.value,
         'auto_sync': _tenant_auto_sync_settings(tenant),
+        'daily_reconciliation': _tenant_daily_reconciliation_settings(tenant),
         'duplicate_protection': _tenant_duplicate_protection_settings(tenant),
         'inventory_item_classification': _tenant_inventory_item_classification_settings(tenant),
         'eshop_fulfillment': _tenant_eshop_fulfillment_settings(tenant),
@@ -3012,6 +3109,33 @@ async def admin_tenant_edit(
         min_value=1,
         max_value=366,
     )
+    current_business_hours = auto_sync_payload.get('business_hours') if isinstance(auto_sync_payload.get('business_hours'), dict) else {}
+
+    def _clean_form_hhmm(raw: object, fallback: str) -> str:
+        text = str(raw or fallback).strip()[:5]
+        if ':' not in text:
+            text = fallback
+        hour_text, minute_text = (text.split(':', 1) + ['00'])[:2]
+        try:
+            hour = max(0, min(23, int(hour_text)))
+            minute = max(0, min(59, int(minute_text)))
+        except Exception:
+            hour, minute = [int(part) for part in fallback.split(':', 1)]
+        return f'{hour:02d}:{minute:02d}'
+
+    business_hours_mode = str(auto_sync_business_hours_mode or '').strip().lower()
+    auto_sync_payload['business_hours'] = {
+        'mode': business_hours_mode if business_hours_mode in {'always', 'business_hours'} else 'always',
+        'start': _clean_form_hhmm(
+            auto_sync_business_hours_start,
+            str(current_business_hours.get('start') or '08:00'),
+        ),
+        'end': _clean_form_hhmm(
+            auto_sync_business_hours_end,
+            str(current_business_hours.get('end') or '22:00'),
+        ),
+        'timezone': str(auto_sync_business_hours_timezone or current_business_hours.get('timezone') or 'Europe/Athens').strip() or 'Europe/Athens',
+    }
     enabled_streams = {normalize_stream_name(v) for v in stream_sync_enabled}
     stream_overrides: dict[str, dict[str, object]] = {}
     intervals = list(stream_sync_interval_minutes or [])
@@ -3041,6 +3165,37 @@ async def admin_tenant_edit(
         }
     auto_sync_payload['stream_overrides'] = stream_overrides
     auto_sync_payload['stream_labels'] = _SYNC_STREAM_LABELS
+
+    reconciliation_payload = _tenant_daily_reconciliation_settings(tenant)
+    raw_reconcile_time = str(daily_reconciliation_time or '').strip()[:5]
+    if ':' not in raw_reconcile_time:
+        raw_reconcile_time = str(reconciliation_payload['time'])
+    hour_text, minute_text = (raw_reconcile_time.split(':', 1) + ['00'])[:2]
+    try:
+        hour = max(0, min(23, int(hour_text)))
+        minute = max(0, min(59, int(minute_text)))
+    except Exception:
+        hour, minute = 23, 30
+    selected_reconciliation_streams: list[str] = []
+    for raw_stream in daily_reconciliation_streams or []:
+        stream = normalize_stream_name(raw_stream)
+        if stream in ALL_OPERATIONAL_STREAMS and stream not in selected_reconciliation_streams:
+            selected_reconciliation_streams.append(stream)
+    if not selected_reconciliation_streams:
+        selected_reconciliation_streams = list(reconciliation_payload['streams'])
+    reconciliation_payload = {
+        'enabled': bool(daily_reconciliation_enabled),
+        'time': f'{hour:02d}:{minute:02d}',
+        'timezone': str(daily_reconciliation_timezone or 'Europe/Athens').strip() or 'Europe/Athens',
+        'lookback_days': _parse_int_in_range(
+            daily_reconciliation_lookback_days,
+            default=int(reconciliation_payload['lookback_days']),
+            min_value=1,
+            max_value=366,
+        ),
+        'streams': selected_reconciliation_streams,
+        'stream_labels': _SYNC_STREAM_LABELS,
+    }
 
     duplicate_protection_payload = _tenant_duplicate_protection_settings(tenant)
     duplicate_mode_clean = str(duplicate_protection_mode or '').strip().lower()
@@ -3179,6 +3334,7 @@ async def admin_tenant_edit(
 
     flags = dict(tenant.feature_flags or {})
     flags['auto_sync'] = auto_sync_payload
+    flags['daily_reconciliation'] = reconciliation_payload
     flags['duplicate_protection'] = duplicate_protection_payload
     flags['inventory_item_classification'] = settings_payload
     flags['eshop_fulfillment'] = eshop_fulfillment_payload
@@ -3197,7 +3353,15 @@ async def admin_tenant_edit(
             'auto_sync_profile': str(auto_sync_payload['profile']),
             'sync_overlap_minutes': int(auto_sync_payload['overlap_minutes']),
             'sync_recovery_days': int(auto_sync_payload['recovery_days']),
+            'auto_sync_business_hours': auto_sync_payload['business_hours'],
             'stream_sync_overrides': auto_sync_payload['stream_overrides'],
+            'daily_reconciliation': {
+                'enabled': bool(reconciliation_payload['enabled']),
+                'time': str(reconciliation_payload['time']),
+                'timezone': str(reconciliation_payload['timezone']),
+                'lookback_days': int(reconciliation_payload['lookback_days']),
+                'streams': reconciliation_payload['streams'],
+            },
         }
         db.add(conn)
 
@@ -3217,6 +3381,7 @@ async def admin_tenant_edit(
                     'tenant_status': tenant.status.value,
                     'subscription_status': sub.status.value,
                     'auto_sync': auto_sync_payload,
+                    'daily_reconciliation': reconciliation_payload,
                     'duplicate_protection': duplicate_protection_payload,
                     'inventory_item_classification': settings_payload,
                     'eshop_fulfillment': eshop_fulfillment_payload,

@@ -1,43 +1,6 @@
 {% extends "base_tenant.html" %}
 
 {% block content %}
-<style>
-  .customers-table-wrap {
-    max-height: min(74vh, 820px);
-    overflow: auto;
-  }
-  #customersTable tbody tr {
-    cursor: pointer;
-  }
-  #customersTable tbody tr.is-active {
-    background: rgba(99, 102, 241, 0.1);
-  }
-  .customer-modal {
-    --bv-modal-max-width: 1380px;
-    --bv-modal-max-height: 94vh;
-  }
-  .customer-modal .modal-body {
-    overflow-y: auto;
-    overflow-x: hidden;
-  }
-  .customer-modal .form-label {
-    font-size: 0.76rem;
-    font-weight: 700;
-    color: #334155;
-  }
-  .customer-modal textarea.form-control {
-    min-height: 120px;
-    resize: vertical;
-  }
-  .customer-history-wrap {
-    max-height: min(43vh, 430px);
-    overflow: auto;
-  }
-  .customers-footer {
-    border-top: 1px solid #e5e7eb;
-    background: #f8fafc;
-  }
-</style>
 
 <div id="customersError" class="alert alert-danger d-none"></div>
 
@@ -64,11 +27,12 @@
           <th>Τηλέφωνο 2</th>
           <th>Επάγγελμα</th>
           <th class="text-end">Υπόλοιπο</th>
+          <th class="text-end">Εισπράξεις</th>
           <th class="text-end">Τζίρος</th>
         </tr>
       </thead>
       <tbody id="customersBody">
-        <tr><td colspan="11" class="text-center text-muted py-3">Φόρτωση πελατών...</td></tr>
+        <tr><td colspan="12" class="text-center text-muted py-3">Φόρτωση πελατών...</td></tr>
       </tbody>
     </table>
   </div>
@@ -92,10 +56,10 @@
         <button type="button" class="btn btn-outline-secondary btn-sm" id="customersPageGo">Μετάβαση</button>
       </div>
       <div class="bv-pager-nav" role="group" aria-label="Πλοήγηση σελίδων">
-        <button type="button" class="btn btn-outline-secondary btn-sm" id="customersFirstPage" title="Πρώτη σελίδα" aria-label="Πρώτη σελίδα">&laquo;</button>
-        <button type="button" class="btn btn-outline-secondary btn-sm" id="customersPrevPage" title="Προηγούμενη σελίδα" aria-label="Προηγούμενη σελίδα">&lsaquo;</button>
-        <button type="button" class="btn btn-outline-secondary btn-sm" id="customersNextPage" title="Επόμενη σελίδα" aria-label="Επόμενη σελίδα">&rsaquo;</button>
-        <button type="button" class="btn btn-outline-secondary btn-sm" id="customersLastPage" title="Τελευταία σελίδα" aria-label="Τελευταία σελίδα">&raquo;</button>
+        <button type="button" class="bv-page-icon" id="customersFirstPage" title="Πρώτη σελίδα" aria-label="Πρώτη σελίδα">&laquo;</button>
+        <button type="button" class="bv-page-icon" id="customersPrevPage" title="Προηγούμενη σελίδα" aria-label="Προηγούμενη σελίδα">&lsaquo;</button>
+        <button type="button" class="bv-page-icon" id="customersNextPage" title="Επόμενη σελίδα" aria-label="Επόμενη σελίδα">&rsaquo;</button>
+        <button type="button" class="bv-page-icon" id="customersLastPage" title="Τελευταία σελίδα" aria-label="Τελευταία σελίδα">&raquo;</button>
       </div>
       <small id="customersPageInfo" class="bv-pager-info">1 / 1</small>
     </div>
@@ -508,7 +472,16 @@
     const count = Number(summary?.customers || 0);
     customersTotal = Number.isFinite(count) ? Math.max(0, count) : 0;
     const turnover = formatMoney(summary?.turnover || 0);
-    el.textContent = `Πελάτες: ${formatInt(count)} | Τζίρος: ${turnover}`;
+    const collections = formatMoney(summary?.collections_total || 0);
+    if(window.bvRenderFooterSummary){
+      window.bvRenderFooterSummary(el, [
+        { label: 'Πελάτες', value: formatInt(count) },
+        { label: 'Εισπράξεις', value: collections, tone: 'success' },
+        { label: 'Τζίρος', value: turnover, tone: 'total' },
+      ]);
+    } else {
+      el.textContent = `Πελάτες: ${formatInt(count)} | Εισπράξεις: ${collections} | Τζίρος: ${turnover}`;
+    }
     updateCustomersPagination(Number(rowsCount || 0));
   }
 
@@ -517,7 +490,7 @@
     if(!body) return;
     customersRows = Array.isArray(rows) ? rows : [];
     if(!customersRows.length){
-      body.innerHTML = '<tr><td colspan="11" class="text-center text-muted py-3">Δεν βρέθηκαν πελάτες.</td></tr>';
+      body.innerHTML = '<tr><td colspan="12" class="text-center text-muted py-3">Δεν βρέθηκαν πελάτες.</td></tr>';
       return;
     }
     body.innerHTML = customersRows.map((row) => {
@@ -534,6 +507,7 @@
         <td>${escapeHtml(textOrDash(row.phone_2, ''))}</td>
         <td>${escapeHtml(textOrDash(row.profession, ''))}</td>
         <td class="text-end">${escapeHtml(formatMoney(row.balance || 0))}</td>
+        <td class="text-end">${escapeHtml(formatMoney(row.collections_total || 0))}</td>
         <td class="text-end">${escapeHtml(formatMoney(row.turnover || 0))}</td>
       </tr>`;
     }).join('');
@@ -554,7 +528,7 @@
     showPageError('');
     setPaginationDisabled(true);
     const body = document.getElementById('customersBody');
-    if(body) body.innerHTML = '<tr><td colspan="11" class="text-center text-muted py-3">Φόρτωση πελατών...</td></tr>';
+    if(body) body.innerHTML = '<tr><td colspan="12" class="text-center text-muted py-3">Φόρτωση πελατών...</td></tr>';
     try {
       const data = await fetchJsonOrThrow(`/v1/kpi/customers?${customerListParams().toString()}`);
       const rows = Array.isArray(data?.rows) ? data.rows : [];
@@ -569,7 +543,7 @@
       renderCustomers(rows);
       renderCustomersSummary(summary, rows.length);
     } catch (err) {
-      if(body) body.innerHTML = '<tr><td colspan="11" class="text-center text-danger py-3">Αποτυχία φόρτωσης πελατών.</td></tr>';
+      if(body) body.innerHTML = '<tr><td colspan="12" class="text-center text-danger py-3">Αποτυχία φόρτωσης πελατών.</td></tr>';
       showPageError(err?.message || 'Αποτυχία φόρτωσης πελατών.');
       customersRows = [];
       customersTotal = 0;

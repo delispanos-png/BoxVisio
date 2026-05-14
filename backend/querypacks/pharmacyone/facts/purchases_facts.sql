@@ -21,6 +21,7 @@ SELECT
   ) AS cost_amount,
   CAST('P|' + CAST(F.FINDOC AS nvarchar(40)) + '|' + CAST(ISNULL(L.MTRLINES, ISNULL(L.LINENUM, 0)) AS nvarchar(40)) AS nvarchar(128)) AS external_id,
   CAST(ISNULL(F.UPDDATE, F.TRNDATE) AS datetime2) AS updated_at,
+  CAST(ISNULL(F.SOTIME, F.INSDATE) AS datetime2) AS source_created_at,
   CAST(NULLIF(CAST(ISNULL(I.MTRMARK, 0) AS nvarchar(64)), '0') AS nvarchar(64)) AS brand_external_id,
   CAST(
     NULLIF(
@@ -124,6 +125,26 @@ SELECT
     )
     AS decimal(28,8)
   ) AS gross_value,
+  CAST(
+    (CASE WHEN ISNULL(F.TFPRMS, 0) IN (151, 152) THEN -1 ELSE 1 END)
+    * COALESCE(TRY_CAST(ABS(ISNULL(F.NETAMNT, 0)) AS decimal(28,8)), 0)
+    AS decimal(28,8)
+  ) AS doc_net_total,
+  CAST(
+    (CASE WHEN ISNULL(F.TFPRMS, 0) IN (151, 152) THEN -1 ELSE 1 END)
+    * COALESCE(TRY_CAST(ABS(ISNULL(F.EXPN, 0)) AS decimal(28,8)), 0)
+    AS decimal(28,8)
+  ) AS doc_expenses_total,
+  CAST(
+    (CASE WHEN ISNULL(F.TFPRMS, 0) IN (151, 152) THEN -1 ELSE 1 END)
+    * COALESCE(TRY_CAST(ABS(ISNULL(F.VATAMNT, 0)) AS decimal(28,8)), 0)
+    AS decimal(28,8)
+  ) AS doc_tax_total,
+  CAST(
+    (CASE WHEN ISNULL(F.TFPRMS, 0) IN (151, 152) THEN -1 ELSE 1 END)
+    * COALESCE(TRY_CAST(ABS(ISNULL(F.SUMAMNT, 0)) AS decimal(28,8)), 0)
+    AS decimal(28,8)
+  ) AS doc_gross_total,
 
   CAST(NULLIF(CAST(ISNULL(I.CCC88ECHANNEL, 0) AS nvarchar(64)), '0') AS nvarchar(64)) AS channel_ext_id,
   CAST(ISNULL(EC.NAME, '') AS nvarchar(255)) AS channel_name,
@@ -131,6 +152,22 @@ SELECT
   CAST(ISNULL(F.SOREDIR, 0) AS int) AS redirect_module_id,
   CAST(ISNULL(F.SODTYPE, 0) AS int) AS source_entity_id,
   CAST(ISNULL(F.SOSOURCE, 0) + ISNULL(F.SOREDIR, 0) AS int) AS object_id,
+  CAST(ISNULL(F.TFPRMS, 0) AS int) AS document_behavior_code,
+  CAST(
+    CASE WHEN ISNULL(F.TFPRMS, 0) IN (151, 152) THEN N'credit_or_return' ELSE N'purchase' END
+    AS nvarchar(64)
+  ) AS purchase_flow,
+  CAST(CASE WHEN ISNULL(F.TFPRMS, 0) IN (151, 152) THEN 1 ELSE 0 END AS int) AS is_credit_or_return,
+  CAST(F.TRNDATE AS date) AS due_date,
+  CAST(0 AS int) AS payment_terms_days,
+  CAST(
+    COALESCE(
+      NULLIF(PM.NAME, ''),
+      NULLIF(PM.CODE, ''),
+      NULLIF(CAST(F.PAYMENT AS nvarchar(128)), '0'),
+      ''
+    ) AS nvarchar(128)
+  ) AS payment_method,
   CAST(ISNULL(BR.NAME, CAST(F.BRANCH AS nvarchar(255))) AS nvarchar(255)) AS branch_name,
   CAST(ISNULL(WH.NAME, CAST(ISNULL(MD.WHOUSE, 0) AS nvarchar(255))) AS nvarchar(255)) AS warehouse_name,
   CAST(F.BRANCH AS nvarchar(64)) AS branch_code,
@@ -153,6 +190,14 @@ LEFT JOIN CCC88POCAT3 PC3 WITH (NOLOCK) ON PC3.CCC88POCAT3 = I.CCC88POCAT3
 LEFT JOIN CCC88ECHANNEL EC WITH (NOLOCK) ON EC.CCC88ECHANNEL = TRY_CAST(I.CCC88ECHANNEL AS int)
 LEFT JOIN BRANCH BR WITH (NOLOCK) ON BR.BRANCH = F.BRANCH AND BR.COMPANY = F.COMPANY
 LEFT JOIN SERIES SR WITH (NOLOCK) ON SR.SERIES = F.SERIES AND SR.COMPANY = F.COMPANY AND SR.SOSOURCE = F.SOSOURCE
+OUTER APPLY (
+  SELECT TOP 1 P.CODE, P.NAME
+  FROM PAYMENT P WITH (NOLOCK)
+  WHERE P.PAYMENT = F.PAYMENT
+    AND P.SODTYPE = F.SODTYPE
+    AND (P.COMPANY = F.COMPANY OR P.COMPANY = 1000)
+  ORDER BY CASE WHEN P.COMPANY = F.COMPANY THEN 0 ELSE 1 END
+) PM
 LEFT JOIN (
   SELECT DISTINCT SERIES, COMPANY
   FROM SERIES WITH (NOLOCK)
@@ -176,11 +221,11 @@ WHERE
   AND
   ISNULL(F.SODTYPE, 0) = 12
   -- Purchase flows only (SoftOne):
-  -- Purchase expense/invoice behaviors:
-  -- TFPRMS 102/103 positive, TFPRMS 151/152 negative.
-  -- Excludes supplier payments/transfers/expenses handled by other circuits.
+  -- TFPRMS 102 purchase invoice and 103 purchase invoice/delivery note are positive.
+  -- TFPRMS 151 return credit invoice and 152 credit invoice are negative.
+  -- All other purchase behaviors (including 104 delivery notes) stay out of Purchases.
   AND F.SOSOURCE IN (1251, 1253)
-  AND ISNULL(F.TFPRMS, 0) NOT IN (100, 101, 154, 201, 202, 301, 500, 501)
+  AND ISNULL(F.TFPRMS, 0) IN (102, 103, 151, 152)
   AND NOT (
     ISNULL(F.SERIES, 0) IN (1001, 1002, 1003, 1006, 1007, 1009, 1102, 3201)
     OR ISNULL(F.FINCODE, N'') LIKE N'ΠΑΡ%'

@@ -36,11 +36,6 @@
 <div id="eshopError" class="alert alert-danger d-none"></div>
 
 <style>
-  .eshop-card .mc-meta { font-weight: 700; }
-  .eshop-table th { font-size: 12px; text-transform: uppercase; letter-spacing: .03em; color: #64748b; font-weight: 700; }
-  .eshop-table td { vertical-align: middle; font-weight: 600; }
-  .eshop-subtitle { color:#64748b; font-size:.82rem; }
-  .eshop-empty { border:1px dashed #cbd5e1; border-radius:12px; padding:24px; text-align:center; color:#64748b; background:#f8fafc; font-weight:600; }
   .eshop-card { min-height: 138px; }
   .eshop-panel {
     border-radius: 16px;
@@ -62,14 +57,6 @@
   .eshop-panel .table-responsive,
   .eshop-panel .eshop-table {
     margin-bottom: 0;
-  }
-  .eshop-panel .eshop-table th {
-    padding-top: 10px;
-    padding-bottom: 10px;
-  }
-  .eshop-panel .eshop-table td {
-    padding-top: 10px;
-    padding-bottom: 10px;
   }
   .eshop-panel .eshop-table tbody td.text-center {
     padding-top: 14px !important;
@@ -234,31 +221,9 @@
     max-height: min(70vh, 620px);
     overflow: auto;
   }
-  .modal[id^="eshop"] .modal-title {
-    font-size: 1rem;
-    font-weight: 650;
-  }
   .modal[id^="eshop"] .modal-header small {
     font-size: .78rem;
     font-weight: 450;
-  }
-  .modal[id^="eshop"] .eshop-table th {
-    font-size: .68rem;
-    font-weight: 650;
-    letter-spacing: .02em;
-    white-space: nowrap;
-    padding-top: 8px;
-    padding-bottom: 8px;
-  }
-  .modal[id^="eshop"] .eshop-table td {
-    font-size: .82rem;
-    font-weight: 450;
-    line-height: 1.25;
-    padding-top: 8px;
-    padding-bottom: 8px;
-  }
-  .modal[id^="eshop"] .eshop-table td.text-end {
-    font-weight: 500;
   }
   .eshop-insights-list {
     display: grid;
@@ -427,16 +392,16 @@
       <div class="modal-body">
         <div class="eshop-details-kpis">
           <div class="eshop-details-kpi">
-            <span>Παραγγελίες</span>
-            <strong id="eshopOrdersDetailsTotal">—</strong>
+            <span>Μοντέλα εκτέλεσης</span>
+            <strong id="eshopOrdersDetailsFlowCount">—</strong>
           </div>
           <div class="eshop-details-kpi">
-            <span>Έσοδα</span>
-            <strong id="eshopOrdersDetailsRevenue">—</strong>
+            <span>Συγκέντρωση #1</span>
+            <strong id="eshopOrdersDetailsTopShare">—</strong>
           </div>
           <div class="eshop-details-kpi">
-            <span>Μέση Παραγγελία</span>
-            <strong id="eshopOrdersDetailsAvg">—</strong>
+            <span>Παραλαβή / κατάστημα</span>
+            <strong id="eshopOrdersDetailsPickupShare">—</strong>
           </div>
         </div>
         <div class="table-responsive">
@@ -472,16 +437,16 @@
       <div class="modal-body">
         <div class="eshop-details-kpis">
           <div class="eshop-details-kpi">
-            <span>Αποστολές</span>
-            <strong id="eshopShipmentsDetailsTotal">—</strong>
+            <span>Μεταφορικές</span>
+            <strong id="eshopShipmentsDetailsCarrierCount">—</strong>
           </div>
           <div class="eshop-details-kpi">
-            <span>Έσοδα</span>
-            <strong id="eshopShipmentsDetailsRevenue">—</strong>
+            <span>Επιβάρυνση / αποστολή</span>
+            <strong id="eshopShipmentsDetailsAvgCharge">—</strong>
           </div>
           <div class="eshop-details-kpi">
-            <span>Σύνολο Επιβαρ.</span>
-            <strong id="eshopShipmentsDetailsCharges">—</strong>
+            <span>Επιβάρυνση / έσοδα</span>
+            <strong id="eshopShipmentsDetailsChargeShare">—</strong>
           </div>
         </div>
         <div class="table-responsive eshop-details-table-wrap">
@@ -521,16 +486,16 @@
       <div class="modal-body">
         <div class="eshop-details-kpis">
           <div class="eshop-details-kpi">
-            <span>Έσοδα</span>
-            <strong id="eshopRevenueDetailsTotal">—</strong>
+            <span>Τρόποι πληρωμής</span>
+            <strong id="eshopRevenueDetailsPaymentCount">—</strong>
           </div>
           <div class="eshop-details-kpi">
-            <span>Παραγγελίες</span>
-            <strong id="eshopRevenueDetailsOrders">—</strong>
+            <span>Share top τρόπου</span>
+            <strong id="eshopRevenueDetailsTopShare">—</strong>
           </div>
           <div class="eshop-details-kpi">
-            <span>Top τρόπος</span>
-            <strong id="eshopRevenueDetailsTopPayment">—</strong>
+            <span>Μ.Ο. ανά τρόπο</span>
+            <strong id="eshopRevenueDetailsAvgPerPayment">—</strong>
           </div>
         </div>
         <div class="table-responsive eshop-details-table-wrap">
@@ -565,16 +530,16 @@
       <div class="modal-body">
         <div class="eshop-details-kpis">
           <div class="eshop-details-kpi">
-            <span>Παραγγελίες</span>
-            <strong id="eshopCityDetailsOrders">—</strong>
+            <span>Πόλεις</span>
+            <strong id="eshopCityDetailsCityCount">—</strong>
           </div>
           <div class="eshop-details-kpi">
-            <span>Έσοδα</span>
-            <strong id="eshopCityDetailsRevenue">—</strong>
+            <span>Share top πόλης</span>
+            <strong id="eshopCityDetailsTopShare">—</strong>
           </div>
           <div class="eshop-details-kpi">
-            <span>Top πόλη</span>
-            <strong id="eshopCityDetailsTopCity">—</strong>
+            <span>Μ.Ο. ανά πόλη</span>
+            <strong id="eshopCityDetailsAvgOrders">—</strong>
           </div>
         </div>
         <div class="table-responsive eshop-details-table-wrap">
@@ -609,16 +574,16 @@
       <div class="modal-body">
         <div class="eshop-details-kpis">
           <div class="eshop-details-kpi">
-            <span>Παραγγελίες</span>
-            <strong id="eshopBranchesDetailsTotal">—</strong>
+            <span>Καταστήματα</span>
+            <strong id="eshopBranchesDetailsBranchCount">—</strong>
           </div>
           <div class="eshop-details-kpi">
-            <span>Έσοδα</span>
-            <strong id="eshopBranchesDetailsRevenue">—</strong>
+            <span>Share top καταστήματος</span>
+            <strong id="eshopBranchesDetailsTopShare">—</strong>
           </div>
           <div class="eshop-details-kpi">
-            <span>Top κατάστημα</span>
-            <strong id="eshopBranchesDetailsTop">—</strong>
+            <span>Μ.Ο. ανά κατάστημα</span>
+            <strong id="eshopBranchesDetailsAvgOrders">—</strong>
           </div>
         </div>
         <div class="table-responsive eshop-details-table-wrap">
@@ -914,6 +879,7 @@ function n0(v){ return NUM0.format(Number(v||0)); }
 function n2(v){ return NUM2.format(Number(v||0)); }
 function pct(v){ return PCT.format(Number(v||0)); }
 function txt(v, fallback='-'){ const s = String(v ?? '').trim(); return s || fallback; }
+function share(part, total){ return Number(total || 0) ? pct(Number(part || 0) / Number(total || 0)) : pct(0); }
 function cityTxt(v){
   const s = String(v ?? '').trim();
   if(!s || s === '0' || s.toLowerCase() === 'null' || s.toLowerCase() === 'none') return 'Χωρίς πόλη';
@@ -978,15 +944,18 @@ function bindMulti(prefix){
   document.addEventListener('click', (e)=>{ if(!document.getElementById(`${prefix}Multi`)?.contains(e.target)) menu.hidden=true; });
 }
 
-function fillBranchOptions(items){
+function fillBranchOptions(items, labelMap){
   const select = document.getElementById('eshopBranches');
   const options = document.getElementById('eshopBranchesOptions');
   if(!select || !options) return;
   select.innerHTML = '';
   options.innerHTML = '';
   (items || []).forEach((item)=>{
-    const value = String(item.value || item.id || '').trim();
-    const label = String(item.label || item.name || value).trim();
+    const isObject = item && typeof item === 'object' && !Array.isArray(item);
+    const rawValue = isObject ? (item.value ?? item.id ?? item.external_id ?? item.code ?? item.branch_ext_id ?? '') : item;
+    const value = String(rawValue ?? '').trim();
+    const mappedLabel = labelMap && value ? labelMap[value] : '';
+    const label = String((isObject ? (item.label ?? item.name ?? item.branch_name ?? item.title ?? '') : '') || mappedLabel || value).trim();
     if(!value) return;
     const opt = document.createElement('option');
     opt.value = value;
@@ -1092,15 +1061,22 @@ function renderEshopInsights(rows){
 
 function renderOrdersDetails(payload){
   const summary = payload?.summary || {};
-  const totalEl = document.getElementById('eshopOrdersDetailsTotal');
-  const revenueEl = document.getElementById('eshopOrdersDetailsRevenue');
-  const avgEl = document.getElementById('eshopOrdersDetailsAvg');
-  if(totalEl) totalEl.textContent = n0(summary.orders);
-  if(revenueEl) revenueEl.textContent = money(summary.gross_value);
-  if(avgEl) avgEl.textContent = money(summary.avg_order_value);
+  const rows = payload?.by_flow || [];
+  const totalOrders = rows.reduce((acc, row)=>acc + Number(row?.orders || 0), 0) || Number(summary.orders || 0);
+  const top = rows.reduce((best, row)=>Number(row?.orders || 0) > Number(best?.orders || 0) ? row : best, null);
+  const pickupOrders = rows.reduce((acc, row)=>{
+    const label = `${txt(row?.flow_type, '')} ${txt(row?.flow_label, '')}`.toLowerCase();
+    return acc + (label.includes('παραλαβ') || label.includes('καταστημα') || label.includes('store') || label.includes('pickup') ? Number(row?.orders || 0) : 0);
+  }, 0);
+  const flowCountEl = document.getElementById('eshopOrdersDetailsFlowCount');
+  const topShareEl = document.getElementById('eshopOrdersDetailsTopShare');
+  const pickupShareEl = document.getElementById('eshopOrdersDetailsPickupShare');
+  if(flowCountEl) flowCountEl.textContent = n0(rows.length);
+  if(topShareEl) topShareEl.textContent = top ? share(top.orders, totalOrders) : pct(0);
+  if(pickupShareEl) pickupShareEl.textContent = share(pickupOrders, totalOrders);
   renderRows(
     'eshopOrdersDetailsFlowBody',
-    (payload?.by_flow || []).map((row)=>`
+    rows.map((row)=>`
       <tr>
         <td>${esc(txt(row.flow_type))}</td>
         <td>${esc(txt(row.flow_label))}</td>
@@ -1149,15 +1125,16 @@ function showOrdersDetails(triggerEl){
 }
 
 function renderShipmentsDetails(payload){
-  const summary = payload?.summary || {};
-  const totalEl = document.getElementById('eshopShipmentsDetailsTotal');
-  const revenueEl = document.getElementById('eshopShipmentsDetailsRevenue');
-  const chargesEl = document.getElementById('eshopShipmentsDetailsCharges');
   const rows = payload?.by_carrier || [];
   const totalCharges = rows.reduce((acc, row)=>acc + Number(row?.shipping_cost || 0), 0);
-  if(totalEl) totalEl.textContent = n0(summary.shipments);
-  if(revenueEl) revenueEl.textContent = money(rows.reduce((acc, row)=>acc + Number(row?.gross_value || 0), 0));
-  if(chargesEl) chargesEl.textContent = money(totalCharges);
+  const totalOrders = rows.reduce((acc, row)=>acc + Number(row?.orders || 0), 0);
+  const totalRevenue = rows.reduce((acc, row)=>acc + Number(row?.gross_value || 0), 0);
+  const carrierCountEl = document.getElementById('eshopShipmentsDetailsCarrierCount');
+  const avgChargeEl = document.getElementById('eshopShipmentsDetailsAvgCharge');
+  const chargeShareEl = document.getElementById('eshopShipmentsDetailsChargeShare');
+  if(carrierCountEl) carrierCountEl.textContent = n0(rows.length);
+  if(avgChargeEl) avgChargeEl.textContent = totalOrders ? money(totalCharges / totalOrders) : money(0);
+  if(chargeShareEl) chargeShareEl.textContent = share(totalCharges, totalRevenue);
   renderRows(
     'eshopShipmentsDetailsCarrierBody',
     rows.map((row)=>`
@@ -1185,15 +1162,18 @@ function showShipmentsDetails(triggerEl){
 function renderRevenueDetails(payload){
   const summary = payload?.summary || {};
   const topPayment = summary?.top_payment_method || null;
-  const totalEl = document.getElementById('eshopRevenueDetailsTotal');
-  const ordersEl = document.getElementById('eshopRevenueDetailsOrders');
-  const topPaymentEl = document.getElementById('eshopRevenueDetailsTopPayment');
-  if(totalEl) totalEl.textContent = money(summary.gross_value);
-  if(ordersEl) ordersEl.textContent = n0(summary.orders);
-  if(topPaymentEl) topPaymentEl.textContent = topPayment ? txt(topPayment.payment_method) : '—';
+  const rows = payload?.by_payment_method || [];
+  const totalRevenue = rows.reduce((acc, row)=>acc + Number(row?.gross_value || 0), 0) || Number(summary.gross_value || 0);
+  const totalOrders = rows.reduce((acc, row)=>acc + Number(row?.orders || 0), 0) || Number(summary.orders || 0);
+  const paymentCountEl = document.getElementById('eshopRevenueDetailsPaymentCount');
+  const topShareEl = document.getElementById('eshopRevenueDetailsTopShare');
+  const avgPerPaymentEl = document.getElementById('eshopRevenueDetailsAvgPerPayment');
+  if(paymentCountEl) paymentCountEl.textContent = n0(rows.length);
+  if(topShareEl) topShareEl.textContent = topPayment ? share(topPayment.gross_value || topPayment.orders, topPayment.gross_value ? totalRevenue : totalOrders) : pct(0);
+  if(avgPerPaymentEl) avgPerPaymentEl.textContent = rows.length ? money(totalRevenue / rows.length) : money(0);
   renderRows(
     'eshopRevenueDetailsPaymentBody',
-    (payload?.by_payment_method || []).map((row)=>`
+    rows.map((row)=>`
       <tr>
         <td>${esc(txt(row.payment_method))}</td>
         <td class="text-end">${n0(row.orders)}</td>
@@ -1213,15 +1193,17 @@ function showRevenueDetails(triggerEl){
 function renderCityDetails(payload){
   const summary = payload?.summary || {};
   const topCity = summary?.top_city || null;
-  const ordersEl = document.getElementById('eshopCityDetailsOrders');
-  const revenueEl = document.getElementById('eshopCityDetailsRevenue');
-  const topCityEl = document.getElementById('eshopCityDetailsTopCity');
-  if(ordersEl) ordersEl.textContent = n0(summary.orders);
-  if(revenueEl) revenueEl.textContent = money(summary.gross_value);
-  if(topCityEl) topCityEl.textContent = topCity ? cityTxt(topCity.delivery_city) : '—';
+  const rows = payload?.by_city || [];
+  const totalOrders = rows.reduce((acc, row)=>acc + Number(row?.orders || 0), 0) || Number(summary.orders || 0);
+  const cityCountEl = document.getElementById('eshopCityDetailsCityCount');
+  const topShareEl = document.getElementById('eshopCityDetailsTopShare');
+  const avgOrdersEl = document.getElementById('eshopCityDetailsAvgOrders');
+  if(cityCountEl) cityCountEl.textContent = n0(rows.length);
+  if(topShareEl) topShareEl.textContent = topCity ? share(topCity.orders, totalOrders) : pct(0);
+  if(avgOrdersEl) avgOrdersEl.textContent = rows.length ? n2(totalOrders / rows.length) : n2(0);
   renderRows(
     'eshopCityDetailsBody',
-    (payload?.by_city || []).map((row)=>`
+    rows.map((row)=>`
       <tr>
         <td>${esc(cityTxt(row.delivery_city))}</td>
         <td class="text-end">${n0(row.orders)}</td>
@@ -1242,12 +1224,13 @@ function renderBranchesDetails(payload){
   const summary = payload?.summary || {};
   const rows = payload?.by_branch || [];
   const topBranch = summary?.top_branch || rows[0] || null;
-  const totalEl = document.getElementById('eshopBranchesDetailsTotal');
-  const revenueEl = document.getElementById('eshopBranchesDetailsRevenue');
-  const topEl = document.getElementById('eshopBranchesDetailsTop');
-  if(totalEl) totalEl.textContent = n0(rows.reduce((acc, row)=>acc + Number(row?.orders || 0), 0));
-  if(revenueEl) revenueEl.textContent = money(rows.reduce((acc, row)=>acc + Number(row?.gross_value || 0), 0));
-  if(topEl) topEl.textContent = topBranch ? txt(topBranch.branch_name) : '—';
+  const totalOrders = rows.reduce((acc, row)=>acc + Number(row?.orders || 0), 0);
+  const branchCountEl = document.getElementById('eshopBranchesDetailsBranchCount');
+  const topShareEl = document.getElementById('eshopBranchesDetailsTopShare');
+  const avgOrdersEl = document.getElementById('eshopBranchesDetailsAvgOrders');
+  if(branchCountEl) branchCountEl.textContent = n0(rows.length);
+  if(topShareEl) topShareEl.textContent = topBranch ? share(topBranch.orders, totalOrders) : pct(0);
+  if(avgOrdersEl) avgOrdersEl.textContent = rows.length ? n2(totalOrders / rows.length) : n2(0);
   renderRows(
     'eshopBranchesDetailsBody',
     rows.map((row)=>`
@@ -1622,7 +1605,7 @@ async function loadFilters(){
   const res = await fetch(`/v1/kpi/sales/filter-options?${p.toString()}`);
   if(!res.ok) throw new Error('Αποτυχία φόρτωσης φίλτρων.');
   const payload = await res.json();
-  fillBranchOptions(payload?.branches || []);
+  fillBranchOptions(payload?.branches || [], payload?.labels?.branches || {});
   bindMulti('eshopBranches');
 }
 

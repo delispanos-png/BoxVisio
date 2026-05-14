@@ -2,15 +2,6 @@
 
 {% block content %}
 <style>
-  .suppliers-table-wrap {
-    max-height: min(74vh, 820px);
-    overflow: auto;
-  }
-  #suppliersTable tbody tr { cursor: default; }
-  .suppliers-footer {
-    border-top: 1px solid #e5e7eb;
-    background: #f8fafc;
-  }
   .suppliers-filters {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -88,10 +79,10 @@
         <button type="button" class="btn btn-outline-secondary btn-sm" id="suppliersPageGo">Μετάβαση</button>
       </div>
       <div class="bv-pager-nav" role="group" aria-label="Πλοήγηση σελίδων">
-        <button type="button" class="btn btn-outline-secondary btn-sm" id="suppliersFirstPage" title="Πρώτη σελίδα" aria-label="Πρώτη σελίδα">&laquo;</button>
-        <button type="button" class="btn btn-outline-secondary btn-sm" id="suppliersPrevPage" title="Προηγούμενη σελίδα" aria-label="Προηγούμενη σελίδα">&lsaquo;</button>
-        <button type="button" class="btn btn-outline-secondary btn-sm" id="suppliersNextPage" title="Επόμενη σελίδα" aria-label="Επόμενη σελίδα">&rsaquo;</button>
-        <button type="button" class="btn btn-outline-secondary btn-sm" id="suppliersLastPage" title="Τελευταία σελίδα" aria-label="Τελευταία σελίδα">&raquo;</button>
+        <button type="button" class="bv-page-icon" id="suppliersFirstPage" title="Πρώτη σελίδα" aria-label="Πρώτη σελίδα">&laquo;</button>
+        <button type="button" class="bv-page-icon" id="suppliersPrevPage" title="Προηγούμενη σελίδα" aria-label="Προηγούμενη σελίδα">&lsaquo;</button>
+        <button type="button" class="bv-page-icon" id="suppliersNextPage" title="Επόμενη σελίδα" aria-label="Επόμενη σελίδα">&rsaquo;</button>
+        <button type="button" class="bv-page-icon" id="suppliersLastPage" title="Τελευταία σελίδα" aria-label="Τελευταία σελίδα">&raquo;</button>
       </div>
       <small id="suppliersPageInfo" class="bv-pager-info">1 / 1</small>
     </div>
@@ -200,7 +191,17 @@
       const summary = data.summary || {};
       _suppliersTotal = Number(summary.suppliers || 0);
       renderSuppliersTable(rows);
-      document.getElementById('suppliersSummary').textContent = `Προμηθευτές: ${_suppliersTotal} | Αγορές: ${money(summary.purchases_net || 0)} | Πληρωμές: ${money(summary.payments_total || 0)} | Ανοιχτό Υπόλοιπο: ${money(summary.open_balance || 0)}`;
+      const summaryEl = document.getElementById('suppliersSummary');
+      if(window.bvRenderFooterSummary){
+        window.bvRenderFooterSummary(summaryEl, [
+          { label: 'Προμηθευτές', value: _suppliersTotal.toLocaleString('el-GR') },
+          { label: 'Αγορές', value: money(summary.purchases_net || 0) },
+          { label: 'Πληρωμές', value: money(summary.payments_total || 0) },
+          { label: 'Ανοιχτό υπόλοιπο', value: money(summary.open_balance || 0), tone: 'total' },
+        ]);
+      } else if(summaryEl) {
+        summaryEl.textContent = `Προμηθευτές: ${_suppliersTotal} | Αγορές: ${money(summary.purchases_net || 0)} | Πληρωμές: ${money(summary.payments_total || 0)} | Ανοιχτό Υπόλοιπο: ${money(summary.open_balance || 0)}`;
+      }
       const limit = Number(data.limit || 250);
       const offset = Number(data.offset || 0);
       const from = Math.min(offset + 1, Math.max(offset + rows.length, 0));

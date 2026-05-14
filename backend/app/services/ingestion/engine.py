@@ -33,6 +33,7 @@ from app.models.tenant import (
     FactInventory,
     FactPurchases,
     FactSales,
+    FactSalesDocumentCharge,
     FactSupplierBalance,
     IngestDeadLetter,
     StgCashTransaction,
@@ -376,6 +377,82 @@ def _sanitize_payload_json(payload: dict[str, Any]) -> dict[str, Any]:
     return {str(k): _json_primitive(v) for k, v in payload.items()}
 
 
+def _build_sales_document_charge_facts(fact: dict[str, Any]) -> list[dict[str, Any]]:
+    payload = fact.get('source_payload_json') if isinstance(fact.get('source_payload_json'), dict) else {}
+    document_id = _as_optional_text(fact.get('document_id') or fact.get('document_no') or fact.get('external_id'), 128)
+    doc_date = fact.get('doc_date')
+    if not document_id or doc_date is None:
+        return []
+
+    charge_specs = [
+        ('shipping', 'Έξοδα αποστολής', 'shipping_charge_net_value', 'shipping_charge_vat_value', 'shipping_charge_gross_value'),
+        ('cod', 'Έξοδα αντικαταβολής', 'cod_charge_net_value', 'cod_charge_vat_value', 'cod_charge_gross_value'),
+        ('gift', 'Έξοδα συσκευασίας δώρου', 'gift_charge_net_value', 'gift_charge_vat_value', 'gift_charge_gross_value'),
+        ('other', 'Λοιπά έξοδα', 'other_charge_net_value', 'other_charge_vat_value', 'other_charge_gross_value'),
+    ]
+
+    rows: list[dict[str, Any]] = []
+    total_net = _as_optional_float(payload.get('charge_revenue_net_value') or payload.get('shipping_expense_value'))
+    known_net = 0.0
+    for code, name, net_key, tax_key, gross_key in charge_specs:
+        net = _as_float(payload.get(net_key))
+        tax = _as_float(payload.get(tax_key))
+        gross = _as_float(payload.get(gross_key))
+        if not gross and (net or tax):
+            gross = net + tax
+        known_net += net
+        if abs(net) < 0.005 and abs(tax) < 0.005 and abs(gross) < 0.005:
+            continue
+        rows.append(
+            {
+                'external_id': f'{document_id}:charge:{code}'[:160],
+                'doc_date': doc_date,
+                'branch_ext_id': fact.get('branch_ext_id'),
+                'document_id': document_id,
+                'document_no': fact.get('document_no'),
+                'document_series': fact.get('document_series'),
+                'document_type': fact.get('document_type'),
+                'charge_code': code,
+                'charge_name': name,
+                'amount_net': net,
+                'amount_tax': tax,
+                'amount_gross': gross,
+                'source_connector_id': fact.get('source_connector_id'),
+                'source_payload_json': payload,
+                'updated_at': fact.get('updated_at') or datetime.utcnow(),
+            }
+        )
+
+    if total_net is not None and abs(float(total_net) - known_net) >= 0.005:
+        residual_net = float(total_net) - known_net
+        other_row = next((row for row in rows if row.get('charge_code') == 'other'), None)
+        if other_row is not None:
+            other_row['amount_net'] = float(other_row.get('amount_net') or 0) + residual_net
+            other_row['amount_gross'] = float(other_row.get('amount_gross') or 0) + residual_net
+        else:
+            rows.append(
+                {
+                    'external_id': f'{document_id}:charge:other'[:160],
+                    'doc_date': doc_date,
+                    'branch_ext_id': fact.get('branch_ext_id'),
+                    'document_id': document_id,
+                    'document_no': fact.get('document_no'),
+                    'document_series': fact.get('document_series'),
+                    'document_type': fact.get('document_type'),
+                    'charge_code': 'other',
+                    'charge_name': 'Λοιπά έξοδα',
+                    'amount_net': residual_net,
+                    'amount_tax': 0.0,
+                    'amount_gross': residual_net,
+                    'source_connector_id': fact.get('source_connector_id'),
+                    'source_payload_json': payload,
+                    'updated_at': fact.get('updated_at') or datetime.utcnow(),
+                }
+            )
+
+    return _dedup_facts_by_external_id(rows)
+
+
 def _normalized_text_for_match(raw: Any) -> str:
     return str(raw or '').strip().lower()
 
@@ -528,6 +605,31 @@ def _upsert_sales_stmt(fact: dict):
             'gross_value': ins.excluded.gross_value,
             'cost_amount': ins.excluded.cost_amount,
             'profit_amount': ins.excluded.profit_amount,
+        },
+    )
+
+
+def _upsert_sales_document_charges_stmt(facts: list[dict]):
+    if not facts:
+        return None
+    ins = insert(FactSalesDocumentCharge).values(facts)
+    return ins.on_conflict_do_update(
+        index_elements=['external_id'],
+        set_={
+            'doc_date': ins.excluded.doc_date,
+            'branch_ext_id': ins.excluded.branch_ext_id,
+            'document_id': ins.excluded.document_id,
+            'document_no': ins.excluded.document_no,
+            'document_series': ins.excluded.document_series,
+            'document_type': ins.excluded.document_type,
+            'charge_code': ins.excluded.charge_code,
+            'charge_name': ins.excluded.charge_name,
+            'amount_net': ins.excluded.amount_net,
+            'amount_tax': ins.excluded.amount_tax,
+            'amount_gross': ins.excluded.amount_gross,
+            'source_connector_id': ins.excluded.source_connector_id,
+            'source_payload_json': ins.excluded.source_payload_json,
+            'updated_at': ins.excluded.updated_at,
         },
     )
 
@@ -879,10 +981,16 @@ def _duplicate_protection_settings_from_flags(flags: Any) -> dict[str, Any]:
 
 def _fact_identity_keys(entity: str, fact: dict, *, mode: str = 'natural_key') -> list[tuple[Any, ...]]:
     keys: list[tuple[Any, ...]] = []
-    if entity in {'sales', 'purchases', 'inventory'}:
-        event_id = _identity_value(fact.get('event_id'))
+    if entity in {'sales', 'purchases', 'inventory', 'expenses'}:
+        event_id = _identity_value(fact.get('event_id')) or _identity_value(fact.get('external_id'))
         if event_id:
             keys.append(('event', entity, event_id))
+
+    # Expense documents can contain legitimate repeated lines with the same
+    # category, supplier and amount. SoftOne MTRLINES/external_id is the stable
+    # line identity, so natural-key collapse would incorrectly drop those lines.
+    if entity == 'expenses' and keys:
+        return keys
 
     if mode == 'event_id':
         return keys
@@ -1227,7 +1335,9 @@ def _build_fact_upsert_stmt(entity: str, facts: list[dict]):
         )
 
     if entity == 'expenses':
-        ins = insert(FactExpense).values(facts)
+        valid_columns = set(FactExpense.__table__.columns.keys())
+        sanitized_facts = [{k: v for k, v in fact.items() if k in valid_columns} for fact in facts]
+        ins = insert(FactExpense).values(sanitized_facts)
         return ins.on_conflict_do_update(
             index_elements=['external_id'],
             set_={
@@ -2189,12 +2299,13 @@ def _build_fact(
         qty_on_hand = _as_float(get('qty_on_hand', context.qty_column, 'qty', 'quantity'))
         qty_reserved = _as_float(get('qty_reserved', 'reserved_qty'))
         cost_amount = _as_float(get('cost_amount', context.cost_column, 'cost_value'))
-        value_amount = _as_float(get('value_amount', context.amount_column, 'net_value', 'net_amount'))
+        explicit_value_amount = get('value_amount', context.amount_column, 'net_value', 'net_amount')
+        value_amount = _as_float(explicit_value_amount)
         financial_value_amount = _as_optional_float(
             get('financial_value_amount', 'value_financial', 'financial_impact_value', 'expense_value')
         )
 
-        if financial_value_amount is not None:
+        if financial_value_amount is not None and explicit_value_amount is None:
             value_amount = financial_value_amount
         if is_financial_doc is False:
             value_amount = 0.0
@@ -2362,6 +2473,8 @@ def _build_fact(
     amount = _as_float(get('amount', context.amount_column, 'net_amount', 'net_value'))
     entry_type = str(get('entry_type', 'cash_subcategory', 'transaction_type') or 'unknown').strip().lower()[:32]
     transaction_type = _as_optional_text(get('transaction_type', 'type', 'entry_type', 'cashflow_type'), 64)
+    if str(transaction_type or '').strip() == '2':
+        transaction_type = '102'
     subcategory_raw = _as_optional_text(get('subcategory', 'cash_subcategory', 'category'), 32)
     subcategory = _normalize_cashflow_subcategory(subcategory_raw or entry_type)
     reference_no = get('reference_no', 'reference', 'document_id')
@@ -2584,6 +2697,7 @@ async def process_job(job: dict[str, Any]) -> dict[str, Any]:
     dim_id_cache: dict[tuple[str, str], Any] = {}
     expense_category_cache: dict[str, Any] = {}
     fact_identity_cache: dict[tuple[Any, ...], str] = {}
+    sales_charge_seen: set[str] = set()
 
     async def _resolve_dim_id_cached(model, external_id: str | None):
         if not external_id:
@@ -2692,6 +2806,13 @@ async def process_job(job: dict[str, Any]) -> dict[str, Any]:
                         fact['item_id'] = await _resolve_dim_id_cached(DimItem, fact.get('item_code'))
                         fact['customer_id'] = await _resolve_dim_id_cached(DimCustomer, fact.get('customer_code'))
                     stmt = _upsert_sales_stmt(fact)
+                    charge_document_id = str(fact.get('document_id') or fact.get('document_no') or '')
+                    if charge_document_id and charge_document_id not in sales_charge_seen:
+                        charge_facts = _build_sales_document_charge_facts(fact)
+                        charge_stmt = _upsert_sales_document_charges_stmt(charge_facts)
+                        if charge_stmt is not None:
+                            await tenant_db.execute(charge_stmt)
+                        sales_charge_seen.add(charge_document_id)
                 elif entity == 'purchases':
                     if not fast_backfill_mode:
                         fact['branch_id'] = await _resolve_dim_id_cached(DimBranch, fact.get('branch_ext_id'))

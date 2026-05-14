@@ -2,35 +2,6 @@
 {% set page_title = tt(request, 'cash_tx_financial_accounts') %}
 
 {% block content %}
-<style>
-  .cash-accounts-table-wrap {
-    max-height: min(74vh, 820px);
-    overflow: auto;
-  }
-  #cashAccountsTable tbody tr {
-    cursor: pointer;
-  }
-  #cashAccountsTable tbody tr.is-active {
-    background: rgba(59, 130, 246, 0.08);
-  }
-  .cash-account-modal {
-    --bv-modal-max-width: 1120px;
-    --bv-modal-max-height: 90vh;
-  }
-  .cash-account-modal .modal-body {
-    overflow-y: auto;
-    overflow-x: hidden;
-  }
-  .cash-account-modal .form-label {
-    font-size: 0.76rem;
-    font-weight: 700;
-    color: #334155;
-  }
-  .cash-account-notes {
-    min-height: 320px;
-    resize: vertical;
-  }
-</style>
 
 <div id="cashAccountsError" class="alert alert-danger d-none"></div>
 
@@ -81,10 +52,10 @@
         <button type="button" class="btn btn-outline-secondary btn-sm" id="cashAccountsPageGo">Μετάβαση</button>
       </div>
       <div class="bv-pager-nav" role="group" aria-label="Πλοήγηση σελίδων">
-        <button type="button" class="btn btn-outline-secondary btn-sm" id="cashAccountsFirstPage" title="Πρώτη σελίδα" aria-label="Πρώτη σελίδα">&laquo;</button>
-        <button type="button" class="btn btn-outline-secondary btn-sm" id="cashAccountsPrevPage" title="Προηγούμενη σελίδα" aria-label="Προηγούμενη σελίδα">&lsaquo;</button>
-        <button type="button" class="btn btn-outline-secondary btn-sm" id="cashAccountsNextPage" title="Επόμενη σελίδα" aria-label="Επόμενη σελίδα">&rsaquo;</button>
-        <button type="button" class="btn btn-outline-secondary btn-sm" id="cashAccountsLastPage" title="Τελευταία σελίδα" aria-label="Τελευταία σελίδα">&raquo;</button>
+        <button type="button" class="bv-page-icon" id="cashAccountsFirstPage" title="Πρώτη σελίδα" aria-label="Πρώτη σελίδα">&laquo;</button>
+        <button type="button" class="bv-page-icon" id="cashAccountsPrevPage" title="Προηγούμενη σελίδα" aria-label="Προηγούμενη σελίδα">&lsaquo;</button>
+        <button type="button" class="bv-page-icon" id="cashAccountsNextPage" title="Επόμενη σελίδα" aria-label="Επόμενη σελίδα">&rsaquo;</button>
+        <button type="button" class="bv-page-icon" id="cashAccountsLastPage" title="Τελευταία σελίδα" aria-label="Τελευταία σελίδα">&raquo;</button>
       </div>
       <small id="cashAccountsPageInfo" class="bv-pager-info">1 / 1</small>
     </div>
@@ -355,7 +326,14 @@ function renderCashAccountsSummary(summary, meta={}){
   const el = document.getElementById('cashAccountsSummary');
   if(!el) return;
   cashAccountsTotal = Math.max(0, Math.round(toNum(summary?.accounts)));
-  el.textContent = `Λογαριασμοί: ${fmt0.format(cashAccountsTotal)} | Σύνολο Υπολοίπου: ${moneySigned(summary?.balance_total)}`;
+  if(window.bvRenderFooterSummary){
+    window.bvRenderFooterSummary(el, [
+      { label: 'Λογαριασμοί', value: fmt0.format(cashAccountsTotal) },
+      { label: 'Σύνολο υπολοίπου', value: moneySigned(summary?.balance_total), tone: 'total' },
+    ]);
+  } else {
+    el.textContent = `Λογαριασμοί: ${fmt0.format(cashAccountsTotal)} | Σύνολο Υπολοίπου: ${moneySigned(summary?.balance_total)}`;
+  }
   const limit = Math.max(1, Number(meta.limit || document.getElementById('cashAccountsPageSize')?.value || 250));
   const offset = Math.max(0, Number(meta.offset || 0));
   const rowsCount = Math.max(0, Number(meta.rowsCount || 0));

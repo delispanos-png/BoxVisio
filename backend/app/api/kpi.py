@@ -1,5 +1,6 @@
 import logging
 import csv
+import html
 from datetime import date, timedelta
 from io import StringIO
 import re
@@ -328,6 +329,34 @@ def _csv_response(filename: str, header: list[str], rows: list[list[str]]) -> St
     )
 
 
+def _excel_html_response(filename: str, title: str, header: list[str], rows: list[list[object]]) -> Response:
+    def cell(value: object, tag: str = 'td') -> str:
+        return f'<{tag}>{html.escape(str(value if value is not None else ""))}</{tag}>'
+
+    table_header = ''.join(cell(col, 'th') for col in header)
+    table_rows = ''.join('<tr>' + ''.join(cell(value) for value in row) + '</tr>' for row in rows)
+    body = f"""<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    table {{ border-collapse: collapse; font-family: Arial, sans-serif; font-size: 12px; }}
+    th {{ background: #eef2ff; font-weight: 700; }}
+    th, td {{ border: 1px solid #cbd5e1; padding: 6px 8px; }}
+  </style>
+</head>
+<body>
+  <h3>{html.escape(title)}</h3>
+  <table><thead><tr>{table_header}</tr></thead><tbody>{table_rows}</tbody></table>
+</body>
+</html>"""
+    return Response(
+        content=body.encode('utf-8-sig'),
+        media_type='application/vnd.ms-excel',
+        headers={'Content-Disposition': f'attachment; filename={filename}'},
+    )
+
+
 def _tenant_cache_key(request: Request) -> str:
     tenant = getattr(request.state, 'tenant', None)
     tenant_id = getattr(tenant, 'id', None)
@@ -393,6 +422,7 @@ class ExecutiveSummaryOut(BaseModel):
     period: dict
     anchors: dict
     cards: dict
+    comparisons: dict | None = None
     branch_breakdown: dict
     trend: dict
     key_alerts: list[dict]
@@ -422,6 +452,7 @@ class StreamSummaryOut(BaseModel):
     by_brand: list[dict] | None = None
     by_commercial_category: list[dict] | None = None
     by_manufacturer: list[dict] | None = None
+    intelligence: dict | None = None
     by_type: list[dict] | None = None
     receivables: dict | None = None
     supplier_balances: dict | None = None
@@ -1856,6 +1887,102 @@ async def export_sellout_report_csv(
             'ΠΡΟΤΑΣΗ',
         ],
         csv_rows,
+    )
+
+
+@router.get('/v1/reports/sellout/actions/export.xls')
+async def export_sellout_action_xls(
+    action: str = Query(default='stockout'),
+    date_from: date = Query(default_factory=_default_from, alias='from'),
+    date_to: date = Query(default_factory=_default_to, alias='to'),
+    branches: list[str] | None = Query(default=None),
+    warehouses: list[str] | None = Query(default=None),
+    brands: list[str] | None = Query(default=None),
+    categories: list[str] | None = Query(default=None),
+    groups: list[str] | None = Query(default=None),
+    suppliers: list[str] | None = Query(default=None),
+    q: str | None = Query(default=None),
+    tenant_db: AsyncSession = Depends(get_tenant_db),
+):
+    action_map = {
+        'reorder': ('reorder_candidates', 'Παραγγελία - διαθεσιμότητα'),
+        'stockout': ('stockout_risk', 'Κίνδυνος έλλειψης'),
+        'lostsales': ('lost_sales', 'Πιθανή χαμένη ζήτηση'),
+        'overstock': ('overstock_risk', 'Υπεραπόθεμα - μετακίνηση'),
+        'margin': ('low_margin', 'Χαμηλό περιθώριο'),
+        'gmroi': ('top_gmroi', 'Top αποδοτικά είδη'),
+        'transfer': ('transfer_candidates', 'Πιθανές ανακατανομές'),
+    }
+    key, title = action_map.get(str(action or '').strip().lower(), action_map['stockout'])
+    branches = _clean_query_list(branches)
+    warehouses = _clean_query_list(warehouses)
+    brands = _clean_query_list(brands)
+    categories = _clean_query_list(categories)
+    groups = _clean_query_list(groups)
+    suppliers = _clean_query_list(suppliers)
+    data = await sellout_report(
+        tenant_db,
+        date_from=date_from,
+        date_to=date_to,
+        branches=branches,
+        warehouses=warehouses,
+        brands=brands,
+        categories=categories,
+        groups=groups,
+        suppliers=suppliers,
+        q=q,
+        limit=20000,
+        offset=0,
+        action_limit=20000,
+    )
+    rows = data.get('actions', {}).get(key, [])
+    excel_rows = [
+        [
+            r.get('item_code', ''),
+            r.get('product', ''),
+            r.get('barcode', ''),
+            r.get('brand', ''),
+            r.get('supplier_name', ''),
+            r.get('category', ''),
+            r.get('sales_value', 0),
+            r.get('sales_qty', 0),
+            r.get('stock_qty', 0),
+            r.get('stock_value', 0),
+            r.get('days_of_supply', ''),
+            r.get('sell_through_pct', 0),
+            r.get('gross_profit_pct', 0),
+            r.get('gross_profit_value', 0),
+            r.get('gmroi', 0),
+            r.get('reorder_qty', 0),
+            r.get('lost_sales_value', 0),
+            r.get('action', ''),
+        ]
+        for r in rows
+    ]
+    return _excel_html_response(
+        f'sellout_{str(action or "analysis").strip().lower()}.xls',
+        f'Sell Out - {title}',
+        [
+            'ΚΩΔΙΚΟΣ ΕΙΔΟΥΣ',
+            'ΠΡΟΙΟΝ',
+            'BARCODE',
+            'BRAND',
+            'ΠΡΟΜΗΘΕΥΤΗΣ',
+            'ΚΑΤΗΓΟΡΙΑ',
+            'ΠΩΛΗΣΕΙΣ ΑΞΙΑ',
+            'ΠΩΛΗΣΕΙΣ ΠΟΣΟΤΗΤΑ',
+            'STOCK',
+            'ΑΞΙΑ STOCK',
+            'ΗΜΕΡΕΣ ΚΑΛΥΨΗΣ',
+            'SELL-THROUGH %',
+            'ΜΙΚΤΟ %',
+            'ΜΙΚΤΟ ΚΕΡΔΟΣ',
+            'GMROI',
+            'ΠΡΟΤ. ΠΑΡΑΓΓΕΛΙΑ',
+            'ΠΙΘΑΝΗ ΧΑΜΕΝΗ ΖΗΤΗΣΗ',
+            'ΠΡΟΤΑΣΗ',
+        ],
+        excel_rows,
     )
 
 

@@ -10,768 +10,68 @@
   <link href="/static/azea/css/main.css" rel="stylesheet">
   <link href="/static/azea/css/themes/all-themes.css" rel="stylesheet">
   <link href="/static/css/boxvisio-ui.css?v=20260417a" rel="stylesheet">
-  <link href="/static/css/bv-unified-ui.css?v=20260308a" rel="stylesheet">
   <link href="/static/css/bv-modal-system.css?v=20260416a" rel="stylesheet">
-  <style>
-    :root {
-      --shell-bg: #f3f5fb;
-      --panel-bg: #ffffff;
-      --panel-border: #e9edf5;
-      --menu-text: #4b5563;
-      --menu-active-bg: #f1efff;
-      --menu-active-text: #6f42c1;
-      --topbar-bg: #ffffff;
-      --topbar-border: #eceff5;
-    }
-    body {
-      background: var(--shell-bg);
-      color: #111827;
-    }
-    .sidebar .admin-image .brand-logo {
-      width: 198px;
-      max-width: 198px;
-      border-radius: 0 !important;
-      float: none !important;
-      display: block;
-      margin: 4px auto;
-    }
-    .azea-shell .left-sidebar,
-    .azea-shell #leftsidebar.sidebar,
-    .azea-shell .main-sidebar {
-      background: var(--panel-bg) !important;
-      border-right: 1px solid var(--panel-border);
-    }
-    .tenant-shell #leftsidebar.sidebar,
-    .tenant-shell .left-sidebar {
-      height: 100vh !important;
-      overflow: hidden !important;
-      display: flex;
-      flex-direction: column;
-    }
-    .tenant-shell .left-sidebar .admin-image {
-      flex: 0 0 auto;
-    }
-    .tenant-shell .left-sidebar .menu.main-sidebar {
-      flex: 1 1 auto;
-      min-height: 0;
-      overflow-y: auto;
-      overflow-x: hidden;
-      -webkit-overflow-scrolling: touch;
-      padding-bottom: 8px;
-    }
-    .tenant-shell .left-sidebar .menu.main-sidebar .list {
-      height: auto !important;
-      max-height: none !important;
-      padding-bottom: 88px !important;
-    }
-    .azea-shell .main-sidebar .list .nav-item .nav-link {
-      border-radius: 10px;
-      margin: 2px 10px;
-      color: var(--menu-text) !important;
-      font-weight: 600;
-    }
-    .azea-shell .main-sidebar .list .nav-item .nav-link .sidemenu-label,
-    .azea-shell .main-sidebar .list .nav-item .nav-link .sidemenu-icon {
-      color: inherit !important;
-    }
-    .azea-shell .main-sidebar .list .nav-item.active .nav-link,
-    .azea-shell .main-sidebar .list .nav-item .nav-link:hover {
-      background: var(--menu-active-bg) !important;
-      color: var(--menu-active-text) !important;
-    }
-    .azea-shell .main-sidebar .list .bv-menu-group .bv-group-toggle {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      width: calc(100% - 20px);
-      text-align: left;
-      border: 0;
-      background: transparent;
-      cursor: pointer;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      font-size: 0.78rem;
-      font-weight: 700;
-    }
-    .azea-shell .main-sidebar .list .bv-menu-group .bv-group-arrow {
-      margin-left: 0;
-      margin-right: 6px;
-      font-size: 12px;
-      transition: transform .2s ease;
-      flex-shrink: 0;
-    }
-    .azea-shell .main-sidebar .list .bv-menu-group.open .bv-group-arrow {
-      transform: rotate(180deg);
-    }
-    .azea-shell .main-sidebar .list .bv-submenu {
-      list-style: none;
-      margin: 4px 8px 8px 26px;
-      padding: 4px 0 4px 10px;
-      border-left: 1px solid #d5ddec;
-    }
-    .azea-shell .main-sidebar .list .bv-submenu li {
-      margin: 2px 0;
-    }
-    .azea-shell .main-sidebar .list .bv-submenu .bv-menu-group {
-      margin: 2px 0;
-    }
-    .azea-shell .main-sidebar .list .bv-submenu .bv-menu-group .bv-group-toggle {
-      width: 100%;
-      margin: 0;
-      min-height: 34px;
-      border-radius: 8px;
-      padding: 6px 10px;
-      font-weight: 600;
-      font-size: 14px;
-      color: var(--menu-text) !important;
-      text-transform: none;
-      letter-spacing: normal;
-    }
-    .azea-shell .main-sidebar .list .bv-submenu .bv-menu-group.active .bv-group-toggle,
-    .azea-shell .main-sidebar .list .bv-submenu .bv-menu-group .bv-group-toggle:hover {
-      background: var(--menu-active-bg) !important;
-      color: var(--menu-active-text) !important;
-    }
-    .azea-shell .main-sidebar .list .bv-submenu .bv-menu-group.active .bv-group-toggle i,
-    .azea-shell .main-sidebar .list .bv-submenu .bv-menu-group .bv-group-toggle:hover i {
-      color: var(--menu-active-text) !important;
-    }
-    .azea-shell .main-sidebar .list .bv-submenu .bv-submenu.bv-submenu--nested {
-      margin: 4px 0 8px 16px;
-      padding: 4px 0 4px 8px;
-    }
-    .azea-shell .main-sidebar .list .bv-submenu-link {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      min-height: 34px;
-      border-radius: 8px;
-      padding: 6px 10px;
-      text-decoration: none;
-      color: var(--menu-text) !important;
-      font-weight: 600;
-      font-size: 14px;
-      margin-right: 2px;
-    }
-    .azea-shell .main-sidebar .list .bv-submenu-link i {
-      font-size: 12px;
-      color: #64748b;
-      line-height: 1;
-    }
-    .azea-shell .main-sidebar .list .bv-submenu-link:hover,
-    .azea-shell .main-sidebar .list .bv-submenu li.is-active .bv-submenu-link {
-      background: var(--menu-active-bg) !important;
-      color: var(--menu-active-text) !important;
-    }
-    .azea-shell .main-sidebar .list .bv-submenu li.is-active .bv-submenu-link i {
-      color: var(--menu-active-text);
-    }
-    .tenant-shell.admin-sidebar-collapsed .main-sidebar .list .bv-menu-group .bv-group-arrow,
-    .tenant-shell.admin-sidebar-collapsed .main-sidebar .list .bv-menu-group .bv-submenu {
-      display: none !important;
-    }
-    .menu-head {
-      padding: 14px 18px 6px;
-      font-size: 11px;
-      letter-spacing: .8px;
-      color: #98a1b2;
-      font-weight: 700;
-      text-transform: uppercase;
-    }
-    .content.home {
-      padding-top: 0;
-      background: var(--shell-bg);
-      min-height: 100vh;
-    }
-    .topbar {
-      background: var(--topbar-bg);
-      border: 1px solid var(--topbar-border);
-      border-radius: 0;
-      min-height: 70px;
-    }
-    .topbar .search-wrap {
-      max-width: 420px;
-      width: 100%;
-      position: relative;
-    }
-    .topbar .search-wrap i {
-      position: absolute;
-      left: 12px;
-      top: 10px;
-      color: #94a3b8;
-      font-size: 16px;
-    }
-    .topbar .search-wrap input {
-      width: 100%;
-      border: 1px solid #e5e7eb;
-      border-radius: 8px;
-      height: 40px;
-      padding: 0 12px 0 36px;
-      background: #f8fafc;
-    }
-    .topbar .icon-btn {
-      width: 38px;
-      height: 38px;
-      border: 1px solid #e5e7eb;
-      border-radius: 8px;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      color: #475569;
-      background: #fff;
-    }
-    .topbar .sync-chip {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      min-height: 38px;
-      padding: 0 12px;
-      border: 1px solid #e5e7eb;
-      border-radius: 10px;
-      background: #fff;
-      color: #475569;
-      line-height: 1.1;
-    }
-    .topbar .sync-chip i {
-      color: #16a34a;
-      font-size: 15px;
-    }
-    .topbar .sync-chip-label {
-      display: block;
-      font-size: 10px;
-      font-weight: 700;
-      letter-spacing: .04em;
-      text-transform: uppercase;
-      color: #94a3b8;
-    }
-    .topbar .sync-chip-value {
-      display: block;
-      font-size: 12px;
-      font-weight: 700;
-      color: #111827;
-      white-space: nowrap;
-    }
-    @media (max-width: 1199.98px) {
-      .topbar .sync-chip {
-        display: none;
-      }
-    }
-    .dashboard-shell {
-      padding: 22px;
-    }
-    .tenant-shell #leftsidebar.sidebar,
-    .tenant-shell .left-sidebar,
-    .tenant-shell .content.home {
-      transition: all .24s ease;
-    }
-    .tenant-shell.admin-sidebar-collapsed #leftsidebar.sidebar,
-    .tenant-shell.admin-sidebar-collapsed .left-sidebar {
-      transform: none !important;
-      width: 74px !important;
-      min-width: 74px !important;
-      max-width: 74px !important;
-      overflow-x: hidden;
-    }
-    body.tenant-shell.admin-sidebar-collapsed .content.home {
-      margin-left: 74px !important;
-    }
-    .tenant-shell.admin-sidebar-collapsed .sidebar .admin-image {
-      padding: 8px 6px;
-      min-height: 66px;
-    }
-    .tenant-mini-expand {
-      display: none;
-      width: 42px;
-      height: 42px;
-      border: 1px solid #e2e8f0;
-      border-radius: 10px;
-      background: #ffffff;
-      color: #475569;
-      align-items: center;
-      justify-content: center;
-      margin: 6px auto 8px;
-      cursor: pointer;
-    }
-    .tenant-shell.admin-sidebar-collapsed .tenant-mini-expand {
-      display: inline-flex;
-    }
-    body[data-theme='dark'] .tenant-mini-expand {
-      background: #0f172a;
-      border-color: #334155;
-      color: #cbd5e1;
-    }
-    .tenant-shell.admin-sidebar-collapsed .sidebar .admin-image .brand-logo {
-      width: 42px !important;
-      max-width: 42px !important;
-      height: 42px;
-      object-fit: cover;
-      object-position: left center;
-      border-radius: 10px !important;
-      display: block;
-      margin: 0 auto;
-    }
-    .tenant-shell.admin-sidebar-collapsed .menu-head,
-    .tenant-shell.admin-sidebar-collapsed .main-sidebar .list .nav-item .nav-link .sidemenu-label {
-      display: none !important;
-    }
-    .tenant-shell.admin-sidebar-collapsed .main-sidebar .list .nav-item .nav-link {
-      margin: 4px 8px !important;
-      min-height: 42px;
-      justify-content: center !important;
-      align-items: center !important;
-      padding: 10px 8px !important;
-    }
-    .tenant-shell.admin-sidebar-collapsed .main-sidebar .list .nav-item .nav-link .sidemenu-icon {
-      margin: 0 !important;
-      font-size: 19px;
-      line-height: 1;
-    }
-    body.bv-fullscreen-mode #leftsidebar.sidebar,
-    body.bv-fullscreen-mode .left-sidebar,
-    body.bv-fullscreen-mode .main-sidebar {
-      display: none !important;
-      visibility: hidden !important;
-      width: 0 !important;
-      min-width: 0 !important;
-      max-width: 0 !important;
-    }
-    body.bv-fullscreen-mode .sidebar-overlay,
-    body.bv-fullscreen-mode .overlay {
-      display: none !important;
-    }
-    body.bv-fullscreen-mode section.content.home {
-      margin-left: 0 !important;
-      width: 100% !important;
-      left: 0 !important;
-    }
-    body.bv-fullscreen-mode .dashboard-shell {
-      padding-left: 18px;
-      padding-right: 18px;
-    }
-    .filter-card,
-    .content-card {
-      border: 1px solid var(--panel-border);
-      border-radius: 12px;
-      background: var(--panel-bg);
-    }
-    .filter-card .card-header,
-    .content-card .card-header {
-      background: transparent;
-      border-bottom: 1px solid var(--panel-border);
-    }
-    .sidebar-foot {
-      flex: 0 0 auto;
-      border-top: 1px solid rgba(148,163,184,0.15);
-      padding: 10px 14px;
-      display: flex;
-      align-items: center;
-      gap: 0;
-      overflow: hidden;
-    }
-    .bottom-meta {
-      display: flex;
-      align-items: center;
-      width: 100%;
-      background: rgba(0,0,0,0.06);
-      border-radius: 8px;
-      overflow: hidden;
-    }
-    .bottom-meta-item {
-      display: flex;
-      align-items: center;
-      gap: 5px;
-      padding: 5px 10px;
-      font-size: 10.5px;
-      font-family: "Segoe UI", "Noto Sans", sans-serif;
-      letter-spacing: 0.3px;
-      color: #94a3b8;
-      white-space: nowrap;
-      flex: 1;
-      justify-content: center;
-    }
-    .bottom-meta-item + .bottom-meta-item {
-      border-left: 1px solid rgba(148,163,184,0.2);
-    }
-    .bottom-meta-item svg { opacity: 0.55; flex-shrink: 0; }
-    .bottom-meta-item strong { color: #64748b; font-weight: 600; }
-    /* kept for back-compat */
-    .powered-by-cloudon, .app-version-badge { display: none; }
-    .kpi-card-modern .delta {
-      font-size: 12px;
-      font-weight: 600;
-      letter-spacing: .2px;
-    }
-    .bv-kpi-box .kpi-icon,
-    .bv-stat-strip .kpi-icon,
-    .bv-metric-card .mc-icon {
-      cursor: pointer;
-    }
-    /* ── Global metric card ── */
-    .bv-metric-card {
-      background: #fff;
-      border-radius: 12px;
-      border: 1px solid #e2e8f0;
-      border-left: 4px solid var(--mc-color, #6366f1);
-      padding: 14px 14px 12px;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      text-align: center;
-      min-height: 112px;
-      position: relative;
-      overflow: hidden;
-      box-shadow: 0 1px 3px rgba(15,23,42,.05), 0 3px 8px rgba(15,23,42,.04);
-      transition: transform .15s ease, box-shadow .15s ease;
-    }
-    .bv-metric-card:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 4px 14px rgba(15,23,42,.10);
-    }
-    .bv-metric-card .mc-icon {
-      position: absolute;
-      right: 12px;
-      top: 12px;
-      width: 32px;
-      height: 32px;
-      border-radius: 8px;
-      background: color-mix(in srgb, var(--mc-color, #6366f1) 12%, transparent);
-      color: var(--mc-color, #6366f1);
-      display: grid;
-      place-items: center;
-      font-size: 15px;
-    }
-    .bv-metric-card .mc-label {
-      font-size: .68rem;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: .07em;
-      color: #94a3b8;
-      margin-bottom: 5px;
-      padding-right: 38px;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      width: 100%;
-    }
-    .bv-metric-card .mc-value {
-      font-size: 1.35rem;
-      font-weight: 800;
-      color: #0f172a;
-      line-height: 1.1;
-      margin-bottom: 5px;
-      word-break: break-all;
-    }
-    .bv-metric-card .mc-meta {
-      font-size: .7rem;
-      color: #64748b;
-      margin-top: auto;
-    }
-    body[data-theme='dark'] .bv-metric-card {
-      background: #1e293b;
-      border-color: #334155;
-    }
-    body[data-theme='dark'] .bv-metric-card .mc-value {
-      color: #f1f5f9;
-    }
-    body[data-theme='dark'] .bv-metric-card .mc-meta {
-      color: #94a3b8;
-    }
-    .bv-kpi-help-title {
-      font-weight: 800;
-      font-size: 18px;
-      margin-bottom: 8px;
-      color: #0f172a;
-    }
-    .bv-kpi-help-block {
-      border: 1px solid #e5e7eb;
-      border-radius: 10px;
-      background: #f8fafc;
-      padding: 10px 12px;
-      margin-bottom: 10px;
-    }
-    .bv-kpi-help-block h6 {
-      margin: 0 0 6px;
-      font-size: 12px;
-      text-transform: uppercase;
-      letter-spacing: .5px;
-      color: #64748b;
-    }
-    .bv-kpi-help-block p {
-      margin: 0;
-      color: #0f172a;
-      font-size: 14px;
-      font-weight: 600;
-    }
-    .insight-chip {
-      border-radius: 999px;
-      background: #eef4ff;
-      color: #0b4cb3;
-      padding: .35rem .65rem;
-      font-size: 12px;
-      display: inline-block;
-      margin-right: .4rem;
-      margin-bottom: .4rem;
-    }
-    .insight-row {
-      border: 1px solid #e6ebf2;
-      border-left-width: 4px;
-      border-radius: 10px;
-      padding: .65rem .8rem;
-      margin-bottom: .55rem;
-      background: #fff;
-    }
-    .insight-low { border-left-color: #0ea5e9; }
-    .insight-medium { border-left-color: #f59e0b; }
-    .insight-high { border-left-color: #ef4444; }
-    .insight-critical { border-left-color: #991b1b; }
-    .insight-head {
-      display: flex;
-      justify-content: space-between;
-      gap: .7rem;
-      font-size: 12px;
-      color: #64748b;
-      margin-bottom: .25rem;
-    }
-    .insight-msg {
-      margin: 0;
-      font-size: 14px;
-      color: #0f172a;
-    }
-    /* Fallback to avoid unreadable KPI cards if cached CSS misses these classes */
-    .bv-kpi-box.bv-kpi-red {
-      background: linear-gradient(130deg, #ef4444, #f87171) !important;
-      color: #ffffff !important;
-    }
-    .bv-kpi-box.bv-kpi-cyan {
-      background: linear-gradient(130deg, #0891b2, #22d3ee) !important;
-      color: #ffffff !important;
-    }
-    body[data-theme='dark'] {
-      --shell-bg: #0b1220;
-      --panel-bg: #111827;
-      --panel-border: #334155;
-      --menu-text: #e2e8f0;
-      --menu-active-bg: #1f2937;
-      --menu-active-text: #ffffff;
-      --topbar-bg: #0f172a;
-      --topbar-border: #334155;
-      background: #0b1220 !important;
-      color: #e5e7eb !important;
-    }
-    body[data-theme='dark'].azea-shell .left-sidebar,
-    body[data-theme='dark'].azea-shell #leftsidebar.sidebar,
-    body[data-theme='dark'].azea-shell .main-sidebar {
-      background: #0f172a !important;
-      border-color: #334155 !important;
-    }
-    body[data-theme='dark'].azea-shell .menu-head {
-      color: #94a3b8 !important;
-    }
-    body[data-theme='dark'].azea-shell .main-sidebar .list .nav-item .nav-link,
-    body[data-theme='dark'].azea-shell .main-sidebar .list .nav-item .nav-link .sidemenu-label,
-    body[data-theme='dark'].azea-shell .main-sidebar .list .nav-item .nav-link .sidemenu-icon {
-      color: #e2e8f0 !important;
-    }
-    body[data-theme='dark'].azea-shell .main-sidebar .list .nav-item.active .nav-link,
-    body[data-theme='dark'].azea-shell .main-sidebar .list .nav-item .nav-link:hover {
-      background: #1e293b !important;
-      color: #ffffff !important;
-    }
-    body[data-theme='dark'] .topbar .search-wrap input {
-      background: #0b1220;
-      border-color: #334155;
-      color: #e5e7eb;
-    }
-    body[data-theme='dark'] .topbar .icon-btn,
-    body[data-theme='dark'] .btn-outline-secondary,
-    body[data-theme='dark'] .btn-outline-danger {
-      border-color: #334155 !important;
-      color: #cbd5e1 !important;
-      background: #111827 !important;
-    }
-    body[data-theme='dark'] .table,
-    body[data-theme='dark'] .table th,
-    body[data-theme='dark'] .table td,
-    body[data-theme='dark'] .text-muted,
-    body[data-theme='dark'] .insight-msg,
-    body[data-theme='dark'] .insight-head {
-      color: #cbd5e1 !important;
-    }
-    body[data-theme='dark'] .form-control,
-    body[data-theme='dark'] .form-select,
-    body[data-theme='dark'] textarea {
-      background: #0f172a !important;
-      color: #e5e7eb !important;
-      border-color: #334155 !important;
-    }
-    body[data-theme='dark'] .bottom-meta {
-      background: rgba(255,255,255,0.05);
-    }
-    body[data-theme='dark'] .bottom-meta-item {
-      color: #64748b;
-    }
-    body[data-theme='dark'] .bottom-meta-item strong {
-      color: #94a3b8;
-    }
-    body[data-theme='dark'] .powered-by-cloudon {
-      background: rgba(15, 23, 42, 0.92);
-      border-color: #334155;
-      color: #cbd5e1;
-    }
-    body[data-theme='dark'] .app-version-badge {
-      background: rgba(15, 23, 42, 0.92);
-      border-color: #334155;
-      color: #cbd5e1;
-    }
-    body[data-theme='dark'] .bv-kpi-help-title {
-      color: #e5e7eb;
-    }
-    body[data-theme='dark'] .bv-kpi-help-block {
-      background: #0f172a;
-      border-color: #334155;
-    }
-    body[data-theme='dark'] .bv-kpi-help-block h6 {
-      color: #94a3b8;
-    }
-    body[data-theme='dark'] .bv-kpi-help-block p {
-      color: #e5e7eb;
-    }
-
-    /* ── Bootstrap modals above sidebar (sidebar z-index: 1088 in main.css) ── */
-    .modal-backdrop { z-index: 1089 !important; }
-    .modal          { z-index: 1090 !important; }
-    /* also ensure sidebar never covers an open modal */
-    body:has(.modal.show) #leftsidebar.sidebar,
-    body:has(.modal.show) .left-sidebar {
-      z-index: 1 !important;
-    }
-
-    /* ── Mobile sidebar overlay ── */
-    .bv-sidebar-backdrop {
-      display: none;
-      position: fixed;
-      inset: 0;
-      background: rgba(15,23,42,.45);
-      z-index: 1039;
-    }
-    .bv-sidebar-backdrop.active { display: block; }
-
-    /* ── Table row-header <th> inside tbody should not be bold ── */
-    .bv-unified-table tbody th,
-    .table tbody th {
-      font-weight: 400;
-    }
-
-    /* ── Page title headings always bold ── */
-    .dashboard-shell .bv-page-head h3 {
-      font-weight: 800 !important;
-      letter-spacing: -0.02em;
-    }
-
-    /* ── Responsive typography: scale root rem down on smaller screens ── */
-    @media (max-width: 991.98px) {
-      html { font-size: 13.5px; }
-    }
-    @media (max-width: 767.98px) {
-      html { font-size: 12.5px; }
-    }
-    @media (max-width: 479.98px) {
-      html { font-size: 12px; }
-    }
-
-    /* Tablet (768–991px): force icon-only collapsed sidebar */
-    @media (max-width: 991.98px) {
-      .tenant-shell #leftsidebar.sidebar,
-      .tenant-shell .left-sidebar {
-        width: 74px !important;
-        min-width: 74px !important;
-        max-width: 74px !important;
-        overflow-x: hidden !important;
-      }
-      body.tenant-shell .content.home {
-        margin-left: 74px !important;
-      }
-      .tenant-shell .menu-head,
-      .tenant-shell .main-sidebar .list .nav-item .nav-link .sidemenu-label {
-        display: none !important;
-      }
-      .tenant-shell .main-sidebar .list .nav-item .nav-link {
-        margin: 4px 8px !important;
-        min-height: 42px;
-        justify-content: center !important;
-        align-items: center !important;
-        padding: 10px 8px !important;
-      }
-      .tenant-shell .main-sidebar .list .nav-item .nav-link .sidemenu-icon {
-        margin: 0 !important;
-        font-size: 19px;
-        line-height: 1;
-      }
-      .tenant-shell .main-sidebar .list .bv-menu-group .bv-group-arrow,
-      .tenant-shell .main-sidebar .list .bv-menu-group .bv-submenu {
-        display: none !important;
-      }
-      .tenant-shell .sidebar .admin-image {
-        padding: 8px 6px;
-        min-height: 66px;
-      }
-      .tenant-shell .sidebar .admin-image .brand-logo {
-        width: 42px !important;
-        max-width: 42px !important;
-        height: 42px;
-        object-fit: cover;
-        object-position: left center;
-        border-radius: 10px !important;
-        display: block;
-        margin: 0 auto;
-      }
-      .tenant-shell .tenant-mini-expand { display: inline-flex !important; }
-    }
-
-    /* Mobile (< 768px): sidebar as slide-in overlay */
-    @media (max-width: 767.98px) {
-      .tenant-shell #leftsidebar.sidebar,
-      .tenant-shell .left-sidebar {
-        position: fixed !important;
-        top: 0;
-        left: 0;
-        height: 100vh !important;
-        z-index: 1040;
-        transform: translateX(-100%) !important;
-        width: 260px !important;
-        min-width: 260px !important;
-        max-width: 260px !important;
-        overflow-x: hidden !important;
-        transition: transform .24s ease !important;
-      }
-      .tenant-shell.bv-mobile-sidebar-open #leftsidebar.sidebar,
-      .tenant-shell.bv-mobile-sidebar-open .left-sidebar {
-        transform: translateX(0) !important;
-      }
-      body.tenant-shell .content.home {
-        margin-left: 0 !important;
-      }
-      /* restore labels when sidebar is open on mobile */
-      .tenant-shell.bv-mobile-sidebar-open .menu-head { display: block !important; }
-      .tenant-shell.bv-mobile-sidebar-open .main-sidebar .list .nav-item .nav-link .sidemenu-label { display: inline !important; }
-      .tenant-shell.bv-mobile-sidebar-open .main-sidebar .list .nav-item .nav-link {
-        margin: 2px 10px !important;
-        justify-content: flex-start !important;
-        padding: 10px 14px !important;
-      }
-      .tenant-shell.bv-mobile-sidebar-open .main-sidebar .list .nav-item .nav-link .sidemenu-icon {
-        margin-right: 10px !important;
-        font-size: 16px;
-      }
-      .tenant-shell .tenant-mini-expand { display: none !important; }
-      .dashboard-shell { padding: 12px !important; }
-    }
-  </style>
+  <link href="/static/css/bv-unified-ui.css?v=20260514mobile4" rel="stylesheet">
+  <link href="/static/css/tenant-shell.css?v=20260514mobile4" rel="stylesheet">
+  <script src="/static/js/bv-unified-ui.js?v=20260513multi"></script>
 </head>
 <body class="azea-shell tenant-shell" data-theme="{{ request.cookies.get('theme', 'light') }}">
   <div class="overlay"></div>
   <div class="sidebar-overlay" data-toggle="sidebar"></div>
   <div class="bv-sidebar-backdrop" id="bvSidebarBackdrop"></div>
+  <script>
+    (() => {
+      const isMobileMenu = () => window.matchMedia('(max-width: 991.98px)').matches;
+      const setMobileMenu = (open) => {
+        if (!isMobileMenu()) return false;
+        document.body.classList.remove('admin-sidebar-collapsed', 'sidebar-icon-only', 'ls-closed', 'overlay-open');
+        document.body.classList.toggle('bv-mobile-sidebar-open', !!open);
+        document.getElementById('bvSidebarBackdrop')?.classList.toggle('active', !!open);
+        return true;
+      };
+      document.addEventListener('click', (event) => {
+        const profileToggle = event.target.closest?.('[data-profile-toggle]');
+        if (profileToggle) {
+          event.preventDefault();
+          event.stopPropagation();
+          event.stopImmediatePropagation?.();
+          const menu = profileToggle.closest('.bv-profile-menu');
+          const dropdown = menu?.querySelector('[data-profile-dropdown]');
+          if (!dropdown) return;
+          document.querySelectorAll('[data-profile-dropdown]').forEach((node) => {
+            if (node !== dropdown) node.hidden = true;
+          });
+          dropdown.hidden = !dropdown.hidden;
+          return;
+        }
+        if (!event.target.closest?.('.bv-profile-menu')) {
+          document.querySelectorAll('[data-profile-dropdown]').forEach((node) => {
+            node.hidden = true;
+          });
+        }
+        const toggle = event.target.closest?.('#sidebarToggleBtn, #sidebarExpandMiniBtn');
+        if (toggle && isMobileMenu()) {
+          event.preventDefault();
+          event.stopPropagation();
+          event.stopImmediatePropagation?.();
+          setMobileMenu(!document.body.classList.contains('bv-mobile-sidebar-open'));
+          return;
+        }
+        if (event.target.closest?.('#bvSidebarBackdrop')) {
+          event.preventDefault();
+          setMobileMenu(false);
+          return;
+        }
+        if (isMobileMenu() && event.target.closest?.('#leftsidebar a[href]')) {
+          setMobileMenu(false);
+        }
+      }, true);
+      window.addEventListener('resize', () => {
+        if (!isMobileMenu()) setMobileMenu(false);
+        else document.body.classList.remove('admin-sidebar-collapsed', 'sidebar-icon-only', 'ls-closed', 'overlay-open');
+      }, { passive: true });
+    })();
+  </script>
   <section>
     <aside id="leftsidebar" class="sidebar left-sidebar">
       <div class="admin-image"><img class="brand-logo" src="/static/azea/images/boxvisio-logo.svg" alt="BoxVisio logo"></div>
@@ -809,11 +109,11 @@
         {% set _show_operational_stream_group = _menu_stream_sales or _menu_stream_purchases or _menu_stream_inventory or _menu_stream_cash or _menu_stream_expenses or _menu_stream_suppliers or _menu_stream_customers %}
         {% set _show_analytics_group = _menu_analytics_sales or _menu_analytics_purchases or _menu_analytics_inventory or _menu_analytics_cash or _menu_analytics_receivables or _menu_analytics_supplier_targets %}
         {% set _has_multiple_branches = tenant_has_multiple_branches if tenant_has_multiple_branches is defined else true %}
-        {% set _operational_stream_pages = ['sales_documents', 'purchase_documents', 'warehouse_documents', 'operating_expenses', 'suppliers', 'customers'] %}
+        {% set _operational_stream_pages = ['sales_documents', 'purchase_documents', 'warehouse_documents', 'expense_documents', 'operating_expenses', 'suppliers', 'customers'] %}
         {% set _operational_stream_open = active_page in _operational_stream_pages or (active_page == 'cashflow' and _cashflow_is_stream) %}
         {% set _dashboard_pages = ['dashboard', 'finance_dashboard', 'insights'] %}
         {% set _dashboard_open = active_page in _dashboard_pages %}
-        {% set _analytics_open = active_page in ['sales', 'pos', 'eshop_analysis', 'purchases', 'inventory', 'items', 'analytics_receivables_payables', 'supplier_targets', 'exports_sellout'] or (active_page == 'cashflow' and not _cashflow_is_stream) %}
+        {% set _analytics_open = active_page in ['sales', 'pos', 'eshop_analysis', 'purchases', 'inventory', 'items', 'analytics_receivables_payables', 'supplier_targets', 'price_control', 'exports_sellout'] or (active_page == 'cashflow' and not _cashflow_is_stream) %}
         {% set _comparison_pages = ['compare_period', 'compare_branch', 'compare_category'] %}
         {% set _comparison_open = active_page in _comparison_pages %}
         {% set _exports_open = active_page in ['exports_reports', 'exports_csv_excel'] %}
@@ -827,9 +127,9 @@
               data-menu-group-open="{{ '1' if _dashboard_open else '0' }}"
               aria-expanded="{{ 'true' if _dashboard_open else 'false' }}"
             >
-              <i class="fe fe-chevron-down bv-group-arrow"></i>
               <i class="fe fe-home sidemenu-icon"></i>
               <span class="sidemenu-label">{{ tt(request, 'dashboard_section') }}</span>
+              <i class="fe fe-chevron-down bv-group-arrow"></i>
             </button>
             <ul class="bv-submenu" data-menu-group="tenant-dashboard">
               {% if _menu_dashboard_executive %}
@@ -869,9 +169,9 @@
               data-menu-group-open="{{ '1' if _operational_stream_open else '0' }}"
               aria-expanded="{{ 'true' if _operational_stream_open else 'false' }}"
             >
-              <i class="fe fe-chevron-down bv-group-arrow"></i>
               <i class="fe fe-activity sidemenu-icon"></i>
               <span class="sidemenu-label">{{ tt(request, 'operational_streams_menu') }}</span>
+              <i class="fe fe-chevron-down bv-group-arrow"></i>
             </button>
             <ul class="bv-submenu" data-menu-group="operational-streams">
               {% if _menu_stream_sales %}
@@ -921,9 +221,9 @@
                   data-menu-group-open="{{ '1' if active_page == 'cashflow' and _cashflow_is_stream else '0' }}"
                   aria-expanded="{{ 'true' if active_page == 'cashflow' and _cashflow_is_stream else 'false' }}"
                 >
-                  <i class="fe fe-chevron-down bv-group-arrow"></i>
                   <i class="fe fe-credit-card"></i>
                   <span>{{ tt(request, 'cash_transactions_short') }}</span>
+                  <i class="fe fe-chevron-down bv-group-arrow"></i>
                 </button>
                 <ul class="bv-submenu bv-submenu--nested" data-menu-group="operational-cash-transactions">
                   <li class="{% if _cashflow_category == 'customer_collections' %}is-active{% endif %}">
@@ -988,9 +288,9 @@
               data-menu-group-open="{{ '1' if _analytics_open else '0' }}"
               aria-expanded="{{ 'true' if _analytics_open else 'false' }}"
             >
-              <i class="fe fe-chevron-down bv-group-arrow"></i>
               <i class="fe fe-pie-chart sidemenu-icon"></i>
               <span class="sidemenu-label">{{ tt(request, 'analytics_menu') }}</span>
+              <i class="fe fe-chevron-down bv-group-arrow"></i>
             </button>
             <ul class="bv-submenu" data-menu-group="tenant-analytics">
               {% if _menu_analytics_sales %}
@@ -1035,6 +335,9 @@
                 <a class="bv-submenu-link" href="/tenant/supplier-targets"><i class="fe fe-target"></i><span>{{ tt(request, 'supplier_targets') }}</span></a>
               </li>
               {% endif %}
+              <li class="{% if active_page == 'price_control' %}is-active{% endif %}">
+                <a class="bv-submenu-link" href="/tenant/price-control"><i class="fe fe-percent"></i><span>Έλεγχος Τιμών</span></a>
+              </li>
             </ul>
           </li>
           {% endif %}
@@ -1048,9 +351,9 @@
               data-menu-group-open="{{ '1' if _comparison_open else '0' }}"
               aria-expanded="{{ 'true' if _comparison_open else 'false' }}"
             >
-              <i class="fe fe-chevron-down bv-group-arrow"></i>
               <i class="fe fe-repeat sidemenu-icon"></i>
               <span class="sidemenu-label">{{ tt(request, 'comparisons_menu') }}</span>
+              <i class="fe fe-chevron-down bv-group-arrow"></i>
             </button>
             <ul class="bv-submenu" data-menu-group="tenant-comparisons">
               <li class="{% if active_page == 'compare_period' %}is-active{% endif %}">
@@ -1077,9 +380,9 @@
               data-menu-group-open="{{ '1' if _exports_open else '0' }}"
               aria-expanded="{{ 'true' if _exports_open else 'false' }}"
             >
-              <i class="fe fe-chevron-down bv-group-arrow"></i>
               <i class="fe fe-download sidemenu-icon"></i>
               <span class="sidemenu-label">{{ tt(request, 'exports_menu') }}</span>
+              <i class="fe fe-chevron-down bv-group-arrow"></i>
             </button>
             <ul class="bv-submenu" data-menu-group="tenant-exports">
               <li class="{% if active_page == 'exports_reports' %}is-active{% endif %}">
@@ -1163,9 +466,12 @@
       <div class="dashboard-shell">
         <div class="bv-page-head">
           {% set _manual_help_anchor_map = {
+            'dashboard': 'dashboard',
+            'finance_dashboard': 'finance-dashboard',
+            'insights': 'insights',
             'sales_documents': 'sales-documents',
             'purchase_documents': 'purchase-documents',
-            'expense_documents': 'operating-expenses',
+            'expense_documents': 'expense-documents',
             'warehouse_documents': 'warehouse-documents',
             'operating_expenses': 'operating-expenses',
             'cashflow': 'cash-transactions',
@@ -1173,9 +479,19 @@
             'customers': 'customer-balances',
             'supplier_targets': 'supplier-targets',
             'sales': 'sales-analytics',
+            'pos': 'pos',
+            'eshop_analysis': 'eshop-analysis',
+            'exports_sellout': 'sellout',
             'purchases': 'purchases-analytics',
             'inventory': 'inventory-analytics',
-            'items': 'warehouse-items'
+            'items': 'warehouse-items',
+            'analytics_receivables_payables': 'finance-dashboard',
+            'price_control': 'price-control',
+            'compare_period': 'comparisons',
+            'compare_branch': 'comparisons',
+            'compare_category': 'comparisons',
+            'exports_reports': 'exports',
+            'exports_csv_excel': 'exports'
           } %}
           {% set _manual_help_anchor = manual_help_anchor if manual_help_anchor is defined else _manual_help_anchor_map.get(active_page) %}
           <div class="bv-page-title-wrap">
@@ -1193,7 +509,7 @@
             <p class="bv-page-subtitle">Λίστα παραστατικών με ενιαία φίλτρα, αναζήτηση και σελιδοποίηση.</p>
             {% elif active_page in ['suppliers', 'customers'] %}
             <p class="bv-page-subtitle">Υπόλοιπα και ιστορικά στοιχεία με ενιαίο pattern πινάκων.</p>
-            {% elif active_page in ['sales', 'purchases', 'inventory', 'items', 'analytics_receivables_payables', 'supplier_targets', 'exports_sellout', 'pos', 'eshop_analysis'] %}
+            {% elif active_page in ['sales', 'purchases', 'inventory', 'items', 'analytics_receivables_payables', 'supplier_targets', 'price_control', 'exports_sellout', 'pos', 'eshop_analysis'] %}
             <p class="bv-page-subtitle">Αναλυτικά KPIs, τάσεις και breakdowns σε συνεπή διάταξη.</p>
             {% elif active_page in ['compare_period', 'compare_branch', 'compare_category'] %}
             <p class="bv-page-subtitle">Συγκρίσεις περιόδων και διαστάσεων με κοινή παρουσίαση.</p>
@@ -1215,7 +531,7 @@
         </div>
 
         {% set _hide_page_filters = hide_page_filters if hide_page_filters is defined else false %}
-        {% if active_page in ['dashboard', 'finance_dashboard', 'sales', 'pos', 'eshop_analysis', 'sales_documents', 'purchases', 'purchase_documents', 'expense_documents', 'suppliers', 'warehouse_documents', 'operating_expenses', 'inventory', 'items', 'cashflow', 'customers', 'compare_period', 'compare_branch', 'compare_category', 'insights', 'analytics_receivables_payables', 'supplier_targets', 'exports_reports', 'exports_csv_excel', 'exports_sellout'] and not _hide_page_filters %}
+        {% if active_page in ['dashboard', 'finance_dashboard', 'sales', 'pos', 'eshop_analysis', 'sales_documents', 'purchases', 'purchase_documents', 'expense_documents', 'suppliers', 'warehouse_documents', 'operating_expenses', 'inventory', 'items', 'cashflow', 'customers', 'compare_period', 'compare_branch', 'compare_category', 'insights', 'analytics_receivables_payables', 'supplier_targets', 'price_control', 'exports_reports', 'exports_csv_excel', 'exports_sellout'] and not _hide_page_filters %}
         <div class="card filter-card mb-3">
           <div class="card-header d-flex justify-content-between align-items-center">
             <h5 class="mb-0">{{ tt(request, 'filters') }}</h5>
@@ -1238,96 +554,6 @@
         </div>
       </div>
 
-      <style>
-        .bv-date-range-modal .modal-dialog {
-          max-width: 900px;
-        }
-        .bv-date-range-layout {
-          display: grid;
-          grid-template-columns: 180px minmax(0, 1fr);
-          gap: 14px;
-        }
-        .bv-date-presets {
-          display: flex;
-          flex-direction: column;
-          gap: 6px;
-        }
-        .bv-date-presets .btn {
-          justify-content: flex-start;
-          text-align: left;
-        }
-        .bv-date-presets .btn.is-active {
-          background: #0ea5e9;
-          border-color: #0ea5e9;
-          color: #fff;
-        }
-        .bv-date-calendar-head {
-          display: flex;
-          gap: 8px;
-          align-items: center;
-          margin-bottom: 8px;
-        }
-        .bv-date-calendar-head .form-select {
-          min-width: 92px;
-        }
-        .bv-date-calendars {
-          display: grid;
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-          gap: 12px;
-        }
-        .bv-date-calendar {
-          border: 1px solid #e2e8f0;
-          border-radius: 12px;
-          padding: 10px;
-          background: #fff;
-        }
-        .bv-date-weekdays,
-        .bv-date-days {
-          display: grid;
-          grid-template-columns: repeat(7, minmax(0, 1fr));
-          gap: 4px;
-        }
-        .bv-date-weekdays span {
-          font-size: 12px;
-          text-align: center;
-          color: #64748b;
-          font-weight: 700;
-          padding: 4px 0;
-        }
-        .bv-date-day {
-          border: 1px solid transparent;
-          border-radius: 8px;
-          height: 30px;
-          background: transparent;
-          font-size: 13px;
-          color: #0f172a;
-        }
-        .bv-date-day:hover {
-          border-color: #bae6fd;
-          background: #f0f9ff;
-        }
-        .bv-date-day.is-out {
-          color: #94a3b8;
-        }
-        .bv-date-day.is-start,
-        .bv-date-day.is-end {
-          background: #0ea5e9;
-          color: #fff;
-          border-color: #0ea5e9;
-        }
-        .bv-date-day.is-in-range {
-          background: #e0f2fe;
-          border-color: #bae6fd;
-        }
-        @media (max-width: 991.98px) {
-          .bv-date-range-layout {
-            grid-template-columns: 1fr;
-          }
-          .bv-date-calendars {
-            grid-template-columns: 1fr;
-          }
-        }
-      </style>
       <div class="modal fade bv-modal bv-modal--responsive bv-date-range-modal" id="globalDateModal" tabindex="-1" aria-hidden="true" data-bv-modal="true" data-bv-close-on-backdrop="true">
         <div class="modal-dialog modal-dialog-centered">
           <div class="modal-content">
@@ -1429,7 +655,6 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="/static/azea/js/custom.js"></script>
   <script src="/static/azea/js/boxvisio-ui.js"></script>
-  <script src="/static/js/bv-unified-ui.js?v=20260308a"></script>
   <script src="/static/js/bv-modal-system.js?v=20260306c"></script>
   <script src="/static/js/bv-form-wizard.js?v=20260306w"></script>
   <script>
@@ -1957,16 +1182,21 @@
       const sidebarExpandMiniBtn = document.getElementById('sidebarExpandMiniBtn');
       const bvBackdrop = document.getElementById('bvSidebarBackdrop');
       const SIDEBAR_KEY = 'bv_tenant_sidebar_collapsed';
-      function isMobile(){ return window.innerWidth < 768; }
+      function isMobile(){ return window.matchMedia('(max-width: 991.98px)').matches; }
       function closeMobileSidebar(){
         document.body.classList.remove('bv-mobile-sidebar-open');
         if(bvBackdrop) bvBackdrop.classList.remove('active');
       }
       function openMobileSidebar(){
+        document.body.classList.remove('admin-sidebar-collapsed', 'sidebar-icon-only');
         document.body.classList.add('bv-mobile-sidebar-open');
         if(bvBackdrop) bvBackdrop.classList.add('active');
       }
       function applySidebarState(collapsed) {
+        if (isMobile()) {
+          document.body.classList.remove('admin-sidebar-collapsed', 'sidebar-icon-only');
+          return;
+        }
         document.body.classList.toggle('admin-sidebar-collapsed', !!collapsed);
       }
       const savedCollapsed = localStorage.getItem(SIDEBAR_KEY) === '1';
@@ -1994,7 +1224,8 @@
         });
       }
       window.addEventListener('resize', () => {
-        if(!isMobile()) closeMobileSidebar();
+        if(isMobile()) document.body.classList.remove('admin-sidebar-collapsed', 'sidebar-icon-only');
+        else closeMobileSidebar();
       });
       /* close mobile sidebar when any Bootstrap modal opens */
       document.addEventListener('show.bs.modal', () => {
@@ -2568,6 +1799,33 @@
           lastSyncChip.title = `Τελευταίος συγχρονισμός: ${tooltip}`;
         }
       }
+
+      window.bvRenderFooterSummary = function (target, items) {
+        const el = typeof target === 'string' ? document.getElementById(target) : target;
+        if (!el) return;
+        const safeItems = Array.isArray(items) ? items : [];
+        const escapeHtml = (value) => String(value ?? '')
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#39;');
+        el.innerHTML = '<div class="bv-summary-metrics">' + safeItems.map((item) => {
+          const classes = ['bv-summary-pill'];
+          if (item?.tone === 'total') classes.push('bv-summary-pill--total');
+          if (item?.tone === 'negative') classes.push('bv-summary-pill--negative');
+          return `<span class="${classes.join(' ')}"><span class="bv-summary-pill__label">${escapeHtml(item?.label)}</span><span class="bv-summary-pill__value">${escapeHtml(item?.value)}</span></span>`;
+        }).join('') + '</div>';
+      };
+
+      document.addEventListener('keydown', (event) => {
+        const input = event.target?.closest?.('.bv-pager-page-input');
+        if (!input || event.key !== 'Enter') return;
+        const goButton = input.closest('.bv-pager-field--jump')?.querySelector('button');
+        if (!goButton) return;
+        event.preventDefault();
+        goButton.click();
+      });
 
       const observer = new MutationObserver((mutations) => {
         for (const m of mutations) {

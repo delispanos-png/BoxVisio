@@ -1,5 +1,5 @@
 from fastapi import Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 
 from app.api.deps import has_permission
 from app.core.security import expected_audience_for_host, safe_decode
@@ -54,6 +54,8 @@ async def rbac_guard_middleware(request: Request, call_next):
 
     if permission.startswith('admin:'):
         if role != RoleName.cloudon_admin:
+            if request.method.upper() in {'GET', 'HEAD'} and request.url.path.startswith('/admin'):
+                return RedirectResponse(url='/tenant/dashboard', status_code=303)
             return JSONResponse(status_code=403, content={'detail': f'Missing permission: {permission}'})
         return await call_next(request)
 

@@ -33,9 +33,6 @@
 {% endblock %}
 
 {% block content %}
-<style>
-  .fin-loading { opacity: .45; }
-</style>
 <div id="financeError" class="alert alert-danger d-none"></div>
 
 <div class="row g-3 mb-3">
@@ -229,102 +226,18 @@ async function loadBranchOptions(){
     const data = await fetchJson(`/v1/kpi/sales/filter-options?${p.toString()}`);
     const branches = Array.isArray(data?.branches) ? data.branches : [];
     const labels = (data?.labels?.branches && typeof data.labels.branches === 'object') ? data.labels.branches : {};
-    const sel = document.getElementById('financeBranches');
-    const previous = new Set(Array.from(sel?.selectedOptions || []).map(o => o.value));
-    sel.innerHTML = '';
-    branches.forEach((code) => {
-      const opt = document.createElement('option');
-      opt.value = code;
-      opt.textContent = labels[code] ? `${labels[code]}` : code;
-      opt.dataset.label = opt.textContent;
-      if(previous.has(code)) opt.selected = true;
-      sel.appendChild(opt);
-    });
-    syncFinanceMultiUI('financeBranches', '{{ tt(request, "branches") }}');
+    BvMultiSelect.populate('financeBranches', branches, labels, { label: '{{ tt(request, "branches") }}' });
   } catch(_err) {
     // Non-blocking.
   }
 }
 
 function syncFinanceMultiUI(prefix, label, filterText=''){
-  const select=document.getElementById(prefix);
-  const optionsWrap=document.getElementById(`${prefix}Options`);
-  const chips=document.getElementById(`${prefix}Chips`);
-  const toggle=document.getElementById(`${prefix}Toggle`);
-  if(!select || !optionsWrap || !chips || !toggle) return;
-
-  const selected = Array.from(select.options).filter(o=>o.selected).map(o=>o.value);
-  const normalized = (filterText || '').toLowerCase().trim();
-  optionsWrap.innerHTML='';
-
-  Array.from(select.options)
-    .filter(o=>{
-      const display=(o.dataset.label || o.textContent || o.value).toLowerCase();
-      return !normalized || o.value.toLowerCase().includes(normalized) || display.includes(normalized);
-    })
-    .forEach(o=>{
-      const row=document.createElement('label');
-      row.className='bv-multi-opt';
-      const cb=document.createElement('input');
-      cb.type='checkbox';
-      cb.checked=o.selected;
-      cb.addEventListener('change', ()=>{
-        o.selected=cb.checked;
-        syncFinanceMultiUI(prefix, label, document.getElementById(`${prefix}Search`)?.value || '');
-      });
-      const span=document.createElement('span');
-      span.textContent=o.textContent || o.value;
-      row.appendChild(cb);
-      row.appendChild(span);
-      optionsWrap.appendChild(row);
-    });
-
-  if(!optionsWrap.children.length){
-    const empty=document.createElement('div');
-    empty.className='bv-multi-empty';
-    empty.textContent='Δεν υπάρχουν διαθέσιμες επιλογές';
-    optionsWrap.appendChild(empty);
-  }
-
-  chips.innerHTML='';
-  selected.forEach(v=>{
-    const chip=document.createElement('span');
-    chip.className='bv-chip';
-    const opt = Array.from(select.options).find(o=>o.value===v);
-    chip.textContent=(opt && opt.textContent) ? opt.textContent : v;
-    chips.appendChild(chip);
-  });
-  toggle.textContent = selected.length ? `${label} (${selected.length})` : 'Επιλογή';
+  BvMultiSelect.sync(prefix, { label, filterText });
 }
 
 function initFinanceMulti(prefix, label){
-  const toggle=document.getElementById(`${prefix}Toggle`);
-  const menu=document.getElementById(`${prefix}Menu`);
-  const search=document.getElementById(`${prefix}Search`);
-  const btnAll=document.getElementById(`${prefix}All`);
-  const btnClear=document.getElementById(`${prefix}Clear`);
-  const select=document.getElementById(prefix);
-  if(!toggle || !menu || !search || !btnAll || !btnClear || !select || toggle.dataset.bound === '1') return;
-  toggle.dataset.bound='1';
-
-  toggle.addEventListener('click', (e)=>{
-    e.stopPropagation();
-    menu.hidden = !menu.hidden;
-    if(!menu.hidden){ search.focus(); }
-  });
-  document.addEventListener('click', (e)=>{
-    if(!menu.hidden && !menu.contains(e.target) && e.target !== toggle){ menu.hidden = true; }
-  });
-  search.addEventListener('input', ()=> syncFinanceMultiUI(prefix, label, search.value));
-  btnAll.addEventListener('click', ()=>{
-    Array.from(select.options).forEach(o=>{ o.selected = true; });
-    syncFinanceMultiUI(prefix, label, search.value);
-  });
-  btnClear.addEventListener('click', ()=>{
-    Array.from(select.options).forEach(o=>{ o.selected = false; });
-    syncFinanceMultiUI(prefix, label, search.value);
-  });
-  syncFinanceMultiUI(prefix, label, '');
+  BvMultiSelect.bind(prefix, { label });
 }
 
 function renderAging(agingData){

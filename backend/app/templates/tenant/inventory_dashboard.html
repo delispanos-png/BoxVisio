@@ -92,6 +92,322 @@
 {% endblock %}
 
 {% block content %}
+<style>
+  .inventory-value-card {
+    cursor: pointer;
+  }
+  .inventory-value-card:focus {
+    outline: 3px solid rgba(99, 102, 241, .28);
+    outline-offset: 3px;
+  }
+  .inventory-value-summary {
+    align-items: center;
+    background: linear-gradient(135deg, #f0fdf4 0%, #eff6ff 100%);
+    border: 1px solid #dbeafe;
+    border-radius: 10px;
+    display: flex;
+    gap: 14px;
+    margin-bottom: 16px;
+    padding: 14px 16px;
+  }
+  .inventory-value-summary .summary-icon {
+    align-items: center;
+    background: #fff;
+    border-radius: 8px;
+    color: #16a34a;
+    display: flex;
+    flex: 0 0 42px;
+    height: 42px;
+    justify-content: center;
+    width: 42px;
+  }
+  .inventory-value-summary .summary-title {
+    color: #0f172a;
+    font-size: .9rem;
+    font-weight: 800;
+  }
+  .inventory-value-summary .summary-text {
+    color: #475569;
+    font-size: .8rem;
+    font-weight: 650;
+    margin-top: 2px;
+  }
+  .inventory-value-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+  }
+  .inventory-value-tile {
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 14px;
+    background: #fff;
+    min-height: 132px;
+    position: relative;
+  }
+  .inventory-value-tile::before {
+    background: var(--tile-color, #64748b);
+    border-radius: 8px 8px 0 0;
+    content: "";
+    height: 3px;
+    left: -1px;
+    position: absolute;
+    right: -1px;
+    top: -1px;
+  }
+  .inventory-value-tile .iv-label {
+    color: #64748b;
+    font-size: .72rem;
+    font-weight: 800;
+    letter-spacing: .02em;
+    text-transform: uppercase;
+  }
+  .inventory-value-tile .iv-value {
+    color: #0f172a;
+    font-size: 1.15rem;
+    font-weight: 800;
+    margin-top: 8px;
+  }
+  .inventory-value-tile .iv-meta {
+    color: #64748b;
+    font-size: .78rem;
+    font-weight: 700;
+    margin-top: 5px;
+  }
+  .inventory-value-tile .iv-formula {
+    color: #334155;
+    font-size: .76rem;
+    font-weight: 650;
+    line-height: 1.35;
+    margin-top: 10px;
+  }
+  .inventory-value-notes {
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    margin-top: 16px;
+    overflow: hidden;
+  }
+  .inventory-smart-section {
+    margin-top: 18px;
+  }
+  .inventory-smart-title {
+    color: #0f172a;
+    font-size: .95rem;
+    font-weight: 850;
+    margin-bottom: 10px;
+  }
+  .inventory-smart-grid {
+    display: grid;
+    gap: 10px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .inventory-smart-card {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 12px;
+  }
+  .inventory-smart-card .smart-label {
+    color: #64748b;
+    font-size: .68rem;
+    font-weight: 850;
+    letter-spacing: .02em;
+    text-transform: uppercase;
+  }
+  .inventory-smart-card .smart-value {
+    color: #0f172a;
+    font-size: 1rem;
+    font-weight: 850;
+    margin-top: 6px;
+  }
+  .inventory-smart-card .smart-meta {
+    color: #475569;
+    font-size: .74rem;
+    font-weight: 650;
+    line-height: 1.35;
+    margin-top: 5px;
+  }
+  .inventory-value-notes-title {
+    background: #f8fafc;
+    border-bottom: 1px solid #e2e8f0;
+    color: #0f172a;
+    font-size: .86rem;
+    font-weight: 800;
+    padding: 11px 14px;
+  }
+  .inventory-value-note-row {
+    display: grid;
+    gap: 12px;
+    grid-template-columns: 190px 1fr;
+    padding: 11px 14px;
+  }
+  .inventory-value-note-row + .inventory-value-note-row {
+    border-top: 1px solid #edf2f7;
+  }
+  .inventory-value-note-row .note-name {
+    color: #475569;
+    font-size: .78rem;
+    font-weight: 800;
+    text-transform: uppercase;
+  }
+  .inventory-value-note-row .note-text {
+    color: #334155;
+    font-size: .8rem;
+    font-weight: 650;
+  }
+  .inventory-command-center {
+    background: #fff;
+    border: 1px solid #dbe3ef;
+    border-radius: 8px;
+    box-shadow: 0 10px 26px rgba(15, 23, 42, .05);
+    margin-bottom: 16px;
+    overflow: hidden;
+  }
+  .inventory-command-head {
+    align-items: center;
+    border-bottom: 1px solid #e2e8f0;
+    display: flex;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 16px 18px;
+  }
+  .inventory-command-title {
+    color: #0f172a;
+    font-size: 1rem;
+    font-weight: 850;
+  }
+  .inventory-command-subtitle {
+    color: #64748b;
+    font-size: .78rem;
+    font-weight: 650;
+    margin-top: 2px;
+  }
+  .inventory-health-pill {
+    border-radius: 999px;
+    font-size: .72rem;
+    font-weight: 850;
+    padding: 7px 10px;
+    white-space: nowrap;
+  }
+  .inventory-health-pill.good {
+    background: #dcfce7;
+    color: #166534;
+  }
+  .inventory-health-pill.watch {
+    background: #fef3c7;
+    color: #92400e;
+  }
+  .inventory-health-pill.risk {
+    background: #fee2e2;
+    color: #991b1b;
+  }
+  .inventory-command-grid {
+    display: grid;
+    gap: 12px;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    padding: 16px 18px;
+  }
+  .inventory-command-card {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    min-height: 118px;
+    padding: 12px;
+    position: relative;
+  }
+  .inventory-command-card::before {
+    background: var(--cc-color, #64748b);
+    border-radius: 8px 8px 0 0;
+    content: "";
+    height: 3px;
+    left: -1px;
+    position: absolute;
+    right: -1px;
+    top: -1px;
+  }
+  .inventory-command-card .cc-label {
+    color: #64748b;
+    font-size: .68rem;
+    font-weight: 850;
+    letter-spacing: .02em;
+    line-height: 1.25;
+    text-transform: uppercase;
+  }
+  .inventory-command-card .cc-value {
+    color: #0f172a;
+    font-size: 1.05rem;
+    font-weight: 850;
+    margin-top: 7px;
+  }
+  .inventory-command-card .cc-meta {
+    color: #64748b;
+    font-size: .72rem;
+    font-weight: 700;
+    line-height: 1.35;
+    margin-top: 6px;
+  }
+  .inventory-action-row {
+    align-items: center;
+    background: #f8fafc;
+    border-top: 1px solid #e2e8f0;
+    display: flex;
+    gap: 12px;
+    padding: 13px 18px;
+  }
+  .inventory-action-icon {
+    align-items: center;
+    background: #eef2ff;
+    border-radius: 8px;
+    color: #4f46e5;
+    display: flex;
+    flex: 0 0 38px;
+    height: 38px;
+    justify-content: center;
+    width: 38px;
+  }
+  .inventory-action-title {
+    color: #0f172a;
+    font-size: .84rem;
+    font-weight: 850;
+  }
+  .inventory-action-text {
+    color: #475569;
+    font-size: .78rem;
+    font-weight: 650;
+    line-height: 1.35;
+    margin-top: 2px;
+  }
+  @media (max-width: 991.98px) {
+    .inventory-value-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .inventory-smart-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .inventory-command-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+  @media (max-width: 575.98px) {
+    .inventory-value-grid {
+      grid-template-columns: 1fr;
+    }
+    .inventory-smart-grid {
+      grid-template-columns: 1fr;
+    }
+    .inventory-command-head,
+    .inventory-action-row {
+      align-items: flex-start;
+      flex-direction: column;
+    }
+    .inventory-command-grid {
+      grid-template-columns: 1fr;
+    }
+    .inventory-value-note-row {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
 <div class="inventory-page">
   {% if feature_locked %}
   <div class="card border-0 shadow-sm">
@@ -103,15 +419,15 @@
   {% else %}
   <div id="inventoryError" class="alert alert-danger d-none mb-3"></div>
   <div class="row g-3 mb-3">
-    <div class="col-xl-3 col-md-6">
-      <div class="bv-metric-card" style="--mc-color:#3b82f6" data-kpi-what="Η συνολική αποτίμηση του αποθέματος στο snapshot που έχεις επιλέξει." data-kpi-formula="Αξία Αποθέματος = άθροισμα value_amount όλων των ειδών στο snapshot αποθήκης.">
-        <div class="mc-icon"><i class="fe fe-package"></i></div>
-        <div class="mc-label">{{ tt(request, 'stock_value') }}</div>
+    <div class="col-xl-4 col-md-6">
+      <div class="bv-metric-card inventory-value-card" id="inventoryValueCard" role="button" tabindex="0" style="--mc-color:#22c55e" data-kpi-what="Η συνολική αξία κτήσης του αποθέματος στο snapshot που έχεις επιλέξει. Με κλικ ανοίγει ανάλυση χονδρικής, λιανικής και προοπτικού κέρδους." data-kpi-formula="Αξία Κτήσης Αποθήκης = αξία κόστους αποθέματος μετά τις εκπτώσεις και την αποτίμηση.">
+        <div class="mc-icon"><i class="fe fe-tag"></i></div>
+        <div class="mc-label">Αξία κτήσης αποθήκης</div>
         <div class="mc-value" id="kpiStockValue">—</div>
-        <div class="mc-meta">{{ tt(request, 'current_inventory_value') }}</div>
+        <div class="mc-meta">Άνοιγμα ανάλυσης αξίας</div>
       </div>
     </div>
-    <div class="col-xl-3 col-md-6">
+    <div class="col-xl-4 col-md-6">
       <div class="bv-metric-card" style="--mc-color:#8b5cf6" data-kpi-what="Η συνολική διαθέσιμη ποσότητα όλων των ειδών στο snapshot." data-kpi-formula="Ποσότητα σε Απόθεμα = άθροισμα qty_on_hand όλων των ειδών στο snapshot αποθήκης.">
         <div class="mc-icon"><i class="fe fe-layers"></i></div>
         <div class="mc-label">{{ tt(request, 'qty_on_hand') }}</div>
@@ -119,20 +435,167 @@
         <div class="mc-meta">{{ tt(request, 'total_quantity') }}</div>
       </div>
     </div>
-    <div class="col-xl-3 col-md-6">
-      <div class="bv-metric-card" style="--mc-color:#22c55e" data-kpi-what="Το συνολικό λογιστικό κόστος του αποθέματος στο snapshot." data-kpi-formula="Κόστος Αποθέματος = άθροισμα cost_amount όλων των ειδών στο snapshot αποθήκης.">
-        <div class="mc-icon"><i class="fe fe-tag"></i></div>
-        <div class="mc-label">{{ tt(request, 'cost_amount') }}</div>
-        <div class="mc-value" id="kpiCostAmount">—</div>
-        <div class="mc-meta">{{ tt(request, 'total_inventory_cost') }}</div>
-      </div>
-    </div>
-    <div class="col-xl-3 col-md-6">
+    <div class="col-xl-4 col-md-6">
       <div class="bv-metric-card" style="--mc-color:#f97316" data-kpi-what="Η ποσότητα που είναι δεσμευμένη και δεν είναι άμεσα διαθέσιμη." data-kpi-formula="Δεσμευμένη Ποσότητα = άθροισμα qty_reserved όλων των ειδών στο snapshot αποθήκης.">
         <div class="mc-icon"><i class="fe fe-lock"></i></div>
         <div class="mc-label">{{ tt(request, 'reserved_qty') }}</div>
         <div class="mc-value" id="kpiQtyReserved">—</div>
         <div class="mc-meta">{{ tt(request, 'reserved_quantity') }}</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="inventory-command-center">
+    <div class="inventory-command-head">
+      <div>
+        <div class="inventory-command-title">Κέντρο ελέγχου αποθήκης</div>
+        <div class="inventory-command-subtitle">Γρήγορη εικόνα ρευστότητας, ταχύτητας και δεσμευμένου κεφαλαίου.</div>
+      </div>
+      <div class="inventory-health-pill watch" id="invHealthPill">ΑΝΑΜΟΝΗ ΔΕΔΟΜΕΝΩΝ</div>
+    </div>
+    <div class="inventory-command-grid">
+      <div class="inventory-command-card" style="--cc-color:#3b82f6">
+        <div class="cc-label">Κυκλοφοριακή ταχύτητα</div>
+        <div class="cc-value" id="dashInvTurnover">—</div>
+        <div class="cc-meta">Ετησιοποιημένος ρυθμός με πρόσφατο κόστος πωλήσεων.</div>
+      </div>
+      <div class="inventory-command-card" style="--cc-color:#22c55e">
+        <div class="cc-label">Ημέρες κάλυψης</div>
+        <div class="cc-value" id="dashInvCoverage">—</div>
+        <div class="cc-meta">Πόσες ημέρες καλύπτει το απόθεμα με τον τρέχοντα ρυθμό.</div>
+      </div>
+      <div class="inventory-command-card" style="--cc-color:#8b5cf6">
+        <div class="cc-label">GMROI</div>
+        <div class="cc-value" id="dashInvGmroi">—</div>
+        <div class="cc-meta">Μικτό κέρδος ανά ευρώ δεσμευμένο σε απόθεμα.</div>
+      </div>
+      <div class="inventory-command-card" style="--cc-color:#f97316">
+        <div class="cc-label">Sell-through</div>
+        <div class="cc-value" id="dashInvSellThrough">—</div>
+        <div class="cc-meta">Κίνηση τελευταίων ημερών σε σχέση με διαθέσιμο stock.</div>
+      </div>
+      <div class="inventory-command-card" style="--cc-color:#ef4444">
+        <div class="cc-label">Αδρανές κεφάλαιο</div>
+        <div class="cc-value" id="dashInvInactive">—</div>
+        <div class="cc-meta">Αξία αποθέματος χωρίς πρόσφατη πώληση.</div>
+      </div>
+      <div class="inventory-command-card" style="--cc-color:#06b6d4">
+        <div class="cc-label">Stock / πωλήσεις</div>
+        <div class="cc-value" id="dashInvStockSales">—</div>
+        <div class="cc-meta">Πόσες φορές το stock καλύπτει το κόστος πωλήσεων.</div>
+      </div>
+    </div>
+    <div class="inventory-action-row">
+      <div class="inventory-action-icon"><i class="fe fe-zap"></i></div>
+      <div>
+        <div class="inventory-action-title" id="invActionTitle">Ανάγνωση αποθήκης</div>
+        <div class="inventory-action-text" id="invActionText">Τα δεδομένα θα εμφανιστούν με την ολοκλήρωση της φόρτωσης.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal fade inventory-value-modal" id="inventoryValueModal" tabindex="-1" aria-labelledby="inventoryValueModalTitle" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <div>
+            <h5 class="modal-title mb-1" id="inventoryValueModalTitle">Ανάλυση αξίας αποθήκης</h5>
+            <div class="text-muted small" id="inventoryValueModalSubtitle">Snapshot —</div>
+          </div>
+          <button type="button" class="btn btn-outline-primary btn-sm" data-bs-dismiss="modal">
+            <i class="fe fe-x me-1"></i> Κλείσιμο
+          </button>
+        </div>
+        <div class="modal-body">
+          <div class="inventory-value-summary">
+            <div class="summary-icon"><i class="fe fe-trending-up"></i></div>
+            <div>
+              <div class="summary-title">Η πρώτη εικόνα δείχνει αξία κτήσης. Οι υπόλοιπες αξίες δείχνουν δυναμική πώλησης.</div>
+              <div class="summary-text">Η χονδρική και η λιανική δεν αντικαθιστούν την αξία κτήσης, τη συγκρίνουν για να φανεί η προοπτική κέρδους.</div>
+            </div>
+          </div>
+          <div class="inventory-value-grid">
+            <div class="inventory-value-tile" style="--tile-color:#22c55e">
+              <div class="iv-label">Αξία κτήσης</div>
+              <div class="iv-value" id="invAnalysisCost">—</div>
+              <div class="iv-meta">Κόστος αποθέματος μετά εκπτώσεων</div>
+              <div class="iv-formula">Αξία αποθέματος με βάση την αξία κτήσης των ειδών.</div>
+            </div>
+            <div class="inventory-value-tile" style="--tile-color:#3b82f6">
+              <div class="iv-label">Αξία χονδρικής</div>
+              <div class="iv-value" id="invAnalysisWholesale">—</div>
+              <div class="iv-meta">Ποσότητα × χονδρική τιμή</div>
+              <div class="iv-formula">Τρέχον απόθεμα επί τιμή χονδρικής είδους.</div>
+            </div>
+            <div class="inventory-value-tile" style="--tile-color:#8b5cf6">
+              <div class="iv-label">Αξία λιανικής</div>
+              <div class="iv-value" id="invAnalysisRetail">—</div>
+              <div class="iv-meta">Ποσότητα × λιανική τιμή</div>
+              <div class="iv-formula">Τρέχον απόθεμα επί τιμή λιανικής είδους.</div>
+            </div>
+            <div class="inventory-value-tile" style="--tile-color:#0ea5e9">
+              <div class="iv-label">Προοπτικό κέρδος χονδρικής</div>
+              <div class="iv-value" id="invAnalysisWholesaleProfit">—</div>
+              <div class="iv-meta" id="invAnalysisWholesaleMargin">—</div>
+              <div class="iv-formula">Αξία χονδρικής μείον αξία κτήσης.</div>
+            </div>
+            <div class="inventory-value-tile" style="--tile-color:#f97316">
+              <div class="iv-label">Προοπτικό κέρδος λιανικής</div>
+              <div class="iv-value" id="invAnalysisRetailProfit">—</div>
+              <div class="iv-meta" id="invAnalysisRetailMargin">—</div>
+              <div class="iv-formula">Αξία λιανικής μείον αξία κτήσης.</div>
+            </div>
+            <div class="inventory-value-tile" style="--tile-color:#64748b">
+              <div class="iv-label">Ποσότητα αποθέματος</div>
+              <div class="iv-value" id="invAnalysisQty">—</div>
+              <div class="iv-meta">Συνολικά τεμάχια snapshot</div>
+              <div class="iv-formula">Άθροισμα διαθέσιμης ποσότητας ειδών.</div>
+            </div>
+          </div>
+          <div class="inventory-smart-section">
+            <div class="inventory-smart-title">Σήματα αποτίμησης</div>
+            <div class="inventory-smart-grid">
+              <div class="inventory-smart-card">
+                <div class="smart-label">Μέσο κόστος / τεμ.</div>
+                <div class="smart-value" id="invSignalAvgCost">—</div>
+                <div class="smart-meta">Πόσο κεφάλαιο δεσμεύει κατά μέσο όρο κάθε διαθέσιμο τεμάχιο.</div>
+              </div>
+              <div class="inventory-smart-card">
+                <div class="smart-label">Premium χονδρικής</div>
+                <div class="smart-value" id="invSignalWholesalePremium">—</div>
+                <div class="smart-meta">Πόσο υψηλότερη είναι η δυνητική χονδρική αξία από την αξία κτήσης.</div>
+              </div>
+              <div class="inventory-smart-card">
+                <div class="smart-label">Premium λιανικής</div>
+                <div class="smart-value" id="invSignalRetailPremium">—</div>
+                <div class="smart-meta">Πόσο υψηλότερη είναι η δυνητική λιανική αξία από την αξία κτήσης.</div>
+              </div>
+            </div>
+          </div>
+          <div class="inventory-value-notes">
+            <div class="inventory-value-notes-title">Πώς υπολογίζεται</div>
+            <div class="inventory-value-note-row">
+              <div class="note-name">Αξία κτήσης</div>
+              <div class="note-text">Άθροισμα αξίας αποθέματος με βάση την αξία κτήσης των ειδών. Αποτυπώνει το κόστος του διαθέσιμου αποθέματος μετά από εκπτώσεις και αποτίμηση.</div>
+            </div>
+            <div class="inventory-value-note-row">
+              <div class="note-name">Χονδρική</div>
+              <div class="note-text">Για κάθε είδος: ποσότητα αποθέματος × χονδρική τιμή είδους. Το σύνολο είναι άθροισμα όλων των ειδών.</div>
+            </div>
+            <div class="inventory-value-note-row">
+              <div class="note-name">Λιανική</div>
+              <div class="note-text">Για κάθε είδος: ποσότητα αποθέματος × λιανική τιμή είδους. Δείχνει δυνητική αξία πώλησης στο ράφι.</div>
+            </div>
+            <div class="inventory-value-note-row">
+              <div class="note-name">Προοπτικό κέρδος</div>
+              <div class="note-text">Διαφορά δυνητικής αξίας πώλησης και αξίας κτήσης. Δεν είναι λογιστικό κέρδος μέχρι να πουληθούν τα είδη, είναι ένδειξη δυναμικής αποθέματος.</div>
+            </div>
+            <div class="inventory-value-note-row">
+              <div class="note-name">Περιθώριο</div>
+              <div class="note-text">Προοπτικό κέρδος / αντίστοιχη αξία πώλησης. Υπολογίζεται ξεχωριστά για χονδρική και λιανική.</div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -163,7 +626,7 @@
         <div class="card-body p-0">
           <div class="table-responsive">
             <table class="table table-sm table-hover mb-0 bv-unified-table" id="tblInvCommercial">
-              <thead><tr><th>{{ tt(request, 'category') }}</th><th class="text-end">{{ tt(request, 'qty') }}</th><th class="text-end">{{ tt(request, 'value') }}</th></tr></thead>
+              <thead><tr><th>{{ tt(request, 'category') }}</th><th class="text-end">{{ tt(request, 'qty') }}</th><th class="text-end">Αξία κτήσης</th></tr></thead>
               <tbody></tbody>
             </table>
           </div>
@@ -176,7 +639,7 @@
         <div class="card-body p-0">
           <div class="table-responsive">
             <table class="table table-sm table-hover mb-0 bv-unified-table" id="tblInvBrand">
-              <thead><tr><th>{{ tt(request, 'brands') }}</th><th class="text-end">{{ tt(request, 'qty') }}</th><th class="text-end">{{ tt(request, 'value') }}</th></tr></thead>
+              <thead><tr><th>{{ tt(request, 'brands') }}</th><th class="text-end">{{ tt(request, 'qty') }}</th><th class="text-end">Αξία κτήσης</th></tr></thead>
               <tbody></tbody>
             </table>
           </div>
@@ -189,7 +652,7 @@
         <div class="card-body p-0">
           <div class="table-responsive">
             <table class="table table-sm table-hover mb-0 bv-unified-table" id="tblInvManufacturer">
-              <thead><tr><th>{{ tt(request, 'manufacturer') }}</th><th class="text-end">{{ tt(request, 'qty') }}</th><th class="text-end">{{ tt(request, 'value') }}</th></tr></thead>
+              <thead><tr><th>{{ tt(request, 'manufacturer') }}</th><th class="text-end">{{ tt(request, 'qty') }}</th><th class="text-end">Αξία κτήσης</th></tr></thead>
               <tbody></tbody>
             </table>
           </div>
@@ -209,6 +672,8 @@
   const form = document.getElementById('inventoryFiltersForm');
   const fmtMoney = (n)=> new Intl.NumberFormat('el-GR',{style:'currency',currency:'EUR'}).format(Number(n||0));
   const fmtNum = (n)=> new Intl.NumberFormat('el-GR',{maximumFractionDigits:0}).format(Math.round(Number(n||0)));
+  const fmtPct = (n)=> `${new Intl.NumberFormat('el-GR',{minimumFractionDigits:2,maximumFractionDigits:2}).format(Number(n||0))}%`;
+  const fmtRatio = (n, suffix='x')=> `${new Intl.NumberFormat('el-GR',{minimumFractionDigits:2,maximumFractionDigits:2}).format(Number(n||0))}${suffix}`;
   const todayLocalIso = ()=>{
     const d = new Date();
     const y = d.getFullYear();
@@ -223,7 +688,7 @@
     {key:'categories', selectId:'invCategories', label:'{{ tt(request, "categories") }}'},
     {key:'groups', selectId:'invGroups', label:'{{ tt(request, "commercial_category") }}'},
   ];
-  let agingChart, manufacturerChart;
+  let agingChart, manufacturerChart, latestSnapshot = {}, latestIntelligence = {};
   function setError(msg){
     const el = document.getElementById('inventoryError');
     if(!msg){ el.classList.add('d-none'); el.textContent=''; return; }
@@ -248,89 +713,26 @@
     return p;
   }
   function syncInvMultiUI(prefix, label, filterText=''){
-    const select=document.getElementById(prefix);
-    const optionsWrap=document.getElementById(`${prefix}Options`);
-    const chips=document.getElementById(`${prefix}Chips`);
-    const toggle=document.getElementById(`${prefix}Toggle`);
-    if(!select || !optionsWrap || !chips || !toggle) return;
-
-    const selected = Array.from(select.options).filter(o=>o.selected).map(o=>o.value);
-    const normalized = (filterText||'').toLowerCase().trim();
-    optionsWrap.innerHTML='';
-    Array.from(select.options)
-      .filter(o=>!normalized || ((o.dataset.label || o.textContent || o.value).toLowerCase().includes(normalized)))
-      .forEach(o=>{
-        const row=document.createElement('label');
-        row.className='bv-multi-opt';
-        const cb=document.createElement('input');
-        cb.type='checkbox';
-        cb.checked=o.selected;
-        cb.addEventListener('change', ()=>{
-          o.selected=cb.checked;
-          syncInvMultiUI(prefix, label, document.getElementById(`${prefix}Search`)?.value||'');
-        });
-        const span=document.createElement('span');
-        span.textContent=o.dataset.label || o.textContent || o.value;
-        row.appendChild(cb);
-        row.appendChild(span);
-        optionsWrap.appendChild(row);
-      });
-    if(!optionsWrap.children.length){
-      const empty=document.createElement('div');
-      empty.className='bv-multi-empty';
-      empty.textContent='{{ tt(request, "no_options_available") }}';
-      optionsWrap.appendChild(empty);
-    }
-    chips.innerHTML='';
-    selected.forEach(v=>{
-      const chip=document.createElement('span');
-      chip.className='bv-chip';
-      const opt = Array.from(select.options).find(o=>o.value===v);
-      chip.textContent=opt?.dataset.label || opt?.textContent || v;
-      chips.appendChild(chip);
+    BvMultiSelect.sync(prefix, {
+      label,
+      filterText,
+      selectText: '{{ tt(request, "select") }}',
+      emptyText: '{{ tt(request, "no_options_available") }}',
     });
-    toggle.textContent = selected.length ? `${label} (${selected.length})` : '{{ tt(request, "select") }}';
   }
   function initInvMulti(prefix, label){
-    const toggle=document.getElementById(`${prefix}Toggle`);
-    const menu=document.getElementById(`${prefix}Menu`);
-    const search=document.getElementById(`${prefix}Search`);
-    const btnAll=document.getElementById(`${prefix}All`);
-    const btnClear=document.getElementById(`${prefix}Clear`);
-    const select=document.getElementById(prefix);
-    if(!toggle || !menu || !search || !btnAll || !btnClear || !select || toggle.dataset.bound==='1') return;
-    toggle.dataset.bound='1';
-    toggle.addEventListener('click', ()=>{menu.hidden=!menu.hidden;});
-    search.addEventListener('input', ()=>syncInvMultiUI(prefix, label, search.value));
-    btnAll.addEventListener('click', ()=>{
-      Array.from(select.options).forEach(o=>o.selected=true);
-      syncInvMultiUI(prefix, label, search.value);
-    });
-    btnClear.addEventListener('click', ()=>{
-      Array.from(select.options).forEach(o=>o.selected=false);
-      syncInvMultiUI(prefix, label, search.value);
-    });
-    document.addEventListener('click', (e)=>{
-      if(!document.getElementById(`${prefix}Multi`)?.contains(e.target)) menu.hidden=true;
+    BvMultiSelect.bind(prefix, {
+      label,
+      selectText: '{{ tt(request, "select") }}',
+      emptyText: '{{ tt(request, "no_options_available") }}',
     });
   }
   function populateInvSelect(prefix, label, values, labels={}){
-    const select=document.getElementById(prefix);
-    if(!select) return;
-    const prev = new Set(Array.from(select.selectedOptions || []).map(o=>o.value));
-    select.innerHTML='';
-    const ordered = [...(values || [])].sort((a,b)=>
-      String(labels[a] || a).localeCompare(String(labels[b] || b), 'el', { sensitivity:'base' })
-    );
-    ordered.forEach(v=>{
-      const opt=document.createElement('option');
-      opt.value=v;
-      opt.textContent=labels[v] || v;
-      opt.dataset.label = labels[v] || v;
-      if(prev.has(v)) opt.selected=true;
-      select.appendChild(opt);
+    BvMultiSelect.populate(prefix, values, labels, {
+      label,
+      selectText: '{{ tt(request, "select") }}',
+      emptyText: '{{ tt(request, "no_options_available") }}',
     });
-    syncInvMultiUI(prefix, label, document.getElementById(`${prefix}Search`)?.value || '');
   }
   async function loadInvFilterOptions(){
     const p = new URLSearchParams();
@@ -369,7 +771,7 @@
     if(agingChart) agingChart.destroy();
     agingChart = new Chart(document.getElementById('inventoryAgingChart'), {
       type: 'bar',
-      data: { labels, datasets:[{ label:'{{ tt(request, "stock_value") }}', data: values, backgroundColor:['#22c55e','#3b82f6','#f59e0b','#ef4444'] }] },
+      data: { labels, datasets:[{ label:'Αξία κτήσης', data: values, backgroundColor:['#22c55e','#3b82f6','#f59e0b','#ef4444'] }] },
       options: { responsive:true, maintainAspectRatio:false }
     });
   }
@@ -382,6 +784,116 @@
       options: { responsive:true, maintainAspectRatio:false }
     });
   }
+  function setText(id, value){
+    const el = document.getElementById(id);
+    if(el) el.textContent = value;
+  }
+  function marginPct(profit, base){
+    const b = Number(base || 0);
+    return Math.abs(b) > 0.0001 ? (Number(profit || 0) / b * 100) : 0;
+  }
+  function updateInventoryCommandCenter(intel){
+    const data = intel || {};
+    const windowDays = Number(data.window_days || 30);
+    const turnover = Number(data.inventory_turnover_annualized || 0);
+    const coverage = Number(data.days_of_supply || 0);
+    const gmroi = Number(data.gmroi_annualized || 0);
+    const inactivePct = Number(data.inactive_value_pct || 0);
+    const sellThrough = Number(data.sell_through_pct || 0);
+    setText('dashInvTurnover', fmtRatio(turnover, 'x'));
+    setText('dashInvCoverage', `${fmtNum(coverage)} ημέρες`);
+    setText('dashInvGmroi', fmtRatio(gmroi, 'x'));
+    setText('dashInvSellThrough', fmtPct(sellThrough));
+    setText('dashInvInactive', `${fmtMoney(data.inactive_value)} | ${fmtPct(inactivePct)}`);
+    setText('dashInvStockSales', fmtRatio(data.stock_to_sales_ratio, 'x'));
+
+    const pill = document.getElementById('invHealthPill');
+    const title = document.getElementById('invActionTitle');
+    const text = document.getElementById('invActionText');
+    if(!pill || !title || !text) return;
+
+    pill.classList.remove('good', 'watch', 'risk');
+    if(!turnover && !coverage && !gmroi){
+      pill.classList.add('watch');
+      pill.textContent = 'ΑΝΑΜΟΝΗ ΔΕΔΟΜΕΝΩΝ';
+      title.textContent = 'Ανάγνωση αποθήκης';
+      text.textContent = 'Τα δεδομένα θα εμφανιστούν με την ολοκλήρωση της φόρτωσης.';
+      return;
+    }
+    if(inactivePct >= 18 || coverage >= 120 || gmroi < 0.8){
+      pill.classList.add('risk');
+      pill.textContent = 'ΘΕΛΕΙ ΕΝΕΡΓΕΙΑ';
+      title.textContent = 'Προτεραιότητα: αποδέσμευση κεφαλαίου';
+      text.textContent = `Το αδρανές απόθεμα είναι ${fmtPct(inactivePct)} και η κάλυψη ${fmtNum(coverage)} ημέρες. Έλεγξε slow movers, τιμολογιακές κινήσεις και στοχευμένες εκκαθαρίσεις.`;
+    }else if(inactivePct >= 10 || coverage >= 75 || gmroi < 1.5){
+      pill.classList.add('watch');
+      pill.textContent = 'ΠΑΡΑΚΟΛΟΥΘΗΣΗ';
+      title.textContent = 'Ισορροπημένη αλλά θέλει προσοχή';
+      text.textContent = `Με κάλυψη ${fmtNum(coverage)} ημερών και GMROI ${fmtRatio(gmroi, 'x')}, η αποθήκη κινείται αλλά χρειάζεται έλεγχο στις κατηγορίες που δεσμεύουν κεφάλαιο.`;
+    }else{
+      pill.classList.add('good');
+      pill.textContent = 'ΥΓΙΗΣ ΡΟΗ';
+      title.textContent = 'Καλή εικόνα κυκλοφορίας';
+      text.textContent = `Η αποθήκη έχει γρήγορη ροή ${fmtRatio(turnover, 'x')} και περιορισμένο αδρανές κεφάλαιο ${fmtPct(inactivePct)} στο παράθυρο ${windowDays} ημερών.`;
+    }
+  }
+  function updateInventorySmartKpis(intel){
+    const data = intel || {};
+    const windowDays = Number(data.window_days || 30);
+    setText('invSmartTurnover', fmtRatio(data.inventory_turnover_annualized, 'x'));
+    setText('invSmartCoverageDays', `${fmtNum(data.days_of_supply)} ημέρες`);
+    setText('invSmartSellThrough', fmtPct(data.sell_through_pct));
+    setText('invSmartGmroi', fmtRatio(data.gmroi_annualized, 'x'));
+    setText('invSmartInactive', `${fmtMoney(data.inactive_value)} | ${fmtPct(data.inactive_value_pct)}`);
+    setText('invSmartStockSales', fmtRatio(data.stock_to_sales_ratio, 'x'));
+    document.querySelectorAll('.inventory-smart-card .smart-meta').forEach((el)=>{
+      el.textContent = el.textContent.replace('30 ημερών', `${windowDays} ημερών`).replace('30ημ.', `${windowDays}ημ.`);
+    });
+    updateInventoryCommandCenter(data);
+  }
+  function updateInventoryValueAnalysis(snap, intel){
+    const acquisition = Number(snap.cost_amount || 0);
+    const wholesale = Number(snap.value_amount || 0);
+    const retail = Number(snap.retail_value_amount || 0);
+    const wholesaleProfit = wholesale - acquisition;
+    const retailProfit = retail - acquisition;
+    setText('inventoryValueModalSubtitle', `Snapshot ${snap.snapshot_date || '—'}`);
+    setText('invAnalysisCost', fmtMoney(acquisition));
+    setText('invAnalysisWholesale', fmtMoney(wholesale));
+    setText('invAnalysisRetail', fmtMoney(retail));
+    setText('invAnalysisWholesaleProfit', fmtMoney(wholesaleProfit));
+    setText('invAnalysisWholesaleMargin', `Περιθώριο ${fmtPct(marginPct(wholesaleProfit, wholesale))}`);
+    setText('invAnalysisRetailProfit', fmtMoney(retailProfit));
+    setText('invAnalysisRetailMargin', `Περιθώριο ${fmtPct(marginPct(retailProfit, retail))}`);
+    setText('invAnalysisQty', fmtNum(snap.qty_on_hand));
+    const qty = Number(snap.qty_on_hand || 0);
+    const avgCost = qty ? acquisition / qty : 0;
+    const wholesalePremium = acquisition ? ((wholesale - acquisition) / acquisition * 100) : 0;
+    const retailPremium = acquisition ? ((retail - acquisition) / acquisition * 100) : 0;
+    setText('invSignalAvgCost', fmtMoney(avgCost));
+    setText('invSignalWholesalePremium', fmtPct(wholesalePremium));
+    setText('invSignalRetailPremium', fmtPct(retailPremium));
+    updateInventorySmartKpis(intel || {});
+  }
+  let inventoryValueModalInstance = null;
+  function getInventoryValueModal(){
+    const el = document.getElementById('inventoryValueModal');
+    if(!el) return null;
+    if(inventoryValueModalInstance) return inventoryValueModalInstance;
+    inventoryValueModalInstance =
+      window.BVModalSystem?.create?.(el, { closeOnBackdrop: true, keyboard: true, focusTrap: true, restoreFocus: true })
+      || (window.bootstrap?.Modal ? window.bootstrap.Modal.getOrCreateInstance(el, { backdrop: true, keyboard: true, focus: true }) : null);
+    return inventoryValueModalInstance;
+  }
+  function openInventoryValueAnalysis(e){
+    if(e){
+      e.preventDefault();
+      e.stopPropagation();
+      if(typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
+    }
+    updateInventoryValueAnalysis(latestSnapshot || {}, latestIntelligence || {});
+    getInventoryValueModal()?.show?.(document.getElementById('inventoryValueCard'));
+  }
   async function load(){
     setError('');
     try{
@@ -392,10 +904,12 @@
       const byBrand = Array.isArray(payload?.by_brand) ? payload.by_brand : [];
       const byCommercial = Array.isArray(payload?.by_commercial_category) ? payload.by_commercial_category : [];
       const byManufacturer = Array.isArray(payload?.by_manufacturer) ? payload.by_manufacturer : [];
-      document.getElementById('kpiStockValue').textContent = fmtMoney(snap.value_amount);
+      latestSnapshot = snap;
+      latestIntelligence = payload?.intelligence || {};
+      document.getElementById('kpiStockValue').textContent = fmtMoney(snap.cost_amount);
       document.getElementById('kpiQtyOnHand').textContent = fmtNum(snap.qty_on_hand);
-      document.getElementById('kpiCostAmount').textContent = fmtMoney(snap.cost_amount);
       document.getElementById('kpiQtyReserved').textContent = fmtNum(snap.qty_reserved);
+      updateInventoryValueAnalysis(snap, latestIntelligence);
       drawAging(aging || {});
       tableFill('#tblInvBrand', byBrand || [], 'brand');
       tableFill('#tblInvCommercial', byCommercial || [], 'commercial_category');
@@ -411,6 +925,14 @@
     ? window.bvToDmyDate(initialAsOf)
     : initialAsOf;
   invFieldDefs.forEach((f)=>initInvMulti(f.selectId, f.label));
+  document.addEventListener('click', (e)=>{
+    if(e.target.closest('#inventoryValueCard')) openInventoryValueAnalysis(e);
+  }, true);
+  document.getElementById('inventoryValueCard')?.addEventListener('keydown', (e)=>{
+    if(e.key === 'Enter' || e.key === ' '){
+      openInventoryValueAnalysis(e);
+    }
+  });
   asOfEl.addEventListener('change', loadInvFilterOptions);
   form.addEventListener('submit', async (e)=>{
     e.preventDefault();

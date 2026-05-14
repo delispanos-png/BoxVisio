@@ -75,8 +75,8 @@ class Settings(BaseSettings):
     celery_result_backend: str = 'redis://redis:6379/1'
     ingest_job_max_retries: int = 3
     ingest_retry_backoff_seconds: int = 5
-    ingest_job_timeout_seconds: int = 900
-    ingest_drain_max_jobs: int = 100
+    ingest_job_timeout_seconds: int = 300
+    ingest_drain_max_jobs: int = 10
     ingest_stuck_heartbeat_seconds: int = 180
     ingest_backfill_job_timeout_seconds: int = 7200
     ingest_backfill_sales_chunk_days: int = 1
@@ -91,6 +91,7 @@ class Settings(BaseSettings):
     incremental_sync_limit: int = 500
     incremental_sync_max_tenants_per_run: int = 100
     incremental_sync_overlap_minutes: int = 5
+    auto_sync_heavy_stream_min_interval_minutes: int = 1440
     ingest_recovery_enabled: bool = True
     ingest_recovery_on_incremental: bool = False
     ingest_recovery_on_backfill: bool = True
@@ -106,7 +107,11 @@ class Settings(BaseSettings):
     ingest_throttle_jobs_per_window: int = 120
     ingest_throttle_window_seconds: int = 60
     sqlserver_retry_sleep_seconds: int = 2
-    sqlserver_query_timeout_seconds: int = 600
+    sqlserver_query_timeout_seconds: int = 120
+    sqlserver_query_retries: int = 1
+    sqlserver_ingest_job_max_retries: int = 0
+    sqlserver_lock_timeout_ms: int = 15000
+    sqlserver_read_uncommitted: bool = True
     sqlserver_fetch_batch_size: int = 1000
     sqlserver_default_fetch_limit: int = 4000
     sqlserver_incremental_exhaustive_fetch: bool = True

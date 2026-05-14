@@ -76,52 +76,363 @@
 
 {% block content %}
 <style>
-  .purchase-docs-table-wrap {
-    max-height: min(72vh, 780px);
-    overflow: auto;
+  .purchase-control-center {
+    background: #fff;
+    border: 1px solid #dbe3ef;
+    border-radius: 8px;
+    box-shadow: 0 10px 26px rgba(15, 23, 42, .05);
+    margin-bottom: 16px;
+    overflow: hidden;
   }
-  #purchaseDocsTable tbody tr {
-    cursor: pointer;
+  .purchase-control-head {
+    align-items: center;
+    border-bottom: 1px solid #e2e8f0;
+    display: flex;
+    gap: 14px;
+    justify-content: space-between;
+    padding: 16px 18px;
   }
-  #purchaseDocsTable tbody tr.is-active {
-    background: rgba(59, 130, 246, 0.08);
+  .purchase-control-title {
+    color: #0f172a;
+    font-size: 1rem;
+    font-weight: 850;
   }
-  .purchase-doc-modal {
-    --bv-modal-max-width: 1560px;
-    --bv-modal-max-height: 92vh;
+  .purchase-control-subtitle {
+    color: #64748b;
+    font-size: .78rem;
+    font-weight: 650;
+    margin-top: 2px;
   }
-  .purchase-doc-modal .modal-body {
-    overflow-y: auto;
-    overflow-x: hidden;
-  }
-  .purchase-doc-lines-wrap {
-    max-height: min(34vh, 360px);
-    overflow: auto;
-  }
-  .purchase-doc-lines-table {
-    min-width: 1720px;
-    table-layout: fixed;
-  }
-  .purchase-doc-lines-table th,
-  .purchase-doc-lines-table td {
+  .purchase-health-pill {
+    border-radius: 999px;
+    font-size: .72rem;
+    font-weight: 850;
+    padding: 7px 10px;
     white-space: nowrap;
   }
-  .purchase-doc-lines-table .purchase-doc-line-desc {
-    min-width: 420px;
-    width: 420px;
-    white-space: normal;
-    word-break: normal;
-    overflow-wrap: anywhere;
+  .purchase-health-pill.good {
+    background: #dcfce7;
+    color: #166534;
+  }
+  .purchase-health-pill.watch {
+    background: #fef3c7;
+    color: #92400e;
+  }
+  .purchase-health-pill.risk {
+    background: #fee2e2;
+    color: #991b1b;
+  }
+  .purchase-control-grid {
+    display: grid;
+    gap: 12px;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    padding: 16px 18px;
+  }
+  .purchase-control-card {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    min-height: 118px;
+    padding: 12px;
+    position: relative;
+  }
+  .purchase-control-card::before {
+    background: var(--pc-color, #64748b);
+    border-radius: 8px 8px 0 0;
+    content: "";
+    height: 3px;
+    left: -1px;
+    position: absolute;
+    right: -1px;
+    top: -1px;
+  }
+  .purchase-control-card .pc-label {
+    color: #64748b;
+    font-size: .68rem;
+    font-weight: 850;
+    letter-spacing: .02em;
+    line-height: 1.25;
+    text-transform: uppercase;
+  }
+  .purchase-control-card .pc-value {
+    color: #0f172a;
+    font-size: 1.05rem;
+    font-weight: 850;
+    margin-top: 7px;
+  }
+  .purchase-control-card .pc-meta {
+    color: #64748b;
+    font-size: .72rem;
+    font-weight: 700;
+    line-height: 1.35;
+    margin-top: 6px;
+  }
+  .purchase-action-row {
+    align-items: center;
+    background: #f8fafc;
+    border-top: 1px solid #e2e8f0;
+    display: flex;
+    gap: 12px;
+    padding: 13px 18px;
+  }
+  .purchase-action-icon {
+    align-items: center;
+    background: #fff7ed;
+    border-radius: 8px;
+    color: #ea580c;
+    display: flex;
+    flex: 0 0 38px;
+    height: 38px;
+    justify-content: center;
+    width: 38px;
+  }
+  .purchase-action-title {
+    color: #0f172a;
+    font-size: .84rem;
+    font-weight: 850;
+  }
+  .purchase-action-text {
+    color: #475569;
+    font-size: .78rem;
+    font-weight: 650;
+    line-height: 1.35;
+    margin-top: 2px;
+  }
+  .purchase-business-panel {
+    background: #fff;
+    border: 1px solid #dbe3ef;
+    border-radius: 8px;
+    box-shadow: 0 10px 26px rgba(15, 23, 42, .05);
+    margin-bottom: 16px;
+    overflow: hidden;
+  }
+  .purchase-business-head {
+    align-items: center;
+    border-bottom: 1px solid #e2e8f0;
+    display: flex;
+    gap: 12px;
+    justify-content: space-between;
+    padding: 15px 18px;
+  }
+  .purchase-business-title {
+    color: #0f172a;
+    font-size: 1rem;
+    font-weight: 850;
+  }
+  .purchase-business-subtitle {
+    color: #64748b;
+    font-size: .76rem;
+    font-weight: 650;
+    margin-top: 2px;
+  }
+  .purchase-business-grid {
+    display: grid;
+    gap: 12px;
+    grid-template-columns: 1.2fr 1fr 1fr;
+    padding: 16px 18px;
+  }
+  .purchase-signal {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 14px;
+  }
+  .purchase-signal.primary {
+    background: #f0f9ff;
+    border-color: #bae6fd;
+  }
+  .purchase-signal.warning {
+    background: #fff7ed;
+    border-color: #fed7aa;
+  }
+  .purchase-signal.danger {
+    background: #fef2f2;
+    border-color: #fecaca;
+  }
+  .purchase-signal-label {
+    color: #64748b;
+    font-size: .68rem;
+    font-weight: 850;
+    letter-spacing: .02em;
+    text-transform: uppercase;
+  }
+  .purchase-signal-value {
+    color: #0f172a;
+    font-size: 1.2rem;
+    font-weight: 900;
+    margin-top: 6px;
+  }
+  .purchase-signal-text {
+    color: #475569;
+    font-size: .78rem;
+    font-weight: 650;
+    line-height: 1.4;
+    margin-top: 7px;
+  }
+  .purchase-supplier-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 0 18px 16px;
+  }
+  .purchase-supplier-chip {
+    align-items: center;
+    background: #fff;
+    border: 1px solid #dbe3ef;
+    border-radius: 999px;
+    color: #334155;
+    display: inline-flex;
+    font-size: .72rem;
+    font-weight: 800;
+    gap: 7px;
+    max-width: 100%;
+    padding: 7px 10px;
+  }
+  .purchase-supplier-chip strong {
+    color: #0f172a;
+    font-weight: 900;
+  }
+  .purchase-action-list {
+    border-top: 1px solid #e2e8f0;
+    display: grid;
+    gap: 10px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    padding: 14px 18px 16px;
+  }
+  .purchase-next-step {
+    align-items: flex-start;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    display: flex;
+    gap: 10px;
+    min-height: 72px;
+    padding: 11px;
+  }
+  .purchase-next-step i {
+    color: #4f46e5;
+    margin-top: 2px;
+  }
+  .purchase-next-step div {
+    color: #334155;
+    font-size: .76rem;
+    font-weight: 750;
     line-height: 1.35;
   }
-  .purchase-doc-modal .form-label {
-    font-size: 0.76rem;
-    font-weight: 700;
-    color: #334155;
+  @media (max-width: 991.98px) {
+    .purchase-control-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+    .purchase-business-grid,
+    .purchase-action-list {
+      grid-template-columns: 1fr;
+    }
+  }
+  @media (max-width: 575.98px) {
+    .purchase-control-head,
+    .purchase-action-row {
+      align-items: flex-start;
+      flex-direction: column;
+    }
+    .purchase-control-grid {
+      grid-template-columns: 1fr;
+    }
   }
 </style>
 
 <div id="purchaseDocsError" class="alert alert-danger d-none"></div>
+
+<div class="purchase-control-center">
+  <div class="purchase-control-head">
+    <div>
+      <div class="purchase-control-title">Κέντρο ελέγχου αγορών</div>
+      <div class="purchase-control-subtitle">Έλεγχος δαπάνης, προμηθευτών, εκπτώσεων και κινδύνου συγκέντρωσης.</div>
+    </div>
+    <div class="purchase-health-pill watch" id="purchaseHealthPill">ΑΝΑΜΟΝΗ ΔΕΔΟΜΕΝΩΝ</div>
+  </div>
+  <div class="purchase-control-grid">
+    <div class="purchase-control-card" style="--pc-color:#f97316">
+      <div class="pc-label">Δαπάνη περιόδου</div>
+      <div class="pc-value" id="purchaseSpendValue">—</div>
+      <div class="pc-meta">Καθαρή αξία αγορών για το επιλεγμένο διάστημα.</div>
+    </div>
+    <div class="purchase-control-card" style="--pc-color:#3b82f6">
+      <div class="pc-label">Μέσο παραστατικό</div>
+      <div class="pc-value" id="purchaseAvgDocValue">—</div>
+      <div class="pc-meta">Δείχνει ένταση και μέγεθος παραγγελιών.</div>
+    </div>
+    <div class="purchase-control-card" style="--pc-color:#8b5cf6">
+      <div class="pc-label">Ενεργοί προμηθευτές</div>
+      <div class="pc-value" id="purchaseSupplierCount">—</div>
+      <div class="pc-meta">Πόσοι προμηθευτές συμμετέχουν στη δαπάνη.</div>
+    </div>
+    <div class="purchase-control-card" style="--pc-color:#ef4444">
+      <div class="pc-label">Συγκέντρωση #1</div>
+      <div class="pc-value" id="purchaseTopSupplierShare">—</div>
+      <div class="pc-meta" id="purchaseTopSupplierName">Κορυφαίος προμηθευτής.</div>
+    </div>
+    <div class="purchase-control-card" style="--pc-color:#22c55e">
+      <div class="pc-label">Εκπτώσεις αγορών</div>
+      <div class="pc-value" id="purchaseDiscountValue">—</div>
+      <div class="pc-meta">Αξία και ποσοστό εκπτώσεων γραμμών.</div>
+    </div>
+    <div class="purchase-control-card" style="--pc-color:#06b6d4">
+      <div class="pc-label">Ρυθμός αγορών</div>
+      <div class="pc-value" id="purchaseDailySpend">—</div>
+      <div class="pc-meta">Μέση ημερήσια δαπάνη στο διάστημα.</div>
+    </div>
+    <div class="purchase-control-card" style="--pc-color:#64748b">
+      <div class="pc-label">Πιστωτικά / επιστροφές</div>
+      <div class="pc-value" id="purchaseCreditRate">—</div>
+      <div class="pc-meta">Ποσοστό αξίας που γυρίζει πίσω από τη ροή αγορών.</div>
+    </div>
+    <div class="purchase-control-card" style="--pc-color:#14b8a6">
+      <div class="pc-label">Όροι πληρωμής</div>
+      <div class="pc-value" id="purchasePaymentTerms">—</div>
+      <div class="pc-meta">Μέσες ημέρες πίστωσης από τα παραστατικά.</div>
+    </div>
+  </div>
+  <div class="purchase-action-row">
+    <div class="purchase-action-icon"><i class="fe fe-shopping-cart"></i></div>
+    <div>
+      <div class="purchase-action-title" id="purchaseActionTitle">Ανάγνωση αγορών</div>
+      <div class="purchase-action-text" id="purchaseActionText">Τα δεδομένα θα εμφανιστούν με την ολοκλήρωση της φόρτωσης.</div>
+    </div>
+  </div>
+</div>
+
+<div class="purchase-business-panel">
+  <div class="purchase-business-head">
+    <div>
+      <div class="purchase-business-title">Αγοραστική Πυξίδα</div>
+      <div class="purchase-business-subtitle" id="purchaseCompassSubtitle">Συμπέρασμα περιόδου με βάση προμηθευτές, εκπτώσεις και επιστροφές.</div>
+    </div>
+    <div class="purchase-health-pill watch" id="purchaseCompassBadge">ΥΠΟΛΟΓΙΣΜΟΣ</div>
+  </div>
+  <div class="purchase-business-grid">
+    <div class="purchase-signal primary" id="purchaseSignalOpportunity">
+      <div class="purchase-signal-label">Ευκαιρία διαπραγμάτευσης</div>
+      <div class="purchase-signal-value" id="purchaseOpportunityValue">—</div>
+      <div class="purchase-signal-text" id="purchaseOpportunityText">Αναμονή δεδομένων.</div>
+    </div>
+    <div class="purchase-signal" id="purchaseSignalConcentration">
+      <div class="purchase-signal-label">Ρίσκο εξάρτησης</div>
+      <div class="purchase-signal-value" id="purchaseConcentrationValue">—</div>
+      <div class="purchase-signal-text" id="purchaseConcentrationText">Αναμονή δεδομένων.</div>
+    </div>
+    <div class="purchase-signal" id="purchaseSignalLeakage">
+      <div class="purchase-signal-label">Διαρροή από πιστωτικά</div>
+      <div class="purchase-signal-value" id="purchaseLeakageValue">—</div>
+      <div class="purchase-signal-text" id="purchaseLeakageText">Αναμονή δεδομένων.</div>
+    </div>
+  </div>
+  <div class="purchase-supplier-strip" id="purchaseTopSuppliersStrip"></div>
+  <div class="purchase-action-list">
+    <div class="purchase-next-step"><i class="fe fe-target"></i><div id="purchaseStepOne">Φόρτωση προτεινόμενης ενέργειας.</div></div>
+    <div class="purchase-next-step"><i class="fe fe-trending-up"></i><div id="purchaseStepTwo">Φόρτωση προτεινόμενης ενέργειας.</div></div>
+    <div class="purchase-next-step"><i class="fe fe-alert-triangle"></i><div id="purchaseStepThree">Φόρτωση προτεινόμενης ενέργειας.</div></div>
+  </div>
+</div>
 
 <div class="card border-0 shadow-sm mb-3 content-card">
   <div class="card-header d-flex justify-content-between align-items-center gap-2 flex-wrap">
@@ -141,12 +452,15 @@
           <th>Σειρά</th>
           <th>Κωδ. παραστ.</th>
           <th>Προμηθευτής</th>
-          <th class="text-end">Συν.Αξία</th>
+          <th class="text-end">Καθαρή αξία</th>
+          <th class="text-end">Έξοδα</th>
+          <th class="text-end">ΦΠΑ</th>
+          <th class="text-end">Σύνολο</th>
           <th>Αιτιολογία</th>
         </tr>
       </thead>
       <tbody id="purchaseDocsBody">
-        <tr><td colspan="8" class="text-center text-muted py-3">Φόρτωση παραστατικών...</td></tr>
+        <tr><td colspan="11" class="text-center text-muted py-3">Φόρτωση παραστατικών...</td></tr>
       </tbody>
     </table>
   </div>
@@ -171,10 +485,10 @@
         <button type="button" class="btn btn-outline-secondary btn-sm" id="purchaseDocsPageGo">Μετάβαση</button>
       </div>
       <div class="bv-pager-nav" role="group" aria-label="Πλοήγηση σελίδων">
-        <button type="button" class="btn btn-outline-secondary btn-sm" id="purchaseDocsFirstPage" title="Πρώτη σελίδα" aria-label="Πρώτη σελίδα">&laquo;</button>
-        <button type="button" class="btn btn-outline-secondary btn-sm" id="purchaseDocsPrevPage" title="Προηγούμενη σελίδα" aria-label="Προηγούμενη σελίδα">&lsaquo;</button>
-        <button type="button" class="btn btn-outline-secondary btn-sm" id="purchaseDocsNextPage" title="Επόμενη σελίδα" aria-label="Επόμενη σελίδα">&rsaquo;</button>
-        <button type="button" class="btn btn-outline-secondary btn-sm" id="purchaseDocsLastPage" title="Τελευταία σελίδα" aria-label="Τελευταία σελίδα">&raquo;</button>
+        <button type="button" class="bv-page-icon" id="purchaseDocsFirstPage" title="Πρώτη σελίδα" aria-label="Πρώτη σελίδα">&laquo;</button>
+        <button type="button" class="bv-page-icon" id="purchaseDocsPrevPage" title="Προηγούμενη σελίδα" aria-label="Προηγούμενη σελίδα">&lsaquo;</button>
+        <button type="button" class="bv-page-icon" id="purchaseDocsNextPage" title="Επόμενη σελίδα" aria-label="Επόμενη σελίδα">&rsaquo;</button>
+        <button type="button" class="bv-page-icon" id="purchaseDocsLastPage" title="Τελευταία σελίδα" aria-label="Τελευταία σελίδα">&raquo;</button>
       </div>
       <small id="purchaseDocsPageInfo" class="bv-pager-info">1 / 1</small>
     </div>
@@ -383,9 +697,11 @@ const purchaseDocFieldDefs = [
 
 const fmt2 = new Intl.NumberFormat('el-GR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmt0 = new Intl.NumberFormat('el-GR', { maximumFractionDigits: 0 });
+const fmtPct = new Intl.NumberFormat('el-GR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 function toNum(v){const n = Number(v || 0); return Number.isFinite(n) ? n : 0;}
 function money(v){return fmt2.format(toNum(v));}
+function pct(v){return `${fmtPct.format(toNum(v))}%`;}
 
 function toIsoDate(raw){
   const val = String(raw || '').trim();
@@ -437,6 +753,10 @@ function setInputValue(id, v){
 function setTextValue(id, v){
   const el = document.getElementById(id);
   if(el) el.value = String(v ?? '');
+}
+function setNodeText(id, v){
+  const el = document.getElementById(id);
+  if(el) el.textContent = String(v ?? '');
 }
 function setError(msg){
   const el = document.getElementById('purchaseDocsError');
@@ -566,90 +886,28 @@ function purchaseDocumentsParams(){
 }
 
 function syncPurchaseDocsMultiUI(prefix, label, filterText=''){
-  const select = document.getElementById(prefix);
-  const optionsWrap = document.getElementById(`${prefix}Options`);
-  const chips = document.getElementById(`${prefix}Chips`);
-  const toggle = document.getElementById(`${prefix}Toggle`);
-  if(!select || !optionsWrap || !chips || !toggle) return;
-  const selected = Array.from(select.options).filter((o) => o.selected).map((o) => o.value);
-  const normalized = (filterText || '').toLowerCase().trim();
-  optionsWrap.innerHTML = '';
-  Array.from(select.options)
-    .filter((o) => !normalized || ((o.dataset.label || o.textContent || o.value).toLowerCase().includes(normalized)))
-    .forEach((o) => {
-      const row = document.createElement('label');
-      row.className = 'bv-multi-opt';
-      const cb = document.createElement('input');
-      cb.type = 'checkbox';
-      cb.checked = o.selected;
-      cb.addEventListener('change', () => {
-        o.selected = cb.checked;
-        syncPurchaseDocsMultiUI(prefix, label, document.getElementById(`${prefix}Search`)?.value || '');
-      });
-      const span = document.createElement('span');
-      span.textContent = o.dataset.label || o.textContent || o.value;
-      row.appendChild(cb);
-      row.appendChild(span);
-      optionsWrap.appendChild(row);
-    });
-  if(!optionsWrap.children.length){
-    const empty = document.createElement('div');
-    empty.className = 'bv-multi-empty';
-    empty.textContent = '{{ tt(request, "no_options_available") }}';
-    optionsWrap.appendChild(empty);
-  }
-  chips.innerHTML = '';
-  selected.forEach((v) => {
-    const chip = document.createElement('span');
-    chip.className = 'bv-chip';
-    const opt = Array.from(select.options).find((o) => o.value === v);
-    chip.textContent = opt?.dataset.label || opt?.textContent || v;
-    chips.appendChild(chip);
+  BvMultiSelect.sync(prefix, {
+    label,
+    filterText,
+    selectText: '{{ tt(request, "select") }}',
+    emptyText: '{{ tt(request, "no_options_available") }}',
   });
-  toggle.textContent = selected.length ? `${label} (${selected.length})` : '{{ tt(request, "select") }}';
 }
 
 function initPurchaseDocsMulti(prefix, label){
-  const toggle = document.getElementById(`${prefix}Toggle`);
-  const menu = document.getElementById(`${prefix}Menu`);
-  const search = document.getElementById(`${prefix}Search`);
-  const btnAll = document.getElementById(`${prefix}All`);
-  const btnClear = document.getElementById(`${prefix}Clear`);
-  const select = document.getElementById(prefix);
-  if(!toggle || !menu || !search || !btnAll || !btnClear || !select || toggle.dataset.bound === '1') return;
-  toggle.dataset.bound = '1';
-  toggle.addEventListener('click', () => { menu.hidden = !menu.hidden; });
-  search.addEventListener('input', () => syncPurchaseDocsMultiUI(prefix, label, search.value));
-  btnAll.addEventListener('click', () => {
-    Array.from(select.options).forEach((o) => { o.selected = true; });
-    syncPurchaseDocsMultiUI(prefix, label, search.value);
-  });
-  btnClear.addEventListener('click', () => {
-    Array.from(select.options).forEach((o) => { o.selected = false; });
-    syncPurchaseDocsMultiUI(prefix, label, search.value);
-  });
-  document.addEventListener('click', (e) => {
-    if(!document.getElementById(`${prefix}Multi`)?.contains(e.target)) menu.hidden = true;
+  BvMultiSelect.bind(prefix, {
+    label,
+    selectText: '{{ tt(request, "select") }}',
+    emptyText: '{{ tt(request, "no_options_available") }}',
   });
 }
 
 function populatePurchaseDocsSelect(prefix, label, values, labels={}){
-  const select = document.getElementById(prefix);
-  if(!select) return;
-  const prev = new Set(Array.from(select.selectedOptions || []).map((o) => o.value));
-  select.innerHTML = '';
-  const ordered = [...(values || [])].sort((a, b) =>
-    String(labels[a] || a).localeCompare(String(labels[b] || b), 'el', { sensitivity:'base' })
-  );
-  ordered.forEach((v) => {
-    const opt = document.createElement('option');
-    opt.value = v;
-    opt.textContent = labels[v] || v;
-    opt.dataset.label = labels[v] || v;
-    if(prev.has(v)) opt.selected = true;
-    select.appendChild(opt);
+  BvMultiSelect.populate(prefix, values, labels, {
+    label,
+    selectText: '{{ tt(request, "select") }}',
+    emptyText: '{{ tt(request, "no_options_available") }}',
   });
-  syncPurchaseDocsMultiUI(prefix, label, document.getElementById(`${prefix}Search`)?.value || '');
 }
 
 async function loadPurchaseDocsFilterOptions(){
@@ -689,11 +947,15 @@ function renderPurchaseDocumentsTable(rows){
   if(!body) return;
   body.innerHTML = '';
   if(!(rows || []).length){
-    body.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-3">Δεν βρέθηκαν παραστατικά.</td></tr>';
+    body.innerHTML = '<tr><td colspan="11" class="text-center text-muted py-3">Δεν βρέθηκαν παραστατικά.</td></tr>';
     return;
   }
   (rows || []).forEach((r) => {
     const docId = String(r.document_id || '').trim();
+    const docNo = textOrDash(r.document_no);
+    const docCell = docId
+      ? `<button type="button" class="doc-open-btn" data-doc-id="${escapeHtml(docId)}" title="Άνοιγμα παραστατικού ${escapeHtml(docNo)}"><i class="fe fe-external-link"></i><span>${escapeHtml(docNo)}</span></button>`
+      : escapeHtml(docNo);
     const tr = document.createElement('tr');
     tr.dataset.docId = docId;
     tr.tabIndex = 0;
@@ -704,15 +966,22 @@ function renderPurchaseDocumentsTable(rows){
       <td>${escapeHtml(textOrDash(r.branch))}</td>
       <td>${escapeHtml(textOrDash(r.warehouse))}</td>
       <td>${escapeHtml(textOrDash(r.series))}</td>
-      <td>${escapeHtml(textOrDash(r.document_no))}</td>
+      <td>${docCell}</td>
       <td>${escapeHtml(textOrDash(r.supplier))}</td>
       <td class="text-end">${money(r.total_net_value)}</td>
+      <td class="text-end">${money(r.total_expenses_value)}</td>
+      <td class="text-end">${money(r.total_vat_value)}</td>
+      <td class="text-end fw-semibold">${money(r.total_gross_value)}</td>
       <td>${escapeHtml(textOrDash(r.reason, ''))}</td>
     `;
     tr.addEventListener('click', () => {
       purchaseDocActiveId = docId;
       body.querySelectorAll('tr.is-active').forEach((row) => row.classList.remove('is-active'));
       tr.classList.add('is-active');
+    });
+    tr.querySelector('.doc-open-btn')?.addEventListener('click', (event) => {
+      event.stopPropagation();
+      openPurchaseDocument(docId, event.currentTarget);
     });
     tr.addEventListener('dblclick', () => {
       if(docId) openPurchaseDocument(docId, tr);
@@ -743,7 +1012,13 @@ function renderPurchaseDocumentsSummary(summary, meta={}){
   const expenses = Number.isFinite(Number(summary?.expenses_value))
     ? toNum(summary?.expenses_value)
     : (gross - net - vat);
-  el.textContent = `Παραστατικά: ${fmt0.format(Math.round(docs))} | Σύνολο καθαρής αξίας: ${money(net)} | Σύνολο εξόδων: ${money(expenses)} | Σύνολο ΦΠΑ: ${money(vat)} | Σύνολο: ${money(gross)}`;
+  window.bvRenderFooterSummary?.(el, [
+    { label: 'Παραστατικά', value: fmt0.format(Math.round(docs)) },
+    { label: 'Καθαρή αξία', value: money(net) },
+    { label: 'Έξοδα', value: money(expenses), tone: expenses < 0 ? 'negative' : '' },
+    { label: 'ΦΠΑ', value: money(vat) },
+    { label: 'Σύνολο', value: money(gross), tone: 'total' },
+  ]);
 
   const limit = Math.max(1, Number(meta.limit || document.getElementById('purchaseDocsPageSize')?.value || 100));
   const offset = Math.max(0, Number(meta.offset || 0));
@@ -753,6 +1028,170 @@ function renderPurchaseDocumentsSummary(summary, meta={}){
   const rangeEl = document.getElementById('purchaseDocsRangeSummary');
   if(rangeEl) rangeEl.textContent = `Εμφάνιση ${from} έως ${to} από ${purchaseDocsTotal}`;
   updatePurchaseDocsPager(limit);
+}
+function renderPurchaseIntelligence(intel={}){
+  const spend = toNum(intel.spend_value);
+  const avgDoc = toNum(intel.avg_document_value);
+  const supplierCount = Math.round(toNum(intel.supplier_count));
+  const topShare = toNum(intel.top_supplier_share);
+  const topName = textOrDash(intel.top_supplier_name, 'Κορυφαίος προμηθευτής');
+  const discountValue = toNum(intel.discount_value);
+  const discountPct = toNum(intel.discount_pct);
+  const avgDaily = toNum(intel.avg_daily_spend);
+  const creditPct = toNum(intel.credit_pct);
+  const creditValue = toNum(intel.credit_value);
+  const avgPaymentTerms = toNum(intel.avg_payment_terms_days);
+  const paymentCoverage = toNum(intel.payment_terms_coverage_pct);
+  const periodDays = Math.max(1, Math.round(toNum(intel.period_days) || 1));
+
+  setNodeText('purchaseSpendValue', `${money(spend)} €`);
+  setNodeText('purchaseAvgDocValue', `${money(avgDoc)} €`);
+  setNodeText('purchaseSupplierCount', fmt0.format(supplierCount));
+  setNodeText('purchaseTopSupplierShare', pct(topShare));
+  setNodeText('purchaseTopSupplierName', `${topName} | ${money(intel.top_supplier_value)} €`);
+  setNodeText('purchaseDiscountValue', `${money(discountValue)} € | ${pct(discountPct)}`);
+  setNodeText('purchaseDailySpend', `${money(avgDaily)} € / ημέρα`);
+  setNodeText('purchaseCreditRate', `${money(creditValue)} € | ${pct(creditPct)}`);
+  setNodeText('purchasePaymentTerms', avgPaymentTerms ? `${fmt0.format(Math.round(avgPaymentTerms))} ημέρες` : '—');
+  renderPurchaseCompass(intel, {
+    spend,
+    avgDoc,
+    supplierCount,
+    topShare,
+    topName,
+    discountValue,
+    discountPct,
+    avgDaily,
+    creditPct,
+    creditValue,
+    periodDays
+  });
+
+  const pill = document.getElementById('purchaseHealthPill');
+  const title = document.getElementById('purchaseActionTitle');
+  const text = document.getElementById('purchaseActionText');
+  if(!pill || !title || !text) return;
+  pill.classList.remove('good', 'watch', 'risk');
+  if(!spend){
+    pill.classList.add('watch');
+    pill.textContent = 'ΑΝΑΜΟΝΗ ΔΕΔΟΜΕΝΩΝ';
+    title.textContent = 'Ανάγνωση αγορών';
+    text.textContent = 'Τα δεδομένα θα εμφανιστούν με την ολοκλήρωση της φόρτωσης.';
+    return;
+  }
+  if(topShare >= 45 || creditPct >= 12){
+    pill.classList.add('risk');
+    pill.textContent = 'ΘΕΛΕΙ ΕΛΕΓΧΟ';
+    title.textContent = 'Προτεραιότητα: έλεγχος συγκέντρωσης και πιστωτικών';
+    text.textContent = `Ο κορυφαίος προμηθευτής κρατά ${pct(topShare)} της δαπάνης και τα πιστωτικά/επιστροφές είναι ${pct(creditPct)}. Έλεγξε διαπραγμάτευση, εναλλακτικούς προμηθευτές και λόγους επιστροφών.`;
+  }else if(topShare >= 28 || discountPct < 3 || supplierCount <= 3){
+    pill.classList.add('watch');
+    pill.textContent = 'ΠΑΡΑΚΟΛΟΥΘΗΣΗ';
+    title.textContent = 'Καλή βάση, με σημεία βελτίωσης';
+    text.textContent = `Σε ${periodDays} ημέρες η δαπάνη είναι ${money(spend)} € με ${fmt0.format(supplierCount)} προμηθευτές. Παρακολούθησε συγκέντρωση #1 (${pct(topShare)}), εκπτώσεις και όρους πληρωμής${paymentCoverage ? ` (${pct(paymentCoverage)} κάλυψη)` : ''}.`;
+  }else{
+    pill.classList.add('good');
+    pill.textContent = 'ΕΛΕΓΧΟΜΕΝΗ ΡΟΗ';
+    title.textContent = 'Ισορροπημένη εικόνα αγορών';
+    text.textContent = `Η δαπάνη είναι κατανεμημένη σε ${fmt0.format(supplierCount)} προμηθευτές, με κορυφαία συμμετοχή ${pct(topShare)}, εκπτώσεις ${pct(discountPct)} και ελεγχόμενες επιστροφές ${pct(creditPct)}.`;
+  }
+}
+
+function setSignalState(id, state){
+  const el = document.getElementById(id);
+  if(!el) return;
+  el.classList.remove('primary', 'warning', 'danger');
+  if(state) el.classList.add(state);
+}
+
+function renderPurchaseCompass(intel={}, metrics={}){
+  const spend = toNum(metrics.spend);
+  const topShare = toNum(metrics.topShare);
+  const topName = textOrDash(metrics.topName, 'Κορυφαίος προμηθευτής');
+  const discountPct = toNum(metrics.discountPct);
+  const discountValue = toNum(metrics.discountValue);
+  const creditPct = toNum(metrics.creditPct);
+  const creditValue = toNum(metrics.creditValue);
+  const supplierCount = Math.round(toNum(metrics.supplierCount));
+  const avgDoc = toNum(metrics.avgDoc);
+  const avgDaily = toNum(metrics.avgDaily);
+  const topSuppliers = Array.isArray(intel.top_suppliers) ? intel.top_suppliers : [];
+  const badge = document.getElementById('purchaseCompassBadge');
+  if(badge) badge.classList.remove('good', 'watch', 'risk');
+
+  if(!spend){
+    setNodeText('purchaseCompassSubtitle', 'Δεν υπάρχουν ακόμα αρκετά δεδομένα για συμπέρασμα.');
+    setNodeText('purchaseOpportunityValue', '—');
+    setNodeText('purchaseOpportunityText', 'Μόλις φορτώσουν αγορές, εδώ θα εμφανιστεί η προτεραιότητα διαπραγμάτευσης.');
+    setNodeText('purchaseConcentrationValue', '—');
+    setNodeText('purchaseConcentrationText', 'Δεν υπολογίζεται συγκέντρωση χωρίς δαπάνη.');
+    setNodeText('purchaseLeakageValue', '—');
+    setNodeText('purchaseLeakageText', 'Δεν υπάρχουν πιστωτικά/επιστροφές προς αξιολόγηση.');
+    setNodeText('purchaseStepOne', 'Φόρτωσε περίοδο με αγορές για να εμφανιστούν ενέργειες.');
+    setNodeText('purchaseStepTwo', 'Έλεγξε ότι έχουν επιλεγεί σωστά φίλτρα ημερομηνίας.');
+    setNodeText('purchaseStepThree', 'Άνοιξε λεπτομέρειες παραστατικών για ανάλυση ανά προμηθευτή.');
+    const strip = document.getElementById('purchaseTopSuppliersStrip');
+    if(strip) strip.innerHTML = '';
+    if(badge){
+      badge.classList.add('watch');
+      badge.textContent = 'ΧΩΡΙΣ ΔΕΔΟΜΕΝΑ';
+    }
+    return;
+  }
+
+  const concentrationRisk = topShare >= 45 ? 'danger' : (topShare >= 28 ? 'warning' : 'primary');
+  const leakageRisk = creditPct >= 8 ? 'danger' : (creditPct >= 3 ? 'warning' : 'primary');
+  const discountState = discountPct >= 12 ? 'primary' : (discountPct >= 5 ? 'warning' : 'danger');
+  setSignalState('purchaseSignalOpportunity', discountState);
+  setSignalState('purchaseSignalConcentration', concentrationRisk);
+  setSignalState('purchaseSignalLeakage', leakageRisk);
+
+  const opportunityValue = Math.max(0, spend * 0.01);
+  setNodeText('purchaseOpportunityValue', `${money(opportunityValue)} €`);
+  setNodeText(
+    'purchaseOpportunityText',
+    `Κάθε 1 μονάδα επιπλέον έκπτωσης στη δαπάνη της περιόδου αξίζει περίπου ${money(opportunityValue)} €. Τρέχουσες εκπτώσεις: ${money(discountValue)} € (${pct(discountPct)}).`
+  );
+  setNodeText('purchaseConcentrationValue', pct(topShare));
+  setNodeText(
+    'purchaseConcentrationText',
+    `${topName} είναι ο #1 προμηθευτής. ${topShare >= 28 ? 'Ζήτησε εναλλακτική προσφορά ή κλίμακα έκπτωσης για να μειωθεί η εξάρτηση.' : 'Η συγκέντρωση φαίνεται ελεγχόμενη για την περίοδο.'}`
+  );
+  setNodeText('purchaseLeakageValue', `${money(creditValue)} €`);
+  setNodeText(
+    'purchaseLeakageText',
+    creditPct >= 3
+      ? `Τα πιστωτικά/επιστροφές είναι ${pct(creditPct)} της δαπάνης. Άνοιξε τις σειρές/προμηθευτές με επιστροφές για αιτία κόστους.`
+      : `Τα πιστωτικά/επιστροφές είναι χαμηλά (${pct(creditPct)}), χωρίς έντονη ένδειξη διαρροής.`
+  );
+
+  const topThreeShare = topSuppliers.slice(0, 3).reduce((sum, row) => sum + toNum(row.share_pct), 0);
+  setNodeText(
+    'purchaseCompassSubtitle',
+    `Σε ${fmt0.format(supplierCount)} προμηθευτές, οι 3 πρώτοι κρατούν ${pct(topThreeShare)} της δαπάνης. Μέσο παραστατικό ${money(avgDoc)} €, ρυθμός ${money(avgDaily)} €/ημέρα.`
+  );
+  if(badge){
+    const overall = (topShare >= 45 || creditPct >= 8 || discountPct < 5) ? 'risk' : (topShare >= 28 || creditPct >= 3 ? 'watch' : 'good');
+    badge.classList.add(overall);
+    badge.textContent = overall === 'risk' ? 'ΠΡΟΤΕΡΑΙΟΤΗΤΑ' : (overall === 'watch' ? 'ΕΥΚΑΙΡΙΕΣ' : 'ΚΑΛΗ ΡΟΗ');
+  }
+
+  const strip = document.getElementById('purchaseTopSuppliersStrip');
+  if(strip){
+    strip.innerHTML = topSuppliers.slice(0, 6).map((row, idx) => {
+      const supplier = escapeHtml(textOrDash(row.supplier, 'N/A'));
+      return `<span class="purchase-supplier-chip"><strong>#${idx + 1}</strong> ${supplier} · ${pct(row.share_pct)} · ${money(row.spend_value)} €</span>`;
+    }).join('');
+  }
+
+  setNodeText('purchaseStepOne', `Πρώτη κίνηση: διαπραγμάτευση με ${topName} για κλίμακα έκπτωσης ή bonus τζίρου.`);
+  setNodeText('purchaseStepTwo', `Στόχος: +1 μονάδα έκπτωσης αξίζει περίπου ${money(opportunityValue)} € στην επιλεγμένη περίοδο.`);
+  setNodeText(
+    'purchaseStepThree',
+    creditPct >= 3
+      ? `Έλεγχος επιστροφών: βρες ποιοι προμηθευτές/σειρές δημιουργούν τα ${money(creditValue)} € πιστωτικών.`
+      : `Διατήρησε έλεγχο τιμών: σύγκρινε μέσο κόστος ανά προμηθευτή πριν την επόμενη παραγγελία.`
+  );
 }
 function renderPurchaseDocumentLines(lines){
   const linesBody = document.getElementById('purchaseDocLinesBody');
@@ -830,7 +1269,7 @@ async function reloadPurchaseDocuments(e){
   setError(null);
   const body = document.getElementById('purchaseDocsBody');
   if(body){
-    body.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-3">Φόρτωση παραστατικών...</td></tr>';
+    body.innerHTML = '<tr><td colspan="11" class="text-center text-muted py-3">Φόρτωση παραστατικών...</td></tr>';
   }
   try {
     const p = purchaseDocumentsParams();
@@ -843,15 +1282,17 @@ async function reloadPurchaseDocuments(e){
       offset: payload?.offset,
       rowsCount: (payload?.rows || []).length,
     });
+    renderPurchaseIntelligence(payload?.intelligence || {});
   } catch (_err) {
     setError('Αποτυχία φόρτωσης παραστατικών.');
     if(body){
-      body.innerHTML = '<tr><td colspan="8" class="text-center text-danger py-3">Αποτυχία φόρτωσης παραστατικών.</td></tr>';
+      body.innerHTML = '<tr><td colspan="11" class="text-center text-danger py-3">Αποτυχία φόρτωσης παραστατικών.</td></tr>';
     }
     renderPurchaseDocumentsSummary(
       { documents: 0, net_value: 0, vat_value: 0, expenses_value: 0, gross_value: 0, cost_value: 0, qty_total: 0 },
       { limit: document.getElementById('purchaseDocsPageSize')?.value || 100, offset: 0, rowsCount: 0 }
     );
+    renderPurchaseIntelligence({});
   }
 }
 

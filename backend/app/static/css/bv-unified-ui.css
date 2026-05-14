@@ -82,21 +82,83 @@
 }
 
 .bv-table-footer {
+  display: flex !important;
+  justify-content: space-between !important;
   border-top: 1px solid var(--bv-border);
   background: color-mix(in srgb, var(--bv-surface) 85%, #f8fafc);
+  padding: 14px 16px;
+  align-items: flex-start !important;
+  gap: 16px;
 }
 
 .bv-summary-stack {
   display: flex;
   flex-direction: column;
+  gap: 8px;
+  flex: 1 1 520px;
+  min-width: min(100%, 320px);
+}
+
+.bv-summary-metrics {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.bv-summary-pill {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: center;
   gap: 2px;
+  min-width: 118px;
+  min-height: 48px;
+  padding: 7px 10px;
+  border: 1px solid var(--bv-border);
+  border-radius: 8px;
+  background: var(--bv-surface);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .04);
+}
+
+.bv-summary-pill__label {
+  font-size: 10px;
+  line-height: 1.2;
+  font-weight: 800;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--bv-muted);
+  white-space: nowrap;
+}
+
+.bv-summary-pill__value {
+  font-size: 13px;
+  line-height: 1.2;
+  font-weight: 800;
+  color: var(--bv-text);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.bv-summary-pill--total .bv-summary-pill__value {
+  color: var(--bv-accent);
+}
+
+.bv-summary-pill--negative .bv-summary-pill__value {
+  color: #dc2626;
 }
 
 .bv-pager {
   display: flex;
   align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
+  gap: 8px;
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+  flex: 0 1 auto;
+  margin-left: auto;
+  padding: 6px;
+  border: 1px solid var(--bv-border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bv-surface) 90%, #f8fafc);
 }
 
 .bv-pager-field {
@@ -107,6 +169,38 @@
   border-radius: 10px;
   background: var(--bv-surface);
   padding: 6px 8px;
+}
+
+.bv-pager-field--jump {
+  display: grid;
+  grid-template-columns: auto 72px;
+  min-width: 0;
+}
+
+.bv-pager .btn,
+.bv-pager-field .form-select,
+.bv-pager-field .form-control {
+  min-height: 34px;
+}
+
+.bv-pager .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+  font-weight: 800;
+}
+
+.bv-pager-field--jump .btn {
+  width: 38px;
+  padding-inline: 0;
+  font-size: 0;
+}
+
+.bv-pager-field--jump .btn::after {
+  content: "OK";
+  font-size: 11px;
+  line-height: 1;
 }
 
 .bv-pager-label {
@@ -124,7 +218,16 @@
 .bv-pager-nav {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--bv-border);
+  border-radius: 8px;
+  background: var(--bv-surface);
+}
+
+.bv-pager-nav .btn {
+  width: 34px;
+  padding-inline: 0;
 }
 
 .bv-pager-info {
@@ -133,6 +236,10 @@
   color: var(--bv-text);
   min-width: 58px;
   text-align: center;
+  border: 1px solid var(--bv-border);
+  background: var(--bv-surface);
+  padding: 8px 12px;
+  border-radius: 8px;
 }
 
 .bv-admin-table-tools {
@@ -179,6 +286,15 @@
 
   .bv-pager {
     width: 100%;
+    justify-content: flex-start;
+  }
+
+  .bv-summary-stack {
+    flex-basis: 100%;
+  }
+
+  .bv-summary-pill {
+    flex: 1 1 140px;
   }
 
   .bv-pager-field,
@@ -189,5 +305,959 @@
 
   .bv-pager-nav button {
     flex: 1 1 0;
+  }
+}
+
+/* Tenant UI system refresh
+   One visual language for all tenant circuits: dashboards, documents,
+   finance, inventory, e-shop analysis, insights and modal detail views. */
+body.tenant-shell {
+  --bv-ui-radius: 8px;
+  --bv-ui-radius-sm: 6px;
+  --bv-ui-shadow: 0 10px 28px rgba(15, 23, 42, 0.06);
+  --bv-ui-shadow-soft: 0 6px 18px rgba(15, 23, 42, 0.05);
+  --bv-ui-font: 0.875rem;
+  --bv-ui-font-sm: 0.8125rem;
+  --bv-ui-font-xs: 0.72rem;
+  --bv-ui-control-h: 40px;
+  --bv-ui-control-h-sm: 34px;
+}
+
+body.tenant-shell .dashboard-shell {
+  max-width: 1680px;
+}
+
+body.tenant-shell .card,
+body.tenant-shell .content-card,
+body.tenant-shell .filter-card,
+body.tenant-shell .bv-metric-card,
+body.tenant-shell .bv-stat-strip,
+body.tenant-shell .eshop-kpi-card,
+body.tenant-shell .eshop-panel,
+body.tenant-shell .branch-month-row,
+body.tenant-shell .decision-insight-item,
+body.tenant-shell .bv-kpi-help-block,
+body.tenant-shell .modal-content {
+  border: 1px solid var(--bv-border) !important;
+  border-radius: var(--bv-ui-radius) !important;
+  background: var(--bv-surface) !important;
+  box-shadow: var(--bv-ui-shadow) !important;
+}
+
+body.tenant-shell .card-header,
+body.tenant-shell .content-card > .card-header,
+body.tenant-shell .modal-header,
+body.tenant-shell .modal-footer {
+  min-height: 56px;
+  padding: 14px 18px !important;
+  background: var(--bv-surface) !important;
+  border-color: var(--bv-border) !important;
+}
+
+body.tenant-shell .card-body,
+body.tenant-shell .modal-body {
+  padding: 18px !important;
+}
+
+body.tenant-shell .bv-page-head h3,
+body.tenant-shell .dashboard-shell .bv-page-head h3 {
+  font-size: 1.55rem !important;
+  line-height: 1.15;
+  letter-spacing: 0;
+  color: var(--bv-text);
+}
+
+body.tenant-shell .bv-page-subtitle,
+body.tenant-shell .dashboard-shell .bv-page-head p,
+body.tenant-shell .card-header small,
+body.tenant-shell .content-card .text-muted {
+  font-size: var(--bv-ui-font-sm) !important;
+  line-height: 1.4;
+  color: var(--bv-muted) !important;
+}
+
+body.tenant-shell .card-header h5,
+body.tenant-shell .card-header h6,
+body.tenant-shell .modal-title,
+body.tenant-shell .content-card h5,
+body.tenant-shell .content-card h6 {
+  margin: 0;
+  font-size: 1rem !important;
+  line-height: 1.25;
+  font-weight: 700;
+  color: var(--bv-text);
+  letter-spacing: 0;
+}
+
+body.tenant-shell .form-label,
+body.tenant-shell .filter-card .form-label,
+body.tenant-shell label.form-label,
+body.tenant-shell .bv-pager-label,
+body.tenant-shell .mc-label,
+body.tenant-shell .kpi-title,
+body.tenant-shell .label,
+body.tenant-shell .small-label {
+  font-size: var(--bv-ui-font-xs) !important;
+  line-height: 1.2;
+  font-weight: 700 !important;
+  letter-spacing: .045em;
+  text-transform: uppercase;
+  color: var(--bv-muted) !important;
+}
+
+body.tenant-shell .form-control,
+body.tenant-shell .form-select,
+body.tenant-shell .input-group-text,
+body.tenant-shell textarea,
+body.tenant-shell .bv-multi-toggle {
+  min-height: var(--bv-ui-control-h) !important;
+  border-radius: var(--bv-ui-radius) !important;
+  border-color: var(--bv-border) !important;
+  background-color: var(--bv-surface-2) !important;
+  color: var(--bv-text) !important;
+  box-shadow: none !important;
+  font-size: var(--bv-ui-font) !important;
+  line-height: 1.35;
+}
+
+body.tenant-shell textarea.form-control,
+body.tenant-shell textarea {
+  min-height: 96px !important;
+  height: auto !important;
+}
+
+body.tenant-shell .form-control-sm,
+body.tenant-shell .form-select-sm {
+  min-height: var(--bv-ui-control-h-sm) !important;
+  font-size: var(--bv-ui-font-sm) !important;
+}
+
+body.tenant-shell .form-control:focus,
+body.tenant-shell .form-select:focus,
+body.tenant-shell textarea:focus,
+body.tenant-shell .bv-multi-toggle:focus {
+  border-color: color-mix(in srgb, var(--bv-accent) 55%, #cbd5e1) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--bv-accent) 16%, transparent) !important;
+}
+
+body.tenant-shell .btn:not(.btn-link),
+body.tenant-shell .bv-action-btn,
+body.tenant-shell .doc-open-btn,
+body.tenant-shell .eshop-doc-open {
+  min-height: var(--bv-ui-control-h);
+  border-radius: var(--bv-ui-radius) !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: .45rem;
+  padding: .48rem .85rem;
+  font-size: var(--bv-ui-font-sm) !important;
+  line-height: 1.2;
+  font-weight: 700;
+  letter-spacing: 0;
+  box-shadow: var(--bv-ui-shadow-soft);
+}
+
+body.tenant-shell .btn-sm,
+body.tenant-shell .table .btn-sm,
+body.tenant-shell .doc-open-btn,
+body.tenant-shell .eshop-doc-open {
+  min-height: var(--bv-ui-control-h-sm);
+  padding: .36rem .62rem;
+  font-size: .76rem !important;
+}
+
+body.tenant-shell .btn-primary,
+body.tenant-shell .btn-purple {
+  background: #5b5fc7 !important;
+  border-color: #5b5fc7 !important;
+  color: #fff !important;
+}
+
+body.tenant-shell .btn-outline-secondary {
+  background: var(--bv-surface) !important;
+  border-color: var(--bv-border) !important;
+  color: var(--bv-text) !important;
+}
+
+body.tenant-shell .btn-danger,
+body.tenant-shell .bv-action-delete {
+  background: #dc2626 !important;
+  border-color: #dc2626 !important;
+  color: #fff !important;
+}
+
+body.tenant-shell .alert {
+  border-radius: var(--bv-ui-radius) !important;
+  border-width: 1px;
+  box-shadow: none;
+  font-size: var(--bv-ui-font) !important;
+}
+
+body.tenant-shell .badge,
+body.tenant-shell .status-badge {
+  border-radius: 999px !important;
+  padding: .32rem .55rem;
+  font-size: .72rem !important;
+  font-weight: 700;
+}
+
+body.tenant-shell .table-responsive {
+  border-radius: var(--bv-ui-radius);
+}
+
+body.tenant-shell .table,
+body.tenant-shell .bv-unified-table {
+  border-collapse: separate !important;
+  border-spacing: 0;
+  margin-bottom: 0 !important;
+  color: var(--bv-text);
+  font-size: var(--bv-ui-font-sm) !important;
+}
+
+body.tenant-shell .table thead th,
+body.tenant-shell .bv-unified-table thead th {
+  padding: 11px 10px !important;
+  background: var(--bv-surface) !important;
+  border-bottom: 2px solid var(--bv-border) !important;
+  color: var(--bv-muted) !important;
+  font-size: var(--bv-ui-font-xs) !important;
+  font-weight: 700 !important;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+body.tenant-shell .table tbody td,
+body.tenant-shell .table tbody th,
+body.tenant-shell .bv-unified-table tbody td,
+body.tenant-shell .bv-unified-table tbody th {
+  padding: 10px !important;
+  border-top: 1px solid var(--bv-border) !important;
+  color: var(--bv-text);
+  font-size: var(--bv-ui-font-sm) !important;
+  font-weight: 500 !important;
+  line-height: 1.35;
+  vertical-align: middle;
+}
+
+body.tenant-shell .table tbody tr:hover td,
+body.tenant-shell .table tbody tr:hover th,
+body.tenant-shell .bv-unified-table tbody tr:hover td,
+body.tenant-shell .bv-unified-table tbody tr:hover th {
+  background: color-mix(in srgb, var(--bv-accent) 5%, transparent) !important;
+}
+
+body.tenant-shell .table tbody tr.is-active td,
+body.tenant-shell .table tbody tr.is-active th,
+body.tenant-shell .bv-unified-table tbody tr.is-active td,
+body.tenant-shell .bv-unified-table tbody tr.is-active th {
+  background: color-mix(in srgb, var(--bv-accent) 12%, transparent) !important;
+}
+
+body.tenant-shell .table .text-nowrap,
+body.tenant-shell .table td.numeric,
+body.tenant-shell .table td.text-end,
+body.tenant-shell .table th.text-end {
+  white-space: nowrap;
+}
+
+body.tenant-shell .bv-metric-card,
+body.tenant-shell .bv-stat-strip,
+body.tenant-shell .eshop-kpi-card {
+  min-height: 112px;
+  padding: 16px !important;
+  overflow: hidden;
+}
+
+body.tenant-shell .mc-value,
+body.tenant-shell .kpi-value,
+body.tenant-shell .bv-stat-strip .value,
+body.tenant-shell .eshop-kpi-value {
+  font-size: 1.35rem !important;
+  line-height: 1.15;
+  font-weight: 800;
+  color: var(--bv-text);
+  letter-spacing: 0;
+}
+
+body.tenant-shell .mc-meta,
+body.tenant-shell .kpi-subtitle,
+body.tenant-shell .bv-stat-strip .small,
+body.tenant-shell .eshop-kpi-meta {
+  font-size: .76rem !important;
+  line-height: 1.35;
+  color: var(--bv-muted) !important;
+  font-weight: 600;
+}
+
+body.tenant-shell .bv-multi-menu,
+body.tenant-shell .dropdown-menu,
+body.tenant-shell .popover {
+  border: 1px solid var(--bv-border) !important;
+  border-radius: var(--bv-ui-radius) !important;
+  box-shadow: var(--bv-ui-shadow) !important;
+  font-size: var(--bv-ui-font-sm) !important;
+}
+
+body.tenant-shell .bv-pager,
+body.tenant-shell .bv-table-footer {
+  font-size: var(--bv-ui-font-sm) !important;
+}
+
+body.tenant-shell .bv-pager-field,
+body.tenant-shell .bv-pager-info {
+  border-radius: var(--bv-ui-radius) !important;
+}
+
+body.tenant-shell .bv-pager {
+  gap: 6px;
+  padding: 0;
+  align-items: center !important;
+  border: 0;
+  background: transparent;
+}
+
+body.tenant-shell .bv-pager-field {
+  flex: 0 0 auto;
+  padding: 5px 8px;
+}
+
+body.tenant-shell .bv-pager-field--size {
+  width: 194px;
+}
+
+body.tenant-shell .bv-pager-field--jump {
+  display: grid;
+  grid-template-columns: auto 68px;
+  width: 150px;
+}
+
+body.tenant-shell .bv-pager-page-input {
+  width: 68px !important;
+  text-align: center;
+}
+
+body.tenant-shell .bv-pager-field--jump .btn {
+  display: none !important;
+}
+
+body.tenant-shell .bv-pager-nav {
+  display: inline-flex !important;
+  flex: 0 0 auto;
+  width: auto !important;
+  justify-content: center !important;
+  align-items: center !important;
+  align-self: center;
+  gap: 4px;
+  min-height: 34px;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+}
+
+body.tenant-shell .bv-pager-nav .btn {
+  width: 32px !important;
+  min-width: 32px !important;
+  min-height: 32px !important;
+  height: 32px !important;
+  padding: 0 !important;
+  box-shadow: none;
+  border-radius: 8px !important;
+}
+
+body.tenant-shell .bv-pager-info {
+  flex: 0 0 auto;
+  align-self: center;
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+body.tenant-shell .modal-dialog {
+  --bs-modal-border-radius: var(--bv-ui-radius);
+}
+
+body.tenant-shell .modal-body .form-control[readonly],
+body.tenant-shell .modal-body .form-control:disabled {
+  opacity: 1;
+  color: var(--bv-text) !important;
+}
+
+body.tenant-shell .modal-body table th,
+body.tenant-shell .modal-body table td {
+  font-size: .78rem !important;
+  font-weight: 500 !important;
+}
+
+body.tenant-shell .sales-docs-table-wrap,
+body.tenant-shell .purchase-docs-table-wrap,
+body.tenant-shell .expense-docs-table-wrap,
+body.tenant-shell .warehouse-docs-table-wrap,
+body.tenant-shell .cashflow-docs-table-wrap {
+  max-height: min(72vh, 780px);
+  overflow: auto;
+}
+
+body.tenant-shell .customers-table-wrap,
+body.tenant-shell .suppliers-table-wrap,
+body.tenant-shell .cash-accounts-table-wrap {
+  max-height: min(74vh, 820px);
+  overflow: auto;
+}
+
+body.tenant-shell .sales-doc-lines-wrap,
+body.tenant-shell .purchase-doc-lines-wrap,
+body.tenant-shell .warehouse-doc-lines-wrap,
+body.tenant-shell .cashflow-doc-lines-wrap,
+body.tenant-shell .customer-history-wrap {
+  max-height: min(34vh, 360px);
+  overflow: auto;
+}
+
+body.tenant-shell .customer-history-wrap {
+  max-height: min(43vh, 430px);
+}
+
+body.tenant-shell .sales-doc-modal,
+body.tenant-shell .purchase-doc-modal,
+body.tenant-shell .expense-doc-modal,
+body.tenant-shell .warehouse-doc-modal,
+body.tenant-shell .cashflow-doc-modal,
+body.tenant-shell .customer-modal,
+body.tenant-shell .cash-account-modal {
+  --bv-modal-max-height: 92vh;
+}
+
+body.tenant-shell .sales-doc-modal,
+body.tenant-shell .customer-modal {
+  --bv-modal-max-width: 1380px;
+}
+
+body.tenant-shell .purchase-doc-modal {
+  --bv-modal-max-width: 1560px;
+}
+
+body.tenant-shell .expense-doc-modal,
+body.tenant-shell .cashflow-doc-modal {
+  --bv-modal-max-width: 1320px;
+}
+
+body.tenant-shell .warehouse-doc-modal {
+  --bv-modal-max-width: 1360px;
+}
+
+body.tenant-shell .cash-account-modal {
+  --bv-modal-max-width: 1120px;
+  --bv-modal-max-height: 90vh;
+}
+
+body.tenant-shell .sales-doc-modal .modal-body,
+body.tenant-shell .purchase-doc-modal .modal-body,
+body.tenant-shell .expense-doc-modal .modal-body,
+body.tenant-shell .warehouse-doc-modal .modal-body,
+body.tenant-shell .cashflow-doc-modal .modal-body,
+body.tenant-shell .customer-modal .modal-body,
+body.tenant-shell .cash-account-modal .modal-body {
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+body.tenant-shell .sales-doc-modal textarea.form-control,
+body.tenant-shell .purchase-doc-modal textarea.form-control,
+body.tenant-shell .warehouse-doc-modal textarea.form-control,
+body.tenant-shell .cashflow-doc-modal textarea.form-control,
+body.tenant-shell .customer-modal textarea.form-control {
+  min-height: 120px !important;
+  resize: vertical;
+}
+
+body.tenant-shell #salesDocsTable tbody tr,
+body.tenant-shell #purchaseDocsTable tbody tr,
+body.tenant-shell #expenseDocsTable tbody tr,
+body.tenant-shell #warehouseDocsTable tbody tr,
+body.tenant-shell #cashflowDocsTable tbody tr,
+body.tenant-shell #customersTable tbody tr,
+body.tenant-shell #cashAccountsTable tbody tr {
+  cursor: pointer;
+}
+
+body.tenant-shell #suppliersTable tbody tr {
+  cursor: default;
+}
+
+body.tenant-shell .doc-open-btn {
+  border: 0;
+  background: transparent;
+  color: #1d4ed8;
+  font: inherit;
+  font-weight: 700;
+  padding: 0;
+  max-width: 100%;
+  box-shadow: none !important;
+}
+
+body.tenant-shell .doc-open-btn span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body.tenant-shell .doc-open-btn:hover {
+  color: #4338ca;
+  text-decoration: underline;
+}
+
+body.tenant-shell .items-footer,
+body.tenant-shell .customers-footer,
+body.tenant-shell .suppliers-footer,
+body.tenant-shell .bv-table-footer {
+  border-top: 1px solid var(--bv-border);
+  background: var(--bv-surface-2);
+}
+
+body.tenant-shell .bv-kpi-box .kpi-value {
+  font-size: 1.35rem !important;
+  line-height: 1.15;
+  word-break: break-all;
+}
+
+body.tenant-shell .bv-kpi-box .kpi-title {
+  font-size: .75rem !important;
+}
+
+body.tenant-shell .bv-kpi-box .kpi-meta {
+  font-size: .72rem !important;
+}
+
+body.tenant-shell .bv-metric-card[data-executive-card] {
+  cursor: pointer;
+}
+
+body.tenant-shell .bv-metric-card[data-executive-card]:hover {
+  border-color: color-mix(in srgb, var(--mc-color, #6366f1) 42%, #dbe3ef) !important;
+  transform: translateY(-1px);
+}
+
+body.tenant-shell .mc-delta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  max-width: 100%;
+  margin-top: 6px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: #64748b;
+  font-size: .72rem;
+  line-height: 1.25;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+body.tenant-shell .mc-delta-up {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+body.tenant-shell .mc-delta-down {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+body.tenant-shell .mc-delta-neutral {
+  background: #e2e8f0;
+  color: #475569;
+}
+
+body.tenant-shell .executive-kpi-popup .modal-dialog {
+  max-width: 860px;
+}
+
+body.tenant-shell .executive-kpi-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+body.tenant-shell .executive-kpi-summary-item {
+  border: 1px solid var(--bv-border);
+  border-radius: 10px;
+  background: var(--bv-surface-2);
+  padding: 10px 12px;
+}
+
+body.tenant-shell .executive-kpi-summary-label {
+  color: var(--bv-muted);
+  font-size: .68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: .03em;
+  margin-bottom: 5px;
+}
+
+body.tenant-shell .executive-kpi-summary-value {
+  color: var(--bv-text);
+  font-size: .98rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+body.tenant-shell .executive-kpi-brief {
+  border: 1px solid #dbeafe;
+  border-radius: 10px;
+  background: #eff6ff;
+  color: #1e3a8a;
+  font-size: .86rem;
+  line-height: 1.45;
+  padding: 11px 12px;
+  margin-bottom: 14px;
+}
+
+body.tenant-shell .executive-kpi-detail-table {
+  font-size: .82rem;
+}
+
+body.tenant-shell .executive-kpi-detail-table th {
+  color: var(--bv-muted);
+  font-size: .68rem !important;
+  text-transform: uppercase;
+  letter-spacing: .03em;
+}
+
+body.tenant-shell .pos-empty,
+body.tenant-shell .eshop-empty {
+  border: 1px dashed #cbd5e1;
+  border-radius: var(--bv-ui-radius);
+  padding: 20px;
+  color: var(--bv-muted);
+  text-align: center;
+  background: var(--bv-surface-2);
+  font-weight: 600;
+}
+
+body.tenant-shell .eshop-card .mc-meta {
+  font-weight: 700;
+}
+
+body.tenant-shell .eshop-table th {
+  font-size: var(--bv-ui-font-xs) !important;
+  text-transform: uppercase;
+  letter-spacing: .03em;
+  color: var(--bv-muted) !important;
+  font-weight: 700 !important;
+}
+
+body.tenant-shell .eshop-table td {
+  vertical-align: middle;
+  font-weight: 500;
+}
+
+body.tenant-shell .eshop-subtitle {
+  color: var(--bv-muted);
+  font-size: .82rem;
+}
+
+body.tenant-shell .fin-loading {
+  opacity: .45;
+}
+
+body.tenant-shell .cash-account-notes {
+  min-height: 320px !important;
+  resize: vertical;
+}
+
+body.tenant-shell .purchase-doc-lines-table {
+  min-width: 1720px;
+  table-layout: fixed;
+}
+
+body.tenant-shell .purchase-doc-lines-table th,
+body.tenant-shell .purchase-doc-lines-table td {
+  white-space: nowrap;
+}
+
+body.tenant-shell .purchase-doc-lines-table .purchase-doc-line-desc {
+  min-width: 420px;
+  width: 420px;
+  white-space: normal;
+  word-break: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
+}
+
+body.tenant-shell .branch-month-row {
+  padding: 12px !important;
+}
+
+body.tenant-shell .branch-month-name,
+body.tenant-shell .branch-month-value,
+body.tenant-shell .decision-insight-title {
+  font-size: .9rem !important;
+  font-weight: 700;
+}
+
+body.tenant-shell .branch-month-foot,
+body.tenant-shell .decision-insight-meta,
+body.tenant-shell .decision-insight-text {
+  font-size: .78rem !important;
+  line-height: 1.35;
+}
+
+body.tenant-shell[data-theme='dark'] .card,
+body.tenant-shell[data-theme='dark'] .content-card,
+body.tenant-shell[data-theme='dark'] .filter-card,
+body.tenant-shell[data-theme='dark'] .bv-metric-card,
+body.tenant-shell[data-theme='dark'] .bv-stat-strip,
+body.tenant-shell[data-theme='dark'] .eshop-kpi-card,
+body.tenant-shell[data-theme='dark'] .eshop-panel,
+body.tenant-shell[data-theme='dark'] .branch-month-row,
+body.tenant-shell[data-theme='dark'] .decision-insight-item,
+body.tenant-shell[data-theme='dark'] .modal-content {
+  box-shadow: 0 10px 28px rgba(2, 6, 23, 0.42) !important;
+}
+
+@media (max-width: 767.98px) {
+  body.tenant-shell .card-body,
+  body.tenant-shell .modal-body {
+    padding: 14px !important;
+  }
+
+  body.tenant-shell .bv-page-head h3,
+  body.tenant-shell .dashboard-shell .bv-page-head h3 {
+    font-size: 1.35rem !important;
+  }
+
+  body.tenant-shell .table,
+  body.tenant-shell .bv-unified-table {
+    font-size: .78rem !important;
+  }
+
+  body.tenant-shell .executive-kpi-summary {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Final pager override for tenant document footers. Keep controls in one
+   compact row and prevent older responsive pager rules from stretching nav. */
+body.tenant-shell .bv-table-footer .bv-pager {
+  display: grid !important;
+  grid-template-columns: 194px 150px 140px 70px !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  gap: 8px !important;
+  width: auto !important;
+  margin-left: auto !important;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+}
+
+body.tenant-shell .bv-table-footer .bv-pager-field {
+  width: 100% !important;
+  margin: 0 !important;
+  align-self: center !important;
+  min-height: 48px !important;
+}
+
+body.tenant-shell .bv-table-footer .bv-pager-field--size {
+  width: 194px !important;
+}
+
+body.tenant-shell .bv-table-footer .bv-pager-field--jump {
+  width: 150px !important;
+  grid-template-columns: auto 68px !important;
+}
+
+body.tenant-shell .bv-table-footer .bv-pager-field--jump .btn {
+  display: none !important;
+}
+
+body.tenant-shell .bv-table-footer .bv-pager-nav {
+  display: grid !important;
+  grid-template-columns: repeat(4, 32px) !important;
+  width: 140px !important;
+  min-width: 0 !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 4px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  align-self: center !important;
+  height: 48px !important;
+  min-height: 48px !important;
+}
+
+body.tenant-shell .bv-table-footer .bv-pager-nav .btn {
+  position: static !important;
+  top: auto !important;
+  right: auto !important;
+  bottom: auto !important;
+  left: auto !important;
+  transform: none !important;
+  width: 32px !important;
+  min-width: 32px !important;
+  max-width: 32px !important;
+  height: 32px !important;
+  min-height: 32px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  align-self: center !important;
+  justify-self: center !important;
+}
+
+body.tenant-shell .bv-table-footer .bv-page-icon {
+  appearance: none;
+  -webkit-appearance: none;
+  position: static;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--bv-border);
+  border-radius: 8px;
+  background: var(--bv-surface);
+  color: var(--bv-text);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1;
+  box-shadow: none;
+  transform: none;
+  cursor: pointer;
+}
+
+body.tenant-shell .bv-table-footer .bv-page-icon:hover {
+  background: var(--bv-surface-2);
+  border-color: color-mix(in srgb, var(--bv-accent) 35%, var(--bv-border));
+}
+
+body.tenant-shell .bv-table-footer .bv-page-icon:disabled {
+  opacity: .45;
+  cursor: default;
+}
+
+body.tenant-shell .bv-table-footer .bv-pager-info {
+  display: inline-flex !important;
+  width: 70px !important;
+  min-width: 66px !important;
+  height: 42px !important;
+  align-items: center !important;
+  justify-content: center !important;
+  margin: 0 !important;
+  align-self: center !important;
+}
+
+@media (max-width: 767.98px) {
+  body.tenant-shell .bv-page-head {
+    gap: 10px;
+  }
+
+  body.tenant-shell .bv-page-title-wrap,
+  body.tenant-shell .bv-page-head > * {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  body.tenant-shell .bv-page-breadcrumb,
+  body.tenant-shell .bv-page-subtitle {
+    overflow-wrap: anywhere;
+  }
+
+  body.tenant-shell .card-header,
+  body.tenant-shell .content-card > .card-header,
+  body.tenant-shell .modal-header,
+  body.tenant-shell .modal-footer {
+    padding: 12px 14px !important;
+  }
+
+  body.tenant-shell .filter-card .card-body,
+  body.tenant-shell .card-body,
+  body.tenant-shell .modal-body {
+    padding: 14px !important;
+  }
+
+  body.tenant-shell .table-responsive {
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  body.tenant-shell .bv-table-footer,
+  body.tenant-shell .items-footer,
+  body.tenant-shell .customers-footer,
+  body.tenant-shell .suppliers-footer {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 12px !important;
+    padding: 12px !important;
+  }
+
+  body.tenant-shell .bv-summary-stack,
+  body.tenant-shell .bv-summary-metrics {
+    width: 100%;
+    min-width: 0;
+  }
+
+  body.tenant-shell .bv-summary-pill {
+    flex: 1 1 calc(50% - 6px);
+    min-width: 0;
+  }
+
+  body.tenant-shell .bv-summary-pill__label,
+  body.tenant-shell .bv-summary-pill__value {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  body.tenant-shell .bv-table-footer .bv-pager {
+    width: 100% !important;
+    margin-left: 0 !important;
+    grid-template-columns: 1fr !important;
+    justify-content: stretch !important;
+    gap: 8px !important;
+  }
+
+  body.tenant-shell .bv-table-footer .bv-pager-field,
+  body.tenant-shell .bv-table-footer .bv-pager-field--size,
+  body.tenant-shell .bv-table-footer .bv-pager-field--jump,
+  body.tenant-shell .bv-table-footer .bv-pager-nav,
+  body.tenant-shell .bv-table-footer .bv-pager-info {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  body.tenant-shell .bv-table-footer .bv-pager-nav {
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  }
+
+  body.tenant-shell .bv-table-footer .bv-pager-nav .btn,
+  body.tenant-shell .bv-table-footer .bv-page-icon {
+    width: 100% !important;
+    max-width: none !important;
+  }
+}
+
+@media (max-width: 575.98px) {
+  body.tenant-shell .bv-summary-pill {
+    flex-basis: 100%;
+  }
+
+  body.tenant-shell .mc-value,
+  body.tenant-shell .kpi-value,
+  body.tenant-shell .bv-stat-strip .value,
+  body.tenant-shell .eshop-kpi-value {
+    font-size: 1.12rem !important;
   }
 }

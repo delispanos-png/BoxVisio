@@ -40,7 +40,8 @@ SELECT
   CAST('S|' + CAST(F.FINDOC AS nvarchar(40)) + '|' + CAST(ISNULL(L.MTRLINES, ISNULL(L.LINENUM, 0)) AS nvarchar(40)) AS nvarchar(128)) AS external_id,
   CAST(ISNULL(F.UPDDATE, F.TRNDATE) AS datetime2) AS updated_at,
   CAST(ISNULL(F.SOTIME, F.INSDATE) AS datetime2) AS source_created_at,
-  CAST(NULL AS nvarchar(64)) AS brand_external_id,
+  CAST(NULLIF(CAST(ISNULL(I.MTRMARK, 0) AS nvarchar(64)), '0') AS nvarchar(64)) AS brand_external_id,
+  CAST(ISNULL(MK.NAME, '') AS nvarchar(255)) AS brand_name,
   CAST(NULL AS nvarchar(64)) AS category_external_id,
   CAST(NULLIF(CAST(ISNULL(I.MTRGROUP, 0) AS nvarchar(64)), '0') AS nvarchar(64)) AS group_external_id,
 
@@ -93,6 +94,17 @@ SELECT
     AS decimal(28,8)
   ) AS gross_value,
   CAST(COALESCE(TRY_CAST(ISNULL(F.NETAMNT, 0) AS decimal(28,8)), 0) AS decimal(28,8)) AS doc_net_total,
+  CAST(
+    (
+      CASE
+        WHEN ISNULL(F.SOSOURCE, 0) = 1351 AND ISNULL(F.TFPRMS, 0) IN (151, 152, 181) THEN -1
+        WHEN ISNULL(F.SOSOURCE, 0) <> 1351 AND ISNULL(F.TFPRMS, 0) IN (102, 181) THEN -1
+        ELSE 1
+      END
+    )
+    * COALESCE(TRY_CAST(ISNULL(F.EXPN, 0) AS decimal(28,8)), 0)
+    AS decimal(28,8)
+  ) AS doc_expenses_total,
   CAST(COALESCE(TRY_CAST(ISNULL(F.VATAMNT, 0) AS decimal(28,8)), 0) AS decimal(28,8)) AS doc_tax_total,
   CAST(COALESCE(TRY_CAST(ISNULL(F.SUMAMNT, 0) AS decimal(28,8)), 0) AS decimal(28,8)) AS doc_gross_total,
 
@@ -262,11 +274,44 @@ SELECT
   CAST(COALESCE(NULLIF(ORIG.CCC88EGIFTCOM, ''), NULLIF(F.CCC88EGIFTCOM, ''), '') AS nvarchar(1024)) AS gift_comments,
   CAST(COALESCE(NULLIF(ORIG.CCC88EMRKTCOUR, ''), NULLIF(F.CCC88EMRKTCOUR, ''), '') AS nvarchar(255)) AS marketplace_courier,
   CAST(COALESCE(NULLIF(ORIG.CCC88ELOGIKAID, ''), NULLIF(F.CCC88ELOGIKAID, ''), '') AS nvarchar(128)) AS marketplace_internal_id,
-  CAST(COALESCE(EXA.shipping_expense_value, 0) AS decimal(28,8)) AS shipping_expense_value,
+  CAST(COALESCE(NULLIF(
+    (
+      CASE
+        WHEN ISNULL(F.SOSOURCE, 0) = 1351 AND ISNULL(F.TFPRMS, 0) IN (151, 152, 181) THEN -1
+        WHEN ISNULL(F.SOSOURCE, 0) <> 1351 AND ISNULL(F.TFPRMS, 0) IN (102, 181) THEN -1
+        ELSE 1
+      END
+    ) * COALESCE(TRY_CAST(ISNULL(F.EXPN, 0) AS decimal(28,8)), 0),
+    0
+  ), EXA.shipping_expense_value, 0) AS decimal(28,8)) AS shipping_expense_value,
   CAST(ISNULL(EXA.shipping_expense_description, '') AS nvarchar(1024)) AS shipping_expense_description,
-  CAST(COALESCE(EXA.charge_revenue_net_value, 0) AS decimal(28,8)) AS charge_revenue_net_value,
+  CAST(COALESCE(NULLIF(
+    (
+      CASE
+        WHEN ISNULL(F.SOSOURCE, 0) = 1351 AND ISNULL(F.TFPRMS, 0) IN (151, 152, 181) THEN -1
+        WHEN ISNULL(F.SOSOURCE, 0) <> 1351 AND ISNULL(F.TFPRMS, 0) IN (102, 181) THEN -1
+        ELSE 1
+      END
+    ) * COALESCE(TRY_CAST(ISNULL(F.EXPN, 0) AS decimal(28,8)), 0),
+    0
+  ), EXA.charge_revenue_net_value, 0) AS decimal(28,8)) AS charge_revenue_net_value,
   CAST(COALESCE(EXA.charge_revenue_vat_value, 0) AS decimal(28,8)) AS charge_revenue_vat_value,
-  CAST(COALESCE(EXA.charge_revenue_gross_value, 0) AS decimal(28,8)) AS charge_revenue_gross_value,
+  CAST(COALESCE(
+    NULLIF(
+      (
+        (
+          CASE
+            WHEN ISNULL(F.SOSOURCE, 0) = 1351 AND ISNULL(F.TFPRMS, 0) IN (151, 152, 181) THEN -1
+            WHEN ISNULL(F.SOSOURCE, 0) <> 1351 AND ISNULL(F.TFPRMS, 0) IN (102, 181) THEN -1
+            ELSE 1
+          END
+        ) * COALESCE(TRY_CAST(ISNULL(F.EXPN, 0) AS decimal(28,8)), 0)
+      ) + COALESCE(EXA.charge_revenue_vat_value, 0),
+      0
+    ),
+    EXA.charge_revenue_gross_value,
+    0
+  ) AS decimal(28,8)) AS charge_revenue_gross_value,
   CAST(ISNULL(EXA.charge_revenue_description, '') AS nvarchar(1024)) AS charge_revenue_description,
   CAST(ISNULL(EXA.charge_revenue_lines_json, N'[]') AS nvarchar(max)) AS charge_revenue_lines_json,
   CAST(COALESCE(EXA.shipping_charge_net_value, 0) AS decimal(28,8)) AS shipping_charge_net_value,
@@ -351,6 +396,7 @@ OUTER APPLY (
 LEFT JOIN WHOUSE WH WITH (NOLOCK) ON WH.WHOUSE = MD.WHOUSE AND WH.COMPANY = F.COMPANY
 LEFT JOIN TRDR C WITH (NOLOCK) ON C.TRDR = F.TRDR AND C.COMPANY = F.COMPANY
 LEFT JOIN MTRL I WITH (NOLOCK) ON I.MTRL = L.MTRL AND I.COMPANY = F.COMPANY
+LEFT JOIN MTRMARK MK WITH (NOLOCK) ON MK.MTRMARK = I.MTRMARK AND MK.COMPANY = I.COMPANY
 LEFT JOIN MTRGROUP MG WITH (NOLOCK) ON MG.MTRGROUP = I.MTRGROUP AND MG.COMPANY = I.COMPANY
 LEFT JOIN BRANCH BR WITH (NOLOCK) ON BR.BRANCH = F.BRANCH AND BR.COMPANY = F.COMPANY
 LEFT JOIN TRDBRANCH CB WITH (NOLOCK) ON CB.TRDBRANCH = F.TRDBRANCH AND (CB.COMPANY = F.COMPANY OR CB.COMPANY = 0)

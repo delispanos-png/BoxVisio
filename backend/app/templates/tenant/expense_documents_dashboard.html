@@ -75,14 +75,6 @@
 {% endblock %}
 
 {% block content %}
-<style>
-  .expense-docs-table-wrap {
-    max-height: min(72vh, 780px);
-    overflow: auto;
-  }
-  #expenseDocsTable tbody tr { cursor: pointer; }
-  #expenseDocsTable tbody tr.is-active { background: rgba(59, 130, 246, 0.08); }
-</style>
 
 <div id="expenseDocsError" class="alert alert-danger d-none"></div>
 
@@ -104,12 +96,14 @@
           <th>Τύπος</th>
           <th>Κωδ. παραστ.</th>
           <th>Προμηθευτής</th>
-          <th class="text-end">Καθαρή Αξία</th>
-          <th class="text-end">Μικτή Αξία</th>
+          <th class="text-end">Καθαρή αξία</th>
+          <th class="text-end">Έξοδα</th>
+          <th class="text-end">ΦΠΑ</th>
+          <th class="text-end">Σύνολο</th>
         </tr>
       </thead>
       <tbody id="expenseDocsBody">
-        <tr><td colspan="8" class="text-center text-muted py-3">Φόρτωση παραστατικών...</td></tr>
+        <tr><td colspan="10" class="text-center text-muted py-3">Φόρτωση παραστατικών...</td></tr>
       </tbody>
     </table>
   </div>
@@ -134,10 +128,10 @@
         <button type="button" class="btn btn-outline-secondary btn-sm" id="expenseDocsPageGo">Μετάβαση</button>
       </div>
       <div class="bv-pager-nav" role="group" aria-label="Πλοήγηση σελίδων">
-        <button type="button" class="btn btn-outline-secondary btn-sm" id="expenseDocsFirstPage">&laquo;</button>
-        <button type="button" class="btn btn-outline-secondary btn-sm" id="expenseDocsPrevPage">&lsaquo;</button>
-        <button type="button" class="btn btn-outline-secondary btn-sm" id="expenseDocsNextPage">&rsaquo;</button>
-        <button type="button" class="btn btn-outline-secondary btn-sm" id="expenseDocsLastPage">&raquo;</button>
+        <button type="button" class="bv-page-icon" id="expenseDocsFirstPage">&laquo;</button>
+        <button type="button" class="bv-page-icon" id="expenseDocsPrevPage">&lsaquo;</button>
+        <button type="button" class="bv-page-icon" id="expenseDocsNextPage">&rsaquo;</button>
+        <button type="button" class="bv-page-icon" id="expenseDocsLastPage">&raquo;</button>
       </div>
       <small id="expenseDocsPageInfo" class="bv-pager-info">1 / 1</small>
     </div>
@@ -289,55 +283,33 @@
   function getSelectedValues(selectEl){
     return Array.from(selectEl.options).filter(o => o.selected).map(o => o.value);
   }
-  function setupMulti(prefix){
-    const toggle = document.getElementById(prefix + 'Toggle');
-    const menu = document.getElementById(prefix + 'Menu');
-    const search = document.getElementById(prefix + 'Search');
-    const allBtn = document.getElementById(prefix + 'All');
-    const clearBtn = document.getElementById(prefix + 'Clear');
-    const optionsWrap = document.getElementById(prefix + 'Options');
-    const chips = document.getElementById(prefix + 'Chips');
+  function setupMulti(prefix, label){
     const select = document.getElementById(prefix);
-    let values = [];
-    function syncLabel(){
-      const selected = getSelectedValues(select);
-      toggle.textContent = selected.length ? `Επιλογές: ${selected.length}` : 'Επιλογή';
-      chips.innerHTML = selected.map(v => {
-        const opt = Array.from(select.options).find(o => o.value === v);
-        return `<span class="badge bg-light text-dark border">${opt ? opt.textContent : v}</span>`;
-      }).join(' ');
-    }
-    function render(filter=''){
-      const q = String(filter||'').trim().toLowerCase();
-      optionsWrap.innerHTML = values
-        .filter(v => !q || String(v.label||v.value).toLowerCase().includes(q))
-        .map(v => `<label class="d-flex align-items-center gap-2 py-1"><input type="checkbox" value="${v.value}" ${getSelectedValues(select).includes(v.value) ? 'checked' : ''}> <span>${v.label}</span></label>`)
-        .join('');
-      optionsWrap.querySelectorAll('input[type="checkbox"]').forEach(cb => {
-        cb.addEventListener('change', () => {
-          Array.from(select.options).forEach(o => { if(o.value === cb.value) o.selected = cb.checked; });
-          syncLabel();
-        });
-      });
-    }
-    toggle.addEventListener('click', () => { menu.hidden = !menu.hidden; if(!menu.hidden) render(search.value); });
-    document.addEventListener('click', (ev) => { if(!menu.hidden && !menu.parentElement.contains(ev.target)) menu.hidden = true; });
-    search.addEventListener('input', () => render(search.value));
-    allBtn.addEventListener('click', () => { Array.from(select.options).forEach(o => o.selected = true); render(search.value); syncLabel(); });
-    clearBtn.addEventListener('click', () => { Array.from(select.options).forEach(o => o.selected = false); render(search.value); syncLabel(); });
+    const config = {
+      label,
+      selectText: '{{ tt(request, "select") }}',
+      emptyText: '{{ tt(request, "no_options_available") }}',
+    };
+    BvMultiSelect.bind(prefix, config);
     return {
       setOptions(items){
-        values = items || [];
-        select.innerHTML = values.map(v => `<option value="${v.value}">${v.label}</option>`).join('');
-        render('');
-        syncLabel();
+        const values = [];
+        const labels = {};
+        (items || []).forEach((item) => {
+          values.push(item.value);
+          labels[item.value] = item.label;
+        });
+        BvMultiSelect.populate(prefix, values, labels, config);
       },
-      clear(){ select.innerHTML=''; values=[]; render(''); syncLabel(); },
-      sync: syncLabel,
+      clear(){
+        if(select) select.innerHTML = '';
+        BvMultiSelect.sync(prefix, config);
+      },
+      sync(){ BvMultiSelect.sync(prefix, config); },
     };
   }
-  const branchesMulti = setupMulti('expenseDocsBranches');
-  const categoriesMulti = setupMulti('expenseDocsCategories');
+  const branchesMulti = setupMulti('expenseDocsBranches', '{{ tt(request, "branches") }}');
+  const categoriesMulti = setupMulti('expenseDocsCategories', 'Κατηγορίες εξόδων');
 
   async function fetchJson(url){
     const res = await fetch(url);
@@ -372,28 +344,47 @@
       : (gross - net - vat);
     const totalDocs = Number(summary.documents || bodyEl.dataset.total || 0);
     if(!rows.length){
-      bodyEl.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-3">Δεν βρέθηκαν παραστατικά εξόδων.</td></tr>';
-      summaryEl.textContent = `Παραστατικά: ${totalDocs.toLocaleString('el-GR')} | Σύνολο καθαρής αξίας: ${money(net)} | Σύνολο εξόδων: ${money(expenses)} | Σύνολο ΦΠΑ: ${money(vat)} | Σύνολο: ${money(gross)}`;
+      bodyEl.innerHTML = '<tr><td colspan="10" class="text-center text-muted py-3">Δεν βρέθηκαν παραστατικά εξόδων.</td></tr>';
+      window.bvRenderFooterSummary?.(summaryEl, [
+        { label: 'Παραστατικά', value: totalDocs.toLocaleString('el-GR') },
+        { label: 'Καθαρή αξία', value: money(net) },
+        { label: 'Έξοδα', value: money(expenses), tone: expenses < 0 ? 'negative' : '' },
+        { label: 'ΦΠΑ', value: money(vat) },
+        { label: 'Σύνολο', value: money(gross), tone: 'total' },
+      ]);
       rangeEl.textContent = 'Εμφάνιση 0 από 0';
       pageInfoEl.textContent = '1 / 1';
       return;
     }
-    bodyEl.innerHTML = rows.map(r => `
+    bodyEl.innerHTML = rows.map(r => {
+      const docId = String(r.document_id || '').trim();
+      const docNo = String(r.document_no || '-');
+      const docCell = docId
+        ? `<button type="button" class="doc-open-btn" data-doc-id="${escAttr(docId)}" title="Άνοιγμα παραστατικού ${escAttr(docNo)}"><i class="fe fe-external-link"></i><span>${escAttr(docNo)}</span></button>`
+        : escAttr(docNo);
+      return `
       <tr data-id="${escAttr(r.document_id)}" class="${state.selectedId===r.document_id?'is-active':''}" tabindex="0" role="button" title="Διπλό κλικ για άνοιγμα παραστατικού">
         <td>${r.document_date || '-'}</td>
         <td>${r.branch || '-'}</td>
         <td>${r.category || '-'}</td>
         <td>${r.document_type || '-'}</td>
-        <td>${r.document_no || '-'}</td>
+        <td>${docCell}</td>
         <td>${r.supplier || '-'}</td>
         <td class="text-end">${money(r.total_net_value)}</td>
-        <td class="text-end">${money(r.total_gross_value)}</td>
+        <td class="text-end">${money(r.total_expenses_value)}</td>
+        <td class="text-end">${money(r.total_tax_value)}</td>
+        <td class="text-end fw-semibold">${money(r.total_gross_value)}</td>
       </tr>
-    `).join('');
+    `;
+    }).join('');
     bodyEl.querySelectorAll('tr[data-id]').forEach(tr => {
       tr.addEventListener('click', () => {
         state.selectedId = tr.dataset.id || '';
         renderTable();
+      });
+      tr.querySelector('.doc-open-btn')?.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        if(tr.dataset.id) openDetail(tr.dataset.id);
       });
       tr.addEventListener('dblclick', () => {
         if(tr.dataset.id) openDetail(tr.dataset.id);
@@ -408,8 +399,14 @@
     const total = Number(bodyEl.dataset.total || totalDocs || rows.length);
     const start = ((state.page - 1) * state.pageSize) + 1;
     const end = start + rows.length - 1;
-    summaryEl.textContent = `Παραστατικά: ${total.toLocaleString('el-GR')} | Σύνολο καθαρής αξίας: ${money(net)} | Σύνολο εξόδων: ${money(expenses)} | Σύνολο ΦΠΑ: ${money(vat)} | Σύνολο: ${money(gross)}`;
-    rangeEl.textContent = `Εμφάνιση ${start.toLocaleString('el-GR')} από ${end.toLocaleString('el-GR')}`;
+    window.bvRenderFooterSummary?.(summaryEl, [
+      { label: 'Παραστατικά', value: total.toLocaleString('el-GR') },
+      { label: 'Καθαρή αξία', value: money(net) },
+      { label: 'Έξοδα', value: money(expenses), tone: expenses < 0 ? 'negative' : '' },
+      { label: 'ΦΠΑ', value: money(vat) },
+      { label: 'Σύνολο', value: money(gross), tone: 'total' },
+    ]);
+    rangeEl.textContent = `Εμφάνιση ${start.toLocaleString('el-GR')} έως ${end.toLocaleString('el-GR')} από ${total.toLocaleString('el-GR')}`;
     const pages = Math.max(1, Math.ceil(total / state.pageSize));
     pageInfoEl.textContent = `${state.page} / ${pages}`;
     pageJumpEl.value = state.page;
@@ -421,7 +418,7 @@
   }
   async function loadRows(){
     setError('');
-    bodyEl.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-3">Φόρτωση...</td></tr>';
+    bodyEl.innerHTML = '<tr><td colspan="10" class="text-center text-muted py-3">Φόρτωση...</td></tr>';
     try {
       const data = await fetchJson(`/v1/kpi/expenses/documents?${buildParams(true).toString()}`);
       state.rows = data.rows || [];
@@ -430,10 +427,16 @@
       renderTable();
     } catch (err) {
       state.summary = { documents: 0, net_value: 0, expenses_value: 0, vat_value: 0, gross_value: 0 };
-      bodyEl.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-3">Δεν ήταν δυνατή η φόρτωση.</td></tr>';
+      bodyEl.innerHTML = '<tr><td colspan="10" class="text-center text-muted py-3">Δεν ήταν δυνατή η φόρτωση.</td></tr>';
       setError(err.message || 'Αποτυχία φόρτωσης παραστατικών εξόδων.');
       bodyEl.dataset.total = '0';
-      summaryEl.textContent = `Παραστατικά: 0 | Σύνολο καθαρής αξίας: ${money(0)} | Σύνολο εξόδων: ${money(0)} | Σύνολο ΦΠΑ: ${money(0)} | Σύνολο: ${money(0)}`;
+      window.bvRenderFooterSummary?.(summaryEl, [
+        { label: 'Παραστατικά', value: '0' },
+        { label: 'Καθαρή αξία', value: money(0) },
+        { label: 'Έξοδα', value: money(0) },
+        { label: 'ΦΠΑ', value: money(0) },
+        { label: 'Σύνολο', value: money(0), tone: 'total' },
+      ]);
       rangeEl.textContent = 'Εμφάνιση 0 από 0';
       pageInfoEl.textContent = '1 / 1';
     }

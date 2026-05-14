@@ -130,6 +130,98 @@
   .branch-month-delta-up { color: #16a34a; }
   .branch-month-delta-down { color: #dc2626; }
   .branch-month-delta-neutral { color: #64748b; }
+  .executive-kpi-popup .modal-dialog {
+    max-width: 980px;
+  }
+  .executive-kpi-detail-table tbody td {
+    vertical-align: middle;
+  }
+  .executive-kpi-view-switch {
+    display: inline-flex;
+    gap: 4px;
+    padding: 4px;
+    border: 1px solid #dbeafe;
+    border-radius: 10px;
+    background: #f8fbff;
+  }
+  .executive-kpi-view-switch button {
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: #475569;
+    font-size: .78rem;
+    font-weight: 800;
+    padding: 7px 12px;
+  }
+  .executive-kpi-view-switch button.active {
+    background: #4f46e5;
+    color: #fff;
+    box-shadow: 0 6px 16px rgba(79,70,229,.18);
+  }
+  .executive-kpi-diagnosis-title {
+    font-size: .78rem;
+    font-weight: 800;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    color: #64748b;
+    margin-bottom: 8px;
+  }
+  .executive-kpi-branch-grid {
+    display: grid;
+    gap: 8px;
+  }
+  .executive-kpi-branch-row {
+    display: grid;
+    grid-template-columns: minmax(160px, 1.4fr) repeat(3, minmax(100px, 1fr)) minmax(150px, 1.2fr);
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    background: #fff;
+  }
+  .executive-kpi-branch-name {
+    font-weight: 800;
+    color: #0f172a;
+  }
+  .executive-kpi-branch-label {
+    font-size: .68rem;
+    font-weight: 800;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    color: #64748b;
+  }
+  .executive-kpi-branch-value {
+    font-weight: 800;
+    color: #0f172a;
+    font-variant-numeric: tabular-nums;
+  }
+  .executive-kpi-branch-impact {
+    font-size: .76rem;
+    color: #64748b;
+    font-weight: 700;
+  }
+  .executive-kpi-delta-up {
+    color: #16a34a;
+    font-weight: 800;
+  }
+  .executive-kpi-delta-down {
+    color: #dc2626;
+    font-weight: 800;
+  }
+  .executive-kpi-delta-neutral {
+    color: #64748b;
+    font-weight: 800;
+  }
+  @media (max-width: 768px) {
+    .executive-kpi-branch-row {
+      grid-template-columns: 1fr 1fr;
+    }
+    .executive-kpi-branch-row > div:first-child,
+    .executive-kpi-branch-row > div:last-child {
+      grid-column: 1 / -1;
+    }
+  }
   .bv-nav-tile {
     min-height: 90px;
     transition: transform .12s ease, box-shadow .12s ease;
@@ -272,100 +364,152 @@
   <div id="companyOverviewBody" class="card-body">
     <div class="row g-2">
       <div class="col-6 col-sm-6 col-xl-3">
-        <div class="bv-metric-card" style="--mc-color:#3b82f6" data-kpi-what="Συνολική καθαρή αξία πωλήσεων για το επιλεγμένο διάστημα και τα φίλτρα." data-kpi-formula="Πωλήσεις Περιόδου = άθροισμα net_value όλων των παραστατικών που έχουν χαρακτηριστεί ως Έσοδα, στο [Από, Έως].">
+        <div class="bv-metric-card" style="--mc-color:#3b82f6" data-executive-card="total_sales_period" data-kpi-what="Συνολική καθαρή αξία πωλήσεων για το επιλεγμένο διάστημα και τα φίλτρα." data-kpi-formula="Πωλήσεις Περιόδου = άθροισμα net_value όλων των παραστατικών που έχουν χαρακτηριστεί ως Έσοδα, στο [Από, Έως].">
           <div class="mc-icon"><i class="fe fe-shopping-bag"></i></div>
           <div class="mc-label">Πωλήσεις περιόδου</div>
           <div id="kpiTotalSalesPeriod" class="mc-value">—</div>
           <div class="mc-meta">Από κύκλωμα Πωλήσεων</div>
+          <div id="kpiTotalSalesPeriodDelta" class="mc-delta mc-delta-neutral">—</div>
         </div>
       </div>
       <div class="col-6 col-sm-6 col-xl-3">
-        <div class="bv-metric-card" style="--mc-color:#f97316" data-kpi-what="Συνολική αξία αγορών/κόστους για το επιλεγμένο διάστημα και τα φίλτρα." data-kpi-formula="Αγορές Περιόδου = άθροισμα cost_amount ή net_value όλων των παραστατικών που έχουν χαρακτηριστεί ως Αγορές, στο [Από, Έως].">
+        <div class="bv-metric-card" style="--mc-color:#f97316" data-executive-card="purchases_period" data-kpi-what="Συνολική αξία αγορών/κόστους για το επιλεγμένο διάστημα και τα φίλτρα." data-kpi-formula="Αγορές Περιόδου = άθροισμα cost_amount ή net_value όλων των παραστατικών που έχουν χαρακτηριστεί ως Αγορές, στο [Από, Έως].">
           <div class="mc-icon"><i class="fe fe-shopping-cart"></i></div>
           <div class="mc-label">Αγορές περιόδου</div>
           <div id="kpiTotalPurchasesPeriod" class="mc-value">—</div>
           <div class="mc-meta">Από κύκλωμα Αγορών</div>
+          <div id="kpiTotalPurchasesPeriodDelta" class="mc-delta mc-delta-neutral">—</div>
         </div>
       </div>
       <div class="col-6 col-sm-6 col-xl-3">
-        <div class="bv-metric-card" style="--mc-color:#22c55e" data-kpi-what="Το αποτέλεσμα πωλήσεων μείον αγορές για το επιλεγμένο διάστημα." data-kpi-formula="Μικτό Κέρδος Περιόδου = Πωλήσεις Περιόδου - Αγορές Περιόδου.">
+        <div class="bv-metric-card" style="--mc-color:#22c55e" data-executive-card="gross_profit_period" data-kpi-what="Το αποτέλεσμα πωλήσεων μείον αγορές για το επιλεγμένο διάστημα." data-kpi-formula="Μικτό Κέρδος Περιόδου = Πωλήσεις Περιόδου - Αγορές Περιόδου.">
           <div class="mc-icon"><i class="fe fe-award"></i></div>
           <div class="mc-label">Μικτό Κέρδος περιόδου</div>
           <div id="kpiGrossProfitPeriod" class="mc-value">—</div>
           <div class="mc-meta">Πωλήσεις - κόστος</div>
+          <div id="kpiGrossProfitPeriodDelta" class="mc-delta mc-delta-neutral">—</div>
         </div>
       </div>
       <div class="col-6 col-sm-6 col-xl-3">
-        <div class="bv-metric-card" style="--mc-color:#8b5cf6" data-kpi-what="Ποσοστό κερδοφορίας σε σχέση με τις πωλήσεις της ίδιας περιόδου." data-kpi-formula="Μέσο Περιθώριο % = ((Πωλήσεις Περιόδου - Αγορές Περιόδου) / Πωλήσεις Περιόδου) * 100.">
+        <div class="bv-metric-card" style="--mc-color:#8b5cf6" data-executive-card="margin_pct_period" data-kpi-what="Ποσοστό κερδοφορίας σε σχέση με τις πωλήσεις της ίδιας περιόδου." data-kpi-formula="Μέσο Περιθώριο % = ((Πωλήσεις Περιόδου - Αγορές Περιόδου) / Πωλήσεις Περιόδου) * 100.">
           <div class="mc-icon"><i class="fe fe-percent"></i></div>
           <div class="mc-label">Μέσο Περιθώριο %</div>
           <div id="kpiMarginPctPeriod" class="mc-value">—</div>
           <div class="mc-meta">Κερδοφορία εταιρείας</div>
+          <div id="kpiMarginPctPeriodDelta" class="mc-delta mc-delta-neutral">—</div>
         </div>
       </div>
       <div class="col-6 col-sm-6 col-xl-3">
-        <div class="bv-metric-card" style="--mc-color:#06b6d4" data-kpi-what="Δείχνει πόσο βαριές είναι οι αγορές σε σχέση με τις πωλήσεις." data-kpi-formula="Ρυθμός Αγορών / Πωλήσεων = (Αγορές Περιόδου / Πωλήσεις Περιόδου) * 100.">
+        <div class="bv-metric-card" style="--mc-color:#06b6d4" data-executive-card="purchases_to_sales" data-kpi-what="Δείχνει πόσο βαριές είναι οι αγορές σε σχέση με τις πωλήσεις." data-kpi-formula="Ρυθμός Αγορών / Πωλήσεων = (Αγορές Περιόδου / Πωλήσεις Περιόδου) * 100.">
           <div class="mc-icon"><i class="fe fe-repeat"></i></div>
           <div class="mc-label">Ρυθμός αγορών/πωλ.</div>
           <div id="kpiPurchasesToSales" class="mc-value">—</div>
           <div class="mc-meta">Κόστος ανεφοδιασμού</div>
+          <div id="kpiPurchasesToSalesDelta" class="mc-delta mc-delta-neutral">—</div>
         </div>
       </div>
       <div class="col-6 col-sm-6 col-xl-3">
-        <div class="bv-metric-card" style="--mc-color:#3b82f6" data-kpi-what="Πόσα υποκαταστήματα έχουν θετικό τζίρο στο έτος μέχρι σήμερα." data-kpi-formula="Ενεργά Υποκαταστήματα = count(υποκατάστημα) όπου Τζίρος Έτους YTD > 0.">
+        <div class="bv-metric-card" style="--mc-color:#3b82f6" data-executive-card="active_branches" data-kpi-what="Πόσα υποκαταστήματα έχουν θετικό τζίρο στο έτος μέχρι σήμερα." data-kpi-formula="Ενεργά Υποκαταστήματα = count(υποκατάστημα) όπου Τζίρος Έτους YTD > 0.">
           <div class="mc-icon"><i class="fe fe-home"></i></div>
           <div class="mc-label">Ενεργά υποκαταστήματα</div>
           <div id="kpiActiveBranches" class="mc-value">—</div>
           <div class="mc-meta">Με θετικό τζίρο στο έτος</div>
+          <div id="kpiActiveBranchesDelta" class="mc-delta mc-delta-neutral">—</div>
         </div>
       </div>
       <div class="col-6 col-sm-6 col-xl-3">
-        <div class="bv-metric-card" style="--mc-color:#8b5cf6" data-kpi-what="Το ποσοστό που συμμετέχει το πιο δυνατό υποκατάστημα στον συνολικό ετήσιο τζίρο." data-kpi-formula="Συγκέντρωση Κορυφαίου Καταστήματος = (μεγαλύτερος τζίρος υποκαταστήματος YTD / συνολικός τζίρος YTD) * 100.">
+        <div class="bv-metric-card" style="--mc-color:#8b5cf6" data-executive-card="top_branch_share" data-kpi-what="Το ποσοστό που συμμετέχει το πιο δυνατό υποκατάστημα στον συνολικό ετήσιο τζίρο." data-kpi-formula="Συγκέντρωση Κορυφαίου Καταστήματος = (μεγαλύτερος τζίρος υποκαταστήματος YTD / συνολικός τζίρος YTD) * 100.">
           <div class="mc-icon"><i class="fe fe-pie-chart"></i></div>
           <div class="mc-label">Κορυφαίο κατάστημα</div>
           <div id="kpiTopBranchShare" class="mc-value">—</div>
-          <div class="mc-meta">#1 κατάστημα τζίρου</div>
+          <div id="kpiTopBranchName" class="mc-meta">#1 κατάστημα τζίρου</div>
+          <div id="kpiTopBranchShareDelta" class="mc-delta mc-delta-neutral">—</div>
         </div>
       </div>
       <div class="col-6 col-sm-6 col-xl-3">
-        <div class="bv-metric-card" style="--mc-color:#22c55e" data-kpi-what="Μέσος καθαρός τζίρος ανά ημέρα στο διάστημα που έχεις επιλέξει." data-kpi-formula="Μέσος Ημερήσιος Τζίρος = Πωλήσεις Περιόδου / πλήθος ημερών από το 'Από' έως το 'Έως'.">
+        <div class="bv-metric-card" style="--mc-color:#22c55e" data-executive-card="avg_daily_turnover" data-kpi-what="Μέσος καθαρός τζίρος ανά ημέρα στο διάστημα που έχεις επιλέξει." data-kpi-formula="Μέσος Ημερήσιος Τζίρος = Πωλήσεις Περιόδου / πλήθος ημερών από το 'Από' έως το 'Έως'.">
           <div class="mc-icon"><i class="fe fe-activity"></i></div>
           <div class="mc-label">Μέσος ημερήσιος τζίρος</div>
           <div id="kpiAvgDailyTurnover" class="mc-value">—</div>
           <div class="mc-meta">Για το επιλεγμένο διάστημα</div>
+          <div id="kpiAvgDailyTurnoverDelta" class="mc-delta mc-delta-neutral">—</div>
         </div>
       </div>
       <div class="col-6 col-sm-6 col-xl-3">
-        <div class="bv-metric-card" style="--mc-color:#ef4444" data-kpi-what="Μικτό αποτέλεσμα από την αρχή του έτους μέχρι την ημερομηνία αναφοράς." data-kpi-formula="Μικτό Κέρδος Έτους = Τζίρος Τρέχοντος Έτους YTD - Αγορές Τρέχοντος Έτους YTD.">
+        <div class="bv-metric-card" style="--mc-color:#ef4444" data-executive-card="gross_profit_year" data-kpi-what="Μικτό αποτέλεσμα από την αρχή του έτους μέχρι την ημερομηνία αναφοράς." data-kpi-formula="Μικτό Κέρδος Έτους = Τζίρος Τρέχοντος Έτους YTD - Αγορές Τρέχοντος Έτους YTD.">
           <div class="mc-icon"><i class="fe fe-dollar-sign"></i></div>
           <div class="mc-label">Μικτό Κέρδος έτους</div>
           <div id="kpiGrossProfitYear" class="mc-value">—</div>
           <div class="mc-meta">Από αρχή έτους έως σήμερα</div>
+          <div id="kpiGrossProfitYearDelta" class="mc-delta mc-delta-neutral">—</div>
         </div>
       </div>
       <div class="col-6 col-sm-6 col-xl-3">
-        <div class="bv-metric-card" style="--mc-color:#f97316" data-kpi-what="Συνολικές μονάδες πώλησης που γράφτηκαν μέσα στον τρέχοντα μήνα." data-kpi-formula="Ποσότητα Μήνα = άθροισμα qty όλων των παραστατικών εσόδου από 1η μήνα έως ημερομηνία 'Έως'.">
+        <div class="bv-metric-card" style="--mc-color:#f97316" data-executive-card="month_qty" data-kpi-what="Συνολικές μονάδες πώλησης που γράφτηκαν μέσα στον τρέχοντα μήνα." data-kpi-formula="Ποσότητα Μήνα = άθροισμα qty όλων των παραστατικών εσόδου από 1η μήνα έως ημερομηνία 'Έως'.">
           <div class="mc-icon"><i class="fe fe-package"></i></div>
           <div class="mc-label">Ποσότητα μήνα</div>
           <div id="kpiMonthQty" class="mc-value">—</div>
           <div class="mc-meta">Συνολικές μονάδες πωλήσεων</div>
+          <div id="kpiMonthQtyDelta" class="mc-delta mc-delta-neutral">—</div>
         </div>
       </div>
       <div class="col-xl-3 col-sm-6">
-        <div class="bv-metric-card" style="--mc-color:#ef4444" data-kpi-what="Συνολική καθαρή αξία πωλήσεων για ολόκληρο το προηγούμενο έτος." data-kpi-formula="Τζίρος Προηγ. Έτους Full = άθροισμα net_value όλων των παραστατικών εσόδου από 01/01 έως 31/12 του προηγούμενου έτους.">
+        <div class="bv-metric-card" style="--mc-color:#ef4444" data-executive-card="prev_year_full" data-kpi-what="Συνολική καθαρή αξία πωλήσεων για ολόκληρο το προηγούμενο έτος." data-kpi-formula="Τζίρος Προηγ. Έτους Full = άθροισμα net_value όλων των παραστατικών εσόδου από 01/01 έως 31/12 του προηγούμενου έτους.">
           <div class="mc-icon"><i class="fe fe-calendar"></i></div>
           <div class="mc-label">Τζίρος <span id="kpiPrevYearFullLabel">{{ default_to.year - 1 }}</span> (FULL YEAR)</div>
           <div id="kpiPrevYearFull" class="mc-value">—</div>
           <div id="kpiPrevYearFullRange" class="mc-meta">-</div>
+          <div id="kpiPrevYearFullDelta" class="mc-delta mc-delta-neutral">—</div>
         </div>
       </div>
       <div class="col-xl-3 col-sm-6">
-        <div class="bv-metric-card" style="--mc-color:#3b82f6" data-kpi-what="Συγκρίνει πόσο έχει φτάσει ο φετινός τζίρος μέχρι σήμερα απέναντι σε όλο το προηγούμενο έτος." data-kpi-formula="Τζίρος YTD vs Full = Τζίρος Τρέχοντος Έτους YTD. Σύγκριση = ((Τζίρος Τρέχοντος Έτους YTD - Τζίρος Προηγ. Έτους Full) / Τζίρος Προηγ. Έτους Full) * 100.">
+        <div class="bv-metric-card" style="--mc-color:#3b82f6" data-executive-card="year_to_date_full_cmp" data-kpi-what="Συγκρίνει πόσο έχει φτάσει ο φετινός τζίρος μέχρι σήμερα απέναντι σε όλο το προηγούμενο έτος." data-kpi-formula="Τζίρος YTD vs Full = Τζίρος Τρέχοντος Έτους YTD. Σύγκριση = ((Τζίρος Τρέχοντος Έτους YTD - Τζίρος Προηγ. Έτους Full) / Τζίρος Προηγ. Έτους Full) * 100.">
           <div class="mc-icon"><i class="fe fe-flag"></i></div>
           <div class="mc-label">Τζίρος <span id="kpiYearToDateLabel">{{ default_to.year }}</span> (YTD vs FULL)</div>
           <div id="kpiYearToDateFullCmp" class="mc-value">—</div>
           <div id="kpiYearToDateFullCmpDelta" class="mc-meta">-</div>
         </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade bv-modal bv-modal--responsive executive-kpi-popup" id="executiveKpiModal" tabindex="-1" aria-hidden="true" data-bv-modal="true" data-bv-close-on-backdrop="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title" id="executiveKpiModalTitle">KPI</h5>
+          <div class="small text-muted" id="executiveKpiModalSubtitle">Σύγκριση με αντίστοιχη περίοδο</div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="executive-kpi-summary" id="executiveKpiSummary"></div>
+        <div class="executive-kpi-brief" id="executiveKpiBrief">-</div>
+        <div class="d-flex justify-content-end mb-2">
+          <div class="executive-kpi-view-switch" id="executiveKpiViewSwitch" role="group" aria-label="Επιλογή ανάλυσης KPI">
+            <button type="button" data-kpi-view="diagnosis" class="active">Διάγνωση</button>
+            <button type="button" data-kpi-view="monthly">Ανά μήνα</button>
+          </div>
+        </div>
+        <div class="table-responsive">
+          <table class="table executive-kpi-detail-table mb-0">
+            <thead>
+              <tr>
+                <th>Μέτρηση</th>
+                <th class="text-end">Τρέχον</th>
+                <th class="text-end">Πέρσι</th>
+                <th class="text-end">Δ</th>
+              </tr>
+            </thead>
+            <tbody id="executiveKpiRows"></tbody>
+          </table>
+        </div>
+        <div id="executiveKpiDiagnosis" class="executive-kpi-diagnosis mt-3"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Κλείσιμο</button>
       </div>
     </div>
   </div>
@@ -518,15 +662,15 @@
 <!-- Weekly Modal -->
 <div class="modal fade bv-modal bv-modal--responsive" id="weeklyModal" tabindex="-1" aria-hidden="true" data-bv-modal="true" data-bv-close-on-backdrop="true">
   <div class="modal-dialog modal-dialog-centered modal-xl">
-    <div class="modal-content" style="border-radius:14px;border:none;box-shadow:0 24px 64px rgba(15,23,42,.18);">
-      <div class="modal-header" style="border-bottom:1px solid #f1f5f9;padding:1rem 1.5rem .75rem;">
+    <div class="modal-content">
+      <div class="modal-header">
         <div>
-          <h6 class="modal-title fw-bold mb-0" style="font-size:1rem;color:#0f172a;">Ημερήσια Εξέλιξη Τζίρου Εβδομάδας</h6>
+          <h6 class="modal-title fw-bold mb-0">Ημερήσια Εξέλιξη Τζίρου Εβδομάδας</h6>
           <div id="weeklySubtitle" style="font-size:.78rem;color:#64748b;"></div>
         </div>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
-      <div class="modal-body" style="padding:1.25rem 1.5rem;">
+      <div class="modal-body">
         <div id="weeklyLoading" class="text-center py-4" style="color:#64748b;font-size:.875rem;">
           <div class="spinner-border spinner-border-sm me-2" role="status"></div>Φόρτωση δεδομένων...
         </div>
@@ -544,15 +688,15 @@
 <!-- YTD Monthly Modal -->
 <div class="modal fade bv-modal bv-modal--responsive" id="ytdModal" tabindex="-1" aria-hidden="true" data-bv-modal="true" data-bv-close-on-backdrop="true">
   <div class="modal-dialog modal-dialog-centered modal-xl">
-    <div class="modal-content" style="border-radius:14px;border:none;box-shadow:0 24px 64px rgba(15,23,42,.18);">
-      <div class="modal-header" style="border-bottom:1px solid #f1f5f9;padding:1rem 1.5rem .75rem;">
+    <div class="modal-content">
+      <div class="modal-header">
         <div>
-          <h6 class="modal-title fw-bold mb-0" id="ytdModalTitle" style="font-size:1rem;color:#0f172a;">Μηνιαία Εξέλιξη Τζίρου</h6>
+          <h6 class="modal-title fw-bold mb-0" id="ytdModalTitle">Μηνιαία Εξέλιξη Τζίρου</h6>
           <div id="ytdSubtitle" style="font-size:.78rem;color:#64748b;"></div>
         </div>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
-      <div class="modal-body" style="padding:1.25rem 1.5rem;">
+      <div class="modal-body">
         <div id="ytdLoading" class="text-center py-4" style="color:#64748b;font-size:.875rem;">
           <div class="spinner-border spinner-border-sm me-2" role="status"></div>Φόρτωση δεδομένων...
         </div>
@@ -570,15 +714,15 @@
 <!-- Monthly (weekly breakdown) Modal -->
 <div class="modal fade bv-modal bv-modal--responsive" id="monthlyModal" tabindex="-1" aria-hidden="true" data-bv-modal="true" data-bv-close-on-backdrop="true">
   <div class="modal-dialog modal-dialog-centered modal-xl">
-    <div class="modal-content" style="border-radius:14px;border:none;box-shadow:0 24px 64px rgba(15,23,42,.18);">
-      <div class="modal-header" style="border-bottom:1px solid #f1f5f9;padding:1rem 1.5rem .75rem;">
+    <div class="modal-content">
+      <div class="modal-header">
         <div>
-          <h6 class="modal-title fw-bold mb-0" style="font-size:1rem;color:#0f172a;">Εβδομαδιαία Εξέλιξη Τζίρου Μήνα</h6>
+          <h6 class="modal-title fw-bold mb-0">Εβδομαδιαία Εξέλιξη Τζίρου Μήνα</h6>
           <div id="monthlySubtitle" style="font-size:.78rem;color:#64748b;"></div>
         </div>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
-      <div class="modal-body" style="padding:1.25rem 1.5rem;">
+      <div class="modal-body">
         <div id="monthlyLoading" class="text-center py-4" style="color:#64748b;font-size:.875rem;">
           <div class="spinner-border spinner-border-sm me-2" role="status"></div>Φόρτωση δεδομένων...
         </div>
@@ -596,15 +740,15 @@
 <!-- Intraday Modal -->
 <div class="modal fade bv-modal bv-modal--responsive" id="intradayModal" tabindex="-1" aria-hidden="true" data-bv-modal="true" data-bv-close-on-backdrop="true">
   <div class="modal-dialog modal-dialog-centered modal-xl">
-    <div class="modal-content" style="border-radius:14px;border:none;box-shadow:0 24px 64px rgba(15,23,42,.18);">
-      <div class="modal-header" style="border-bottom:1px solid #f1f5f9;padding:1rem 1.5rem .75rem;">
+    <div class="modal-content">
+      <div class="modal-header">
         <div>
-          <h6 class="modal-title fw-bold mb-0" style="font-size:1rem;color:#0f172a;">Ενδοημερήσια Εξέλιξη Τζίρου</h6>
+          <h6 class="modal-title fw-bold mb-0">Ενδοημερήσια Εξέλιξη Τζίρου</h6>
           <div id="intradaySubtitle" style="font-size:.78rem;color:#64748b;"></div>
         </div>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
-      <div class="modal-body" style="padding:1.25rem 1.5rem;">
+      <div class="modal-body">
         <div id="intradayLoading" class="text-center py-4" style="color:#64748b;font-size:.875rem;">
           <div class="spinner-border spinner-border-sm me-2" role="status"></div>Φόρτωση δεδομένων...
         </div>
@@ -623,6 +767,8 @@
 let companyTrendChart, yearByBranchDonut;
 const branchDonutCharts = {};
 let dashboardReloadToken = 0;
+let executiveKpiDetails = {};
+let executiveKpiViewMode = 'diagnosis';
 const centralFieldDefs = [
   {key:'branches', selectId:'centralBranches', label:'{{ tt(request, "branches") }}'},
 ];
@@ -758,99 +904,15 @@ function filtersToParams(fromOverride=null, toOverride=null){
 }
 
 function syncCentralMultiUI(prefix, label, filterText=''){
-  const select=document.getElementById(`${prefix}`);
-  const optionsWrap=document.getElementById(`${prefix}Options`);
-  const chips=document.getElementById(`${prefix}Chips`);
-  const toggle=document.getElementById(`${prefix}Toggle`);
-  if(!select || !optionsWrap || !chips || !toggle) return;
-
-  const selected = Array.from(select.options).filter(o=>o.selected).map(o=>o.value);
-  const normalized = (filterText||'').toLowerCase().trim();
-
-  optionsWrap.innerHTML='';
-  Array.from(select.options)
-    .filter(o=>{
-      const display=(o.dataset.label||o.textContent||o.value).toLowerCase();
-      return !normalized || o.value.toLowerCase().includes(normalized) || display.includes(normalized);
-    })
-    .forEach(o=>{
-      const row=document.createElement('label');
-      row.className='bv-multi-opt';
-      const cb=document.createElement('input');
-      cb.type='checkbox';
-      cb.checked=o.selected;
-      cb.addEventListener('change', ()=>{
-        o.selected=cb.checked;
-        syncCentralMultiUI(prefix, label, document.getElementById(`${prefix}Search`)?.value||'');
-      });
-      const span=document.createElement('span');
-      span.textContent=o.textContent || o.value;
-      row.appendChild(cb);
-      row.appendChild(span);
-      optionsWrap.appendChild(row);
-    });
-
-  if(!optionsWrap.children.length){
-    const empty=document.createElement('div');
-    empty.className='bv-multi-empty';
-    empty.textContent='Δεν υπάρχουν διαθέσιμες επιλογές';
-    optionsWrap.appendChild(empty);
-  }
-
-  chips.innerHTML='';
-  selected.forEach(v=>{
-    const chip=document.createElement('span');
-    chip.className='bv-chip';
-    const opt = Array.from(select.options).find(o=>o.value===v);
-    chip.textContent=(opt && opt.textContent) ? opt.textContent : v;
-    chips.appendChild(chip);
-  });
-  toggle.textContent = selected.length ? `${label} (${selected.length})` : 'Επιλογή';
+  BvMultiSelect.sync(prefix, { label, filterText });
 }
 
 function initCentralMulti(prefix, label){
-  const toggle=document.getElementById(`${prefix}Toggle`);
-  const menu=document.getElementById(`${prefix}Menu`);
-  const search=document.getElementById(`${prefix}Search`);
-  const btnAll=document.getElementById(`${prefix}All`);
-  const btnClear=document.getElementById(`${prefix}Clear`);
-  const select=document.getElementById(`${prefix}`);
-  if(!toggle || !menu || !search || !btnAll || !btnClear || !select || toggle.dataset.bound==='1') return;
-  toggle.dataset.bound='1';
-
-  toggle.addEventListener('click', ()=>{menu.hidden=!menu.hidden;});
-  search.addEventListener('input', ()=>syncCentralMultiUI(prefix, label, search.value));
-  btnAll.addEventListener('click', ()=>{
-    Array.from(select.options).forEach(o=>o.selected=true);
-    syncCentralMultiUI(prefix, label, search.value);
-  });
-  btnClear.addEventListener('click', ()=>{
-    Array.from(select.options).forEach(o=>o.selected=false);
-    syncCentralMultiUI(prefix, label, search.value);
-  });
-  document.addEventListener('click', (e)=>{
-    if(!document.getElementById(`${prefix}Multi`)?.contains(e.target)) menu.hidden=true;
-  });
+  BvMultiSelect.bind(prefix, { label });
 }
 
 function populateCentralSelect(prefix, label, values, labels={}){
-  const select=document.getElementById(prefix);
-  if(!select) return;
-  const prev = new Set(Array.from(select.selectedOptions || []).map(o=>o.value));
-  select.innerHTML='';
-  const ordered = [...(values || [])].sort((a,b)=>
-    String(labels[a] || a).localeCompare(String(labels[b] || b), 'el', { sensitivity:'base' })
-  );
-  ordered.forEach(v=>{
-    const opt=document.createElement('option');
-    opt.value=v;
-    const txt = labels[v] ? `${labels[v]}` : v;
-    opt.textContent=txt;
-    opt.dataset.label = labels[v] || v;
-    if(prev.has(v)) opt.selected=true;
-    select.appendChild(opt);
-  });
-  syncCentralMultiUI(prefix, label, document.getElementById(`${prefix}Search`)?.value||'');
+  BvMultiSelect.populate(prefix, values, labels, { label });
 }
 
 async function loadCentralFilterOptions(){
@@ -1033,8 +1095,727 @@ async function fetchJsonStrict(url){
   return res.json();
 }
 
+function ratioPct(current, previous){
+  const prev = toNum(previous);
+  if(Math.abs(prev) < 0.000001) return null;
+  return ((toNum(current) - prev) / Math.abs(prev)) * 100;
+}
+
+function deltaMeta(current, previous, options = {}){
+  const currentValue = toNum(current);
+  const previousValue = toNum(previous);
+  const amount = currentValue - previousValue;
+  const percent = ratioPct(currentValue, previousValue);
+  const unit = options.unit || 'money';
+  const pp = options.pp === true;
+  const better = options.lowerIsBetter ? amount <= 0 : amount >= 0;
+  const direction = Math.abs(amount) < 0.000001 ? 'neutral' : (better ? 'up' : 'down');
+  const amountText = pp ? `${amount >= 0 ? '+' : ''}${fmt2.format(amount)} μ.β.`
+    : unit === 'pct' ? `${amount >= 0 ? '+' : ''}${pct(amount)}`
+    : unit === 'count' ? `${amount >= 0 ? '+' : ''}${fmt0.format(Math.round(amount))}`
+    : `${amount >= 0 ? '+' : ''}${money(amount)}`;
+  const pctText = percent === null ? '' : ` | ${percent >= 0 ? '+' : ''}${pct(percent)}`;
+  return { amount, percent, direction, text: `Δ ${amountText}${pctText}` };
+}
+
+function setDelta(id, meta){
+  const el = document.getElementById(id);
+  if(!el || !meta) return;
+  el.textContent = meta.text || '—';
+  el.classList.remove('mc-delta-up', 'mc-delta-down', 'mc-delta-neutral');
+  el.classList.add(`mc-delta-${meta.direction || 'neutral'}`);
+}
+
+function comparisonBrief(label, meta, lowerIsBetter){
+  if(!meta) return 'Δεν υπάρχει διαθέσιμη περσινή βάση για ασφαλή σύγκριση.';
+  if(meta.direction === 'neutral') return `${label}: πρακτικά σταθερό απέναντι στην περσινή αντίστοιχη περίοδο.`;
+  const positive = meta.direction === 'up';
+  if(lowerIsBetter) {
+    return positive
+      ? `${label}: βελτίωση, γιατί ο δείκτης είναι χαμηλότερος από την περσινή αντίστοιχη περίοδο.`
+      : `${label}: επιβάρυνση, γιατί ο δείκτης ανέβηκε σε σχέση με την περσινή αντίστοιχη περίοδο.`;
+  }
+  return positive
+    ? `${label}: καλύτερη επίδοση από την περσινή αντίστοιχη περίοδο.`
+    : `${label}: υστέρηση σε σχέση με την περσινή αντίστοιχη περίοδο, αξίζει διερεύνηση ανά κύκλωμα/κατάστημα.`;
+}
+
+function canonicalBranchCode(row){
+  const raw = String(row?.branch_code || row?.branch_ext_id || row?.branch || 'N/A');
+  const first = raw.split(',')[0].trim();
+  const code = first.includes(':') ? first.split(':').pop().trim() : first;
+  return code || first || 'N/A';
+}
+
+function branchDisplayName(row){
+  const code = canonicalBranchCode(row);
+  const known = {
+    '1000': 'Εδρα',
+    '1001': 'Μαρίνου Αντύπα',
+    '1002': 'Κηφισιά Κασσαβέτη',
+    '1003': 'Ελληνικό',
+    '2000': 'Σπάτα',
+    '8000': 'Περιστέρι',
+  };
+  if(known[code]) return known[code];
+  return String(row?.branch || row?.branch_name || row?.branch_code || 'N/A');
+}
+
+function branchComparisonRows(currentRows, previousRows, totalDelta){
+  const byKey = new Map();
+  const addRows = (rows, field) => {
+    (Array.isArray(rows) ? rows : []).forEach((row) => {
+      const key = canonicalBranchCode(row);
+      const bucket = byKey.get(key) || {
+        branch: branchDisplayName(row),
+        branch_code: key,
+        current: 0,
+        previous: 0,
+      };
+      bucket.branch = branchDisplayName(row);
+      bucket[field] += toNum(row.net_value);
+      byKey.set(key, bucket);
+    });
+  };
+  addRows(currentRows, 'current');
+  addRows(previousRows, 'previous');
+  return Array.from(byKey.values()).map((row) => {
+    const delta = row.current - row.previous;
+    return {
+      ...row,
+      delta,
+      deltaPct: row.previous > 0 ? (delta / row.previous) * 100 : null,
+      impactPct: totalDelta !== 0 ? (delta / Math.abs(totalDelta)) * 100 : 0,
+    };
+  }).sort((a, b) => a.delta - b.delta);
+}
+
+function kpiDetailRow(label, current, previous, format, options = {}){
+  const meta = deltaMeta(current, previous, {
+    unit: options.unit,
+    pp: options.pp,
+    lowerIsBetter: options.lowerIsBetter,
+  });
+  return {
+    label,
+    current,
+    previous,
+    format,
+    deltaText: options.deltaText || meta.text,
+    hint: options.hint || '',
+    direction: options.direction || meta.direction || 'neutral',
+  };
+}
+
+function kpiShareRow(label, numerator, denominator, previousNumerator, previousDenominator, options = {}){
+  const current = denominator ? (numerator / denominator) * 100 : 0;
+  const previous = previousDenominator ? (previousNumerator / previousDenominator) * 100 : 0;
+  return kpiDetailRow(label, current, previous, 'pct', {
+    pp: true,
+    lowerIsBetter: options.lowerIsBetter,
+    hint: options.hint,
+  });
+}
+
+function monthKeyFromIso(iso){
+  return String(iso || '').slice(5, 7);
+}
+
+function monthLabelFromIso(iso){
+  const d = parseISOToDate(String(iso || '').slice(0, 10));
+  if(!d) return String(iso || 'Μήνας');
+  return d.toLocaleDateString('el-GR', { month: 'short', year: 'numeric' });
+}
+
+function monthlyMap(rows){
+  const map = new Map();
+  (Array.isArray(rows) ? rows : []).forEach((row) => {
+    const key = monthKeyFromIso(row.month_start);
+    if(key) map.set(key, row);
+  });
+  return map;
+}
+
+function buildMonthlyRows(currentRows, previousRows, valueGetter, format, options = {}){
+  const prevMap = monthlyMap(previousRows);
+  return (Array.isArray(currentRows) ? currentRows : []).map((row) => {
+    const prev = prevMap.get(monthKeyFromIso(row.month_start)) || {};
+    const current = valueGetter(row, prev, 'current');
+    const previous = valueGetter(prev, row, 'previous');
+    return kpiDetailRow(monthLabelFromIso(row.month_start), current, previous, format, {
+      unit: options.unit,
+      pp: options.pp,
+      lowerIsBetter: options.lowerIsBetter,
+      hint: options.hint || 'Μηνιαία σύγκριση με τον αντίστοιχο περσινό μήνα.',
+    });
+  });
+}
+
+function isEshopWarehouse(row){
+  const code = String(row?.warehouse_ext_id || row?.warehouse || '').trim();
+  const name = String(row?.warehouse || '').toLowerCase();
+  return ['1001', '1004', '1007', '1010', '2001', '3000', '8001'].includes(code)
+    || name.includes('eshop')
+    || name.includes('e-shop')
+    || name.includes('logika')
+    || name.includes('in transit');
+}
+
+function buildExecutiveKpiDetails(executive, selectedFromDate, anchorDate){
+  const cards = executive?.cards || {};
+  const anchors = executive?.anchors || {};
+  const branchBreakdown = executive?.branch_breakdown || {};
+  const trend = executive?.trend || {};
+  const salesMonthly = Array.isArray(trend?.kpi_sales?.rows) ? trend.kpi_sales.rows : [];
+  const salesMonthlyPrev = Array.isArray(trend?.kpi_sales_prev?.rows) ? trend.kpi_sales_prev.rows : [];
+  const purchasesMonthly = Array.isArray(trend?.kpi_purchases?.rows) ? trend.kpi_purchases.rows : [];
+  const purchasesMonthlyPrev = Array.isArray(trend?.kpi_purchases_prev?.rows) ? trend.kpi_purchases_prev.rows : [];
+  const purchasesMonthlyMap = monthlyMap(purchasesMonthly);
+  const purchasesMonthlyPrevMap = monthlyMap(purchasesMonthlyPrev);
+  const salesMonthlyRows = buildMonthlyRows(
+    salesMonthly,
+    salesMonthlyPrev,
+    (row) => toNum(row.net_value),
+    'money',
+    { hint: 'Δείχνει σε ποιον μήνα χάθηκε ή κερδήθηκε τζίρος.' }
+  );
+  const purchasesMonthlyRows = buildMonthlyRows(
+    purchasesMonthly,
+    purchasesMonthlyPrev,
+    (row) => toNum(row.cost_amount || row.net_value),
+    'money',
+    { lowerIsBetter: true, hint: 'Δείχνει σε ποιον μήνα ανέβηκε ή έπεσε το κόστος αγορών.' }
+  );
+  const grossProfitMonthlyRows = buildMonthlyRows(
+    salesMonthly,
+    salesMonthlyPrev,
+    (row, other, side) => {
+      const purchaseRow = side === 'current'
+        ? purchasesMonthlyMap.get(monthKeyFromIso(row.month_start))
+        : purchasesMonthlyPrevMap.get(monthKeyFromIso(row.month_start));
+      return toNum(row.net_value) - toNum(purchaseRow?.cost_amount || purchaseRow?.net_value);
+    },
+    'money',
+    { hint: 'Μηνιαίο μικτό αποτέλεσμα: πωλήσεις μείον αγορές/κόστος.' }
+  );
+  const marginMonthlyRows = buildMonthlyRows(
+    salesMonthly,
+    salesMonthlyPrev,
+    (row, other, side) => {
+      const purchaseRow = side === 'current'
+        ? purchasesMonthlyMap.get(monthKeyFromIso(row.month_start))
+        : purchasesMonthlyPrevMap.get(monthKeyFromIso(row.month_start));
+      const sales = toNum(row.net_value);
+      const purchases = toNum(purchaseRow?.cost_amount || purchaseRow?.net_value);
+      return sales > 0 ? ((sales - purchases) / sales) * 100 : 0;
+    },
+    'pct',
+    { unit: 'pct', pp: true, hint: 'Μηνιαίο περιθώριο για να φανεί πού πιέστηκε η κερδοφορία.' }
+  );
+  const purchasesToSalesMonthlyRows = buildMonthlyRows(
+    salesMonthly,
+    salesMonthlyPrev,
+    (row, other, side) => {
+      const purchaseRow = side === 'current'
+        ? purchasesMonthlyMap.get(monthKeyFromIso(row.month_start))
+        : purchasesMonthlyPrevMap.get(monthKeyFromIso(row.month_start));
+      const sales = toNum(row.net_value);
+      const purchases = toNum(purchaseRow?.cost_amount || purchaseRow?.net_value);
+      return sales > 0 ? (purchases / sales) * 100 : 0;
+    },
+    'pct',
+    { unit: 'pct', pp: true, lowerIsBetter: true, hint: 'Δείχνει σε ποιον μήνα οι αγορές έτρεξαν δυσανάλογα με τις πωλήσεις.' }
+  );
+  const qtyMonthlyRows = buildMonthlyRows(
+    salesMonthly,
+    salesMonthlyPrev,
+    (row) => toNum(row.qty),
+    'count',
+    { unit: 'count', hint: 'Μηνιαίος όγκος πωλήσεων σε τεμάχια/μονάδες.' }
+  );
+  const cmpFrom = anchors.comparison_period_from || dtISO(selectedFromDate);
+  const cmpTo = anchors.comparison_period_to || dtISO(anchorDate);
+  const prevFrom = anchors.prev_period_cmp_from || anchors.prev_period_from || '';
+  const prevTo = anchors.prev_period_cmp_to || anchors.prev_period_to || '';
+  const cmpFromDate = parseISOToDate(cmpFrom) || selectedFromDate;
+  const cmpToDate = parseISOToDate(cmpTo) || anchorDate;
+  const prevFromDate = parseISOToDate(prevFrom) || selectedFromDate;
+  const prevToDate = parseISOToDate(prevTo) || anchorDate;
+  const selectedDays = Math.max(1, Math.floor((cmpToDate - cmpFromDate) / 86400000) + 1);
+  const prevDays = Math.max(1, Math.floor((prevToDate - prevFromDate) / 86400000) + 1);
+
+  const periodSales = toNum((cards.period_sales_cmp || cards.period_sales)?.net_value);
+  const periodSalesPrev = toNum((cards.period_sales_prev_cmp || cards.period_sales_prev)?.net_value);
+  const purchasesPeriod = toNum((cards.purchases_period_cmp || cards.purchases_period)?.net_value || (cards.purchases_period_cmp || cards.purchases_period)?.cost_amount);
+  const purchasesPeriodPrev = toNum((cards.purchases_period_prev_cmp || cards.purchases_period_prev)?.net_value || (cards.purchases_period_prev_cmp || cards.purchases_period_prev)?.cost_amount);
+  const grossProfitPeriod = periodSales - purchasesPeriod;
+  const grossProfitPeriodPrev = periodSalesPrev - purchasesPeriodPrev;
+  const marginPctPeriod = periodSales > 0 ? (grossProfitPeriod / periodSales) * 100 : 0;
+  const marginPctPeriodPrev = periodSalesPrev > 0 ? (grossProfitPeriodPrev / periodSalesPrev) * 100 : 0;
+  const purchasesToSales = periodSales > 0 ? (purchasesPeriod / periodSales) * 100 : 0;
+  const purchasesToSalesPrev = periodSalesPrev > 0 ? (purchasesPeriodPrev / periodSalesPrev) * 100 : 0;
+  const avgDaily = periodSales / selectedDays;
+  const avgDailyPrev = periodSalesPrev / prevDays;
+
+  const yearSales = toNum((cards.year_cmp || cards.year)?.net_value);
+  const prevYearSales = toNum((cards.prev_year_cmp || cards.prev_year)?.net_value);
+  const yearPurchases = toNum((cards.purchases_year_cmp || cards.purchases_year)?.net_value || (cards.purchases_year_cmp || cards.purchases_year)?.cost_amount);
+  const prevYearPurchases = toNum((cards.purchases_prev_year_cmp || cards.purchases_prev_year)?.net_value || (cards.purchases_prev_year_cmp || cards.purchases_prev_year)?.cost_amount);
+  const grossProfitYear = yearSales - yearPurchases;
+  const grossProfitPrevYear = prevYearSales - prevYearPurchases;
+
+  const monthCmp = cards.month_cmp || cards.month || {};
+  const monthPrevCmp = cards.month_prev_year_cmp || cards.month_prev_year || {};
+  const monthQty = toNum(monthCmp.qty || monthCmp.quantity || monthCmp.qty_total);
+  const monthPrevQty = toNum(monthPrevCmp.qty || monthPrevCmp.quantity || monthPrevCmp.qty_total);
+
+  const yearByBranch = Array.isArray(branchBreakdown.year) ? branchBreakdown.year : [];
+  const prevYearByBranch = Array.isArray(branchBreakdown.prev_year) ? branchBreakdown.prev_year : [];
+  const yearByWarehouse = Array.isArray(branchBreakdown.warehouse_year) ? branchBreakdown.warehouse_year : [];
+  const prevYearByWarehouse = Array.isArray(branchBreakdown.warehouse_prev_year) ? branchBreakdown.warehouse_prev_year : [];
+  const activeBranches = yearByBranch.filter(r => toNum(r.net_value) > 0).length;
+  const activeBranchesPrev = prevYearByBranch.filter(r => toNum(r.net_value) > 0).length;
+  const yearTotal = yearByBranch.reduce((s, r) => s + toNum(r.net_value), 0);
+  const prevYearTotal = prevYearByBranch.reduce((s, r) => s + toNum(r.net_value), 0);
+  const topBranch = yearByBranch.reduce((mx, r) => Math.max(mx, toNum(r.net_value)), 0);
+  const prevTopBranch = prevYearByBranch.reduce((mx, r) => Math.max(mx, toNum(r.net_value)), 0);
+  const topShare = yearTotal > 0 ? (topBranch / yearTotal) * 100 : 0;
+  const topSharePrev = prevYearTotal > 0 ? (prevTopBranch / prevYearTotal) * 100 : 0;
+  const prevYearFull = toNum(cards.prev_year_full?.net_value);
+  const prev2YearFull = toNum(cards.prev2_year_full?.net_value);
+  const periodSalesDelta = periodSales - periodSalesPrev;
+  const periodSalesBranchRows = branchComparisonRows(
+    branchBreakdown.period_sales,
+    branchBreakdown.period_sales_prev,
+    periodSalesDelta
+  );
+  const periodSalesRows = periodSalesBranchRows.map((row) => ({
+    label: row.branch,
+    current: row.current,
+    previous: row.previous,
+    format: 'money',
+    deltaText: `Δ ${money(row.delta)}${row.deltaPct === null ? '' : ` | ${row.deltaPct >= 0 ? '+' : ''}${pct(row.deltaPct)}`}`,
+    hint: `${row.delta < 0 ? 'Αρνητική επίδραση' : 'Θετική επίδραση'} ${pct(Math.abs(row.impactPct))} της συνολικής μεταβολής`,
+    direction: row.delta < 0 ? 'down' : (row.delta > 0 ? 'up' : 'neutral'),
+  }));
+  const periodSalesByBranchTotal = periodSalesBranchRows.reduce((sum, row) => sum + row.current, 0);
+  const periodSalesPrevByBranchTotal = periodSalesBranchRows.reduce((sum, row) => sum + row.previous, 0);
+  const topBranchRow = yearByBranch.reduce((best, row) => toNum(row.net_value) > toNum(best?.net_value) ? row : best, null);
+  const prevTopBranchRow = prevYearByBranch.reduce((best, row) => toNum(row.net_value) > toNum(best?.net_value) ? row : best, null);
+  const topWarehouseRow = yearByWarehouse.reduce((best, row) => toNum(row.net_value) > toNum(best?.net_value) ? row : best, null);
+  const prevTopWarehouseRow = prevYearByWarehouse.reduce((best, row) => toNum(row.net_value) > toNum(best?.net_value) ? row : best, null);
+  const eshopWarehouseTotal = yearByWarehouse.filter(isEshopWarehouse).reduce((sum, row) => sum + toNum(row.net_value), 0);
+  const prevEshopWarehouseTotal = prevYearByWarehouse.filter(isEshopWarehouse).reduce((sum, row) => sum + toNum(row.net_value), 0);
+  const eshopWarehouseShare = yearTotal > 0 ? (eshopWarehouseTotal / yearTotal) * 100 : 0;
+  const prevEshopWarehouseShare = prevYearTotal > 0 ? (prevEshopWarehouseTotal / prevYearTotal) * 100 : 0;
+
+  const details = {
+    total_sales_period: {
+      title:'Πωλήσεις περιόδου',
+      current:periodSales,
+      previous:periodSalesPrev,
+      format:'money',
+      delta:deltaMeta(periodSales, periodSalesPrev),
+      subtitle:`Βάση Δ: ${formatDMY(cmpFrom)} - ${formatDMY(cmpTo)} vs ${formatDMY(prevFrom)} - ${formatDMY(prevTo)}`,
+      analysisTitle: 'Ανάλυση ανά κατάστημα',
+      rows: periodSalesRows,
+      monthlyTitle: 'Αναγωγή πωλήσεων ανά μήνα',
+      monthlyRows: salesMonthlyRows,
+    },
+    purchases_period: {
+      title:'Αγορές περιόδου',
+      current:purchasesPeriod,
+      previous:purchasesPeriodPrev,
+      format:'money',
+      lowerIsBetter:true,
+      delta:deltaMeta(purchasesPeriod, purchasesPeriodPrev, {lowerIsBetter:true}),
+      subtitle:`Βάση Δ: ${formatDMY(cmpFrom)} - ${formatDMY(cmpTo)} vs ${formatDMY(prevFrom)} - ${formatDMY(prevTo)}`,
+      analysisTitle: 'Ανάλυση κόστους αγορών',
+      monthlyTitle: 'Αναγωγή αγορών ανά μήνα',
+      monthlyRows: purchasesMonthlyRows,
+      rows: [
+        kpiDetailRow('Αγορές περιόδου', purchasesPeriod, purchasesPeriodPrev, 'money', { lowerIsBetter: true, hint: 'Συνολικό κόστος/αξία αγορών στο επιλεγμένο διάστημα.' }),
+        kpiDetailRow('Πωλήσεις ίδιας περιόδου', periodSales, periodSalesPrev, 'money', { hint: 'Βάση σύγκρισης για να φανεί αν οι αγορές ακολουθούν τον τζίρο.' }),
+        kpiShareRow('Αγορές ως % πωλήσεων', purchasesPeriod, periodSales, purchasesPeriodPrev, periodSalesPrev, { lowerIsBetter: true, hint: 'Όσο χαμηλότερο, τόσο πιο ελαφρύ είναι το κόστος ανεφοδιασμού.' }),
+      ],
+    },
+    gross_profit_period: {
+      title:'Μικτό κέρδος περιόδου',
+      current:grossProfitPeriod,
+      previous:grossProfitPeriodPrev,
+      format:'money',
+      delta:deltaMeta(grossProfitPeriod, grossProfitPeriodPrev),
+      subtitle:`Βάση Δ: ${formatDMY(cmpFrom)} - ${formatDMY(cmpTo)} vs ${formatDMY(prevFrom)} - ${formatDMY(prevTo)}`,
+      analysisTitle: 'Σύνθεση μικτού κέρδους',
+      monthlyTitle: 'Μικτό κέρδος ανά μήνα',
+      monthlyRows: grossProfitMonthlyRows,
+      rows: [
+        kpiDetailRow('Πωλήσεις περιόδου', periodSales, periodSalesPrev, 'money', { hint: 'Πλευρά εσόδων που τροφοδοτεί το μικτό κέρδος.' }),
+        kpiDetailRow('Αγορές / κόστος', purchasesPeriod, purchasesPeriodPrev, 'money', { lowerIsBetter: true, hint: 'Πλευρά κόστους που αφαιρείται από τις πωλήσεις.' }),
+        kpiDetailRow('Μικτό κέρδος', grossProfitPeriod, grossProfitPeriodPrev, 'money', { hint: 'Τελικό αποτέλεσμα: πωλήσεις μείον κόστος.' }),
+        kpiDetailRow('Περιθώριο', marginPctPeriod, marginPctPeriodPrev, 'pct', { unit: 'pct', pp: true, hint: 'Ποιότητα κερδοφορίας, όχι μόνο απόλυτη αξία.' }),
+      ],
+    },
+    margin_pct_period: {
+      title:'Μέσο περιθώριο %',
+      current:marginPctPeriod,
+      previous:marginPctPeriodPrev,
+      format:'pct',
+      delta:deltaMeta(marginPctPeriod, marginPctPeriodPrev, {unit:'pct', pp:true}),
+      subtitle:'Σύγκριση ποσοστιαίων μονάδων με πέρσι',
+      analysisTitle: 'Τι κινεί το περιθώριο',
+      monthlyTitle: 'Περιθώριο ανά μήνα',
+      monthlyRows: marginMonthlyRows,
+      rows: [
+        kpiShareRow('Μικτό κέρδος / Πωλήσεις', grossProfitPeriod, periodSales, grossProfitPeriodPrev, periodSalesPrev, { hint: 'Το πραγματικό ποσοστό κερδοφορίας της περιόδου.' }),
+        kpiShareRow('Κόστος / Πωλήσεις', purchasesPeriod, periodSales, purchasesPeriodPrev, periodSalesPrev, { lowerIsBetter: true, hint: 'Αν ανεβαίνει, πιέζει το περιθώριο.' }),
+        kpiDetailRow('Μικτό κέρδος αξία', grossProfitPeriod, grossProfitPeriodPrev, 'money', { hint: 'Η αξιακή επίπτωση πίσω από το ποσοστό.' }),
+      ],
+    },
+    purchases_to_sales: {
+      title:'Ρυθμός αγορών/πωλήσεων',
+      current:purchasesToSales,
+      previous:purchasesToSalesPrev,
+      format:'pct',
+      lowerIsBetter:true,
+      delta:deltaMeta(purchasesToSales, purchasesToSalesPrev, {unit:'pct', pp:true, lowerIsBetter:true}),
+      subtitle:'Χαμηλότερο ποσοστό σημαίνει πιο ελαφρύ κόστος αγορών',
+      analysisTitle: 'Σχέση ανεφοδιασμού και τζίρου',
+      monthlyTitle: 'Αγορές / πωλήσεις ανά μήνα',
+      monthlyRows: purchasesToSalesMonthlyRows,
+      rows: [
+        kpiDetailRow('Αγορές περιόδου', purchasesPeriod, purchasesPeriodPrev, 'money', { lowerIsBetter: true, hint: 'Ο αριθμητής του δείκτη.' }),
+        kpiDetailRow('Πωλήσεις περιόδου', periodSales, periodSalesPrev, 'money', { hint: 'Ο παρονομαστής του δείκτη.' }),
+        kpiDetailRow('Αγορές / Πωλήσεις', purchasesToSales, purchasesToSalesPrev, 'pct', { unit: 'pct', pp: true, lowerIsBetter: true, hint: 'Δείχνει αν οι αγορές τρέχουν πιο γρήγορα από τις πωλήσεις.' }),
+      ],
+    },
+    active_branches: {
+      title:'Ενεργά υποκαταστήματα',
+      current:activeBranches,
+      previous:activeBranchesPrev,
+      format:'count',
+      delta:deltaMeta(activeBranches, activeBranchesPrev, {unit:'count'}),
+      subtitle:'YTD σύγκριση με την ίδια περσινή περίοδο',
+      analysisTitle: 'Κατανομή ενεργών καταστημάτων',
+      monthlyTitle: 'Μηνιαία πορεία τζίρου',
+      monthlyRows: salesMonthlyRows,
+      rows: yearByBranch.map((row) => {
+        const prev = prevYearByBranch.find((p) => String(p.branch || p.branch_code || 'N/A') === String(row.branch || row.branch_code || 'N/A'));
+        return kpiDetailRow(String(row.branch || row.branch_code || 'N/A'), toNum(row.net_value), toNum(prev?.net_value), 'money', {
+          hint: toNum(row.net_value) > 0 ? 'Ενεργό με θετικό YTD τζίρο.' : 'Χωρίς θετικό YTD τζίρο.',
+        });
+      }),
+    },
+    top_branch_share: {
+      title:'Κορυφαίο κατάστημα',
+      current:topShare,
+      previous:topSharePrev,
+      format:'pct',
+      lowerIsBetter:true,
+      delta:deltaMeta(topShare, topSharePrev, {unit:'pct', pp:true, lowerIsBetter:true}),
+      subtitle:'Χαμηλότερη συγκέντρωση σημαίνει πιο ισορροπημένη εικόνα καταστημάτων',
+      analysisTitle: 'Συγκέντρωση τζίρου',
+      monthlyTitle: 'Μηνιαία πορεία τζίρου',
+      monthlyRows: salesMonthlyRows,
+      rows: [
+        kpiDetailRow(`#1 τώρα: ${topBranchRow ? String(topBranchRow.branch || topBranchRow.branch_code || 'N/A') : 'N/A'}`, topBranch, prevTopBranch, 'money', { hint: 'Αξία κορυφαίου καταστήματος YTD.' }),
+        kpiDetailRow('Συνολικός τζίρος YTD', yearTotal, prevYearTotal, 'money', { hint: 'Βάση υπολογισμού συμμετοχής.' }),
+        kpiDetailRow('Συμμετοχή κορυφαίου', topShare, topSharePrev, 'pct', { unit: 'pct', pp: true, lowerIsBetter: true, hint: 'Αν ανεβαίνει, η εταιρεία εξαρτάται περισσότερο από ένα κατάστημα.' }),
+        kpiDetailRow(`#1 αποθήκη: ${topWarehouseRow ? String(topWarehouseRow.warehouse || topWarehouseRow.warehouse_ext_id || 'N/A') : 'N/A'}`, toNum(topWarehouseRow?.net_value), toNum(prevTopWarehouseRow?.net_value), 'money', { hint: topWarehouseRow && isEshopWarehouse(topWarehouseRow) ? 'Η κορυφαία αποθήκη είναι e-shop/3PL.' : 'Κορυφαία αποθήκη μέσα στον YTD τζίρο.' }),
+        kpiDetailRow('E-Shop / 3PL αποθήκες', eshopWarehouseTotal, prevEshopWarehouseTotal, 'money', { hint: `Συμμετοχή e-shop/3PL στον YTD τζίρο: ${pct(eshopWarehouseShare)}.` }),
+        kpiDetailRow('Ποσοστό e-shop / 3PL', eshopWarehouseShare, prevEshopWarehouseShare, 'pct', { unit: 'pct', pp: true, hint: 'Περιλαμβάνει e-shop αποθήκες και Logika/3PL όπου υπάρχουν.' }),
+      ],
+    },
+    avg_daily_turnover: {
+      title:'Μέσος ημερήσιος τζίρος',
+      current:avgDaily,
+      previous:avgDailyPrev,
+      format:'money',
+      delta:deltaMeta(avgDaily, avgDailyPrev),
+      subtitle:'Κανονικοποιημένο ανά ημέρα για δίκαιη σύγκριση',
+      analysisTitle: 'Ανάλυση ημερήσιου ρυθμού',
+      monthlyTitle: 'Τζίρος ανά μήνα',
+      monthlyRows: salesMonthlyRows,
+      rows: [
+        kpiDetailRow('Πωλήσεις περιόδου', periodSales, periodSalesPrev, 'money', { hint: 'Συνολικός τζίρος που μοιράζεται στις ημέρες.' }),
+        kpiDetailRow('Ημέρες περιόδου', selectedDays, prevDays, 'count', { unit: 'count', hint: 'Βοηθά να συγκρίνουμε δίκαια διαφορετικά μήκη περιόδου.' }),
+        kpiDetailRow('Μέσος ανά ημέρα', avgDaily, avgDailyPrev, 'money', { hint: 'Ο ημερήσιος ρυθμός πωλήσεων.' }),
+      ],
+    },
+    gross_profit_year: {
+      title:'Μικτό κέρδος έτους',
+      current:grossProfitYear,
+      previous:grossProfitPrevYear,
+      format:'money',
+      delta:deltaMeta(grossProfitYear, grossProfitPrevYear),
+      subtitle:'YTD με ίδια περσινή περίοδο',
+      analysisTitle: 'Σύνθεση μικτού κέρδους YTD',
+      monthlyTitle: 'Μικτό κέρδος ανά μήνα',
+      monthlyRows: grossProfitMonthlyRows,
+      rows: [
+        kpiDetailRow('Τζίρος YTD', yearSales, prevYearSales, 'money', { hint: 'Έσοδα από αρχή έτους έως ημερομηνία αναφοράς.' }),
+        kpiDetailRow('Αγορές / κόστος YTD', yearPurchases, prevYearPurchases, 'money', { lowerIsBetter: true, hint: 'Κόστος που αφαιρείται από τον YTD τζίρο.' }),
+        kpiDetailRow('Μικτό κέρδος YTD', grossProfitYear, grossProfitPrevYear, 'money', { hint: 'Τελικό αποτέλεσμα έτους μέχρι σήμερα.' }),
+      ],
+    },
+    month_qty: {
+      title:'Ποσότητα μήνα',
+      current:monthQty,
+      previous:monthPrevQty,
+      format:'count',
+      delta:deltaMeta(monthQty, monthPrevQty, {unit:'count'}),
+      subtitle:'Ίδιες ημέρες περσινού μήνα',
+      analysisTitle: 'Όγκος και αξία μήνα',
+      monthlyTitle: 'Ποσότητα ανά μήνα',
+      monthlyRows: qtyMonthlyRows,
+      rows: [
+        kpiDetailRow('Ποσότητα μήνα', monthQty, monthPrevQty, 'count', { unit: 'count', hint: 'Συνολικές μονάδες πώλησης του μήνα.' }),
+        kpiDetailRow('Τζίρος μήνα', toNum(monthCmp.net_value), toNum(monthPrevCmp.net_value), 'money', { hint: 'Αξία πωλήσεων για τις ίδιες ημέρες σύγκρισης.' }),
+        kpiDetailRow('Μέση αξία ανά μονάδα', monthQty ? toNum(monthCmp.net_value) / monthQty : 0, monthPrevQty ? toNum(monthPrevCmp.net_value) / monthPrevQty : 0, 'money', { hint: 'Δείχνει αν η μεταβολή έρχεται από όγκο ή από αξία ανά μονάδα.' }),
+      ],
+    },
+    prev_year_full: {
+      title:'Τζίρος προηγούμενου έτους full',
+      current:prevYearFull,
+      previous:prev2YearFull,
+      format:'money',
+      delta:deltaMeta(prevYearFull, prev2YearFull),
+      subtitle:'Full year έναντι του αμέσως προηγούμενου full year',
+      analysisTitle: 'Σύγκριση πλήρων ετών',
+      monthlyTitle: 'Μηνιαία πορεία τζίρου',
+      monthlyRows: salesMonthlyRows,
+      rows: [
+        kpiDetailRow(`Full year ${anchors.prev1_year || ''}`.trim(), prevYearFull, prev2YearFull, 'money', { hint: 'Ολόκληρο προηγούμενο έτος έναντι του προηγούμενου πλήρους έτους.' }),
+        kpiDetailRow('Τρέχον YTD', toNum(cards.year?.net_value), prevYearSales, 'money', { hint: 'Πού βρίσκεται το τρέχον έτος μέχρι την ημερομηνία αναφοράς.' }),
+        kpiShareRow('Κάλυψη φετινού YTD vs περσινό full', toNum(cards.year?.net_value), prevYearFull, prevYearSales, prev2YearFull, { hint: 'Πόσο από το περσινό πλήρες έτος έχει ήδη καλυφθεί.' }),
+      ],
+    },
+    year_to_date_full_cmp: {
+      title:'Τζίρος YTD vs full year',
+      current:toNum(cards.year?.net_value),
+      previous:prevYearFull,
+      format:'money',
+      delta:deltaMeta(toNum(cards.year?.net_value), prevYearFull),
+      subtitle:'Φετινό YTD απέναντι σε ολόκληρο το περσινό έτος',
+      analysisTitle: 'Πρόοδος προς το περσινό full year',
+      monthlyTitle: 'Μηνιαία πορεία τζίρου',
+      monthlyRows: salesMonthlyRows,
+      rows: [
+        kpiDetailRow('Τζίρος φετινού YTD', toNum(cards.year?.net_value), prevYearSales, 'money', { hint: 'Φετινή πορεία έως την ημερομηνία αναφοράς.' }),
+        kpiDetailRow('Περσινό full year', prevYearFull, prev2YearFull, 'money', { hint: 'Ο στόχος σύγκρισης είναι ολόκληρο το προηγούμενο έτος.' }),
+        kpiShareRow('Κάλυψη full year', toNum(cards.year?.net_value), prevYearFull, prevYearSales, prev2YearFull, { hint: 'Δείχνει το ποσοστό κάλυψης του περσινού full year.' }),
+      ],
+    },
+  };
+  Object.keys(details).forEach((key) => {
+    details[key].brief = comparisonBrief(details[key].title, details[key].delta, details[key].lowerIsBetter);
+  });
+  return details;
+}
+
+function formatKpiValue(value, format){
+  if(format === 'pct') return pct(value);
+  if(format === 'count') return fmt0.format(Math.round(toNum(value)));
+  return money(value);
+}
+
+function escapeHtml(value){
+  return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  }[ch]));
+}
+
+function showExecutiveKpiModal(modalEl){
+  if(!modalEl) return false;
+  try {
+    if(window.BVModalSystem?.create) {
+      const modal = window.BVModalSystem.create(modalEl, {
+        closeOnBackdrop: true,
+        keyboard: true,
+        focusTrap: true,
+        restoreFocus: true,
+      });
+      modal?.show?.();
+      return true;
+    }
+  } catch(err) {
+    console.warn('Executive KPI BV modal failed', err);
+  }
+  try {
+    if(window.bootstrap?.Modal) {
+      const modal = window.bootstrap.Modal.getOrCreateInstance(modalEl, { backdrop: true, keyboard: true, focus: true });
+      modal.show();
+      return true;
+    }
+  } catch(err) {
+    console.warn('Executive KPI Bootstrap modal failed', err);
+  }
+  try {
+    if(window.jQuery?.fn?.modal) {
+      window.jQuery(modalEl).modal('show');
+      return true;
+    }
+  } catch(err) {
+    console.warn('Executive KPI jQuery modal failed', err);
+  }
+  modalEl.classList.add('show');
+  modalEl.removeAttribute('aria-hidden');
+  modalEl.setAttribute('aria-modal', 'true');
+  modalEl.style.display = 'block';
+  document.body.classList.add('modal-open');
+  let backdrop = document.querySelector('.modal-backdrop.executive-kpi-backdrop');
+  if(!backdrop) {
+    backdrop = document.createElement('div');
+    backdrop.className = 'modal-backdrop fade show executive-kpi-backdrop';
+    document.body.appendChild(backdrop);
+  }
+  const closeManual = () => {
+    modalEl.classList.remove('show');
+    modalEl.setAttribute('aria-hidden', 'true');
+    modalEl.removeAttribute('aria-modal');
+    modalEl.style.display = 'none';
+    document.body.classList.remove('modal-open');
+    document.querySelector('.modal-backdrop.executive-kpi-backdrop')?.remove();
+  };
+  modalEl.querySelectorAll('[data-bs-dismiss="modal"], .btn-close').forEach((btn) => {
+    if(btn.dataset.executiveManualClose === '1') return;
+    btn.dataset.executiveManualClose = '1';
+    btn.addEventListener('click', closeManual);
+  });
+  backdrop.addEventListener('click', closeManual, { once: true });
+  return true;
+}
+
+function renderExecutiveKpiPopup(key){
+  const detail = executiveKpiDetails[key];
+  const modalEl = document.getElementById('executiveKpiModal');
+  if(!modalEl) return;
+  modalEl.dataset.kpiKey = key || '';
+  const resolved = detail || {
+    title: 'KPI',
+    subtitle: 'Η ανάλυση φορτώνει',
+    brief: 'Τα στοιχεία του KPI δεν είναι ακόμη διαθέσιμα. Δοκίμασε ξανά μόλις ολοκληρωθεί η φόρτωση του dashboard.',
+    current: null,
+    previous: null,
+    format: 'money',
+    delta: { text: '—' },
+  };
+  const hasMonthlyRows = Array.isArray(resolved.monthlyRows) && resolved.monthlyRows.length > 0;
+  if(executiveKpiViewMode === 'monthly' && !hasMonthlyRows) executiveKpiViewMode = 'diagnosis';
+  document.getElementById('executiveKpiModalTitle').textContent = resolved.title || 'KPI';
+  document.getElementById('executiveKpiModalSubtitle').textContent = resolved.subtitle || 'Σύγκριση με αντίστοιχη περίοδο';
+  document.getElementById('executiveKpiBrief').textContent = resolved.brief || '-';
+  const viewSwitch = document.getElementById('executiveKpiViewSwitch');
+  if(viewSwitch){
+    viewSwitch.style.display = hasMonthlyRows ? 'inline-flex' : 'none';
+    viewSwitch.querySelectorAll('[data-kpi-view]').forEach((btn) => {
+      btn.classList.toggle('active', btn.dataset.kpiView === executiveKpiViewMode);
+    });
+  }
+  document.getElementById('executiveKpiSummary').innerHTML = `
+    <div class="executive-kpi-summary-item"><div class="executive-kpi-summary-label">Τρέχον</div><div class="executive-kpi-summary-value">${formatKpiValue(resolved.current, resolved.format)}</div></div>
+    <div class="executive-kpi-summary-item"><div class="executive-kpi-summary-label">Πέρσι</div><div class="executive-kpi-summary-value">${formatKpiValue(resolved.previous, resolved.format)}</div></div>
+    <div class="executive-kpi-summary-item"><div class="executive-kpi-summary-label">Μεταβολή</div><div class="executive-kpi-summary-value">${resolved.delta?.text || '—'}</div></div>
+  `;
+  const sourceRows = executiveKpiViewMode === 'monthly' ? resolved.monthlyRows : resolved.rows;
+  const rows = Array.isArray(sourceRows) && sourceRows.length ? sourceRows : [{
+    label: resolved.title,
+    current: resolved.current,
+    previous: resolved.previous,
+    format: resolved.format,
+    deltaText: resolved.delta?.text || '—',
+    hint: '',
+    direction: 'neutral',
+  }];
+  document.getElementById('executiveKpiRows').innerHTML = rows.map((row) => `
+    <tr>
+      <td>
+        <div class="fw-bold">${escapeHtml(row.label)}</div>
+        ${row.hint ? `<div class="small text-muted">${escapeHtml(row.hint)}</div>` : ''}
+      </td>
+      <td class="text-end">${formatKpiValue(row.current, row.format || resolved.format)}</td>
+      <td class="text-end">${formatKpiValue(row.previous, row.format || resolved.format)}</td>
+      <td class="text-end executive-kpi-delta-${row.direction || 'neutral'}">${escapeHtml(row.deltaText || '—')}</td>
+    </tr>
+  `).join('');
+  const diagnosisEl = document.getElementById('executiveKpiDiagnosis');
+  if(diagnosisEl){
+    const diagnosisRows = rows.filter((row) => row.label !== resolved.title);
+    diagnosisEl.innerHTML = diagnosisRows.length ? `
+      <div class="executive-kpi-diagnosis-title">${escapeHtml(executiveKpiViewMode === 'monthly' ? (resolved.monthlyTitle || 'Αναγωγή ανά μήνα') : (resolved.analysisTitle || 'Ανάλυση KPI'))}</div>
+      <div class="executive-kpi-branch-grid">
+        ${diagnosisRows.map((row) => `
+          <div class="executive-kpi-branch-row">
+            <div>
+              <div class="executive-kpi-branch-label">Μέτρηση</div>
+              <div class="executive-kpi-branch-name">${escapeHtml(row.label)}</div>
+            </div>
+            <div class="text-end">
+              <div class="executive-kpi-branch-label">Τρέχον</div>
+              <div class="executive-kpi-branch-value">${formatKpiValue(row.current, row.format || resolved.format)}</div>
+            </div>
+            <div class="text-end">
+              <div class="executive-kpi-branch-label">Πέρσι</div>
+              <div class="executive-kpi-branch-value">${formatKpiValue(row.previous, row.format || resolved.format)}</div>
+            </div>
+            <div class="text-end">
+              <div class="executive-kpi-branch-label">Διαφορά</div>
+              <div class="executive-kpi-delta-${row.direction || 'neutral'}">${escapeHtml(row.deltaText || '—')}</div>
+            </div>
+            <div>
+              <div class="executive-kpi-branch-label">Επίδραση</div>
+              <div class="executive-kpi-branch-impact">${escapeHtml(row.hint || '-')}</div>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    ` : '';
+  }
+  showExecutiveKpiModal(modalEl);
+}
+
+function bindExecutiveKpiCards(){
+  document.querySelectorAll('.bv-metric-card[data-executive-card]').forEach((card) => {
+    if(card.dataset.executiveCardBound === '1') return;
+    card.dataset.executiveCardBound = '1';
+    card.setAttribute('role', 'button');
+    card.setAttribute('tabindex', '0');
+    card.setAttribute('title', 'Άνοιγμα ανάλυσης KPI');
+    const open = (event) => {
+      const key = card.dataset.executiveCard;
+      if(!key) return;
+      event.preventDefault();
+      event.stopPropagation();
+      renderExecutiveKpiPopup(key);
+    };
+    card.addEventListener('click', open);
+    card.addEventListener('keydown', (event) => {
+      if(event.key !== 'Enter' && event.key !== ' ') return;
+      open(event);
+    });
+  });
+}
+
+function bindExecutiveKpiViewSwitch(){
+  const switchEl = document.getElementById('executiveKpiViewSwitch');
+  if(!switchEl || switchEl.dataset.bound === '1') return;
+  switchEl.dataset.bound = '1';
+  switchEl.addEventListener('click', (event) => {
+    const btn = event.target.closest('[data-kpi-view]');
+    if(!btn) return;
+    executiveKpiViewMode = btn.dataset.kpiView || 'diagnosis';
+    const openKey = document.getElementById('executiveKpiModal')?.dataset?.kpiKey;
+    if(openKey) renderExecutiveKpiPopup(openKey);
+  });
+}
+
 function renderCentralKpiCards(executive, selectedFromDate, anchorDate){
   const cards = executive?.cards || {};
+  executiveKpiDetails = buildExecutiveKpiDetails(executive, selectedFromDate, anchorDate);
   const day = cards.day || {};
   const week = cards.week || {};
   const month = cards.month || {};
@@ -1044,6 +1825,9 @@ function renderCentralKpiCards(executive, selectedFromDate, anchorDate){
   const periodSales = cards.period_sales || {};
   const purchasesPeriod = cards.purchases_period || {};
   const purchasesYear = cards.purchases_year || {};
+  const branchBreakdown = executive?.branch_breakdown || {};
+  const yearByBranch = Array.isArray(branchBreakdown.year) ? branchBreakdown.year : [];
+  const yearByWarehouse = Array.isArray(branchBreakdown.warehouse_year) ? branchBreakdown.warehouse_year : [];
 
   const currentYear = anchorDate.getFullYear();
   const prev1Year = currentYear - 1;
@@ -1099,6 +1883,36 @@ function renderCentralKpiCards(executive, selectedFromDate, anchorDate){
   setText('kpiAvgDailyTurnover', money(avgDailyTurnover));
   setText('kpiGrossProfitYear', money(yearVal - yearPurchasesVal));
   setText('kpiMonthQty', fmt0.format(Math.round(toNum(month.qty || month.quantity || month.qty_total))));
+  setDelta('kpiTotalSalesPeriodDelta', executiveKpiDetails.total_sales_period?.delta);
+  setDelta('kpiTotalPurchasesPeriodDelta', executiveKpiDetails.purchases_period?.delta);
+  setDelta('kpiGrossProfitPeriodDelta', executiveKpiDetails.gross_profit_period?.delta);
+  setDelta('kpiMarginPctPeriodDelta', executiveKpiDetails.margin_pct_period?.delta);
+  setDelta('kpiPurchasesToSalesDelta', executiveKpiDetails.purchases_to_sales?.delta);
+  setDelta('kpiAvgDailyTurnoverDelta', executiveKpiDetails.avg_daily_turnover?.delta);
+  setDelta('kpiGrossProfitYearDelta', executiveKpiDetails.gross_profit_year?.delta);
+  setDelta('kpiMonthQtyDelta', executiveKpiDetails.month_qty?.delta);
+  setDelta('kpiPrevYearFullDelta', executiveKpiDetails.prev_year_full?.delta);
+  if (yearByBranch.length) {
+    const activeBranches = yearByBranch.filter(r => toNum(r.net_value) > 0).length;
+    const yearTotal = yearByBranch.reduce((s, r) => s + toNum(r.net_value), 0);
+    const topBranchRow = yearByBranch.reduce((best, row) => toNum(row.net_value) > toNum(best?.net_value) ? row : best, null);
+    const topBranch = toNum(topBranchRow?.net_value);
+    const topShare = yearTotal > 0 ? (topBranch / yearTotal) * 100 : 0;
+    const topBranchName = topBranchRow ? String(topBranchRow.branch || topBranchRow.branch_code || 'N/A') : 'N/A';
+    const topBranchId = String(topBranchRow?.branch_ext_id || topBranchRow?.branch_code || '').trim();
+    const topWarehouseRow = yearByWarehouse
+      .filter((row) => !topBranchId || String(row.branch_ext_id || '').trim() === topBranchId)
+      .reduce((best, row) => toNum(row.net_value) > toNum(best?.net_value) ? row : best, null);
+    const eshopWarehouseTotal = yearByWarehouse.filter(isEshopWarehouse).reduce((sum, row) => sum + toNum(row.net_value), 0);
+    const eshopWarehouseShare = yearTotal > 0 ? (eshopWarehouseTotal / yearTotal) * 100 : 0;
+    const warehouseSuffix = topWarehouseRow ? ` · αποθ. ${String(topWarehouseRow.warehouse || topWarehouseRow.warehouse_ext_id || 'N/A')}` : '';
+    const eshopSuffix = eshopWarehouseTotal > 0 ? ` · e-shop/3PL ${pct(eshopWarehouseShare)}` : '';
+    setText('kpiActiveBranches', fmt0.format(activeBranches));
+    setText('kpiTopBranchShare', pct(topShare));
+    setText('kpiTopBranchName', `#1 ${topBranchName}${warehouseSuffix}${eshopSuffix}`);
+  }
+  setDelta('kpiActiveBranchesDelta', executiveKpiDetails.active_branches?.delta);
+  setDelta('kpiTopBranchShareDelta', executiveKpiDetails.top_branch_share?.delta);
 }
 
 async function reloadCentralDashboard(e){
@@ -1129,15 +1943,17 @@ async function reloadCentralDashboard(e){
     execParams.set('_ts', String(Date.now()));
     const fastParams = new URLSearchParams(execParams);
     fastParams.set('fast', '1');
+    const fastExecutivePromise = fetchJsonStrict(`/v1/dashboard/executive-summary?${fastParams.toString()}`);
+    const executivePromise = fetchJsonStrict(`/v1/dashboard/executive-summary?${execParams.toString()}`);
     try{
-      const fastExecutive = await fetchJsonStrict(`/v1/dashboard/executive-summary?${fastParams.toString()}`);
+      const fastExecutive = await fastExecutivePromise;
       if(reloadToken !== dashboardReloadToken) return;
       renderCentralKpiCards(fastExecutive, selectedFromDate, anchorDate);
     }catch(fastErr){
       console.warn('Fast dashboard cards failed', fastErr);
     }
 
-    const executive = await fetchJsonStrict(`/v1/dashboard/executive-summary?${execParams.toString()}`);
+    const executive = await executivePromise;
     const cards = executive?.cards || {};
     const branchBreakdown = executive?.branch_breakdown || {};
     const trend = executive?.trend || {};
@@ -1155,6 +1971,7 @@ async function reloadCentralDashboard(e){
     const monthByBranch = Array.isArray(branchBreakdown.month) ? branchBreakdown.month : [];
     const monthCompletedByBranch = Array.isArray(branchBreakdown.month_completed) ? branchBreakdown.month_completed : monthByBranch;
     const yearByBranch = Array.isArray(branchBreakdown.year) ? branchBreakdown.year : [];
+    const yearByWarehouse = Array.isArray(branchBreakdown.warehouse_year) ? branchBreakdown.warehouse_year : [];
     const prevYearMonthByBranch = Array.isArray(branchBreakdown.prev_year_month) ? branchBreakdown.prev_year_month : [];
     const trendY0 = Array.isArray(trend?.y0?.rows) ? trend.y0.rows : [];
     const trendY1 = Array.isArray(trend?.y1?.rows) ? trend.y1.rows : [];
@@ -1205,9 +2022,19 @@ async function reloadCentralDashboard(e){
     const activeBranches = (yearByBranch||[]).filter(r => toNum(r.net_value) > 0).length;
     document.getElementById('kpiActiveBranches').textContent = fmt0.format(activeBranches);
     const yearTotal = (yearByBranch||[]).reduce((s, r) => s + toNum(r.net_value), 0);
-    const topBranch = (yearByBranch||[]).reduce((mx, r) => Math.max(mx, toNum(r.net_value)), 0);
+    const topBranchRow = (yearByBranch||[]).reduce((best, row) => toNum(row.net_value) > toNum(best?.net_value) ? row : best, null);
+    const topBranch = toNum(topBranchRow?.net_value);
     const topShare = yearTotal > 0 ? (topBranch / yearTotal) * 100 : 0;
+    const topBranchId = String(topBranchRow?.branch_ext_id || topBranchRow?.branch_code || '').trim();
+    const topWarehouseRow = yearByWarehouse
+      .filter((row) => !topBranchId || String(row.branch_ext_id || '').trim() === topBranchId)
+      .reduce((best, row) => toNum(row.net_value) > toNum(best?.net_value) ? row : best, null);
+    const eshopWarehouseTotal = yearByWarehouse.filter(isEshopWarehouse).reduce((sum, row) => sum + toNum(row.net_value), 0);
+    const eshopWarehouseShare = yearTotal > 0 ? (eshopWarehouseTotal / yearTotal) * 100 : 0;
+    const warehouseSuffix = topWarehouseRow ? ` · αποθ. ${String(topWarehouseRow.warehouse || topWarehouseRow.warehouse_ext_id || 'N/A')}` : '';
+    const eshopSuffix = eshopWarehouseTotal > 0 ? ` · e-shop/3PL ${pct(eshopWarehouseShare)}` : '';
     document.getElementById('kpiTopBranchShare').textContent = pct(topShare);
+    document.getElementById('kpiTopBranchName').textContent = `#1 ${topBranchRow ? String(topBranchRow.branch || topBranchRow.branch_code || 'N/A') : 'N/A'}${warehouseSuffix}${eshopSuffix}`;
 
     document.getElementById('kpiTotalPurchasesPeriod').textContent = money(periodPurchasesVal);
     const ratio = periodSalesVal > 0 ? (periodPurchasesVal / periodSalesVal) * 100 : null;
@@ -1234,6 +2061,19 @@ async function reloadCentralDashboard(e){
 }
 
 document.getElementById('centralFilters').addEventListener('submit', reloadCentralDashboard);
+document.addEventListener('click', (event) => {
+  const card = event.target.closest('.bv-metric-card[data-executive-card]');
+  if(!card) return;
+  if(card.querySelector('.mc-icon') && event.target.closest('.mc-icon')) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  }
+  const key = card.dataset.executiveCard;
+  if(!key) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  renderExecutiveKpiPopup(key);
+}, true);
 window.addEventListener('load', async ()=>{
   const overviewKey = 'bv:tenant:company-overview:collapsed';
   const overviewBody = document.getElementById('companyOverviewBody');
@@ -1260,8 +2100,12 @@ window.addEventListener('load', async ()=>{
   });
 
   initCentralMulti('centralBranches', '{{ tt(request, "branches") }}');
+  bindExecutiveKpiCards();
+  bindExecutiveKpiViewSwitch();
   await loadCentralFilterOptions();
   await reloadCentralDashboard();
+  bindExecutiveKpiCards();
+  bindExecutiveKpiViewSwitch();
 });
 
 // ── Intraday chart ──────────────────────────────────────────────

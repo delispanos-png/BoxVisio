@@ -101,24 +101,12 @@
 {% endblock %}
 {% block content %}
 <style>
-  /* compact KPI values so large numbers (7+ digits) fit in col-xl-2 */
-  .bv-kpi-box .kpi-value {
-    font-size: 1.35rem;
-    line-height: 1.15;
-    word-break: break-all;
-  }
-  .bv-kpi-box .kpi-title {
-    font-size: .75rem;
-  }
-  .bv-kpi-box .kpi-meta {
-    font-size: .72rem;
-  }
   .sellout-table-wrap {
     overflow-x: auto;
     scrollbar-gutter: stable;
   }
   #selloutTable {
-    min-width: 1450px;
+    min-width: 1740px;
     table-layout: fixed;
     font-size: 12px;
   }
@@ -199,9 +187,236 @@
     background: #eef2ff;
     grid-column: 1 / -1;
   }
+  .sellout-command-panel {
+    border: 1px solid #dbe4f0;
+    border-radius: 8px;
+    background: #ffffff;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.05);
+  }
+  .sellout-command-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 18px 20px;
+    border-bottom: 1px solid #e2e8f0;
+  }
+  .sellout-command-title {
+    margin: 0;
+    color: #0f172a;
+    font-size: 18px;
+    font-weight: 800;
+  }
+  .sellout-command-subtitle {
+    margin-top: 4px;
+    color: #64748b;
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .sellout-command-body {
+    padding: 18px 20px 20px;
+  }
+  .sellout-smart-grid {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 12px;
+  }
+  .sellout-smart-card {
+    min-height: 118px;
+    border: 1px solid #dbe4f0;
+    border-radius: 8px;
+    background: #f8fafc;
+    padding: 13px 14px;
+  }
+  .sellout-smart-card[data-action-zoom] {
+    cursor: pointer;
+    transition: border-color .15s ease, background .15s ease, transform .15s ease;
+  }
+  .sellout-smart-card[data-action-zoom]:hover {
+    border-color: #818cf8;
+    background: #eef2ff;
+    transform: translateY(-1px);
+  }
+  .sellout-smart-card strong {
+    display: block;
+    color: #64748b;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.035em;
+    text-transform: uppercase;
+  }
+  .sellout-smart-card .smart-value {
+    margin-top: 8px;
+    color: #0f172a;
+    font-size: 22px;
+    font-weight: 850;
+    line-height: 1.05;
+  }
+  .sellout-smart-card .smart-note {
+    margin-top: 8px;
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 650;
+    line-height: 1.35;
+  }
+  .sellout-action-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+    margin-top: 14px;
+  }
+  .sellout-action-card {
+    min-height: 250px;
+    border: 1px solid #dbe4f0;
+    border-radius: 8px;
+    background: #ffffff;
+    overflow: hidden;
+  }
+  .sellout-action-card header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 13px 14px;
+    border-bottom: 1px solid #e2e8f0;
+    background: #f8fafc;
+  }
+  .sellout-action-card h6 {
+    margin: 0;
+    color: #0f172a;
+    font-size: 13px;
+    font-weight: 850;
+  }
+  .sellout-action-card small {
+    color: #64748b;
+    font-weight: 700;
+  }
+  .sellout-action-controls {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .sellout-zoom-btn {
+    width: 32px;
+    height: 32px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid #c7d2fe;
+    border-radius: 8px;
+    background: #ffffff;
+    color: #4f46e5;
+    transition: background .15s ease, border-color .15s ease, transform .15s ease;
+  }
+  .sellout-zoom-btn:hover {
+    border-color: #818cf8;
+    background: #eef2ff;
+    transform: translateY(-1px);
+  }
+  .sellout-action-list {
+    display: grid;
+    gap: 0;
+  }
+  .sellout-action-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+    padding: 11px 14px;
+    border-bottom: 1px solid #edf2f7;
+  }
+  .sellout-action-row:last-child {
+    border-bottom: 0;
+  }
+  .sellout-action-product {
+    color: #0f172a;
+    font-size: 12px;
+    font-weight: 800;
+    line-height: 1.25;
+  }
+  .sellout-action-meta {
+    margin-top: 3px;
+    color: #64748b;
+    font-size: 11px;
+    font-weight: 650;
+  }
+  .sellout-action-value {
+    color: #0f172a;
+    font-size: 12px;
+    font-weight: 850;
+    text-align: right;
+    white-space: nowrap;
+  }
+  .sellout-action-empty {
+    padding: 18px 14px;
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 700;
+  }
+  .sellout-zoom-table-wrap {
+    max-height: min(70vh, 720px);
+    overflow: auto;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+  }
+  .sellout-zoom-table {
+    min-width: 1180px;
+    margin: 0;
+    font-size: 12px;
+  }
+  .sellout-zoom-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    padding: 0.65rem 0.6rem;
+    background: #f8fafc;
+    color: #64748b;
+    font-size: 10px;
+    font-weight: 850;
+    letter-spacing: .045em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    box-shadow: inset 0 -1px 0 #dbe4f0;
+  }
+  .sellout-zoom-table tbody td {
+    padding: 0.65rem 0.6rem;
+    vertical-align: middle;
+    border-bottom: 1px solid #edf2f7;
+  }
+  .sellout-zoom-table tbody tr {
+    cursor: pointer;
+  }
+  .sellout-zoom-table tbody tr:hover {
+    background: #eef2ff;
+  }
+  .sellout-zoom-product {
+    color: #0f172a;
+    font-weight: 850;
+    line-height: 1.25;
+  }
+  .sellout-zoom-meta {
+    margin-top: 3px;
+    color: #64748b;
+    font-size: 11px;
+    font-weight: 650;
+  }
   @media (max-width: 767.98px) {
     .sellout-detail-grid {
       grid-template-columns: 1fr;
+    }
+    .sellout-command-head {
+      display: block;
+    }
+    .sellout-smart-grid,
+    .sellout-action-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+  @media (min-width: 768px) and (max-width: 1399.98px) {
+    .sellout-smart-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+    .sellout-action-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
     }
   }
 </style>
@@ -297,6 +512,76 @@
   </div>
 </div>
 
+<div class="sellout-command-panel mb-3">
+  <div class="sellout-command-head">
+    <div>
+      <h5 class="sellout-command-title">Κέντρο αποφάσεων Sell Out</h5>
+      <div class="sellout-command-subtitle">Μετατρέπει πωλήσεις, απόθεμα και περιθώριο σε άμεσες εμπορικές κινήσεις.</div>
+    </div>
+    <a id="selloutExport2" class="btn btn-outline-primary btn-sm" href="#"><i class="fe fe-download me-1"></i>CSV</a>
+  </div>
+  <div class="sellout-command-body">
+    <div class="sellout-smart-grid">
+      <div class="sellout-smart-card">
+        <strong>Sell-through</strong>
+        <div class="smart-value" id="smartSellThrough">0,00%</div>
+        <div class="smart-note">Πόσο από το διαθέσιμο stock κινήθηκε στην περίοδο.</div>
+      </div>
+      <div class="sellout-smart-card">
+        <strong>Ημέρες κάλυψης</strong>
+        <div class="smart-value" id="smartDaysSupply">0</div>
+        <div class="smart-note">Πόσες ημέρες αντέχει το απόθεμα με τον τρέχοντα ρυθμό.</div>
+      </div>
+      <div class="sellout-smart-card">
+        <strong>GMROI</strong>
+        <div class="smart-value" id="smartGmroi">0,00x</div>
+        <div class="smart-note">Μικτό κέρδος για κάθε ευρώ δεσμευμένο σε stock.</div>
+      </div>
+      <div class="sellout-smart-card">
+        <strong>Stock / Πωλήσεις</strong>
+        <div class="smart-value" id="smartStockSales">0,00x</div>
+        <div class="smart-note">Πόσο stock κρατάμε σε σχέση με τις πωλήσεις.</div>
+      </div>
+      <div class="sellout-smart-card" data-action-zoom="stockout" title="Μεγέθυνση">
+        <strong>Κίνδυνος έλλειψης</strong>
+        <div class="smart-value" id="smartStockout">0</div>
+        <div class="smart-note">Κωδικοί που πουλάνε αλλά δεν έχουν απόθεμα.</div>
+      </div>
+      <div class="sellout-smart-card" data-action-zoom="lostsales" title="Μεγέθυνση">
+        <strong>Πιθανή χαμένη ζήτηση</strong>
+        <div class="smart-value" id="smartLostSales">0,00 €</div>
+        <div class="smart-note">Εκτίμηση αξίας από κωδικούς με μηδενικό stock.</div>
+      </div>
+    </div>
+    <div class="sellout-action-grid">
+      <section class="sellout-action-card">
+        <header><h6>Παραγγελία / διαθεσιμότητα</h6><span class="sellout-action-controls"><small id="countReorder">0</small><button type="button" class="sellout-zoom-btn" data-action-zoom="reorder" title="Μεγέθυνση"><i class="fe fe-maximize-2"></i></button></span></header>
+        <div class="sellout-action-list" id="listReorder"></div>
+      </section>
+      <section class="sellout-action-card">
+        <header><h6>Κίνδυνος έλλειψης</h6><span class="sellout-action-controls"><small id="countStockout">0</small><button type="button" class="sellout-zoom-btn" data-action-zoom="stockout" title="Μεγέθυνση"><i class="fe fe-maximize-2"></i></button></span></header>
+        <div class="sellout-action-list" id="listStockout"></div>
+      </section>
+      <section class="sellout-action-card">
+        <header><h6>Υπεραπόθεμα / μετακίνηση</h6><span class="sellout-action-controls"><small id="countOverstock">0</small><button type="button" class="sellout-zoom-btn" data-action-zoom="overstock" title="Μεγέθυνση"><i class="fe fe-maximize-2"></i></button></span></header>
+        <div class="sellout-action-list" id="listOverstock"></div>
+      </section>
+      <section class="sellout-action-card">
+        <header><h6>Χαμηλό περιθώριο</h6><span class="sellout-action-controls"><small id="countLowMargin">0</small><button type="button" class="sellout-zoom-btn" data-action-zoom="margin" title="Μεγέθυνση"><i class="fe fe-maximize-2"></i></button></span></header>
+        <div class="sellout-action-list" id="listLowMargin"></div>
+      </section>
+      <section class="sellout-action-card">
+        <header><h6>Top αποδοτικά είδη</h6><span class="sellout-action-controls"><small id="countTopGmroi">0</small><button type="button" class="sellout-zoom-btn" data-action-zoom="gmroi" title="Μεγέθυνση"><i class="fe fe-maximize-2"></i></button></span></header>
+        <div class="sellout-action-list" id="listTopGmroi"></div>
+      </section>
+      <section class="sellout-action-card">
+        <header><h6>Πιθανές ανακατανομές</h6><span class="sellout-action-controls"><small id="countTransfers">0</small><button type="button" class="sellout-zoom-btn" data-action-zoom="transfer" title="Μεγέθυνση"><i class="fe fe-maximize-2"></i></button></span></header>
+        <div class="sellout-action-list" id="listTransfers"></div>
+      </section>
+    </div>
+  </div>
+</div>
+
 <div class="card border-0 shadow-sm mb-3">
   <div class="card-header d-flex flex-wrap justify-content-between gap-2">
     <div>
@@ -314,6 +599,9 @@
         <col style="width: 80px">
         <col style="width: 110px">
         <col style="width: 90px">
+        <col style="width: 95px">
+        <col style="width: 95px">
+        <col style="width: 80px">
         <col style="width: 210px">
         <col style="width: 130px">
         <col style="width: 230px">
@@ -324,10 +612,11 @@
           <th>Προϊόν</th><th>Barcode</th>
           <th class="text-end">Πωλήσεις αξία</th><th class="text-end">Πωλήσεις ποσ.</th>
           <th class="text-end">Μικτό %</th><th class="text-end">Μικτό αξία</th><th class="text-end">Απόθεμα</th>
+          <th class="text-end">Sell-through</th><th class="text-end">Ημ. κάλυψης</th><th class="text-end">GMROI</th>
           <th>Προμηθευτής</th><th>Brand</th><th>Κατηγορία</th><th>Πρόταση</th>
         </tr>
       </thead>
-      <tbody><tr><td colspan="11" class="text-center text-muted py-4">Φόρτωση...</td></tr></tbody>
+      <tbody><tr><td colspan="14" class="text-center text-muted py-4">Φόρτωση...</td></tr></tbody>
     </table>
   </div>
 </div>
@@ -349,6 +638,47 @@
   </div>
 </div>
 
+<div class="modal fade bv-modal bv-modal--responsive bv-modal--xl" id="selloutActionZoomModal" tabindex="-1" aria-hidden="true" aria-labelledby="selloutActionZoomTitle" data-bv-modal="true" data-bv-close-on-backdrop="false">
+  <div class="modal-dialog modal-xl">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title" id="selloutActionZoomTitle">Ανάλυση Sell Out</h5>
+          <div class="text-muted small" id="selloutActionZoomSubtitle">Περισσότερα αποτελέσματα ανά ενέργεια.</div>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+          <a class="btn btn-primary btn-sm" id="selloutActionZoomExport" href="#"><i class="fe fe-download me-1"></i>Excel</a>
+          <button type="button" class="btn btn-outline-secondary btn-sm" data-bv-modal-close data-bs-dismiss="modal" aria-label="Κλείσιμο">× Κλείσιμο</button>
+        </div>
+      </div>
+      <div class="modal-body">
+        <div class="sellout-zoom-table-wrap">
+          <table class="table sellout-zoom-table">
+            <thead>
+              <tr>
+                <th>Είδος</th>
+                <th>Brand</th>
+                <th>Προμηθευτής</th>
+                <th class="text-end">Πωλήσεις</th>
+                <th class="text-end">Ποσ.</th>
+                <th class="text-end">Stock</th>
+                <th class="text-end">Ημ. κάλυψης</th>
+                <th class="text-end">Μικτό %</th>
+                <th class="text-end">GMROI</th>
+                <th class="text-end">Ένδειξη</th>
+              </tr>
+            </thead>
+            <tbody id="selloutActionZoomBody">
+              <tr><td colspan="10" class="text-center text-muted py-4">Δεν υπάρχουν δεδομένα.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="text-muted small mt-2">Διπλό κλικ σε γραμμή ανοίγει την πλήρη καρτέλα του είδους.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 (function(){
   const form = document.getElementById('selloutFilters');
@@ -364,6 +694,18 @@
   const trendPreviousLabel = null;
   let trendMode = 'general'; // 'general' | 'detail'
   let lastTrendData = null;
+  let lastActions = {};
+  let actionZoomModal = null;
+  let zoomRows = [];
+  const actionZoomConfig = {
+    reorder: {title:'Παραγγελία / διαθεσιμότητα', subtitle:'Είδη που κινούνται και χρειάζονται διαθεσιμότητα ή νέα παραγγελία.', key:'reorder_candidates', type:'reorder'},
+    stockout: {title:'Κίνδυνος έλλειψης', subtitle:'Είδη με πωλήσεις αλλά μηδενικό ή ανεπαρκές stock.', key:'stockout_risk', type:'stockout'},
+    lostsales: {title:'Πιθανή χαμένη ζήτηση', subtitle:'Εκτίμηση αξίας από κωδικούς που έχουν κίνηση αλλά μηδενικό stock.', key:'lost_sales', type:'stockout'},
+    overstock: {title:'Υπεραπόθεμα / μετακίνηση', subtitle:'Είδη με πολλές ημέρες κάλυψης, υποψήφια για promo ή μετακίνηση.', key:'overstock_risk', type:'overstock'},
+    margin: {title:'Χαμηλό περιθώριο', subtitle:'Είδη που πουλάνε αλλά πιέζουν την κερδοφορία.', key:'low_margin', type:'margin'},
+    gmroi: {title:'Top αποδοτικά είδη', subtitle:'Είδη που επιστρέφουν το καλύτερο μικτό κέρδος ανά ευρώ stock.', key:'top_gmroi', type:'gmroi'},
+    transfer: {title:'Πιθανές ανακατανομές', subtitle:'Είδη με stock που μπορεί να αξιοποιηθεί καλύτερα ανά σημείο/κανάλι.', key:'transfer_candidates', type:'transfer'},
+  };
   function setTrendMode(mode){
     trendMode = mode;
     document.getElementById('btnTrendGeneral').classList.toggle('active', mode === 'general');
@@ -402,7 +744,7 @@
     p.set('from', isoDate(form.elements.from.value)); p.set('to', isoDate(form.elements.to.value));
     [['selloutBranches','branches'],['selloutWarehouses','warehouses'],['selloutBrands','brands'],['selloutCategories','categories'],['selloutSuppliers','suppliers']].forEach(([id,key]) => selected(id).forEach(v => p.append(key,v)));
     const q = form.elements.q.value.trim(); if(q) p.set('q', q);
-    p.set('limit', '500');
+    p.set('limit', '1000');
     return p;
   }
   const selloutUiFieldDefs = [
@@ -414,96 +756,16 @@
   ];
 
   function syncSelloutMultiUI(prefix, label, filterText=''){
-    const select=document.getElementById(prefix);
-    const optionsWrap=document.getElementById(`${prefix}Options`);
-    const chips=document.getElementById(`${prefix}Chips`);
-    const toggle=document.getElementById(`${prefix}Toggle`);
-    if(!select || !optionsWrap || !chips || !toggle) return;
-
-    const selectedOptions = Array.from(select.options).filter(o=>o.selected);
-    const normalized = String(filterText||'').toLowerCase().trim();
-    optionsWrap.innerHTML='';
-
-    Array.from(select.options)
-      .filter(o=>{
-        const display=String(o.dataset.label || o.textContent || o.value).toLowerCase();
-        return !normalized || String(o.value).toLowerCase().includes(normalized) || display.includes(normalized);
-      })
-      .forEach(o=>{
-        const row=document.createElement('label');
-        row.className='bv-multi-opt';
-        const cb=document.createElement('input');
-        cb.type='checkbox';
-        cb.checked=o.selected;
-        cb.addEventListener('change', ()=>{
-          o.selected=cb.checked;
-          select.dispatchEvent(new Event('change'));
-          syncSelloutMultiUI(prefix, label, document.getElementById(`${prefix}Search`)?.value||'');
-        });
-        const span=document.createElement('span');
-        span.textContent=o.textContent || o.value;
-        row.appendChild(cb);
-        row.appendChild(span);
-        optionsWrap.appendChild(row);
-      });
-
-    if(!optionsWrap.children.length){
-      const empty=document.createElement('div');
-      empty.className='bv-multi-empty';
-      empty.textContent='Δεν υπάρχουν διαθέσιμες επιλογές';
-      optionsWrap.appendChild(empty);
-    }
-
-    chips.innerHTML='';
-    selectedOptions.forEach(o=>{
-      const chip=document.createElement('span');
-      chip.className='bv-chip';
-      chip.textContent=o.textContent || o.value;
-      chips.appendChild(chip);
-    });
-    toggle.textContent = selectedOptions.length ? `${label} (${selectedOptions.length})` : 'Επιλογή';
+    BvMultiSelect.sync(prefix, { label, filterText });
   }
 
   function initSelloutMulti(prefix, label){
-    const toggle=document.getElementById(`${prefix}Toggle`);
-    const menu=document.getElementById(`${prefix}Menu`);
-    const search=document.getElementById(`${prefix}Search`);
-    const btnAll=document.getElementById(`${prefix}All`);
-    const btnClear=document.getElementById(`${prefix}Clear`);
-    const select=document.getElementById(prefix);
-    if(!toggle || !menu || !search || !btnAll || !btnClear || !select || toggle.dataset.bound==='1') return;
-    toggle.dataset.bound='1';
-    toggle.addEventListener('click', ()=>{menu.hidden=!menu.hidden; if(!menu.hidden) search.focus();});
-    search.addEventListener('input', ()=>syncSelloutMultiUI(prefix, label, search.value));
-    btnAll.addEventListener('click', ()=>{
-      Array.from(select.options).forEach(o=>o.selected=true);
-      syncSelloutMultiUI(prefix, label, search.value);
-    });
-    btnClear.addEventListener('click', ()=>{
-      Array.from(select.options).forEach(o=>o.selected=false);
-      syncSelloutMultiUI(prefix, label, search.value);
-    });
-    document.addEventListener('click', (e)=>{ if(!document.getElementById(`${prefix}Multi`)?.contains(e.target)) menu.hidden=true; });
+    BvMultiSelect.bind(prefix, { label });
   }
 
   function fillSelect(id, values, labels){
-    const el = document.getElementById(id);
-    if(!el) return;
-    const keep = new Set(selected(id));
-    el.innerHTML = '';
-    const ordered = [...(values || [])].sort((a,b)=>
-      String((labels && labels[a]) || a).localeCompare(String((labels && labels[b]) || b), 'el', {sensitivity:'base'})
-    );
-    ordered.forEach(v => {
-      const opt = document.createElement('option');
-      opt.value = String(v);
-      opt.textContent = String((labels && labels[v]) || v);
-      opt.dataset.label = String((labels && labels[v]) || v);
-      opt.selected = keep.has(String(v));
-      el.appendChild(opt);
-    });
     const def = selloutUiFieldDefs.find(f => f.selectId === id);
-    syncSelloutMultiUI(id, def?.label || 'Επιλογή', document.getElementById(`${id}Search`)?.value || '');
+    BvMultiSelect.populate(id, values || [], labels || {}, { label: def?.label || 'Επιλογή' });
   }
 
   async function loadOptions(){
@@ -542,6 +804,113 @@
     document.getElementById('mProfitPct').textContent = num.format(s.gross_profit_pct || 0) + '%';
     document.getElementById('mStock').textContent = num.format(s.stock_qty || 0);
     document.getElementById('mItems').textContent = num.format(s.items || 0);
+    document.getElementById('smartSellThrough').textContent = num.format(s.sell_through_pct || 0) + '%';
+    document.getElementById('smartDaysSupply').textContent = num.format(s.days_of_supply || 0);
+    document.getElementById('smartGmroi').textContent = num.format(s.gmroi || 0) + 'x';
+    document.getElementById('smartStockSales').textContent = num.format(s.stock_to_sales || 0) + 'x';
+    document.getElementById('smartStockout').textContent = num.format(s.stockout_items || 0);
+    document.getElementById('smartLostSales').textContent = money.format(s.lost_sales_value || 0);
+  }
+  function compactProduct(row){
+    const product = String(row.product || row.item_code || '-');
+    return product.length > 78 ? product.slice(0, 75) + '...' : product;
+  }
+  function metricForAction(row, type){
+    if(type === 'reorder') return `Παραγγ. ${num.format(row.reorder_qty || 0)} τεμ.`;
+    if(type === 'stockout') return money.format(row.lost_sales_value || row.sales_value || 0);
+    if(type === 'overstock') return `${num.format(row.days_of_supply || 0)} ημέρες`;
+    if(type === 'margin') return `${num.format(row.gross_profit_pct || 0)}%`;
+    if(type === 'gmroi') return `${num.format(row.gmroi || 0)}x`;
+    if(type === 'transfer') return `${num.format(row.stock_qty || 0)} τεμ.`;
+    return money.format(row.sales_value || 0);
+  }
+  function renderActionList(listId, countId, rows, emptyText, type){
+    const el = document.getElementById(listId);
+    const count = document.getElementById(countId);
+    const items = Array.isArray(rows) ? rows.slice(0, 6) : [];
+    if(count) count.textContent = num.format(Array.isArray(rows) ? rows.length : 0);
+    if(!el) return;
+    if(!items.length){
+      el.innerHTML = `<div class="sellout-action-empty">${esc(emptyText)}</div>`;
+      return;
+    }
+    el.innerHTML = items.map(row => `<div class="sellout-action-row">
+      <div>
+        <div class="sellout-action-product">${esc(compactProduct(row))}</div>
+        <div class="sellout-action-meta">${esc(row.brand || 'N/A')} · Stock ${num.format(row.stock_qty || 0)} · Πωλ. ${num.format(row.sales_qty || 0)}</div>
+      </div>
+      <div class="sellout-action-value">${esc(metricForAction(row, type))}</div>
+    </div>`).join('');
+  }
+  function renderActions(actions){
+    const a = actions || {};
+    lastActions = a;
+    renderActionList('listReorder', 'countReorder', a.reorder_candidates, 'Δεν υπάρχουν άμεσοι υποψήφιοι παραγγελίας στο τρέχον δείγμα.', 'reorder');
+    renderActionList('listStockout', 'countStockout', a.stockout_risk, 'Δεν εντοπίζονται πωλήσιμα είδη με μηδενικό stock.', 'stockout');
+    renderActionList('listOverstock', 'countOverstock', a.overstock_risk, 'Δεν φαίνεται υπεραπόθεμα με βάση τον τρέχοντα ρυθμό.', 'overstock');
+    renderActionList('listLowMargin', 'countLowMargin', a.low_margin, 'Δεν υπάρχουν έντονα χαμηλά περιθώρια στο τρέχον δείγμα.', 'margin');
+    renderActionList('listTopGmroi', 'countTopGmroi', a.top_gmroi, 'Δεν υπάρχουν ακόμη αρκετά δεδομένα GMROI.', 'gmroi');
+    renderActionList('listTransfers', 'countTransfers', a.transfer_candidates, 'Δεν εμφανίζονται ξεκάθαρες υποψήφιες ανακατανομές.', 'transfer');
+  }
+  function actionIndicator(row, type){
+    if(type === 'reorder') return `${num.format(row.reorder_qty || 0)} τεμ.`;
+    if(type === 'stockout') return money.format(row.lost_sales_value || row.sales_value || 0);
+    if(type === 'overstock') return `${num.format(row.days_of_supply || 0)} ημ.`;
+    if(type === 'margin') return `${num.format(row.gross_profit_pct || 0)}%`;
+    if(type === 'gmroi') return `${num.format(row.gmroi || 0)}x`;
+    if(type === 'transfer') return `${num.format(row.stock_qty || 0)} τεμ.`;
+    return '-';
+  }
+  function renderZoomRows(rows, type){
+    zoomRows = Array.isArray(rows) ? rows : [];
+    const body = document.getElementById('selloutActionZoomBody');
+    if(!body) return;
+    if(!zoomRows.length){
+      body.innerHTML = '<tr><td colspan="10" class="text-center text-muted py-4">Δεν υπάρχουν δεδομένα για αυτή την ενέργεια.</td></tr>';
+      return;
+    }
+    body.innerHTML = zoomRows.map((row, idx) => `<tr data-zoom-index="${idx}">
+      <td>
+        <div class="sellout-zoom-product">${esc(row.product || row.item_code || '-')}</div>
+        <div class="sellout-zoom-meta">${esc(row.item_code || '')}${row.barcode ? ' · ' + esc(row.barcode) : ''}</div>
+      </td>
+      <td>${esc(row.brand || 'N/A')}</td>
+      <td>${esc(row.supplier_name || 'N/A')}</td>
+      <td class="text-end cell-num">${money.format(row.sales_value || 0)}</td>
+      <td class="text-end cell-num">${num.format(row.sales_qty || 0)}</td>
+      <td class="text-end cell-num">${num.format(row.stock_qty || 0)}</td>
+      <td class="text-end cell-num">${row.days_of_supply === null || row.days_of_supply === undefined ? '-' : num.format(row.days_of_supply)}</td>
+      <td class="text-end cell-num">${num.format(row.gross_profit_pct || 0)}%</td>
+      <td class="text-end cell-num">${num.format(row.gmroi || 0)}x</td>
+      <td class="text-end cell-num">${esc(actionIndicator(row, type))}</td>
+    </tr>`).join('');
+  }
+  function openActionZoom(kind){
+    const cfg = actionZoomConfig[kind];
+    if(!cfg) return;
+    const rows = Array.isArray(lastActions?.[cfg.key]) ? lastActions[cfg.key] : [];
+    document.getElementById('selloutActionZoomTitle').textContent = cfg.title;
+    document.getElementById('selloutActionZoomSubtitle').textContent = `${cfg.subtitle} Εμφάνιση ${num.format(rows.length)} αποτελεσμάτων.`;
+    const exportParams = params();
+    exportParams.set('action', kind);
+    document.getElementById('selloutActionZoomExport').href = '/v1/reports/sellout/actions/export.xls?' + exportParams.toString();
+    renderZoomRows(rows, cfg.type);
+    const modalEl = document.getElementById('selloutActionZoomModal');
+    if(window.BVModalSystem){
+      actionZoomModal = actionZoomModal || window.BVModalSystem.create(modalEl, {
+        closeOnBackdrop: false,
+        keyboard: true,
+        focusTrap: true,
+        restoreFocus: true
+      });
+      actionZoomModal.show();
+    } else if(window.bootstrap && bootstrap.Modal){
+      actionZoomModal = actionZoomModal || new bootstrap.Modal(modalEl);
+      actionZoomModal.show();
+    } else {
+      modalEl.classList.add('show');
+      modalEl.style.display = 'block';
+    }
   }
   // Colour palette for breakdown series — 10 distinct hues
   const TREND_PALETTE = [
@@ -742,11 +1111,12 @@
   }
   function renderRows(rows){
     lastRows = rows || [];
-    if(!lastRows.length){ tbody.innerHTML = '<tr><td colspan="11" class="text-center text-muted py-4">Δεν βρέθηκαν είδη.</td></tr>'; return; }
+    if(!lastRows.length){ tbody.innerHTML = '<tr><td colspan="14" class="text-center text-muted py-4">Δεν βρέθηκαν είδη.</td></tr>'; return; }
     tbody.innerHTML = lastRows.map((r, idx) => `<tr data-sellout-index="${idx}" title="Διπλό κλικ για πλήρη καρτέλα">
       <td class="cell-product">${esc(r.product)}</td><td class="cell-barcode">${esc(r.barcode)}</td>
       <td class="text-end cell-num">${money.format(r.sales_value || 0)}</td><td class="text-end cell-num">${num.format(r.sales_qty || 0)}</td>
       <td class="text-end cell-num">${num.format(r.gross_profit_pct || 0)}%</td><td class="text-end cell-num">${money.format(r.gross_profit_value || 0)}</td><td class="text-end cell-num">${num.format(r.stock_qty || 0)}</td>
+      <td class="text-end cell-num">${num.format(r.sell_through_pct || 0)}%</td><td class="text-end cell-num">${r.days_of_supply === null || r.days_of_supply === undefined ? '-' : num.format(r.days_of_supply)}</td><td class="text-end cell-num">${num.format(r.gmroi || 0)}x</td>
       <td class="cell-supplier">${esc(r.supplier_name)}</td><td class="cell-short">${esc(r.brand)}</td><td class="cell-category">${esc(r.category)}</td><td class="cell-action">${esc(r.action)}</td>
     </tr>`).join('');
   }
@@ -758,6 +1128,21 @@
   }
   function openDetail(row){
     if(!row) return;
+    const days = Number(row.days_of_supply || 0);
+    const stock = Number(row.stock_qty || 0);
+    const reorder = Number(row.reorder_qty || 0);
+    const lost = Number(row.lost_sales_value || 0);
+    const margin = Number(row.gross_profit_pct || 0);
+    const gmroi = Number(row.gmroi || 0);
+    const stockSignal = stock <= 0
+      ? 'Έλλειψη stock'
+      : (reorder > 0 ? 'Χρειάζεται αναπλήρωση' : (days >= 120 ? 'Πιθανό υπεραπόθεμα' : 'Κανονική διαθεσιμότητα'));
+    const prioritySignal = lost > 0
+      ? `Προτεραιότητα λόγω πιθανής χαμένης ζήτησης ${money.format(lost)}`
+      : (margin > 0 && margin < 20 ? `Προσοχή στο χαμηλό μικτό περιθώριο ${num.format(margin)}%` : (gmroi > 0 ? `Απόδοση κεφαλαίου ${num.format(gmroi)}x` : 'Χρειάζεται παρακολούθηση με τα τρέχοντα φίλτρα'));
+    const nextStep = reorder > 0
+      ? `Έλεγχος παραγγελίας ${num.format(reorder)} τεμ.`
+      : (days >= 120 ? 'Έλεγχος promo ή μετακίνησης αποθέματος' : 'Παρακολούθηση κίνησης στην επόμενη περίοδο');
     document.getElementById('selloutDetailTitle').textContent = row.product || row.item_code || 'Καρτέλα Sell Out';
     document.getElementById('selloutDetailSubtitle').textContent = `Κωδικός: ${row.item_code || '-'} | Barcode: ${row.barcode || '-'}`;
     document.getElementById('selloutDetailBody').innerHTML = [
@@ -766,14 +1151,14 @@
       detailField('Barcode', row.barcode),
       detailField('Χρώμα', row.color),
       detailField('Μέγεθος', row.size),
-      detailField('Πωλήσεις σε αξία', money.format(row.sales_value || 0)),
-      detailField('Πωλήσεις σε ποσότητα', num.format(row.sales_qty || 0)),
-      detailField('Μικτό κέρδος %', `${num.format(row.gross_profit_pct || 0)}%`),
-      detailField('Μικτό κέρδος αξία', money.format(row.gross_profit_value || 0)),
-      detailField('Απόθεμα', num.format(row.stock_qty || 0)),
       detailField('Προμηθευτής', row.supplier_name),
       detailField('Brand', row.brand),
       detailField('Κατηγορία', row.category),
+      detailField('Σήμα stock', stockSignal),
+      detailField('Διάγνωση', prioritySignal),
+      detailField('Επόμενο βήμα', nextStep),
+      detailField('Προτεινόμενη παραγγελία', `${num.format(row.reorder_qty || 0)} τεμ.`),
+      detailField('Πιθανή χαμένη ζήτηση', money.format(row.lost_sales_value || 0)),
       detailField('Πρόταση', row.action, 'sellout-detail-action')
     ].join('');
     const modalEl = document.getElementById('selloutDetailModal');
@@ -793,6 +1178,27 @@
       modalEl.style.display = 'block';
     }
   }
+  function closeActionZoom(){
+    const modalEl = document.getElementById('selloutActionZoomModal');
+    if(actionZoomModal && typeof actionZoomModal.hide === 'function'){
+      actionZoomModal.hide();
+      return;
+    }
+    if(window.bootstrap && bootstrap.Modal){
+      const instance = bootstrap.Modal.getInstance(modalEl);
+      if(instance){
+        instance.hide();
+        return;
+      }
+    }
+    modalEl.classList.remove('show');
+    modalEl.style.display = 'none';
+  }
+  function openDetailFromZoom(row){
+    if(!row) return;
+    closeActionZoom();
+    window.setTimeout(() => openDetail(row), 180);
+  }
   function esc(v){ return String(v ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
   function setTrendLoading(on){
     const loadingEl = document.getElementById('selloutTrendLoading');
@@ -806,11 +1212,12 @@
   }
   async function reload(){
     error.classList.add('d-none');
-    tbody.innerHTML = '<tr><td colspan="11" class="text-center text-muted py-4"><div class="spinner-border spinner-border-sm me-2" role="status"></div>Φόρτωση...</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="14" class="text-center text-muted py-4"><div class="spinner-border spinner-border-sm me-2" role="status"></div>Φόρτωση...</td></tr>';
     setTrendLoading(true);
     try{
       const p = params();
       document.getElementById('selloutExport').href = '/v1/reports/sellout/export.csv?' + p.toString();
+      document.getElementById('selloutExport2').href = '/v1/reports/sellout/export.csv?' + p.toString();
       const res = await fetch('/v1/reports/sellout?' + p.toString());
       if(!res.ok){
         const errText = await res.text().catch(() => '');
@@ -821,6 +1228,7 @@
       console.log('[sellout trend]', data.trend);
       setTrendLoading(false);
       setSummary(data.summary || {});
+      renderActions(data.actions || {});
       renderTrend(data.trend || null);
       renderRows(data.rows || []);
     } catch(e){
@@ -829,6 +1237,7 @@
       error.textContent = e.message || 'Σφάλμα φόρτωσης.';
       error.classList.remove('d-none');
       setSummary({});
+      renderActions({});
       renderTrend(null);
       renderRows([]);
     }
@@ -847,6 +1256,14 @@
     const tr = e.target.closest('tr[data-sellout-index]');
     if(!tr) return;
     openDetail(lastRows[Number(tr.dataset.selloutIndex)]);
+  });
+  document.querySelectorAll('[data-action-zoom]').forEach(btn => {
+    btn.addEventListener('click', () => openActionZoom(btn.dataset.actionZoom));
+  });
+  document.getElementById('selloutActionZoomBody')?.addEventListener('dblclick', e => {
+    const tr = e.target.closest('tr[data-zoom-index]');
+    if(!tr) return;
+    openDetailFromZoom(zoomRows[Number(tr.dataset.zoomIndex)]);
   });
   refreshOptions().then(reload);
 })();

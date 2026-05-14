@@ -60,39 +60,6 @@
 {% endblock %}
 
 {% block content %}
-<style>
-  .cashflow-docs-table-wrap {
-    max-height: min(72vh, 780px);
-    overflow: auto;
-  }
-  #cashflowDocsTable tbody tr {
-    cursor: pointer;
-  }
-  #cashflowDocsTable tbody tr.is-active {
-    background: rgba(59, 130, 246, 0.08);
-  }
-  .cashflow-doc-modal {
-    --bv-modal-max-width: 1320px;
-    --bv-modal-max-height: 92vh;
-  }
-  .cashflow-doc-modal .modal-body {
-    overflow-y: auto;
-    overflow-x: hidden;
-  }
-  .cashflow-doc-modal .form-label {
-    font-size: 0.76rem;
-    font-weight: 700;
-    color: #334155;
-  }
-  .cashflow-doc-lines-wrap {
-    max-height: min(34vh, 360px);
-    overflow: auto;
-  }
-  .cashflow-doc-modal textarea.form-control {
-    min-height: 120px;
-    resize: vertical;
-  }
-</style>
 
 <div id="cashflowDocsError" class="alert alert-danger d-none"></div>
 
@@ -142,10 +109,10 @@
         <button type="button" class="btn btn-outline-secondary btn-sm" id="cashflowDocsPageGo">Μετάβαση</button>
       </div>
       <div class="bv-pager-nav" role="group" aria-label="Πλοήγηση σελίδων">
-        <button type="button" class="btn btn-outline-secondary btn-sm" id="cashflowDocsFirstPage" title="Πρώτη σελίδα" aria-label="Πρώτη σελίδα">&laquo;</button>
-        <button type="button" class="btn btn-outline-secondary btn-sm" id="cashflowDocsPrevPage" title="Προηγούμενη σελίδα" aria-label="Προηγούμενη σελίδα">&lsaquo;</button>
-        <button type="button" class="btn btn-outline-secondary btn-sm" id="cashflowDocsNextPage" title="Επόμενη σελίδα" aria-label="Επόμενη σελίδα">&rsaquo;</button>
-        <button type="button" class="btn btn-outline-secondary btn-sm" id="cashflowDocsLastPage" title="Τελευταία σελίδα" aria-label="Τελευταία σελίδα">&raquo;</button>
+        <button type="button" class="bv-page-icon" id="cashflowDocsFirstPage" title="Πρώτη σελίδα" aria-label="Πρώτη σελίδα">&laquo;</button>
+        <button type="button" class="bv-page-icon" id="cashflowDocsPrevPage" title="Προηγούμενη σελίδα" aria-label="Προηγούμενη σελίδα">&lsaquo;</button>
+        <button type="button" class="bv-page-icon" id="cashflowDocsNextPage" title="Επόμενη σελίδα" aria-label="Επόμενη σελίδα">&rsaquo;</button>
+        <button type="button" class="bv-page-icon" id="cashflowDocsLastPage" title="Τελευταία σελίδα" aria-label="Τελευταία σελίδα">&raquo;</button>
       </div>
       <small id="cashflowDocsPageInfo" class="bv-pager-info">1 / 1</small>
     </div>
@@ -692,9 +659,20 @@ function renderCashflowDocumentsSummary(summary, meta={}){
     : (gross - net - vat);
   const lines = fmt0.format(Math.round(toNum(summary?.line_count)));
   if(cashflowCategory){
-    el.textContent = `Παραστατικά: ${fmt0.format(Math.round(docs))} | Γραμμές: ${lines} | Σύνολο αξίας: ${money(gross)}`;
+    window.bvRenderFooterSummary?.(el, [
+      { label: 'Παραστατικά', value: fmt0.format(Math.round(docs)) },
+      { label: 'Γραμμές', value: lines },
+      { label: 'Σύνολο αξίας', value: money(gross), tone: 'total' },
+    ]);
   } else {
-    el.textContent = `Παραστατικά: ${fmt0.format(Math.round(docs))} | Σύνολο καθαρής αξίας: ${money(net)} | Σύνολο εξόδων: ${money(expenses)} | Σύνολο ΦΠΑ: ${money(vat)} | Γενικό Σύνολο: ${money(gross)} | Γραμμές: ${lines}`;
+    window.bvRenderFooterSummary?.(el, [
+      { label: 'Παραστατικά', value: fmt0.format(Math.round(docs)) },
+      { label: 'Καθαρή αξία', value: money(net) },
+      { label: 'Έξοδα', value: money(expenses), tone: expenses < 0 ? 'negative' : '' },
+      { label: 'ΦΠΑ', value: money(vat) },
+      { label: 'Γενικό σύνολο', value: money(gross), tone: 'total' },
+      { label: 'Γραμμές', value: lines },
+    ]);
   }
 
   const limit = Math.max(1, Number(meta.limit || document.getElementById('cashflowDocsPageSize')?.value || 250));
