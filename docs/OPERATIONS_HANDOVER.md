@@ -179,6 +179,27 @@ Stop workers:
 docker compose stop worker worker_beat worker_delete
 ```
 
+Docker cache cleanup:
+
+```bash
+systemctl status cloudon-docker-cleanup.timer --no-pager
+systemctl list-timers --all --no-pager | grep cloudon-docker-cleanup
+DOCKER_CLEANUP_DRY_RUN=1 /opt/cloudon-bi/scripts/docker_cache_cleanup.sh
+```
+
+The cleanup is intentionally conservative:
+
+- it prunes stopped containers older than 7 days
+- it prunes unused/dangling images older than 7 days
+- it prunes Docker builder cache when supported
+- it never prunes Docker volumes
+- it never removes running containers
+
+The timer definition lives in:
+
+- `infra/systemd/cloudon-docker-cleanup.service`
+- `infra/systemd/cloudon-docker-cleanup.timer`
+
 Check DNS:
 
 ```bash

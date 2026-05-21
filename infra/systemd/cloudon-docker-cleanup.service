@@ -1,0 +1,10 @@
+[Unit]
+Description=CloudOn BI Docker cache cleanup
+Documentation=file:/opt/cloudon-bi/scripts/docker_cache_cleanup.sh
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/cloudon-bi
+Environment=DOCKER_CLEANUP_UNTIL_HOURS=168
+Environment=DOCKER_CLEANUP_METRICS_FILE=/opt/cloudon-bi/artifacts/ops/docker_cleanup.prom
+ExecStart=/opt/cloudon-bi/scripts/docker_cache_cleanup.sh
