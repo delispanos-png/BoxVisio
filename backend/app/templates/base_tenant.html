@@ -564,6 +564,11 @@
             'analytics_receivables_payables': 'finance-dashboard',
             'price_control': 'price-control',
             'business_advisor': 'business-advisor',
+            'tenant_users': 'tenant-users',
+            'tenant_profile': 'tenant-profile',
+            'tenant_settings': 'tenant-settings',
+            'tenant_messages': 'tenant-messages',
+            'user_manual': 'quick-start',
             'compare_period': 'comparisons',
             'compare_branch': 'comparisons',
             'compare_category': 'comparisons',
@@ -596,6 +601,8 @@
             <p class="bv-page-subtitle">Συγκρίσεις περιόδων και διαστάσεων με κοινή παρουσίαση.</p>
             {% elif active_page in ['exports_reports', 'exports_csv_excel'] %}
             <p class="bv-page-subtitle">Εξαγωγές αναφορών και αρχείων σε ενιαίο format.</p>
+            {% elif active_page in ['tenant_users', 'tenant_profile', 'tenant_settings', 'tenant_messages', 'user_manual'] %}
+            <p class="bv-page-subtitle">Ρυθμίσεις χρήστη, πρόσβασης και υποστήριξης tenant.</p>
             {% endif %}
             {% if _manual_help_anchor %}
             <div class="mt-2">

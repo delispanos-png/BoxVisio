@@ -7281,7 +7281,7 @@ async def tenant_profile(
             'tenant': tenant,
             'user': user,
             **(await _tenant_navigation_context(tenant)),
-            'active_page': 'dashboard',
+            'active_page': 'tenant_profile',
             'title': 'Profile',
         },
     )
@@ -7318,7 +7318,7 @@ async def tenant_settings(
             **(await _tenant_navigation_context(tenant)),
             'era_exploration_data': _tenant_era_exploration_settings(tenant),
             'supplier_orders': _tenant_supplier_order_settings(tenant),
-            'active_page': 'dashboard',
+            'active_page': 'tenant_settings',
             'title': 'Settings',
         },
     )
@@ -7413,7 +7413,7 @@ async def tenant_messages(
             'user': user,
             'messages': rows,
             **(await _tenant_navigation_context(tenant)),
-            'active_page': 'dashboard',
+            'active_page': 'tenant_messages',
             'title': 'Messages',
         },
     )
