@@ -49,6 +49,7 @@ from app.services.ingestion import (
     push_dead_letter,
     release_tenant_lock,
     tenant_delete_active_key,
+    tenant_live_queue_name,
     tenant_lock_name,
     tenant_stop_key,
     tenant_queue_name,
@@ -57,8 +58,13 @@ from app.services.ingestion.queueing import (
     close_ingest_circuit,
     get_ingest_circuit_reason,
     open_ingest_circuit,
+    priority_pool_depth,
+    remove_tenant_from_priority_pool,
+    select_next_tenant_from_priority_pool,
+    tenant_priority_pool_name,
 )
 from app.services.ingestion.base import ALL_OPERATIONAL_STREAMS, ENTITY_TO_STREAM, STREAM_TO_ENTITY, normalize_stream_name
+from app.services.ingestion.chunking import stream_chunk_days, stream_chunk_policy
 from app.services.ingestion.completeness_audit import (
     check_recent_batch_health,
     collect_tenant_sync_completeness,
@@ -231,6 +237,15 @@ def _try_schedule_drain(
     return True
 
 
+def _try_schedule_pool_drain(
+    redis_client: Any,
+    countdown: int = 1,
+    max_jobs: int = 50,
+    queue: str = 'ingest',
+) -> bool:
+    return _try_schedule_drain(redis_client, '__pool__', countdown=countdown, max_jobs=max_jobs, queue=queue)
+
+
 def _enqueue_recovery_sweep_jobs(
     tenant_slug: str,
     *,
@@ -296,6 +311,7 @@ def _clear_tenant_runtime_queue_state(
     redis = Redis.from_url(settings.redis_url, decode_responses=True)
     keys = [
         tenant_queue_name(tenant_slug),
+        tenant_live_queue_name(tenant_slug),
         f'dlq:{tenant_slug}',
         f'throttle:ingest:{tenant_slug}',
     ]
@@ -305,7 +321,9 @@ def _clear_tenant_runtime_queue_state(
         keys.append(tenant_delete_active_key(tenant_slug))
     if clear_lock:
         keys.append(f'lock:ingest:{tenant_slug}')
-    return int(redis.delete(*keys))
+    deleted = int(redis.delete(*keys))
+    redis.zrem(tenant_priority_pool_name(), tenant_slug)
+    return deleted
 
 
 async def _tenant_has_active_connector(tenant_slug: str, connector_type: str) -> bool:
@@ -483,7 +501,14 @@ def auto_recover_stuck_ingest() -> dict:
             continue
         heartbeat_age_seconds = _age_seconds(now, updated_at)
 
-        active = active_drain_tasks.get(tenant_slug, [])
+        active = list(active_drain_tasks.get(tenant_slug, []))
+        # Pool drains are scheduled with tenant_slug="__pool__" and choose the
+        # concrete tenant inside the task. Celery inspect still reports the
+        # original "__pool__" kwargs, so recovery must treat an active pool
+        # drain as a possible active drain for the tenant owning the lock.
+        # Otherwise auto-recover can clear a healthy tenant lock and start a
+        # second drain for the same tenant, causing concurrent upserts/deadlocks.
+        active.extend(active_drain_tasks.get('__pool__', []))
         active_ages = [int(t.get('age_seconds')) for t in active if isinstance(t.get('age_seconds'), int)]
         max_active_age_seconds = max(active_ages) if active_ages else None
         processed_jobs = int(raw.get('processed_jobs') or 0)
@@ -664,7 +689,7 @@ def auto_recover_stuck_ingest() -> dict:
             tenant_slug = lock_key.rsplit(':', 1)[-1].strip()
             if not tenant_slug or bool(redis.get(tenant_delete_active_key(tenant_slug))):
                 continue
-            if tenant_slug in active_drain_tasks:
+            if tenant_slug in active_drain_tasks or active_drain_tasks.get('__pool__'):
                 continue
             queue_left = int(redis.llen(tenant_queue_name(tenant_slug)))
             if queue_left <= 0:
@@ -1238,10 +1263,89 @@ async def _enqueue_incremental_sync(
             'tenant': tenant_slug,
             'reason': 'delete_in_progress',
         }
-    queue_depth = int(redis.llen(tenant_queue_name(tenant_slug)))
+    queue_depth = int(redis.llen(tenant_queue_name(tenant_slug)) + redis.llen(tenant_live_queue_name(tenant_slug)))
     if queue_depth > 0:
         lock_active = bool(redis.get(f'lock:ingest:{tenant_slug}'))
         progress_status = str(progress.get('status') or '').strip().lower()
+        progress_operation = str(progress.get('operation') or '').strip().lower()
+        historical_queue_active = any(
+            token in progress_operation
+            for token in ('backfill', 'recovery', 'reset_sync', 'production_full')
+        )
+        if historical_queue_active and progress_status in {'queued', 'running'}:
+            async with ControlSessionLocal() as control_db:
+                tenant = (await control_db.execute(select(Tenant).where(Tenant.slug == tenant_slug))).scalar_one_or_none()
+                if not tenant:
+                    return {'status': 'not_found', 'tenant': tenant_slug}
+                jobs = await plan_tenant_sync_jobs(control_db, tenant_id=tenant.id, tenant_slug=tenant.slug)
+
+            if not jobs:
+                return {'status': 'skipped', 'tenant': tenant_slug, 'reason': 'no_jobs'}
+
+            queued_jobs: list[dict[str, Any]] = []
+            effective_limit = max(100, int(limit))
+            now_ts = int(time.time())
+            live_blocked_streams = {'supplier_balances', 'customer_balances'}
+            for base_job in jobs:
+                stream = str(base_job.get('stream') or '')
+                if stream in live_blocked_streams:
+                    continue
+                if stream_payloads is not None and stream not in stream_payloads:
+                    continue
+                if stream_intervals is not None:
+                    interval_seconds = max(60, int(stream_intervals.get(stream) or 0) * 60)
+                    stream_key = f'ingest:auto:last_queued:{tenant_slug}:{stream}'
+                    last_queued_raw = redis.get(stream_key)
+                    try:
+                        last_queued = int(str(last_queued_raw or '0'))
+                    except Exception:
+                        last_queued = 0
+                    if last_queued and now_ts - last_queued < interval_seconds:
+                        continue
+                payload = dict(base_job.get('payload') or {})
+                if stream_payloads is not None:
+                    payload.update(stream_payloads.get(stream) or {})
+                planned_limit = int(payload.get('limit') or effective_limit)
+                payload['limit'] = max(100, min(planned_limit, effective_limit))
+                payload['live_priority'] = True
+                payload['front_of_queue'] = True
+                if str(base_job.get('connector') or '').strip().lower() in SQL_CONNECTOR_ALIASES:
+                    payload.setdefault('bulk_upsert', True)
+                job = dict(base_job)
+                job['payload'] = payload
+                job['priority'] = 'critical'
+                job['live_priority'] = True
+                job['front_of_queue'] = True
+                job.setdefault('attempt', 0)
+                job.setdefault('max_retries', settings.ingest_job_max_retries)
+                if str(job.get('connector') or '').strip().lower() in SQL_CONNECTOR_ALIASES:
+                    sql_job_retries = max(0, int(getattr(settings, 'sqlserver_ingest_job_max_retries', 0) or 0))
+                    job['max_retries'] = min(int(job.get('max_retries') or 0), sql_job_retries)
+                queued_jobs.append(job)
+                if stream_intervals is not None:
+                    redis.set(f'ingest:auto:last_queued:{tenant_slug}:{stream}', str(now_ts), ex=60 * 60 * 24 * 45)
+
+            if queued_jobs:
+                # Live jobs go to a separate priority lane and are popped before
+                # historical backfill jobs, preserving planner stream order.
+                for job in queued_jobs:
+                    enqueue_tenant_job(tenant_slug, job)
+                if not lock_active:
+                    drain_tenant_ingest_queue.delay(tenant_slug=tenant_slug)
+                return {
+                    'status': 'queued_priority',
+                    'tenant': tenant_slug,
+                    'jobs': len(queued_jobs),
+                    'reason': 'historical_queue_active',
+                    'queue_depth_before': queue_depth,
+                    'queue_depth_after': int(redis.llen(tenant_queue_name(tenant_slug)) + redis.llen(tenant_live_queue_name(tenant_slug))),
+                }
+            return {
+                'status': 'skipped',
+                'tenant': tenant_slug,
+                'reason': 'no_stream_due_while_backfill_active',
+                'queue_depth': queue_depth,
+            }
         if lock_active and progress_status in {'completed', 'failed', 'stopped', 'idle'}:
             redis.delete(f'lock:ingest:{tenant_slug}', f'throttle:ingest:{tenant_slug}')
             drain_tenant_ingest_queue.delay(tenant_slug=tenant_slug)
@@ -1801,6 +1905,7 @@ def enqueue_pharmacyone_backfill(
     include_supplier_balances: bool = True,
     include_customer_balances: bool = True,
     include_operating_expenses: bool = True,
+    include_supplier_orders: bool = True,
     operation: str = 'backfill',
 ) -> dict:
     redis = Redis.from_url(settings.redis_url, decode_responses=True)
@@ -1824,23 +1929,17 @@ def enqueue_pharmacyone_backfill(
         'supplier_balances': bool(include_supplier_balances),
         'customer_balances': bool(include_customer_balances),
         'operating_expenses': bool(include_operating_expenses),
+        'supplier_orders': bool(include_supplier_orders),
     }
     balance_streams = {'supplier_balances', 'customer_balances'}
     base_chunk_days = max(1, int(chunk_days))
     effective_limit = max(100, int(limit or settings.incremental_sync_limit or 500))
-    sales_chunk_cap = max(1, int(getattr(settings, 'ingest_backfill_sales_chunk_days', 1) or 1))
-    purchases_chunk_cap = max(1, int(getattr(settings, 'ingest_backfill_purchases_chunk_days', 1) or 1))
-    inventory_chunk_cap = max(1, int(getattr(settings, 'ingest_backfill_inventory_chunk_days', 1) or 1))
-    stream_chunk_days = {
-        # Document streams are materially more stable with daily windows during SQL
-        # backfills. Keep the caps configurable, but default them to 1 day.
-        'sales_documents': min(sales_chunk_cap, base_chunk_days),
-        'purchase_documents': min(purchases_chunk_cap, base_chunk_days),
-        'inventory_documents': min(inventory_chunk_cap, base_chunk_days),
-        # Other streams follow user-selected chunk.
-        'cash_transactions': base_chunk_days,
-        'operating_expenses': base_chunk_days,
-    }
+    chunk_profile = 'bulk' if str(operation or '').strip().lower() in {
+        'full_backfill',
+        'production_full_backfill',
+        'initial_full_backfill',
+    } else 'safe'
+    chunk_policy = stream_chunk_policy(base_chunk_days, profile=chunk_profile)
 
     # Interleave jobs across enabled streams (round-robin), so dashboards get
     # visible data from all circuits earlier instead of draining all sales first.
@@ -1850,7 +1949,7 @@ def enqueue_pharmacyone_backfill(
         if stream_flags.get(stream) and stream not in balance_streams
     ]
     stream_iters = {
-        stream: iter(_iter_date_chunks(from_date, to_date, stream_chunk_days.get(stream, base_chunk_days)))
+        stream: iter(_iter_date_chunks(from_date, to_date, chunk_policy.get(stream, base_chunk_days)))
         for stream in ordered_streams
     }
     next_chunks = {stream: next(stream_iters[stream], None) for stream in ordered_streams}
@@ -1918,6 +2017,8 @@ def enqueue_pharmacyone_backfill(
         'include_supplier_balances': bool(include_supplier_balances),
         'include_customer_balances': bool(include_customer_balances),
         'include_operating_expenses': bool(include_operating_expenses),
+        'include_supplier_orders': bool(include_supplier_orders),
+        'chunk_profile': chunk_profile,
         'operation': operation,
     }
 
@@ -1936,6 +2037,7 @@ def enqueue_sql_backfill(
     include_supplier_balances: bool = True,
     include_customer_balances: bool = True,
     include_operating_expenses: bool = True,
+    include_supplier_orders: bool = True,
     operation: str = 'backfill',
 ) -> dict:
     redis = Redis.from_url(settings.redis_url, decode_responses=True)
@@ -1956,6 +2058,7 @@ def enqueue_sql_backfill(
         include_supplier_balances=include_supplier_balances,
         include_customer_balances=include_customer_balances,
         include_operating_expenses=include_operating_expenses,
+        include_supplier_orders=include_supplier_orders,
         operation=operation,
     )
 
@@ -2318,11 +2421,9 @@ async def _reset_tenant_data_and_backfill(
                 # SoftOne document endpoints frequently timeout on larger windows.
                 # Keep document streams in daily chunks while leaving non-document
                 # streams configurable from the requested chunk size.
-                stream_chunk_days = (
-                    1 if stream in {'sales_documents', 'purchase_documents', 'inventory_documents'} else default_chunk_days
-                )
+                effective_chunk_days = stream_chunk_days(stream, default_chunk_days)
 
-                for chunk_from, chunk_to in _iter_date_chunks(from_date, to_date, stream_chunk_days):
+                for chunk_from, chunk_to in _iter_date_chunks(from_date, to_date, effective_chunk_days):
                     payload = dict(base_job.get('payload') or {})
                     default_limit = 500 if stream in {'sales_documents', 'purchase_documents', 'inventory_documents'} else 2000
                     payload.update(
@@ -2542,7 +2643,28 @@ def delete_tenant_data_only(
 @shared_task(name='worker.tasks.drain_tenant_ingest_queue', autoretry_for=(Exception,), retry_backoff=True, retry_kwargs={'max_retries': 3})
 def drain_tenant_ingest_queue(tenant_slug: str, max_jobs: int | None = None) -> dict:
     effective_max_jobs = settings.ingest_drain_max_jobs if max_jobs is None else max_jobs
-    return _run_coro(_drain_tenant_ingest_queue(tenant_slug=tenant_slug, max_jobs=effective_max_jobs))
+    return _run_coro(_drain_priority_pool_or_tenant(tenant_slug=tenant_slug, max_jobs=effective_max_jobs))
+
+
+async def _drain_priority_pool_or_tenant(tenant_slug: str, max_jobs: int) -> dict:
+    requested_tenant = str(tenant_slug or '').strip()
+    selected_tenant = select_next_tenant_from_priority_pool(
+        preferred_tenant_slug=None if requested_tenant == '__pool__' else requested_tenant,
+    )
+    if selected_tenant is None:
+        if requested_tenant and requested_tenant != '__pool__':
+            selected_tenant = requested_tenant
+        else:
+            return {'status': 'empty', 'tenant': None, 'reason': 'priority_pool_empty'}
+    if selected_tenant != requested_tenant:
+        Redis.from_url(settings.redis_url, decode_responses=True).delete(_DRAIN_SCHED_KEY_FMT.format(requested_tenant))
+        logger.info(
+            'ingest_priority_pool_selected requested=%s selected=%s pool_depth=%s',
+            requested_tenant,
+            selected_tenant,
+            priority_pool_depth(),
+        )
+    return await _drain_tenant_ingest_queue(tenant_slug=selected_tenant, max_jobs=max_jobs)
 
 
 async def _drain_tenant_ingest_queue(tenant_slug: str, max_jobs: int) -> dict:
@@ -2691,6 +2813,7 @@ async def _drain_tenant_ingest_queue(tenant_slug: str, max_jobs: int) -> dict:
                     and entity in {
                     'sales',
                     'purchases',
+                    'inventory',
                     'cashflows',
                     'supplier_balances',
                     'customer_balances',
@@ -2771,7 +2894,7 @@ async def _drain_tenant_ingest_queue(tenant_slug: str, max_jobs: int) -> dict:
                     enqueue_tenant_job(tenant_slug, job)
                     ingest_retries_total.labels(connector=connector, entity=metric_entity).inc()
                     retry_delay = max(settings.ingest_retry_backoff_seconds * attempt, 1)
-                    if _try_schedule_drain(redis, tenant_slug, retry_delay, max_jobs):
+                    if _try_schedule_pool_drain(redis, retry_delay, max_jobs):
                         next_drain_scheduled = True
                 else:
                     push_dead_letter(tenant_slug, dead_letter_payload)
@@ -2789,7 +2912,8 @@ async def _drain_tenant_ingest_queue(tenant_slug: str, max_jobs: int) -> dict:
 
         if stopped_by_user:
             redis.delete(tenant_queue_name(tenant_slug), f'throttle:ingest:{tenant_slug}')
-        remaining_jobs = int(redis.llen(tenant_queue_name(tenant_slug)))
+            remove_tenant_from_priority_pool(tenant_slug)
+        remaining_jobs = int(redis.llen(tenant_queue_name(tenant_slug)) + redis.llen(tenant_live_queue_name(tenant_slug)))
         if stopped_by_user:
             update_ingest_progress(tenant_slug, status='stopped', error='stopped_by_user')
             sync_duration_seconds.labels(task='drain_tenant_ingest_queue', entity='all', status='stopped').observe(time.perf_counter() - drain_start)
@@ -2805,7 +2929,7 @@ async def _drain_tenant_ingest_queue(tenant_slug: str, max_jobs: int) -> dict:
                 'next_drain_scheduled': False,
             }
         if remaining_jobs > 0 and not next_drain_scheduled:
-            if _try_schedule_drain(redis, tenant_slug, 1, max_jobs):
+            if _try_schedule_pool_drain(redis, 1, max_jobs):
                 next_drain_scheduled = True
         elif remaining_jobs == 0 and not processed_recovery_jobs and permanent_failures == 0:
             progress_snapshot = redis.hgetall(f'ingest:progress:{tenant_slug}')
@@ -2845,8 +2969,10 @@ async def _drain_tenant_ingest_queue(tenant_slug: str, max_jobs: int) -> dict:
                             from_date=recovery_meta.get('from_date'),
                             to_date=recovery_meta.get('to_date'),
                         )
-                        if _try_schedule_drain(redis, tenant_slug, 1, max_jobs):
+                        if _try_schedule_pool_drain(redis, 1, max_jobs):
                             next_drain_scheduled = True
+        elif remaining_jobs == 0:
+            remove_tenant_from_priority_pool(tenant_slug)
         if remaining_jobs == 0 and backfill_entity_ranges:
             for agg_entity, agg_range in backfill_entity_ranges.items():
                 refresh_aggregates_for_entity.delay(
@@ -2890,6 +3016,7 @@ async def _drain_tenant_ingest_queue(tenant_slug: str, max_jobs: int) -> dict:
             'recovery_jobs_queued': recovery_jobs_queued,
             'remaining_jobs': remaining_jobs,
             'next_drain_scheduled': next_drain_scheduled,
+            'priority_pool_depth': priority_pool_depth(),
         }
     finally:
         release_tenant_lock(tenant_slug, lock_token)
@@ -3104,6 +3231,36 @@ async def _refresh_sales_aggregates(
     to_date: date,
     document_rules_json: str,
 ) -> None:
+    sales_expenses_sql = """
+        CAST(
+            COALESCE(
+                NULLIF(REPLACE(BTRIM(f.source_payload_json->>'charge_revenue_net_value'), ',', '.'), ''),
+                NULLIF(REPLACE(BTRIM(f.source_payload_json->>'shipping_expense_value'), ',', '.'), ''),
+                NULLIF(REPLACE(BTRIM(f.source_payload_json->>'doc_expenses_total'), ',', '.'), ''),
+                NULLIF(REPLACE(BTRIM(f.source_payload_json->>'DOC_EXPENSES_TOTAL'), ',', '.'), ''),
+                NULLIF(REPLACE(BTRIM(f.source_payload_json->>'shipping_charge_net_value'), ',', '.'), ''),
+                NULLIF(REPLACE(BTRIM(f.source_payload_json->>'cod_charge_net_value'), ',', '.'), ''),
+                NULLIF(REPLACE(BTRIM(f.source_payload_json->>'charge_revenue_total_net_value'), ',', '.'), ''),
+                NULLIF(REPLACE(BTRIM(f.source_payload_json->>'expenses_value'), ',', '.'), ''),
+                NULLIF(REPLACE(BTRIM(f.source_payload_json->>'expense_value'), ',', '.'), ''),
+                NULLIF(REPLACE(BTRIM(f.source_payload_json->>'expenses_amount'), ',', '.'), ''),
+                NULLIF(REPLACE(BTRIM(f.source_payload_json->>'expense_amount'), ',', '.'), ''),
+                NULLIF(REPLACE(BTRIM(f.source_payload_json->>'total_expenses'), ',', '.'), ''),
+                NULLIF(REPLACE(BTRIM(f.source_payload_json->>'expenses_total'), ',', '.'), ''),
+                NULLIF(REPLACE(BTRIM(f.source_payload_json->>'other_charges'), ',', '.'), ''),
+                NULLIF(REPLACE(BTRIM(f.source_payload_json->>'charges_amount'), ',', '.'), ''),
+                NULLIF(REPLACE(BTRIM(f.source_payload_json->>'shipping_cost'), ',', '.'), ''),
+                NULLIF(REPLACE(BTRIM(f.source_payload_json->>'fees_amount'), ',', '.'), ''),
+                NULLIF(REPLACE(BTRIM(f.source_payload_json->>'value_expenses'), ',', '.'), ''),
+                NULLIF(REPLACE(BTRIM(f.source_payload_json->>'axia_exodon'), ',', '.'), ''),
+                NULLIF(REPLACE(BTRIM(f.source_payload_json->>'charge_revenue_gross_value'), ',', '.'), ''),
+                NULLIF(REPLACE(BTRIM(f.source_payload_json->>'charge_revenue_total_gross_value'), ',', '.'), ''),
+                NULLIF(REPLACE(BTRIM(f.source_payload_json->>'EXPENSES_VALUE'), ',', '.'), ''),
+                NULLIF(REPLACE(BTRIM(f.source_payload_json->>'EXPENSE_AMOUNT'), ',', '.'), ''),
+                '0'
+            ) AS numeric
+        )
+    """
     sales_classified_cte = """
         WITH rules AS (
             SELECT
@@ -3119,6 +3276,27 @@ async def _refresh_sales_aggregates(
         base AS (
             SELECT
                 f.*,
+                COALESCE(f.document_id, f.document_no, f.external_id) AS document_key,
+                {sales_expenses_sql} AS payload_expenses_value,
+                COALESCE(
+                    NULLIF(BTRIM(f.category_ext_id), ''),
+                    CASE
+                        WHEN NULLIF(BTRIM(COALESCE(i.category_1, i.category_2, i.category_3, '')), '') IS NOT NULL THEN
+                            'ITEMCAT:' || SUBSTRING(
+                                MD5(
+                                    CONCAT(
+                                        COALESCE(NULLIF(BTRIM(i.category_1), ''), 'N/A'),
+                                        ' > ',
+                                        COALESCE(NULLIF(BTRIM(i.category_2), ''), NULLIF(BTRIM(i.category_1), ''), 'N/A'),
+                                        ' > ',
+                                        COALESCE(NULLIF(BTRIM(i.category_3), ''), NULLIF(BTRIM(i.category_2), ''), NULLIF(BTRIM(i.category_1), ''), 'N/A')
+                                    )
+                                )
+                                FROM 1 FOR 24
+                            )
+                        ELSE NULL
+                    END
+                ) AS effective_category_ext_id,
                 NULLIF(
                     BTRIM(
                         COALESCE(
@@ -3146,6 +3324,7 @@ async def _refresh_sales_aggregates(
                     )
                 ) AS document_type_norm
             FROM fact_sales f
+            LEFT JOIN dim_items i ON i.external_id = f.item_code
             WHERE f.doc_date BETWEEN :from_date AND :to_date
         ),
         classified AS (
@@ -3182,7 +3361,7 @@ async def _refresh_sales_aggregates(
                 LIMIT 1
             ) rd ON true
         )
-    """
+    """.format(sales_expenses_sql=sales_expenses_sql)
     await tenant_db.execute(
         text(
             """
@@ -3201,14 +3380,14 @@ async def _refresh_sales_aggregates(
                 qty, net_value, gross_value, updated_at, created_at
             )
             SELECT
-                doc_date, branch_ext_id, warehouse_ext_id, brand_ext_id, category_ext_id, group_ext_id,
+                doc_date, branch_ext_id, warehouse_ext_id, brand_ext_id, effective_category_ext_id, group_ext_id,
                 COALESCE(SUM(CASE WHEN include_quantity THEN COALESCE(qty, 0) * quantity_sign ELSE 0 END), 0),
                 COALESCE(SUM(CASE WHEN include_revenue THEN COALESCE(net_value, 0) * amount_sign ELSE 0 END), 0),
                 COALESCE(SUM(CASE WHEN include_revenue THEN COALESCE(gross_value, 0) * amount_sign ELSE 0 END), 0),
                 NOW(),
                 NOW()
             FROM classified
-            GROUP BY doc_date, branch_ext_id, warehouse_ext_id, brand_ext_id, category_ext_id, group_ext_id
+            GROUP BY doc_date, branch_ext_id, warehouse_ext_id, brand_ext_id, effective_category_ext_id, group_ext_id
             """
         ),
         {'from_date': from_date, 'to_date': to_date, 'rules_json': document_rules_json},
@@ -3226,30 +3405,43 @@ async def _refresh_sales_aggregates(
         text(
             f"""
             {sales_classified_cte}
+            , document_base AS (
+                SELECT
+                    doc_date,
+                    branch_ext_id,
+                    document_key,
+                    COALESCE(SUM(CASE WHEN include_quantity THEN COALESCE(qty, 0) * quantity_sign ELSE 0 END), 0) AS qty,
+                    COALESCE(SUM(CASE WHEN include_revenue THEN COALESCE(net_value, 0) * amount_sign ELSE 0 END), 0) AS net_value,
+                    COALESCE(SUM(CASE WHEN include_revenue THEN COALESCE(gross_value, 0) * amount_sign ELSE 0 END), 0) AS gross_value,
+                    COALESCE(SUM(CASE WHEN include_cost THEN COALESCE(cost_amount, 0) * amount_sign ELSE 0 END), 0) AS cost_amount,
+                    COALESCE(MAX(CASE WHEN include_revenue THEN COALESCE(payload_expenses_value, 0) * amount_sign ELSE 0 END), 0) AS expenses_value
+                FROM classified
+                GROUP BY doc_date, branch_ext_id, document_key
+            )
             INSERT INTO agg_sales_daily_company (
                 doc_date, qty, net_value, gross_value, cost_amount, branches, margin_pct, updated_at, created_at
             )
             SELECT
                 doc_date,
-                COALESCE(SUM(CASE WHEN include_quantity THEN COALESCE(qty, 0) * quantity_sign ELSE 0 END), 0) AS qty,
-                COALESCE(SUM(CASE WHEN include_revenue THEN COALESCE(net_value, 0) * amount_sign ELSE 0 END), 0) AS net_value,
-                COALESCE(SUM(CASE WHEN include_revenue THEN COALESCE(gross_value, 0) * amount_sign ELSE 0 END), 0) AS gross_value,
-                COALESCE(SUM(CASE WHEN include_cost THEN COALESCE(cost_amount, 0) * amount_sign ELSE 0 END), 0) AS cost_amount,
-                COALESCE(COUNT(DISTINCT CASE WHEN include_revenue THEN branch_ext_id END), 0) AS branches,
+                COALESCE(SUM(qty), 0) AS qty,
+                COALESCE(SUM(net_value + expenses_value), 0) AS net_value,
+                COALESCE(SUM(gross_value + expenses_value), 0) AS gross_value,
+                COALESCE(SUM(cost_amount), 0) AS cost_amount,
+                COALESCE(COUNT(DISTINCT branch_ext_id), 0) AS branches,
                 CASE
-                    WHEN COALESCE(SUM(CASE WHEN include_revenue THEN COALESCE(net_value, 0) * amount_sign ELSE 0 END), 0) <> 0
+                    WHEN COALESCE(SUM(net_value + expenses_value), 0) <> 0
                         THEN (
                             (
-                                COALESCE(SUM(CASE WHEN include_revenue THEN COALESCE(net_value, 0) * amount_sign ELSE 0 END), 0)
-                                - COALESCE(SUM(CASE WHEN include_cost THEN COALESCE(cost_amount, 0) * amount_sign ELSE 0 END), 0)
+                                COALESCE(SUM(net_value + expenses_value), 0)
+                                - COALESCE(SUM(cost_amount), 0)
                             )
-                            / NULLIF(COALESCE(SUM(CASE WHEN include_revenue THEN COALESCE(net_value, 0) * amount_sign ELSE 0 END), 0), 0)
+                            / NULLIF(COALESCE(SUM(net_value + expenses_value), 0), 0)
                         ) * 100
                     ELSE 0
                 END AS margin_pct,
                 NOW(),
                 NOW()
-            FROM classified
+            FROM document_base
             GROUP BY doc_date
             """
         ),
@@ -3268,15 +3460,28 @@ async def _refresh_sales_aggregates(
         text(
             f"""
             {sales_classified_cte}
-            , branch_base AS (
+            , document_base AS (
                 SELECT
                     doc_date,
                     branch_ext_id,
+                    document_key,
                     COALESCE(SUM(CASE WHEN include_quantity THEN COALESCE(qty, 0) * quantity_sign ELSE 0 END), 0) AS qty,
                     COALESCE(SUM(CASE WHEN include_revenue THEN COALESCE(net_value, 0) * amount_sign ELSE 0 END), 0) AS net_value,
                     COALESCE(SUM(CASE WHEN include_revenue THEN COALESCE(gross_value, 0) * amount_sign ELSE 0 END), 0) AS gross_value,
-                    COALESCE(SUM(CASE WHEN include_cost THEN COALESCE(cost_amount, 0) * amount_sign ELSE 0 END), 0) AS cost_amount
+                    COALESCE(SUM(CASE WHEN include_cost THEN COALESCE(cost_amount, 0) * amount_sign ELSE 0 END), 0) AS cost_amount,
+                    COALESCE(MAX(CASE WHEN include_revenue THEN COALESCE(payload_expenses_value, 0) * amount_sign ELSE 0 END), 0) AS expenses_value
                 FROM classified
+                GROUP BY doc_date, branch_ext_id, document_key
+            ),
+            branch_base AS (
+                SELECT
+                    doc_date,
+                    branch_ext_id,
+                    COALESCE(SUM(qty), 0) AS qty,
+                    COALESCE(SUM(net_value + expenses_value), 0) AS net_value,
+                    COALESCE(SUM(gross_value + expenses_value), 0) AS gross_value,
+                    COALESCE(SUM(cost_amount), 0) AS cost_amount
+                FROM document_base
                 GROUP BY doc_date, branch_ext_id
             ),
             day_totals AS (
@@ -3649,7 +3854,7 @@ async def _refresh_inventory_aggregates(
             ),
             latest_inventory_rows AS (
                 SELECT
-                    sd.snapshot_date,
+                    fi.doc_date AS snapshot_date,
                     fi.branch_ext_id,
                     fi.warehouse_ext_id,
                     fi.item_id,
@@ -3658,14 +3863,14 @@ async def _refresh_inventory_aggregates(
                     fi.value_amount,
                     ROW_NUMBER() OVER (
                         PARTITION BY
-                            sd.snapshot_date,
+                            fi.doc_date,
                             fi.branch_id,
                             fi.warehouse_id,
                             COALESCE(fi.item_id::text, fi.item_code, '')
                         ORDER BY fi.doc_date DESC, fi.updated_at DESC, fi.id DESC
                     ) AS rn
                 FROM fact_inventory fi
-                JOIN snapshot_days sd ON fi.doc_date <= sd.snapshot_date
+                JOIN snapshot_days sd ON fi.doc_date = sd.snapshot_date
             )
             INSERT INTO agg_inventory_snapshot_daily (
                 snapshot_date, item_external_id, qty_on_hand, value_amount, updated_at, created_at
@@ -3704,7 +3909,7 @@ async def _refresh_inventory_aggregates(
             ),
             latest_inventory_rows AS (
                 SELECT
-                    sd.snapshot_date,
+                    fi.doc_date AS snapshot_date,
                     fi.branch_ext_id,
                     fi.warehouse_ext_id,
                     fi.item_id,
@@ -3713,14 +3918,14 @@ async def _refresh_inventory_aggregates(
                     fi.value_amount,
                     ROW_NUMBER() OVER (
                         PARTITION BY
-                            sd.snapshot_date,
+                            fi.doc_date,
                             fi.branch_id,
                             fi.warehouse_id,
                             COALESCE(fi.item_id::text, fi.item_code, '')
                         ORDER BY fi.doc_date DESC, fi.updated_at DESC, fi.id DESC
                     ) AS rn
                 FROM fact_inventory fi
-                JOIN snapshot_days sd ON fi.doc_date <= sd.snapshot_date
+                JOIN snapshot_days sd ON fi.doc_date = sd.snapshot_date
             ),
             inventory_base AS (
                 SELECT
@@ -3748,23 +3953,15 @@ async def _refresh_inventory_aggregates(
                     ib.snapshot_date,
                     ib.item_external_id,
                     ib.branch_ext_id,
-                    MAX(fs.doc_date) AS last_sale_date
+                    sl.last_sale_date
                 FROM inventory_base ib
-                LEFT JOIN fact_sales fs
-                    ON fs.doc_date <= ib.snapshot_date
-                   AND (
-                        (ib.item_id IS NOT NULL AND fs.item_id = ib.item_id)
-                        OR (
-                            ib.item_id IS NULL
-                            AND ib.item_code IS NOT NULL
-                            AND fs.item_code = ib.item_code
-                        )
-                   )
-                   AND COALESCE(fs.branch_ext_id, '') = COALESCE(ib.branch_ext_id, '')
-                GROUP BY
-                    ib.snapshot_date,
-                    ib.item_external_id,
-                    ib.branch_ext_id
+                LEFT JOIN LATERAL (
+                    SELECT MAX(fs.doc_date) AS last_sale_date
+                    FROM fact_sales fs
+                    WHERE fs.doc_date <= ib.snapshot_date
+                      AND fs.item_code = ib.item_code
+                      AND COALESCE(fs.branch_ext_id, '') = COALESCE(ib.branch_ext_id, '')
+                ) sl ON TRUE
             ),
             aging_base AS (
                 SELECT
@@ -3867,18 +4064,28 @@ async def _refresh_cash_aggregates(
                 COALESCE(fc.account_id, fc.reference_no, fc.external_id) AS account_id,
                 COUNT(fc.id) AS entries,
                 SUM(CASE
-                    WHEN COALESCE(NULLIF(LOWER(fc.subcategory), ''), '') IN ('customer_collections','customer_transfers') THEN ABS(fc.amount)
+                    WHEN COALESCE(NULLIF(LOWER(fc.subcategory), ''), '') IN ('customer_collections','customer_transfers')
+                         AND NOT (LOWER(COALESCE(fc.transaction_type, '')) LIKE '102%' OR LOWER(COALESCE(fc.transaction_type, '')) = '2') THEN ABS(fc.amount)
+                    WHEN COALESCE(NULLIF(LOWER(fc.subcategory), ''), '') IN ('supplier_payments','supplier_transfers')
+                         AND (LOWER(COALESCE(fc.transaction_type, '')) LIKE '102%' OR LOWER(COALESCE(fc.transaction_type, '')) = '2') THEN ABS(fc.amount)
                     WHEN COALESCE(NULLIF(LOWER(fc.subcategory), ''), '') = 'financial_accounts' AND fc.amount >= 0 THEN ABS(fc.amount)
                     ELSE 0
                 END) AS inflows,
                 SUM(CASE
-                    WHEN COALESCE(NULLIF(LOWER(fc.subcategory), ''), '') IN ('supplier_payments','supplier_transfers') THEN ABS(fc.amount)
+                    WHEN COALESCE(NULLIF(LOWER(fc.subcategory), ''), '') IN ('customer_collections','customer_transfers')
+                         AND (LOWER(COALESCE(fc.transaction_type, '')) LIKE '102%' OR LOWER(COALESCE(fc.transaction_type, '')) = '2') THEN ABS(fc.amount)
+                    WHEN COALESCE(NULLIF(LOWER(fc.subcategory), ''), '') IN ('supplier_payments','supplier_transfers')
+                         AND NOT (LOWER(COALESCE(fc.transaction_type, '')) LIKE '102%' OR LOWER(COALESCE(fc.transaction_type, '')) = '2') THEN ABS(fc.amount)
                     WHEN COALESCE(NULLIF(LOWER(fc.subcategory), ''), '') = 'financial_accounts' AND fc.amount < 0 THEN ABS(fc.amount)
                     ELSE 0
                 END) AS outflows,
                 SUM(CASE
+                    WHEN COALESCE(NULLIF(LOWER(fc.subcategory), ''), '') IN ('customer_collections','customer_transfers')
+                         AND (LOWER(COALESCE(fc.transaction_type, '')) LIKE '102%' OR LOWER(COALESCE(fc.transaction_type, '')) = '2') THEN -ABS(fc.amount)
                     WHEN COALESCE(NULLIF(LOWER(fc.subcategory), ''), '') IN ('customer_collections','customer_transfers') THEN ABS(fc.amount)
                     WHEN COALESCE(NULLIF(LOWER(fc.subcategory), ''), '') = 'financial_accounts' THEN fc.amount
+                    WHEN COALESCE(NULLIF(LOWER(fc.subcategory), ''), '') IN ('supplier_payments','supplier_transfers')
+                         AND (LOWER(COALESCE(fc.transaction_type, '')) LIKE '102%' OR LOWER(COALESCE(fc.transaction_type, '')) = '2') THEN ABS(fc.amount)
                     WHEN COALESCE(NULLIF(LOWER(fc.subcategory), ''), '') IN ('supplier_payments','supplier_transfers') THEN -ABS(fc.amount)
                     ELSE 0
                 END) AS net_amount,

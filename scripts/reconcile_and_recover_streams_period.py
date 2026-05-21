@@ -26,10 +26,13 @@ from app.db.tenant_manager import get_tenant_db_session  # noqa: E402
 from app.models.control import Tenant, TenantConnection  # noqa: E402
 from app.models.tenant import (  # noqa: E402
     FactCashflow,
+    FactCustomerBalance,
     FactExpense,
     FactInventory,
     FactPurchases,
     FactSales,
+    FactSupplierBalance,
+    FactSupplierOrder,
 )
 from app.services.connection_secrets import (  # noqa: E402
     build_odbc_connection_string,
@@ -96,6 +99,33 @@ STREAMS: dict[str, StreamCfg] = {
         date_field="expense_date",
         amount_field="amount_gross",
         source_amount_keys=("amount_gross", "amount_net"),
+    ),
+    "supplier_balances": StreamCfg(
+        stream="supplier_balances",
+        query_attr="supplier_balances_query_template",
+        model=FactSupplierBalance,
+        table_name="fact_supplier_balances",
+        date_field="balance_date",
+        amount_field="open_balance",
+        source_amount_keys=("open_balance",),
+    ),
+    "customer_balances": StreamCfg(
+        stream="customer_balances",
+        query_attr="customer_balances_query_template",
+        model=FactCustomerBalance,
+        table_name="fact_customer_balances",
+        date_field="balance_date",
+        amount_field="open_balance",
+        source_amount_keys=("open_balance",),
+    ),
+    "supplier_orders": StreamCfg(
+        stream="supplier_orders",
+        query_attr="stream_query_mapping",
+        model=FactSupplierOrder,
+        table_name="fact_supplier_orders",
+        date_field="doc_date",
+        amount_field="line_value",
+        source_amount_keys=("line_value",),
     ),
 }
 
@@ -165,9 +195,10 @@ def _stream_flags(stream: str) -> dict[str, bool]:
         "include_purchases": stream == "purchase_documents",
         "include_inventory": stream == "inventory_documents",
         "include_cashflows": stream == "cash_transactions",
-        "include_supplier_balances": False,
-        "include_customer_balances": False,
+        "include_supplier_balances": stream == "supplier_balances",
+        "include_customer_balances": stream == "customer_balances",
         "include_operating_expenses": stream == "operating_expenses",
+        "include_supplier_orders": stream == "supplier_orders",
     }
 
 

@@ -114,6 +114,19 @@ STREAM_CONFIGS: dict[str, ReconcileStreamConfig] = {
         source_amount2='overdue_balance',
         kind='as_of',
     ),
+    'supplier_orders': ReconcileStreamConfig(
+        stream='supplier_orders',
+        target_table='fact_supplier_orders',
+        target_date='doc_date',
+        target_amount='line_value',
+        target_amount2='order_qty',
+        source_query_key='supplier_orders',
+        source_date='doc_date',
+        source_amount='line_value',
+        source_amount2='order_qty',
+        source_doc_field='document_id',
+        target_doc_field='document_id',
+    ),
 }
 
 
@@ -142,6 +155,7 @@ def _templates(conn: TenantConnection) -> dict[str, str]:
         'operating_expenses': str(mapping.get('operating_expenses') or pack.expenses_sql),
         'supplier_balances': str(mapping.get('supplier_balances') or conn.supplier_balances_query_template or pack.supplier_balances_sql),
         'customer_balances': str(mapping.get('customer_balances') or conn.customer_balances_query_template or pack.customer_balances_sql),
+        'supplier_orders': str(mapping.get('supplier_orders') or pack.supplier_orders_sql),
     }
 
 

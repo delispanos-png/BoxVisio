@@ -224,6 +224,10 @@ class PharmacyOneSqlConnector(Connector):
             query_template = mapped_query or DEFAULT_GENERIC_SUPPLIER_BALANCES_QUERY
         elif stream == 'customer_balances':
             query_template = mapped_query or DEFAULT_GENERIC_CUSTOMER_BALANCES_QUERY
+        elif stream == 'supplier_orders':
+            query_template = mapped_query
+            if not query_template:
+                return []
         else:
             query_template = mapped_query or DEFAULT_GENERIC_EXPENSES_QUERY
 

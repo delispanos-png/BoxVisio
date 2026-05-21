@@ -33,7 +33,7 @@ from app.services.cloudflare_dns import ensure_tenant_dns_record, tenant_hostnam
 from app.services.email_delivery import send_tenant_welcome_email
 from app.services.subscriptions import infer_default_features_for_plan
 
-TENANT_MIGRATION_HEAD = '20260418_0020_tenant'
+TENANT_MIGRATION_HEAD = '20260519_0033_tenant'
 
 
 def _rand_secret(size: int = 40) -> str:

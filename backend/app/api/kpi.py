@@ -91,8 +91,11 @@ from app.services.kpi_queries import (
     sales_intraday,
     sales_daily_by_branch,
     sales_monthly_by_branch,
+    normalize_price_margin_targets_config,
 )
 from app.services.kpi_cache import get_or_set_cache
+from app.services.business_advisor import business_advisor_report
+from app.services.era_exploration import era_exploration_report
 from app.services.intelligence_service import acknowledge_insight, list_insights
 from app.core.config import settings
 from app.core.celery_sender import make_celery_sender
@@ -168,6 +171,44 @@ def _tenant_eshop_fulfillment_from_request(request: Request) -> dict[str, object
         if isinstance(cfg, dict):
             raw = cfg
     return normalize_eshop_fulfillment_config(raw)
+
+
+def _tenant_price_margin_targets_from_request(request: Request) -> dict[str, object]:
+    tenant = getattr(request.state, 'tenant', None)
+    flags = getattr(tenant, 'feature_flags', None)
+    raw = None
+    if isinstance(flags, dict):
+        cfg = flags.get('price_margin_targets')
+        if isinstance(cfg, dict):
+            raw = cfg
+    return normalize_price_margin_targets_config(raw)
+
+
+def _tenant_business_advisor_targets_from_request(request: Request) -> dict[str, object]:
+    tenant = getattr(request.state, 'tenant', None)
+    flags = getattr(tenant, 'feature_flags', None)
+    source = {}
+    if isinstance(flags, dict):
+        cfg = flags.get('business_advisor_targets')
+        if isinstance(cfg, dict):
+            source = cfg
+    try:
+        inventory_coverage_days = int(str(source.get('inventory_coverage_days') or 60).strip())
+    except Exception:
+        inventory_coverage_days = 60
+    return {'inventory_coverage_days': max(1, min(3650, inventory_coverage_days))}
+
+
+def _mask_executive_summary_for_subscription(request: Request, payload: dict) -> dict:
+    """Remove mixed-dashboard values that belong to locked commercial modules."""
+    out = dict(payload or {})
+    features = getattr(request.state, 'subscription_features', None) or {}
+    cards = dict(out.get('cards') or {})
+    if not bool(features.get('purchases')):
+        for key in ('purchases_period', 'purchases_year'):
+            cards[key] = {}
+    out['cards'] = cards
+    return out
 
 
 def _tenant_document_series_labels_from_request(request: Request) -> dict[str, str]:
@@ -502,7 +543,7 @@ async def get_dashboard_executive_summary(
                 groups=groups,
             ),
         )
-        out = dict(data or {})
+        out = _mask_executive_summary_for_subscription(request, dict(data or {}))
         out['kpi_emphasis'] = _kpi_emphasis_payload(request, 'executive')
         return out
     data = await _cached_kpi_response(
@@ -539,7 +580,7 @@ async def get_dashboard_executive_summary(
         )
     except Exception:
         logger.exception('executive_summary_cards_debug_failed')
-    out = dict(data or {})
+    out = _mask_executive_summary_for_subscription(request, dict(data or {}))
     out['kpi_emphasis'] = _kpi_emphasis_payload(request, 'executive')
     return out
 
@@ -896,6 +937,8 @@ async def get_sales_summary(
 
 @router.get('/v1/kpi/sales/decision-pack')
 async def get_sales_decision_pack(
+    request: Request,
+    response: Response,
     date_from: date = Query(default_factory=_default_from, alias='from'),
     date_to: date = Query(default_factory=_default_to, alias='to'),
     branches: list[str] | None = Query(default=None),
@@ -907,8 +950,7 @@ async def get_sales_decision_pack(
     tenant_db: AsyncSession = Depends(get_tenant_db),
 ):
     try:
-        return await sales_decision_pack(
-            tenant_db,
+        params = _kpi_filter_cache_params(
             date_from=date_from,
             date_to=date_to,
             branches=branches,
@@ -916,7 +958,24 @@ async def get_sales_decision_pack(
             brands=brands,
             categories=categories,
             groups=groups,
-            top_n=top_n,
+        )
+        params['top_n'] = int(top_n)
+        return await _cached_kpi_response(
+            request=request,
+            response=response,
+            namespace='dashboard:sales_decision_pack',
+            params=params,
+            producer=lambda: sales_decision_pack(
+                tenant_db,
+                date_from=date_from,
+                date_to=date_to,
+                branches=branches,
+                warehouses=warehouses,
+                brands=brands,
+                categories=categories,
+                groups=groups,
+                top_n=top_n,
+            ),
         )
     except Exception:
         days = max(1, (date_to - date_from).days + 1)
@@ -991,6 +1050,8 @@ async def get_sales_entity_ranking(
 
 @router.get('/v1/kpi/sales/filter-options')
 async def get_sales_filter_options(
+    request: Request,
+    response: Response,
     date_from: date = Query(default_factory=_default_from, alias='from'),
     date_to: date = Query(default_factory=_default_to, alias='to'),
     branches: list[str] | None = Query(default=None),
@@ -1000,8 +1061,7 @@ async def get_sales_filter_options(
     groups: list[str] | None = Query(default=None),
     tenant_db: AsyncSession = Depends(get_tenant_db),
 ):
-    return await sales_filter_options(
-        tenant_db,
+    params = _kpi_filter_cache_params(
         date_from=date_from,
         date_to=date_to,
         branches=branches,
@@ -1009,6 +1069,22 @@ async def get_sales_filter_options(
         brands=brands,
         categories=categories,
         groups=groups,
+    )
+    return await _cached_kpi_response(
+        request=request,
+        response=response,
+        namespace='dashboard:sales_filter_options',
+        params=params,
+        producer=lambda: sales_filter_options(
+            tenant_db,
+            date_from=date_from,
+            date_to=date_to,
+            branches=branches,
+            warehouses=warehouses,
+            brands=brands,
+            categories=categories,
+            groups=groups,
+        ),
     )
 
 
@@ -1137,6 +1213,7 @@ async def get_sales_ytd_monthly(
 @router.get('/v1/kpi/sales/documents')
 async def get_sales_documents(
     request: Request,
+    response: Response,
     date_from: date = Query(default_factory=_default_from, alias='from'),
     date_to: date = Query(default_factory=_default_to, alias='to'),
     branches: list[str] | None = Query(default=None),
@@ -1160,8 +1237,9 @@ async def get_sales_documents(
     offset: int = Query(default=0, ge=0),
     tenant_db: AsyncSession = Depends(get_tenant_db),
 ):
-    return await sales_documents_overview(
-        tenant_db,
+    fulfillment_config = _tenant_eshop_fulfillment_from_request(request)
+    document_series_labels = _tenant_document_series_labels_from_request(request)
+    params = _kpi_filter_cache_params(
         date_from=date_from,
         date_to=date_to,
         branches=branches,
@@ -1169,22 +1247,58 @@ async def get_sales_documents(
         brands=brands,
         categories=categories,
         groups=groups,
-        channels=channels,
-        status=status,
-        series=series,
-        document_no=document_no,
-        eshop_code=eshop_code,
-        customer=customer,
-        from_ref=from_ref,
-        to_ref=to_ref,
-        gross_min=gross_min,
-        gross_max=gross_max,
-        q=q,
-        behaviors=behaviors,
-        limit=limit,
-        offset=offset,
-        fulfillment_config=_tenant_eshop_fulfillment_from_request(request),
-        document_series_labels=_tenant_document_series_labels_from_request(request),
+    )
+    params.update(
+        {
+            'channels': _normalize_list(channels),
+            'status': status or 'all',
+            'series': series or '',
+            'document_no': document_no or '',
+            'eshop_code': eshop_code or '',
+            'customer': customer or '',
+            'from_ref': from_ref or '',
+            'to_ref': to_ref or '',
+            'gross_min': gross_min,
+            'gross_max': gross_max,
+            'q': q or '',
+            'behaviors': _normalize_list(behaviors),
+            'limit': limit,
+            'offset': offset,
+            'fulfillment': fulfillment_config,
+            'series_labels': document_series_labels,
+        }
+    )
+    return await _cached_kpi_response(
+        request=request,
+        response=response,
+        namespace='dashboard:sales_documents',
+        params=params,
+        producer=lambda: sales_documents_overview(
+            tenant_db,
+            date_from=date_from,
+            date_to=date_to,
+            branches=branches,
+            warehouses=warehouses,
+            brands=brands,
+            categories=categories,
+            groups=groups,
+            channels=channels,
+            status=status,
+            series=series,
+            document_no=document_no,
+            eshop_code=eshop_code,
+            customer=customer,
+            from_ref=from_ref,
+            to_ref=to_ref,
+            gross_min=gross_min,
+            gross_max=gross_max,
+            q=q,
+            behaviors=behaviors,
+            limit=limit,
+            offset=offset,
+            fulfillment_config=fulfillment_config,
+            document_series_labels=document_series_labels,
+        ),
     )
 
 
@@ -1224,6 +1338,7 @@ async def get_sales_document_detail(
 @router.get('/v1/kpi/eshop/analysis')
 async def get_eshop_analysis(
     request: Request,
+    response: Response,
     date_from: date = Query(default_factory=_default_from, alias='from'),
     date_to: date = Query(default_factory=_default_to, alias='to'),
     branches: list[str] | None = Query(default=None),
@@ -1232,21 +1347,38 @@ async def get_eshop_analysis(
     page_size: int = Query(default=25, ge=5, le=200),
     tenant_db: AsyncSession = Depends(get_tenant_db),
 ):
-    return await e_shop_analysis_summary(
-        tenant_db,
-        date_from=date_from,
-        date_to=date_to,
-        branches=branches,
-        warehouses=warehouses,
-        page=page,
-        page_size=page_size,
-        fulfillment_config=_tenant_eshop_fulfillment_from_request(request),
+    fulfillment_config = _tenant_eshop_fulfillment_from_request(request)
+    params = {
+        'from': str(date_from),
+        'to': str(date_to),
+        'branches': _normalize_list(branches),
+        'warehouses': _normalize_list(warehouses),
+        'page': int(page),
+        'page_size': int(page_size),
+        'fulfillment': fulfillment_config,
+    }
+    return await _cached_kpi_response(
+        request=request,
+        response=response,
+        namespace='dashboard:eshop_analysis',
+        params=params,
+        producer=lambda: e_shop_analysis_summary(
+            tenant_db,
+            date_from=date_from,
+            date_to=date_to,
+            branches=branches,
+            warehouses=warehouses,
+            page=page,
+            page_size=page_size,
+            fulfillment_config=fulfillment_config,
+        ),
     )
 
 
 @router.get('/v1/kpi/purchases/documents')
 async def get_purchases_documents(
     request: Request,
+    response: Response,
     date_from: date = Query(default_factory=_default_from, alias='from'),
     date_to: date = Query(default_factory=_default_to, alias='to'),
     branches: list[str] | None = Query(default=None),
@@ -1260,8 +1392,8 @@ async def get_purchases_documents(
     offset: int = Query(default=0, ge=0),
     tenant_db: AsyncSession = Depends(get_tenant_db),
 ):
-    return await purchases_documents_overview(
-        tenant_db,
+    document_series_labels = _tenant_document_series_labels_from_request(request)
+    params = _kpi_filter_cache_params(
         date_from=date_from,
         date_to=date_to,
         branches=branches,
@@ -1269,11 +1401,36 @@ async def get_purchases_documents(
         brands=brands,
         categories=categories,
         groups=groups,
-        series=series,
-        q=q,
-        limit=limit,
-        offset=offset,
-        document_series_labels=_tenant_document_series_labels_from_request(request),
+    )
+    params.update(
+        {
+            'series': series or '',
+            'q': q or '',
+            'limit': limit,
+            'offset': offset,
+            'series_labels': document_series_labels,
+        }
+    )
+    return await _cached_kpi_response(
+        request=request,
+        response=response,
+        namespace='dashboard:purchases_documents',
+        params=params,
+        producer=lambda: purchases_documents_overview(
+            tenant_db,
+            date_from=date_from,
+            date_to=date_to,
+            branches=branches,
+            warehouses=warehouses,
+            brands=brands,
+            categories=categories,
+            groups=groups,
+            series=series,
+            q=q,
+            limit=limit,
+            offset=offset,
+            document_series_labels=document_series_labels,
+        ),
     )
 
 
@@ -1309,6 +1466,8 @@ async def get_purchase_document_detail(
 
 @router.get('/v1/kpi/expenses/documents')
 async def get_expenses_documents(
+    request: Request,
+    response: Response,
     date_from: date = Query(default_factory=_default_from, alias='from'),
     date_to: date = Query(default_factory=_default_to, alias='to'),
     branches: list[str] | None = Query(default=None),
@@ -1319,16 +1478,31 @@ async def get_expenses_documents(
     offset: int = Query(default=0, ge=0),
     tenant_db: AsyncSession = Depends(get_tenant_db),
 ):
-    return await expenses_documents_overview(
-        tenant_db,
-        date_from=date_from,
-        date_to=date_to,
-        branches=branches,
-        categories=categories,
-        series=series,
-        q=q,
-        limit=limit,
-        offset=offset,
+    return await _cached_kpi_response(
+        request=request,
+        response=response,
+        namespace='dashboard:expenses_documents',
+        params={
+            'from': str(date_from),
+            'to': str(date_to),
+            'branches': _normalize_list(branches),
+            'categories': _normalize_list(categories),
+            'series': series or '',
+            'q': q or '',
+            'limit': limit,
+            'offset': offset,
+        },
+        producer=lambda: expenses_documents_overview(
+            tenant_db,
+            date_from=date_from,
+            date_to=date_to,
+            branches=branches,
+            categories=categories,
+            series=series,
+            q=q,
+            limit=limit,
+            offset=offset,
+        ),
     )
 
 
@@ -1700,6 +1874,8 @@ async def get_purchases_compare(
 
 @router.get('/v1/kpi/purchases/decision-pack')
 async def get_purchases_decision_pack(
+    request: Request,
+    response: Response,
     date_from: date = Query(default_factory=_default_from, alias='from'),
     date_to: date = Query(default_factory=_default_to, alias='to'),
     branches: list[str] | None = Query(default=None),
@@ -1717,8 +1893,7 @@ async def get_purchases_decision_pack(
     brands = _clean_query_list(brands)
     categories = _clean_query_list(categories)
     groups = _clean_query_list(groups)
-    return await purchases_decision_pack(
-        tenant_db,
+    params = _kpi_filter_cache_params(
         date_from=date_from,
         date_to=date_to,
         branches=branches,
@@ -1726,11 +1901,29 @@ async def get_purchases_decision_pack(
         brands=brands,
         categories=categories,
         groups=groups,
+    )
+    return await _cached_kpi_response(
+        request=request,
+        response=response,
+        namespace='dashboard:purchases_decision_pack',
+        params=params,
+        producer=lambda: purchases_decision_pack(
+            tenant_db,
+            date_from=date_from,
+            date_to=date_to,
+            branches=branches,
+            warehouses=warehouses,
+            brands=brands,
+            categories=categories,
+            groups=groups,
+        ),
     )
 
 
 @router.get('/v1/kpi/purchases/filter-options')
 async def get_purchases_filter_options(
+    request: Request,
+    response: Response,
     date_from: date = Query(default_factory=_default_from, alias='from'),
     date_to: date = Query(default_factory=_default_to, alias='to'),
     branches: list[str] | None = Query(default=None),
@@ -1748,8 +1941,7 @@ async def get_purchases_filter_options(
     brands = _clean_query_list(brands)
     categories = _clean_query_list(categories)
     groups = _clean_query_list(groups)
-    return await purchases_filter_options(
-        tenant_db,
+    params = _kpi_filter_cache_params(
         date_from=date_from,
         date_to=date_to,
         branches=branches,
@@ -1758,10 +1950,28 @@ async def get_purchases_filter_options(
         categories=categories,
         groups=groups,
     )
+    return await _cached_kpi_response(
+        request=request,
+        response=response,
+        namespace='dashboard:purchases_filter_options',
+        params=params,
+        producer=lambda: purchases_filter_options(
+            tenant_db,
+            date_from=date_from,
+            date_to=date_to,
+            branches=branches,
+            warehouses=warehouses,
+            brands=brands,
+            categories=categories,
+            groups=groups,
+        ),
+    )
 
 
 @router.get('/v1/reports/sellout/filter-options')
 async def get_sellout_filter_options(
+    request: Request,
+    response: Response,
     date_from: date = Query(default_factory=_default_from, alias='from'),
     date_to: date = Query(default_factory=_default_to, alias='to'),
     branches: list[str] | None = Query(default=None),
@@ -1770,17 +1980,31 @@ async def get_sellout_filter_options(
 ):
     branches = _clean_query_list(branches)
     warehouses = _clean_query_list(warehouses)
-    return await sellout_filter_options(
-        tenant_db,
-        date_from=date_from,
-        date_to=date_to,
-        branches=branches,
-        warehouses=warehouses,
+    params = {
+        'from': str(date_from),
+        'to': str(date_to),
+        'branches': _normalize_list(branches),
+        'warehouses': _normalize_list(warehouses),
+    }
+    return await _cached_kpi_response(
+        request=request,
+        response=response,
+        namespace='dashboard:sellout_filter_options',
+        params=params,
+        producer=lambda: sellout_filter_options(
+            tenant_db,
+            date_from=date_from,
+            date_to=date_to,
+            branches=branches,
+            warehouses=warehouses,
+        ),
     )
 
 
 @router.get('/v1/reports/sellout')
 async def get_sellout_report(
+    request: Request,
+    response: Response,
     date_from: date = Query(default_factory=_default_from, alias='from'),
     date_to: date = Query(default_factory=_default_to, alias='to'),
     branches: list[str] | None = Query(default=None),
@@ -1800,19 +2024,38 @@ async def get_sellout_report(
     categories = _clean_query_list(categories)
     groups = _clean_query_list(groups)
     suppliers = _clean_query_list(suppliers)
-    return await sellout_report(
-        tenant_db,
-        date_from=date_from,
-        date_to=date_to,
-        branches=branches,
-        warehouses=warehouses,
-        brands=brands,
-        categories=categories,
-        groups=groups,
-        suppliers=suppliers,
-        q=q,
-        limit=limit,
-        offset=offset,
+    params = {
+        'from': str(date_from),
+        'to': str(date_to),
+        'branches': _normalize_list(branches),
+        'warehouses': _normalize_list(warehouses),
+        'brands': _normalize_list(brands),
+        'categories': _normalize_list(categories),
+        'groups': _normalize_list(groups),
+        'suppliers': _normalize_list(suppliers),
+        'q': str(q or ''),
+        'limit': int(limit),
+        'offset': int(offset),
+    }
+    return await _cached_kpi_response(
+        request=request,
+        response=response,
+        namespace='dashboard:sellout_report',
+        params=params,
+        producer=lambda: sellout_report(
+            tenant_db,
+            date_from=date_from,
+            date_to=date_to,
+            branches=branches,
+            warehouses=warehouses,
+            brands=brands,
+            categories=categories,
+            groups=groups,
+            suppliers=suppliers,
+            q=q,
+            limit=limit,
+            offset=offset,
+        ),
     )
 
 
@@ -2006,6 +2249,7 @@ async def get_expenses_filter_options(
 @router.get('/v1/kpi/inventory/documents')
 async def get_inventory_documents(
     request: Request,
+    response: Response,
     date_from: date = Query(default_factory=_default_from, alias='from'),
     date_to: date = Query(default_factory=_default_to, alias='to'),
     branches: list[str] | None = Query(default=None),
@@ -2019,8 +2263,8 @@ async def get_inventory_documents(
     offset: int = Query(default=0, ge=0),
     tenant_db: AsyncSession = Depends(get_tenant_db),
 ):
-    return await inventory_documents_overview(
-        tenant_db,
+    document_series_labels = _tenant_document_series_labels_from_request(request)
+    params = _kpi_filter_cache_params(
         date_from=date_from,
         date_to=date_to,
         branches=branches,
@@ -2028,11 +2272,28 @@ async def get_inventory_documents(
         brands=brands,
         categories=categories,
         groups=groups,
-        series=series,
-        q=q,
-        limit=limit,
-        offset=offset,
-        document_series_labels=_tenant_document_series_labels_from_request(request),
+    )
+    params.update({'series': series or '', 'q': q or '', 'limit': limit, 'offset': offset, 'series_labels': document_series_labels})
+    return await _cached_kpi_response(
+        request=request,
+        response=response,
+        namespace='dashboard:inventory_documents',
+        params=params,
+        producer=lambda: inventory_documents_overview(
+            tenant_db,
+            date_from=date_from,
+            date_to=date_to,
+            branches=branches,
+            warehouses=warehouses,
+            brands=brands,
+            categories=categories,
+            groups=groups,
+            series=series,
+            q=q,
+            limit=limit,
+            offset=offset,
+            document_series_labels=document_series_labels,
+        ),
     )
 
 
@@ -2187,6 +2448,8 @@ async def get_inventory_by_manufacturer(
 @router.get('/v1/kpi/inventory/filter-options')
 @router.get('/kpi/inventory/filter-options')
 async def get_inventory_filter_options(
+    request: Request,
+    response: Response,
     as_of: date = Query(default_factory=_default_to),
     branches: list[str] | None = Query(default=None),
     warehouses: list[str] | None = Query(default=None),
@@ -2195,14 +2458,28 @@ async def get_inventory_filter_options(
     groups: list[str] | None = Query(default=None),
     tenant_db: AsyncSession = Depends(get_tenant_db),
 ):
-    return await inventory_filter_options(
-        tenant_db,
-        as_of=as_of,
-        branches=branches,
-        warehouses=warehouses,
-        brands=brands,
-        categories=categories,
-        groups=groups,
+    params = {
+        'as_of': str(as_of),
+        'branches': _normalize_list(branches),
+        'warehouses': _normalize_list(warehouses),
+        'brands': _normalize_list(brands),
+        'categories': _normalize_list(categories),
+        'groups': _normalize_list(groups),
+    }
+    return await _cached_kpi_response(
+        request=request,
+        response=response,
+        namespace='dashboard:inventory_filter_options',
+        params=params,
+        producer=lambda: inventory_filter_options(
+            tenant_db,
+            as_of=as_of,
+            branches=branches,
+            warehouses=warehouses,
+            brands=brands,
+            categories=categories,
+            groups=groups,
+        ),
     )
 
 
@@ -2210,12 +2487,15 @@ async def get_inventory_filter_options(
 @router.get('/kpi/inventory/items')
 async def get_inventory_items(
     request: Request,
+    response: Response,
     as_of: date = Query(default_factory=_default_to),
     branches: list[str] | None = Query(default=None),
     warehouses: list[str] | None = Query(default=None),
     brands: list[str] | None = Query(default=None),
     categories: list[str] | None = Query(default=None),
     groups: list[str] | None = Query(default=None),
+    abc_categories: list[str] | None = Query(default=None),
+    commercial_statuses: list[str] | None = Query(default=None),
     status: str = Query(default='all'),
     movement: str = Query(default='all'),
     q: str | None = Query(default=None),
@@ -2224,21 +2504,46 @@ async def get_inventory_items(
     tenant_db: AsyncSession = Depends(get_tenant_db),
 ):
     classification_config = _tenant_inventory_item_classification_from_request(request)
-    result = await inventory_items_overview(
-        tenant_db,
-        as_of=as_of,
-        branches=branches,
-        warehouses=warehouses,
-        brands=brands,
-        categories=categories,
-        groups=groups,
-        status=status,
-        movement=movement,
-        q=q,
-        limit=limit,
-        offset=offset,
-        classification_config=classification_config,
+    params = {
+        'as_of': str(as_of),
+        'branches': _normalize_list(branches),
+        'warehouses': _normalize_list(warehouses),
+        'brands': _normalize_list(brands),
+        'categories': _normalize_list(categories),
+        'groups': _normalize_list(groups),
+        'abc_categories': _normalize_list(abc_categories),
+        'commercial_statuses': _normalize_list(commercial_statuses),
+        'status': str(status or 'all'),
+        'movement': str(movement or 'all'),
+        'q': str(q or ''),
+        'limit': int(limit),
+        'offset': int(offset),
+        'classification': classification_config,
+    }
+    result = await _cached_kpi_response(
+        request=request,
+        response=response,
+        namespace='dashboard:inventory_items',
+        params=params,
+        producer=lambda: inventory_items_overview(
+            tenant_db,
+            as_of=as_of,
+            branches=branches,
+            warehouses=warehouses,
+            brands=brands,
+            categories=categories,
+            groups=groups,
+            abc_categories=abc_categories,
+            commercial_statuses=commercial_statuses,
+            status=status,
+            movement=movement,
+            q=q,
+            limit=limit,
+            offset=offset,
+            classification_config=classification_config,
+        ),
     )
+    result = dict(result or {})
     allowed_scope = getattr(request.state, 'allowed_branch_scope', None)
     result['scope'] = {
         'company_id': getattr(request.state, 'scoped_company_id', None),
@@ -2280,6 +2585,8 @@ async def get_inventory_item_detail(
 @router.get('/v1/kpi/customers')
 @router.get('/kpi/customers')
 async def get_customers(
+    request: Request,
+    response: Response,
     date_from_raw: str | None = Query(default=None, alias='from'),
     date_to_raw: str | None = Query(default=None, alias='to'),
     q: str | None = Query(default=None),
@@ -2301,15 +2608,21 @@ async def get_customers(
     )
     limit = _parse_int_param(limit_raw, default=250, min_value=1, max_value=500)
     offset = _parse_int_param(offset_raw, default=0, min_value=0, max_value=1_000_000)
-    return await customers_overview(
-        tenant_db,
-        date_from=date_from,
-        date_to=date_to,
-        q=q,
-        limit=limit,
-        offset=offset,
-        include_profile=False,
-        balance_only=True,
+    return await _cached_kpi_response(
+        request=request,
+        response=response,
+        namespace='dashboard:customers',
+        params={'from': str(date_from), 'to': str(date_to), 'q': q or '', 'limit': limit, 'offset': offset},
+        producer=lambda: customers_overview(
+            tenant_db,
+            date_from=date_from,
+            date_to=date_to,
+            q=q,
+            limit=limit,
+            offset=offset,
+            include_profile=False,
+            balance_only=True,
+        ),
     )
 
 
@@ -2337,36 +2650,54 @@ async def get_customer_detail(
 @router.get('/v1/kpi/receivables/summary')
 @router.get('/kpi/receivables/summary')
 async def get_receivables_summary(
+    request: Request,
+    response: Response,
     date_from: date = Query(default_factory=_default_from, alias='from'),
     date_to: date = Query(default_factory=_default_to, alias='to'),
     branches: list[str] | None = Query(default=None),
     tenant_db: AsyncSession = Depends(get_tenant_db),
 ):
-    return await receivables_summary(
-        tenant_db,
-        date_from=date_from,
-        date_to=date_to,
-        branches=branches,
+    return await _cached_kpi_response(
+        request=request,
+        response=response,
+        namespace='dashboard:receivables_summary',
+        params={'from': str(date_from), 'to': str(date_to), 'branches': _normalize_list(branches)},
+        producer=lambda: receivables_summary(
+            tenant_db,
+            date_from=date_from,
+            date_to=date_to,
+            branches=branches,
+        ),
     )
 
 
 @router.get('/v1/kpi/receivables/aging')
 @router.get('/kpi/receivables/aging')
 async def get_receivables_aging(
+    request: Request,
+    response: Response,
     date_to: date = Query(default_factory=_default_to, alias='to'),
     branches: list[str] | None = Query(default=None),
     tenant_db: AsyncSession = Depends(get_tenant_db),
 ):
-    return await receivables_aging(
-        tenant_db,
-        date_to=date_to,
-        branches=branches,
+    return await _cached_kpi_response(
+        request=request,
+        response=response,
+        namespace='dashboard:receivables_aging',
+        params={'to': str(date_to), 'branches': _normalize_list(branches)},
+        producer=lambda: receivables_aging(
+            tenant_db,
+            date_to=date_to,
+            branches=branches,
+        ),
     )
 
 
 @router.get('/v1/kpi/receivables/top-customers')
 @router.get('/kpi/receivables/top-customers')
 async def get_receivables_top_customers(
+    request: Request,
+    response: Response,
     date_to: date = Query(default_factory=_default_to, alias='to'),
     branches: list[str] | None = Query(default=None),
     q: str | None = Query(default=None),
@@ -2374,35 +2705,57 @@ async def get_receivables_top_customers(
     offset: int = Query(default=0, ge=0),
     tenant_db: AsyncSession = Depends(get_tenant_db),
 ):
-    return await receivables_top_customers(
-        tenant_db,
-        date_to=date_to,
-        branches=branches,
-        q=q,
-        limit=limit,
-        offset=offset,
+    return await _cached_kpi_response(
+        request=request,
+        response=response,
+        namespace='dashboard:receivables_top_customers',
+        params={
+            'to': str(date_to),
+            'branches': _normalize_list(branches),
+            'q': q or '',
+            'limit': limit,
+            'offset': offset,
+        },
+        producer=lambda: receivables_top_customers(
+            tenant_db,
+            date_to=date_to,
+            branches=branches,
+            q=q,
+            limit=limit,
+            offset=offset,
+        ),
     )
 
 
 @router.get('/v1/kpi/receivables/collection-trend')
 @router.get('/kpi/receivables/collection-trend')
 async def get_receivables_collection_trend(
+    request: Request,
+    response: Response,
     date_from: date = Query(default_factory=_default_from, alias='from'),
     date_to: date = Query(default_factory=_default_to, alias='to'),
     branches: list[str] | None = Query(default=None),
     tenant_db: AsyncSession = Depends(get_tenant_db),
 ):
-    return await receivables_collection_trend(
-        tenant_db,
-        date_from=date_from,
-        date_to=date_to,
-        branches=branches,
+    return await _cached_kpi_response(
+        request=request,
+        response=response,
+        namespace='dashboard:receivables_collection_trend',
+        params={'from': str(date_from), 'to': str(date_to), 'branches': _normalize_list(branches)},
+        producer=lambda: receivables_collection_trend(
+            tenant_db,
+            date_from=date_from,
+            date_to=date_to,
+            branches=branches,
+        ),
     )
 
 
 @router.get('/v1/kpi/suppliers')
 @router.get('/kpi/suppliers')
 async def get_suppliers(
+    request: Request,
+    response: Response,
     date_from_raw: str | None = Query(default=None, alias='from'),
     date_to_raw: str | None = Query(default=None, alias='to'),
     branches: list[str] | None = Query(default=None),
@@ -2425,14 +2778,27 @@ async def get_suppliers(
     )
     limit = _parse_int_param(limit_raw, default=250, min_value=1, max_value=500)
     offset = _parse_int_param(offset_raw, default=0, min_value=0, max_value=1_000_000)
-    return await suppliers_overview(
-        tenant_db,
-        date_from=date_from,
-        date_to=date_to,
-        branches=branches,
-        q=q,
-        limit=limit,
-        offset=offset,
+    return await _cached_kpi_response(
+        request=request,
+        response=response,
+        namespace='dashboard:suppliers',
+        params={
+            'from': str(date_from),
+            'to': str(date_to),
+            'branches': _normalize_list(branches),
+            'q': q or '',
+            'limit': limit,
+            'offset': offset,
+        },
+        producer=lambda: suppliers_overview(
+            tenant_db,
+            date_from=date_from,
+            date_to=date_to,
+            branches=branches,
+            q=q,
+            limit=limit,
+            offset=offset,
+        ),
     )
 
 
@@ -2441,16 +2807,24 @@ async def get_suppliers(
 @router.get('/v1/kpi/cashflows/summary')
 @router.get('/kpi/cashflows/summary')
 async def get_cashflow_summary(
+    request: Request,
+    response: Response,
     date_from: date = Query(default_factory=_default_from, alias='from'),
     date_to: date = Query(default_factory=_default_to, alias='to'),
     branches: list[str] | None = Query(default=None),
     tenant_db: AsyncSession = Depends(get_tenant_db),
 ):
-    return await cashflow_summary(
-        tenant_db,
-        date_from=date_from,
-        date_to=date_to,
-        branches=branches,
+    return await _cached_kpi_response(
+        request=request,
+        response=response,
+        namespace='dashboard:cashflow_summary',
+        params={'from': str(date_from), 'to': str(date_to), 'branches': _normalize_list(branches)},
+        producer=lambda: cashflow_summary(
+            tenant_db,
+            date_from=date_from,
+            date_to=date_to,
+            branches=branches,
+        ),
     )
 
 
@@ -2459,16 +2833,24 @@ async def get_cashflow_summary(
 @router.get('/v1/kpi/cashflows/by-type')
 @router.get('/kpi/cashflows/by-type')
 async def get_cashflow_by_type(
+    request: Request,
+    response: Response,
     date_from: date = Query(default_factory=_default_from, alias='from'),
     date_to: date = Query(default_factory=_default_to, alias='to'),
     branches: list[str] | None = Query(default=None),
     tenant_db: AsyncSession = Depends(get_tenant_db),
 ):
-    return await cashflow_by_entry_type(
-        tenant_db,
-        date_from=date_from,
-        date_to=date_to,
-        branches=branches,
+    return await _cached_kpi_response(
+        request=request,
+        response=response,
+        namespace='dashboard:cashflow_by_type',
+        params={'from': str(date_from), 'to': str(date_to), 'branches': _normalize_list(branches)},
+        producer=lambda: cashflow_by_entry_type(
+            tenant_db,
+            date_from=date_from,
+            date_to=date_to,
+            branches=branches,
+        ),
     )
 
 
@@ -2477,21 +2859,31 @@ async def get_cashflow_by_type(
 @router.get('/v1/kpi/cashflows/trend-monthly')
 @router.get('/kpi/cashflows/trend-monthly')
 async def get_cashflow_trend_monthly(
+    request: Request,
+    response: Response,
     date_from: date = Query(default_factory=_default_from, alias='from'),
     date_to: date = Query(default_factory=_default_to, alias='to'),
     branches: list[str] | None = Query(default=None),
     tenant_db: AsyncSession = Depends(get_tenant_db),
 ):
-    return await cashflow_monthly_trend(
-        tenant_db,
-        date_from=date_from,
-        date_to=date_to,
-        branches=branches,
+    return await _cached_kpi_response(
+        request=request,
+        response=response,
+        namespace='dashboard:cashflow_trend_monthly',
+        params={'from': str(date_from), 'to': str(date_to), 'branches': _normalize_list(branches)},
+        producer=lambda: cashflow_monthly_trend(
+            tenant_db,
+            date_from=date_from,
+            date_to=date_to,
+            branches=branches,
+        ),
     )
 
 
 @router.get('/v1/kpi/cashflow/documents')
 async def get_cashflow_documents(
+    request: Request,
+    response: Response,
     date_from: date = Query(default_factory=_default_from_ytd, alias='from'),
     date_to: date = Query(default_factory=_default_to, alias='to'),
     category: str | None = Query(default=None),
@@ -2502,16 +2894,31 @@ async def get_cashflow_documents(
     offset: int = Query(default=0, ge=0),
     tenant_db: AsyncSession = Depends(get_tenant_db),
 ):
-    return await cashflow_documents_overview(
-        tenant_db,
-        date_from=date_from,
-        date_to=date_to,
-        category=category,
-        branches=branches,
-        series=series,
-        q=q,
-        limit=limit,
-        offset=offset,
+    return await _cached_kpi_response(
+        request=request,
+        response=response,
+        namespace='dashboard:cashflow_documents',
+        params={
+            'from': str(date_from),
+            'to': str(date_to),
+            'category': category or '',
+            'branches': _normalize_list(branches),
+            'series': series or '',
+            'q': q or '',
+            'limit': limit,
+            'offset': offset,
+        },
+        producer=lambda: cashflow_documents_overview(
+            tenant_db,
+            date_from=date_from,
+            date_to=date_to,
+            category=category,
+            branches=branches,
+            series=series,
+            q=q,
+            limit=limit,
+            offset=offset,
+        ),
     )
 
 
@@ -2539,6 +2946,8 @@ async def get_cashflow_document_detail(
 
 @router.get('/v1/kpi/cashflow/accounts')
 async def get_cashflow_accounts(
+    request: Request,
+    response: Response,
     as_of: date = Query(default_factory=_default_to, alias='to'),
     branches: list[str] | None = Query(default=None),
     q: str | None = Query(default=None),
@@ -2546,13 +2955,25 @@ async def get_cashflow_accounts(
     offset: int = Query(default=0, ge=0),
     tenant_db: AsyncSession = Depends(get_tenant_db),
 ):
-    return await cashflow_accounts_overview(
-        tenant_db,
-        as_of=as_of,
-        branches=branches,
-        q=q,
-        limit=limit,
-        offset=offset,
+    return await _cached_kpi_response(
+        request=request,
+        response=response,
+        namespace='dashboard:cashflow_accounts',
+        params={
+            'to': str(as_of),
+            'branches': _normalize_list(branches),
+            'q': q or '',
+            'limit': limit,
+            'offset': offset,
+        },
+        producer=lambda: cashflow_accounts_overview(
+            tenant_db,
+            as_of=as_of,
+            branches=branches,
+            q=q,
+            limit=limit,
+            offset=offset,
+        ),
     )
 
 
@@ -2781,6 +3202,7 @@ async def get_price_control_filter_options(
 
 @router.get('/v1/kpi/price-control/items')
 async def get_price_control_items(
+    request: Request,
     date_from: date = Query(default_factory=lambda: date(date.today().year, 1, 1), alias='from'),
     date_to: date = Query(default_factory=_default_to, alias='to'),
     supplier_ext_id: str | None = Query(default=None),
@@ -2805,4 +3227,89 @@ async def get_price_control_items(
         target_margin_pct=target_margin_pct,
         discount_pct=discount_pct,
         limit=limit,
+        price_margin_targets=_tenant_price_margin_targets_from_request(request),
+    )
+
+
+@router.get('/v1/kpi/era-exploration')
+async def get_era_exploration_report(
+    tenant: Tenant = Depends(get_request_tenant),
+    tenant_db: AsyncSession = Depends(get_tenant_db),
+    q: str | None = Query(default=None),
+    brand: str | None = Query(default=None),
+    category: str | None = Query(default=None),
+    assortment_status: str | None = Query(default=None),
+    price_position: str | None = Query(default=None),
+    sort: str = Query(default='market_sales'),
+    direction: str = Query(default='desc', pattern='^(asc|desc)$'),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=10, le=500),
+):
+    try:
+        return await era_exploration_report(
+            tenant,
+            tenant_db,
+            q=q,
+            brand=brand,
+            category=category,
+            assortment_status=assortment_status,
+            price_position=price_position,
+            sort=sort,
+            direction=direction,
+            page=page,
+            page_size=page_size,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get('/v1/kpi/business-advisor')
+async def get_business_advisor_report(
+    request: Request,
+    response: Response,
+    date_from: date = Query(default_factory=_default_from, alias='from'),
+    date_to: date = Query(default_factory=_default_to, alias='to'),
+    branches: list[str] | None = Query(default=None),
+    warehouses: list[str] | None = Query(default=None),
+    brands: list[str] | None = Query(default=None),
+    categories: list[str] | None = Query(default=None),
+    groups: list[str] | None = Query(default=None),
+    target_margin_pct: float = Query(default=35.0, ge=0, le=95),
+    tenant_db: AsyncSession = Depends(get_tenant_db),
+):
+    params = _kpi_filter_cache_params(
+        date_from=date_from,
+        date_to=date_to,
+        branches=branches,
+        warehouses=warehouses,
+        brands=brands,
+        categories=categories,
+        groups=groups,
+    )
+    params['target_margin_pct'] = round(float(target_margin_pct), 2)
+    params['price_margin_targets'] = _tenant_price_margin_targets_from_request(request)
+    params['business_advisor_targets'] = _tenant_business_advisor_targets_from_request(request)
+    params['fulfillment'] = _tenant_eshop_fulfillment_from_request(request)
+    return await _cached_kpi_response(
+        request=request,
+        response=response,
+        namespace='dashboard:business_advisor',
+        params=params,
+        ttl_seconds=300,
+        producer=lambda: business_advisor_report(
+            tenant_db,
+            date_from=date_from,
+            date_to=date_to,
+            branches=_clean_query_list(branches),
+            warehouses=_clean_query_list(warehouses),
+            brands=_clean_query_list(brands),
+            categories=_clean_query_list(categories),
+            groups=_clean_query_list(groups),
+            target_margin_pct=target_margin_pct,
+            price_margin_targets=_tenant_price_margin_targets_from_request(request),
+            inventory_coverage_target_days=int(
+                _tenant_business_advisor_targets_from_request(request).get('inventory_coverage_days') or 60
+            ),
+            fulfillment_config=_tenant_eshop_fulfillment_from_request(request),
+        ),
     )

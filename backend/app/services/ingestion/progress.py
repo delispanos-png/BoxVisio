@@ -153,6 +153,10 @@ def update_ingest_progress(
         update_map.setdefault('completed_at', now)
     if error:
         update_map['last_error'] = error
+    elif job_completed:
+        # Do not keep an old failure visible as if it still belongs to the
+        # currently running job after subsequent chunks have succeeded.
+        update_map['last_error'] = ''
     elif next_status == 'completed':
         # Prevent stale historical errors from looking like an active failure
         # after the queue has fully completed.

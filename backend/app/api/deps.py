@@ -16,7 +16,11 @@ from app.services.kpi_participation_scope import (
 )
 from app.services.request_scope import reset_allowed_branch_scope, set_allowed_branch_scope
 from app.services.rule_config import resolve_rule_payload
-from app.services.subscription_features import menu_visibility_from_features, normalize_subscription_feature_flags
+from app.services.subscription_features import (
+    menu_locked_from_features,
+    menu_visibility_from_features,
+    normalize_subscription_feature_flags,
+)
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl='/v1/auth/login', auto_error=False)
 
@@ -54,14 +58,23 @@ def resolve_menu_visibility(user: User, professional_profile_code: str | None = 
         'stream_inventory_documents': True,
         'stream_cash_transactions': True,
         'stream_operating_expenses': True,
+        'stream_supplier_orders': True,
         'stream_supplier_balances': True,
         'stream_customer_balances': True,
         'analytics_sales': True,
+        'analytics_pos': True,
+        'analytics_eshop': True,
+        'analytics_sellout': True,
+        'analytics_era_exploration_data': True,
+        'analytics_replenishment': True,
         'analytics_purchases': True,
         'analytics_inventory': True,
+        'analytics_items': True,
         'analytics_cashflows': True,
         'analytics_receivables_payables': True,
         'analytics_supplier_targets': True,
+        'analytics_price_control': True,
+        'analytics_business_advisor': True,
         'comparisons': True,
         'exports': True,
     }
@@ -79,14 +92,23 @@ def resolve_menu_visibility(user: User, professional_profile_code: str | None = 
             'stream_inventory_documents': False,
             'stream_cash_transactions': True,
             'stream_operating_expenses': True,
+            'stream_supplier_orders': False,
             'stream_supplier_balances': True,
             'stream_customer_balances': True,
             'analytics_sales': False,
+            'analytics_pos': False,
+            'analytics_eshop': False,
+            'analytics_sellout': False,
+            'analytics_era_exploration_data': False,
+            'analytics_replenishment': False,
             'analytics_purchases': False,
             'analytics_inventory': False,
+            'analytics_items': False,
             'analytics_cashflows': True,
             'analytics_receivables_payables': True,
             'analytics_supplier_targets': False,
+            'analytics_price_control': False,
+            'analytics_business_advisor': True,
             'comparisons': False,
             'exports': True,
         }
@@ -101,14 +123,23 @@ def resolve_menu_visibility(user: User, professional_profile_code: str | None = 
             'stream_inventory_documents': True,
             'stream_cash_transactions': False,
             'stream_operating_expenses': False,
+            'stream_supplier_orders': True,
             'stream_supplier_balances': False,
             'stream_customer_balances': False,
             'analytics_sales': False,
+            'analytics_pos': False,
+            'analytics_eshop': False,
+            'analytics_sellout': False,
+            'analytics_era_exploration_data': False,
+            'analytics_replenishment': True,
             'analytics_purchases': False,
             'analytics_inventory': True,
+            'analytics_items': True,
             'analytics_cashflows': False,
             'analytics_receivables_payables': False,
             'analytics_supplier_targets': False,
+            'analytics_price_control': False,
+            'analytics_business_advisor': False,
             'comparisons': False,
             'exports': True,
         }
@@ -123,14 +154,23 @@ def resolve_menu_visibility(user: User, professional_profile_code: str | None = 
             'stream_inventory_documents': False,
             'stream_cash_transactions': False,
             'stream_operating_expenses': False,
+            'stream_supplier_orders': False,
             'stream_supplier_balances': False,
             'stream_customer_balances': False,
             'analytics_sales': True,
+            'analytics_pos': True,
+            'analytics_eshop': True,
+            'analytics_sellout': True,
+            'analytics_era_exploration_data': True,
+            'analytics_replenishment': False,
             'analytics_purchases': False,
             'analytics_inventory': False,
+            'analytics_items': False,
             'analytics_cashflows': False,
             'analytics_receivables_payables': False,
             'analytics_supplier_targets': True,
+            'analytics_price_control': True,
+            'analytics_business_advisor': False,
             'comparisons': True,
             'exports': True,
         }
@@ -232,6 +272,7 @@ async def get_current_user(
         key: bool(value) and bool(subscription_visibility.get(key, True))
         for key, value in persona_visibility.items()
     }
+    request.state.menu_locked = menu_locked_from_features(subscription_features)
     request.state.subscription_features = subscription_features
     return user
 

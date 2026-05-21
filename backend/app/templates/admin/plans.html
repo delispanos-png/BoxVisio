@@ -1,13 +1,24 @@
 {% extends "base_admin.html" %}
 {% block content %}
-<div class="card mt-3">
-  <div class="card-body">
-    <div class="bv-admin-section-title">
+<div class="bv-admin-page">
+  <div class="bv-admin-hero">
+    <div>
+      <h4>Δικαιώματα ανά πλάνο</h4>
+      <p>Κεντρικός πίνακας για το ποια κυκλώματα είναι διαθέσιμα σε Standard, Pro, Enterprise και Custom.</p>
+    </div>
+    <div class="bv-admin-hero-actions">
+      <a class="btn btn-outline-secondary" href="/admin/subscriptions"><i class="fe fe-credit-card me-1"></i>Συνδρομές tenant</a>
+    </div>
+  </div>
+
+  <div class="bv-admin-panel">
+    <div class="bv-admin-panel-head">
       <div>
         <h5>{{ tt(request, 'plan_feature_flags') }}</h5>
         <p>Default πρόσβαση σε κυκλώματα για κάθε νέο ή ενημερωμένο πλάνο.</p>
       </div>
     </div>
+    <div class="bv-admin-panel-body">
     <div class="table-responsive">
       <table class="table table-bordered align-middle bv-unified-table" data-bv-admin-table="1">
         <thead>
@@ -23,7 +34,7 @@
             <form method="post" action="/admin/plans/{{ plan }}/features">
               <td><strong>{{ plan }}</strong></td>
               <td>
-                <div class="d-flex flex-wrap gap-2">
+                <div class="bv-admin-feature-grid">
                   {% for feature in subscription_features %}
                   <label class="form-check form-check-inline border rounded px-2 py-1 m-0 small bv-feature-toggle" title="{{ feature.group }}">
                     <input class="form-check-input" type="checkbox" name="enabled_features" value="{{ feature.key }}" {% if f.get(feature.key) %}checked{% endif %}>
@@ -40,5 +51,6 @@
       </table>
     </div>
   </div>
+</div>
 </div>
 {% endblock %}

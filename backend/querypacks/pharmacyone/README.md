@@ -5,7 +5,7 @@ This folder is intentionally split so query intent does not get mixed:
 - `facts/`:
   - Row-level ingestion queries only.
   - Used by worker ingestion jobs and backfill.
-  - Production source for canonical facts (`fact_sales`, `fact_purchases`, `fact_inventory`, `fact_cashflows`, `fact_supplier_balances`, `fact_customer_balances`).
+  - Production source for canonical facts (`fact_sales`, `fact_purchases`, `fact_inventory`, `fact_cashflows`, `fact_supplier_balances`, `fact_customer_balances`, `fact_expenses`, `fact_supplier_orders`).
 - `kpi_validation/`:
   - Optional KPI verification queries for temporary reconciliation against reference screenshots / baseline outputs.
   - Never used by production dashboard endpoints.
@@ -20,3 +20,10 @@ Rules:
 3. Keep discovery SQL in `admin_discovery/` only.
 4. Dashboard APIs must read only Postgres aggregates/facts, never remote SQL Server.
 5. Do not keep duplicate SQL copies at querypack root; `facts/` is the only canonical location.
+
+FnR / Availability note:
+
+- `qty_expected` means incoming supplier-side stock already expected by the business and is subtracted before BI proposes a new supplier order.
+- It must not be populated from customer orders.
+- pharmacy295 `MTRBALSHEET` does not expose a confirmed expected-stock column, so `facts/inventory_facts.sql` keeps `qty_expected = 0`.
+- Open supplier purchase orders are extracted separately by `facts/supplier_orders_facts.sql` using `FINDOC.SOSOURCE=1251`, `SODTYPE=12`, `TFPRMS=201`, and series `2021/2031`.

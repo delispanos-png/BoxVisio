@@ -8,6 +8,7 @@ from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -35,6 +36,7 @@ from app.models.tenant import (
     FactSales,
     FactSalesDocumentCharge,
     FactSupplierBalance,
+    FactSupplierOrder,
     IngestDeadLetter,
     StgCashTransaction,
     StgCustomerBalance,
@@ -74,6 +76,31 @@ CONNECTORS = {
 }
 
 SQL_CONNECTOR_ALIASES = ('sql_connector', 'pharmacyone_sql')
+POSTGRES_TRANSIENT_SQLSTATES = {'40001', '40P01', '55P03'}
+
+
+def _is_transient_postgres_error(exc: BaseException) -> bool:
+    current: BaseException | None = exc
+    while current is not None:
+        code = (
+            getattr(current, 'sqlstate', None)
+            or getattr(current, 'pgcode', None)
+            or getattr(current, 'code', None)
+        )
+        if str(code or '').upper() in POSTGRES_TRANSIENT_SQLSTATES:
+            return True
+        text = f'{current.__class__.__name__} {current}'.lower()
+        if (
+            'deadlock detected' in text
+            or 'could not serialize access' in text
+            or 'serialization failure' in text
+            or 'lock not available' in text
+        ):
+            return True
+        current = current.__cause__ or current.__context__
+    if isinstance(exc, DBAPIError):
+        return _is_transient_postgres_error(exc.orig)
+    return False
 
 
 async def _load_connection_for_connector(
@@ -703,6 +730,8 @@ def _upsert_inventory_stmt(fact: dict):
         'source_connector_id': fact.get('source_connector_id'),
         'qty_on_hand': fact.get('qty_on_hand') or 0,
         'qty_reserved': fact.get('qty_reserved') or 0,
+        'qty_expected': fact.get('qty_expected') or 0,
+        'qty_available': fact.get('qty_available') or 0,
         'cost_amount': fact.get('cost_amount') or 0,
         'value_amount': fact.get('value_amount') or 0,
         'updated_at': fact.get('updated_at'),
@@ -732,8 +761,46 @@ def _upsert_inventory_stmt(fact: dict):
             'source_connector_id': ins.excluded.source_connector_id,
             'qty_on_hand': ins.excluded.qty_on_hand,
             'qty_reserved': ins.excluded.qty_reserved,
+            'qty_expected': ins.excluded.qty_expected,
+            'qty_available': ins.excluded.qty_available,
             'cost_amount': ins.excluded.cost_amount,
             'value_amount': ins.excluded.value_amount,
+            'updated_at': ins.excluded.updated_at,
+        },
+    )
+
+
+def _upsert_supplier_order_stmt(fact: dict):
+    valid_columns = set(FactSupplierOrder.__table__.columns.keys())
+    payload = {k: v for k, v in fact.items() if k in valid_columns}
+    ins = insert(FactSupplierOrder).values(**payload)
+    return ins.on_conflict_do_update(
+        index_elements=['external_id'],
+        set_={
+            'event_id': ins.excluded.event_id,
+            'doc_date': ins.excluded.doc_date,
+            'branch_id': ins.excluded.branch_id,
+            'branch_ext_id': ins.excluded.branch_ext_id,
+            'supplier_id': ins.excluded.supplier_id,
+            'supplier_ext_id': ins.excluded.supplier_ext_id,
+            'supplier_name': ins.excluded.supplier_name,
+            'supplier_afm': ins.excluded.supplier_afm,
+            'item_id': ins.excluded.item_id,
+            'item_code': ins.excluded.item_code,
+            'item_name': ins.excluded.item_name,
+            'document_id': ins.excluded.document_id,
+            'document_no': ins.excluded.document_no,
+            'document_series': ins.excluded.document_series,
+            'document_series_name': ins.excluded.document_series_name,
+            'document_behavior_code': ins.excluded.document_behavior_code,
+            'order_qty': ins.excluded.order_qty,
+            'covered_qty': ins.excluded.covered_qty,
+            'cancelled_qty': ins.excluded.cancelled_qty,
+            'line_value': ins.excluded.line_value,
+            'has_transformation': ins.excluded.has_transformation,
+            'order_status': ins.excluded.order_status,
+            'source_payload_json': ins.excluded.source_payload_json,
+            'source_connector_id': ins.excluded.source_connector_id,
             'updated_at': ins.excluded.updated_at,
         },
     )
@@ -788,6 +855,7 @@ def _upsert_supplier_balance_stmt(fact: dict):
         'external_id': fact.get('external_id'),
         'supplier_id': fact.get('supplier_id'),
         'supplier_ext_id': fact.get('supplier_ext_id'),
+        'supplier_afm': fact.get('supplier_afm'),
         'balance_date': fact.get('balance_date'),
         'branch_id': fact.get('branch_id'),
         'branch_ext_id': fact.get('branch_ext_id'),
@@ -809,6 +877,7 @@ def _upsert_supplier_balance_stmt(fact: dict):
         set_={
             'supplier_id': ins.excluded.supplier_id,
             'supplier_ext_id': ins.excluded.supplier_ext_id,
+            'supplier_afm': ins.excluded.supplier_afm,
             'balance_date': ins.excluded.balance_date,
             'branch_id': ins.excluded.branch_id,
             'branch_ext_id': ins.excluded.branch_ext_id,
@@ -833,6 +902,7 @@ def _upsert_customer_balance_stmt(fact: dict):
         'customer_id': fact.get('customer_id'),
         'customer_ext_id': fact.get('customer_ext_id'),
         'customer_name': fact.get('customer_name'),
+        'customer_afm': fact.get('customer_afm'),
         'balance_date': fact.get('balance_date'),
         'branch_id': fact.get('branch_id'),
         'branch_ext_id': fact.get('branch_ext_id'),
@@ -854,6 +924,7 @@ def _upsert_customer_balance_stmt(fact: dict):
         set_={
             'customer_ext_id': ins.excluded.customer_ext_id,
             'customer_name': ins.excluded.customer_name,
+            'customer_afm': ins.excluded.customer_afm,
             'customer_id': ins.excluded.customer_id,
             'balance_date': ins.excluded.balance_date,
             'branch_id': ins.excluded.branch_id,
@@ -952,6 +1023,7 @@ _FACT_MODEL_BY_ENTITY = {
     'purchases': FactPurchases,
     'inventory': FactInventory,
     'expenses': FactExpense,
+    'supplier_orders': FactSupplierOrder,
 }
 
 
@@ -981,7 +1053,7 @@ def _duplicate_protection_settings_from_flags(flags: Any) -> dict[str, Any]:
 
 def _fact_identity_keys(entity: str, fact: dict, *, mode: str = 'natural_key') -> list[tuple[Any, ...]]:
     keys: list[tuple[Any, ...]] = []
-    if entity in {'sales', 'purchases', 'inventory', 'expenses'}:
+    if entity in {'sales', 'purchases', 'inventory', 'expenses', 'supplier_orders'}:
         event_id = _identity_value(fact.get('event_id')) or _identity_value(fact.get('external_id'))
         if event_id:
             keys.append(('event', entity, event_id))
@@ -1278,6 +1350,8 @@ def _build_fact_upsert_stmt(entity: str, facts: list[dict]):
                 'source_connector_id': ins.excluded.source_connector_id,
                 'qty_on_hand': ins.excluded.qty_on_hand,
                 'qty_reserved': ins.excluded.qty_reserved,
+                'qty_expected': ins.excluded.qty_expected,
+                'qty_available': ins.excluded.qty_available,
                 'cost_amount': ins.excluded.cost_amount,
                 'value_amount': ins.excluded.value_amount,
                 'updated_at': ins.excluded.updated_at,
@@ -1317,6 +1391,7 @@ def _build_fact_upsert_stmt(entity: str, facts: list[dict]):
             set_={
                 'supplier_id': ins.excluded.supplier_id,
                 'supplier_ext_id': ins.excluded.supplier_ext_id,
+                'supplier_afm': ins.excluded.supplier_afm,
                 'balance_date': ins.excluded.balance_date,
                 'branch_id': ins.excluded.branch_id,
                 'branch_ext_id': ins.excluded.branch_ext_id,
@@ -1330,6 +1405,41 @@ def _build_fact_upsert_stmt(entity: str, facts: list[dict]):
                 'last_payment_date': ins.excluded.last_payment_date,
                 'trend_vs_previous': ins.excluded.trend_vs_previous,
                 'currency': ins.excluded.currency,
+                'updated_at': ins.excluded.updated_at,
+            },
+        )
+
+    if entity == 'supplier_orders':
+        valid_columns = set(FactSupplierOrder.__table__.columns.keys())
+        sanitized_facts = [{k: v for k, v in fact.items() if k in valid_columns} for fact in facts]
+        ins = insert(FactSupplierOrder).values(sanitized_facts)
+        return ins.on_conflict_do_update(
+            index_elements=['external_id'],
+            set_={
+                'event_id': ins.excluded.event_id,
+                'doc_date': ins.excluded.doc_date,
+                'branch_id': ins.excluded.branch_id,
+                'branch_ext_id': ins.excluded.branch_ext_id,
+                'supplier_id': ins.excluded.supplier_id,
+                'supplier_ext_id': ins.excluded.supplier_ext_id,
+                'supplier_name': ins.excluded.supplier_name,
+                'supplier_afm': ins.excluded.supplier_afm,
+                'item_id': ins.excluded.item_id,
+                'item_code': ins.excluded.item_code,
+                'item_name': ins.excluded.item_name,
+                'document_id': ins.excluded.document_id,
+                'document_no': ins.excluded.document_no,
+                'document_series': ins.excluded.document_series,
+                'document_series_name': ins.excluded.document_series_name,
+                'document_behavior_code': ins.excluded.document_behavior_code,
+                'order_qty': ins.excluded.order_qty,
+                'covered_qty': ins.excluded.covered_qty,
+                'cancelled_qty': ins.excluded.cancelled_qty,
+                'line_value': ins.excluded.line_value,
+                'has_transformation': ins.excluded.has_transformation,
+                'order_status': ins.excluded.order_status,
+                'source_payload_json': ins.excluded.source_payload_json,
+                'source_connector_id': ins.excluded.source_connector_id,
                 'updated_at': ins.excluded.updated_at,
             },
         )
@@ -1372,6 +1482,7 @@ def _build_fact_upsert_stmt(entity: str, facts: list[dict]):
         set_={
             'customer_ext_id': ins.excluded.customer_ext_id,
             'customer_name': ins.excluded.customer_name,
+            'customer_afm': ins.excluded.customer_afm,
             'customer_id': ins.excluded.customer_id,
             'balance_date': ins.excluded.balance_date,
             'branch_id': ins.excluded.branch_id,
@@ -1399,6 +1510,7 @@ STAGING_MODEL_BY_STREAM = {
     'supplier_balances': StgSupplierBalance,
     'customer_balances': StgCustomerBalance,
     'operating_expenses': StgExpenseDocument,
+    'supplier_orders': StgPurchaseDocument,
 }
 
 
@@ -1696,6 +1808,49 @@ async def _upsert_dims_from_row(
                 ),
                 32,
             ),
+            'manual_order_category': _as_optional_softone_text(
+                get(
+                    'manual_order_category',
+                    'manual_item_category',
+                    'order_category',
+                    'softone_utbl04',
+                    'utbl04',
+                    'iteextra_utbl04',
+                    'item_utbl04',
+                ),
+                128,
+            ),
+            'commercial_status': _as_optional_softone_text(
+                get(
+                    'commercial_status',
+                    'item_commercial_status',
+                    'softone_utbl05',
+                    'utbl05',
+                    'iteextra_utbl05',
+                    'item_utbl05',
+                ),
+                128,
+            ),
+            'replenishment_status_1': _as_optional_softone_text(
+                get('replenishment_status_1', 'repl_status_1', 'fnr_status_1', 'status_1', 'item_status_1'),
+                64,
+            ),
+            'replenishment_status_2': _as_optional_softone_text(
+                get('replenishment_status_2', 'repl_status_2', 'fnr_status_2', 'status_2', 'item_status_2'),
+                128,
+            ),
+            'min_stock': _as_optional_float(
+                get('min_stock', 'minimum_stock', 'repl_min_stock', 'replenishment_min_stock')
+            )
+            or 1,
+            'replenishment_moq': _as_optional_float(
+                get('replenishment_moq', 'repl_moq', 'reorder_moq', 'order_moq', 'item_moq')
+            )
+            or 1,
+            'vendor_moq': _as_optional_float(get('vendor_moq', 'supplier_moq', 'vendor_min_order_qty')) or 1,
+            'current_purchase_price': _as_optional_float(
+                get('current_purchase_price', 'purchase_price', 'last_purchase_price', 'final_purchase_price')
+            ),
             'image_url': _as_optional_text(
                 get(
                     'image_url',
@@ -1767,6 +1922,29 @@ async def _upsert_dims_from_row(
                     'strict_purchase_rel': func.coalesce(ins.excluded.strict_purchase_rel, DimItem.strict_purchase_rel),
                     'strict_sale_rel': func.coalesce(ins.excluded.strict_sale_rel, DimItem.strict_sale_rel),
                     'abc_category': func.coalesce(ins.excluded.abc_category, DimItem.abc_category),
+                    'manual_order_category': func.coalesce(
+                        ins.excluded.manual_order_category,
+                        DimItem.manual_order_category,
+                    ),
+                    'commercial_status': func.coalesce(
+                        ins.excluded.commercial_status,
+                        DimItem.commercial_status,
+                    ),
+                    'replenishment_status_1': func.coalesce(
+                        ins.excluded.replenishment_status_1,
+                        DimItem.replenishment_status_1,
+                    ),
+                    'replenishment_status_2': func.coalesce(
+                        ins.excluded.replenishment_status_2,
+                        DimItem.replenishment_status_2,
+                    ),
+                    'min_stock': func.coalesce(ins.excluded.min_stock, DimItem.min_stock),
+                    'replenishment_moq': func.coalesce(ins.excluded.replenishment_moq, DimItem.replenishment_moq),
+                    'vendor_moq': func.coalesce(ins.excluded.vendor_moq, DimItem.vendor_moq),
+                    'current_purchase_price': func.coalesce(
+                        ins.excluded.current_purchase_price,
+                        DimItem.current_purchase_price,
+                    ),
                     'image_url': func.coalesce(ins.excluded.image_url, DimItem.image_url),
                     'discount_pct': func.coalesce(ins.excluded.discount_pct, DimItem.discount_pct),
                     'is_active_source': func.coalesce(ins.excluded.is_active_source, DimItem.is_active_source),
@@ -1774,7 +1952,7 @@ async def _upsert_dims_from_row(
                 },
             )
         )
-    if entity in {'purchases', 'supplier_balances', 'expenses'}:
+    if entity in {'purchases', 'supplier_balances', 'expenses', 'supplier_orders'}:
         supplier = fact.get('supplier_ext_id')
         if supplier and _seen_once(dim_seen_cache, 'supplier', str(supplier)):
             await tenant_db.execute(
@@ -1957,6 +2135,11 @@ async def _build_context(
             if isinstance(configured_query_mapping, dict)
             else None
         ) or None,
+        supplier_orders_query=(
+            str(configured_query_mapping.get('supplier_orders') or '').strip()
+            if isinstance(configured_query_mapping, dict)
+            else None
+        ) or None,
     )
 
     fallback_query_by_stream: dict[OperationalIngestStream, str] = {
@@ -1967,6 +2150,7 @@ async def _build_context(
         'supplier_balances': context.stream_query_mapping.get('supplier_balances') or context.supplier_balances_query or '',
         'customer_balances': context.stream_query_mapping.get('customer_balances') or context.customer_balances_query or '',
         'operating_expenses': context.stream_query_mapping.get('operating_expenses') or context.expenses_query or '',
+        'supplier_orders': context.stream_query_mapping.get('supplier_orders') or context.supplier_orders_query or '',
     }
     stream_enum_lookup: dict[OperationalIngestStream, OperationalStream] = {
         'sales_documents': OperationalStream.sales_documents,
@@ -2001,6 +2185,7 @@ async def _build_context(
         context.stream_query_mapping.get('customer_balances') or context.customer_balances_query
     )
     context.expenses_query = context.stream_query_mapping.get('operating_expenses') or context.expenses_query
+    context.supplier_orders_query = context.stream_query_mapping.get('supplier_orders') or context.supplier_orders_query
     return context
 
 
@@ -2298,6 +2483,10 @@ def _build_fact(
 
         qty_on_hand = _as_float(get('qty_on_hand', context.qty_column, 'qty', 'quantity'))
         qty_reserved = _as_float(get('qty_reserved', 'reserved_qty'))
+        qty_expected = _as_float(get('qty_expected', 'expected_qty', 'on_order_qty', 'incoming_qty'))
+        qty_available = _as_float(get('qty_available', 'available_qty'))
+        if get('qty_available', 'available_qty') is None:
+            qty_available = qty_on_hand - qty_reserved
         cost_amount = _as_float(get('cost_amount', context.cost_column, 'cost_value'))
         explicit_value_amount = get('value_amount', context.amount_column, 'net_value', 'net_amount')
         value_amount = _as_float(explicit_value_amount)
@@ -2335,6 +2524,8 @@ def _build_fact(
                 'source_payload_json': _sanitize_payload_json(row),
                 'qty_on_hand': qty_on_hand,
                 'qty_reserved': qty_reserved,
+                'qty_expected': qty_expected,
+                'qty_available': qty_available,
                 'cost_amount': cost_amount,
                 'value_amount': value_amount,
             },
@@ -2363,6 +2554,10 @@ def _build_fact(
                 'external_id': external_id,
                 'supplier_id': None,
                 'supplier_ext_id': supplier_id,
+                'supplier_afm': _as_optional_text(
+                    get('supplier_afm', 'supplier_vat_no', 'supplier_vat_number', 'supplier_tax_id', 'afm', 'vat_no', 'vat_number'),
+                    64,
+                ),
                 'balance_date': balance_date,
                 'branch_id': None,
                 'branch_ext_id': branch_ext,
@@ -2376,6 +2571,64 @@ def _build_fact(
                 'trend_vs_previous': trend_vs_previous,
                 'currency': currency,
                 'updated_at': updated_at,
+            },
+            incremental_val,
+        )
+
+    if entity == 'supplier_orders':
+        supplier_id = _as_optional_text(
+            get('supplier_ext_id', 'supplier_external_id', 'supplier_code', 'supplier_id', 'entity_ext_id'),
+            64,
+        )
+        branch_ext = _as_optional_text(get(context.branch_column, 'branch_ext_id', 'branch_external_id', 'branch_code'), 64)
+        item_code = _as_optional_text(get(context.item_column, 'item_code', 'item_external_id'), 128)
+        document_id = _as_optional_text(
+            get('document_id', 'doc_id', 'purchase_order_id', 'order_id', 'header_id', 'document_external_id'),
+            128,
+        )
+        document_no = _as_optional_text(
+            get('document_no', 'document_number', 'doc_no', 'order_no', 'reference_no'),
+            128,
+        )
+        has_transformation = _as_optional_bool(get('has_transformation', 'fully_transformed', 'is_transformed'))
+        order_status = _as_optional_text(get('order_status', 'status'), 32)
+        if order_status is None:
+            order_status = 'closed' if has_transformation else 'open'
+        return (
+            {
+                'external_id': external_id,
+                'event_id': _as_optional_text(get('event_id', 'line_id'), 128) or external_id,
+                'doc_date': doc_date,
+                'updated_at': updated_at,
+                'branch_id': None,
+                'branch_ext_id': branch_ext,
+                'supplier_id': None,
+                'supplier_ext_id': supplier_id,
+                'supplier_name': _as_optional_text(get('supplier_name', 'supplier', 'entity_name'), 255),
+                'supplier_afm': _as_optional_text(
+                    get('supplier_afm', 'supplier_vat_no', 'supplier_vat_number', 'supplier_tax_id', 'afm', 'vat_no', 'vat_number'),
+                    64,
+                ),
+                'item_id': None,
+                'item_code': item_code,
+                'item_name': _as_optional_text(get('item_name', 'name', 'item_description', 'description'), 512),
+                'document_id': document_id or document_no or external_id,
+                'document_no': document_no or document_id or external_id,
+                'document_series': _as_optional_text(get('document_series', 'series', 'doc_series'), 128),
+                'document_series_name': _as_optional_text(
+                    get('document_series_name', 'series_name', 'document_type', 'doc_type'),
+                    255,
+                ),
+                'document_behavior_code': _as_optional_int(
+                    get('document_behavior_code', 'behavior_id', 'tfprms', 'source_transaction_type_id')
+                ),
+                'order_qty': _as_float(get('order_qty', 'qty', 'quantity', context.qty_column)),
+                'covered_qty': _as_float(get('covered_qty', 'qty_covered', 'executed_qty')),
+                'cancelled_qty': _as_float(get('cancelled_qty', 'qty_cancelled')),
+                'line_value': _as_float(get('line_value', 'net_value', 'net_amount', 'amount', context.amount_column)),
+                'has_transformation': bool(has_transformation),
+                'order_status': str(order_status or 'open')[:32],
+                'source_payload_json': _sanitize_payload_json(row),
             },
             incremental_val,
         )
@@ -2402,6 +2655,10 @@ def _build_fact(
                 'external_id': external_id,
                 'customer_ext_id': customer_id,
                 'customer_name': _as_optional_text(get('customer_name', 'customer', 'client_name', 'entity_name'), 255),
+                'customer_afm': _as_optional_text(
+                    get('customer_afm', 'customer_vat_no', 'customer_vat_number', 'customer_tax_id', 'afm', 'vat_no', 'vat_number'),
+                    64,
+                ),
                 'balance_date': balance_date,
                 'branch_id': None,
                 'branch_ext_id': branch_ext,
@@ -2521,6 +2778,32 @@ def _build_fact(
 
 
 async def process_job(job: dict[str, Any]) -> dict[str, Any]:
+    max_attempts = max(1, int(getattr(settings, 'ingest_db_transient_retries', 3) or 3))
+    for attempt_no in range(1, max_attempts + 1):
+        try:
+            result = await _process_job_once(job)
+            if attempt_no > 1:
+                result['db_retry_attempts'] = attempt_no - 1
+            return result
+        except Exception as exc:
+            if not _is_transient_postgres_error(exc) or attempt_no >= max_attempts:
+                raise
+            delay_seconds = min(10.0, 0.75 * attempt_no)
+            logger.warning(
+                'ingestion_transient_db_retry tenant=%s connector=%s stream=%s attempt=%s/%s delay=%.2fs error=%s',
+                job.get('tenant_slug'),
+                job.get('connector'),
+                job.get('stream') or job.get('entity'),
+                attempt_no,
+                max_attempts,
+                delay_seconds,
+                str(exc)[:300],
+            )
+            await asyncio.sleep(delay_seconds)
+    raise RuntimeError('unreachable transient retry state')
+
+
+async def _process_job_once(job: dict[str, Any]) -> dict[str, Any]:
     tenant_slug = job['tenant_slug']
     connector_type = job['connector']
     stream = normalize_stream_name(job.get('stream'))
@@ -2544,6 +2827,7 @@ async def process_job(job: dict[str, Any]) -> dict[str, Any]:
             'supplier_balances',
             'customer_balances',
             'expenses',
+            'supplier_orders',
         }
     )
     bulk_fact_batch_size = max(100, int(getattr(settings, 'sqlserver_bulk_upsert_batch_size', 1000) or 1000))
@@ -2835,6 +3119,12 @@ async def process_job(job: dict[str, Any]) -> dict[str, Any]:
                         fact['supplier_id'] = await _resolve_dim_id_cached(DimSupplier, fact.get('supplier_ext_id'))
                         fact['branch_id'] = await _resolve_dim_id_cached(DimBranch, fact.get('branch_ext_id'))
                     stmt = _upsert_supplier_balance_stmt(fact)
+                elif entity == 'supplier_orders':
+                    if not fast_backfill_mode:
+                        fact['branch_id'] = await _resolve_dim_id_cached(DimBranch, fact.get('branch_ext_id'))
+                        fact['supplier_id'] = await _resolve_dim_id_cached(DimSupplier, fact.get('supplier_ext_id'))
+                        fact['item_id'] = await _resolve_dim_id_cached(DimItem, fact.get('item_code'))
+                    stmt = _upsert_supplier_order_stmt(fact)
                 elif entity == 'expenses':
                     if not fast_backfill_mode:
                         fact['branch_id'] = await _resolve_dim_id_cached(DimBranch, fact.get('branch_ext_id'))

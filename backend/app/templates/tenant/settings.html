@@ -21,6 +21,104 @@
           <a class="btn btn-outline-secondary btn-sm" href="/set-theme/dark?next=/tenant/settings">Dark</a>
         </div>
       </div>
+      {% if request.state.user_role is defined and request.state.user_role == 'tenant_admin' %}
+      <div class="col-md-6">
+        <div class="border rounded p-3 h-100">
+          <h6 class="mb-2">Χρήστες &amp; Άδειες</h6>
+          <p class="text-muted mb-3">Διαχείριση θέσεων χρήσης και πρόσβασης υπαλλήλων.</p>
+          <a class="btn btn-primary btn-sm" href="/tenant/users"><i class="fe fe-user-check me-1"></i> Διαχείριση</a>
+        </div>
+      </div>
+      {% endif %}
+      <div class="col-md-6">
+        <div class="border rounded p-3 h-100">
+          <div class="d-flex justify-content-between gap-3 flex-wrap mb-3">
+            <div>
+              <h6 class="mb-2">Παραγγελίες Προμηθευτών</h6>
+              <p class="text-muted mb-0">Πόσες ημέρες πίσω ελέγχουμε για ανοιχτές παραγγελίες προς προμηθευτές.</p>
+            </div>
+            <a class="btn btn-outline-primary btn-sm align-self-start" href="/tenant/supplier-orders">
+              <i class="fe fe-clipboard me-1"></i> Άνοιγμα
+            </a>
+          </div>
+          {% if request.query_params.get('supplier_orders_saved') == '1' %}
+          <div class="alert alert-success py-2">Η παράμετρος αποθηκεύτηκε.</div>
+          {% elif request.query_params.get('supplier_orders_saved') == '0' %}
+          <div class="alert alert-danger py-2">Δεν αποθηκεύτηκε η παράμετρος.</div>
+          {% endif %}
+          <form method="post" action="/tenant/settings/supplier-orders" class="row g-2 align-items-end">
+            <div class="col-8">
+              <label class="form-label">Ημέρες ελέγχου</label>
+              <input class="form-control" type="number" min="1" max="365" step="1" name="lookback_days" value="{{ supplier_orders.lookback_days or 30 }}">
+            </div>
+            <div class="col-4 d-grid">
+              <button class="btn btn-primary" type="submit">
+                <i class="fe fe-save me-1"></i> Αποθήκευση
+              </button>
+            </div>
+          </form>
+          <small class="text-muted d-block mt-2">Παραδείγματα: 5, 10, 30 ημέρες. Κλειστή θεωρείται η παραγγελία που έχει μετασχηματιστεί.</small>
+        </div>
+      </div>
+      <div class="col-12">
+        <div class="border rounded p-3">
+          <div class="d-flex justify-content-between gap-3 flex-wrap mb-3">
+            <div>
+              <h6 class="mb-2">eRA Exploration Data</h6>
+              <p class="text-muted mb-0">Ανεβάστε το προσωποποιημένο Excel του tenant για να ενημερωθεί το κύκλωμα eRA Exploration Data.</p>
+            </div>
+            <a class="btn btn-outline-primary btn-sm align-self-start" href="/tenant/era-exploration-data">
+              <i class="fe fe-database me-1"></i> Άνοιγμα κυκλώματος
+            </a>
+          </div>
+
+          {% if request.query_params.get('era_upload') == '1' %}
+          <div class="alert alert-success py-2">Το eRA Excel ανέβηκε και είναι διαθέσιμο στο κύκλωμα.</div>
+          {% elif request.query_params.get('era_upload') == '0' %}
+          <div class="alert alert-danger py-2">
+            Δεν έγινε upload. Ελέγξτε ότι είναι αρχείο .xlsx και ότι έχει τις σωστές στήλες eRA.
+          </div>
+          {% endif %}
+
+          <div class="row g-3 align-items-end">
+            <div class="col-lg-6">
+              <form method="post" action="/tenant/settings/era-exploration" enctype="multipart/form-data" class="d-flex gap-2 flex-wrap">
+                <input class="form-control" type="file" name="era_exploration_file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required>
+                <button class="btn btn-primary" type="submit">
+                  <i class="fe fe-upload me-1"></i> Ανέβασμα Excel
+                </button>
+              </form>
+              <small class="text-muted d-block mt-2">Δεκτές στήλες: brand, product_name, barcode, category, market_sales, your_sales, your_sales_value_ms, market_units, your_units, your_units_ms.</small>
+            </div>
+            <div class="col-lg-6">
+              <div class="row g-2">
+                <div class="col-md-6">
+                  <div class="bg-light border rounded p-2 h-100">
+                    <small class="text-muted d-block">Τρέχον αρχείο</small>
+                    <strong>{{ era_exploration_data.filename or 'Δεν έχει ανέβει αρχείο' }}</strong>
+                  </div>
+                </div>
+                <div class="col-md-6">
+                  <div class="bg-light border rounded p-2 h-100">
+                    <small class="text-muted d-block">Validation</small>
+                    <strong>{{ era_exploration_data.rows or 0 }}</strong>
+                    <span class="text-muted">γραμμές · {{ era_exploration_data.brands or 0 }} brands · {{ era_exploration_data.categories or 0 }} κατηγορίες · {{ era_exploration_data.period or '-' }}</span>
+                  </div>
+                </div>
+                <div class="col-12">
+                  <small class="text-muted">
+                    {% if era_exploration_data.uploaded_at %}
+                    Τελευταίο upload: {{ era_exploration_data.uploaded_at }} από {{ era_exploration_data.uploaded_by or 'tenant' }}.
+                    {% else %}
+                    Αν δεν έχει ανέβει αρχείο, το pharmacy295 χρησιμοποιεί προσωρινά το αρχείο server fallback.
+                    {% endif %}
+                  </small>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </div>

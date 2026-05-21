@@ -1,75 +1,141 @@
 {% extends "base_admin.html" %}
 {% block content %}
-<div class="row mt-3">
-  <div class="col-xl-3 col-md-6"><div class="bv-kpi-box bv-kpi-purple"><div class="kpi-icon"><i class="fe fe-users"></i></div><div class="kpi-title">{{ tt(request, 'total_tenants') }}</div><div class="kpi-value">{{ total_tenants }}</div><div class="kpi-meta">Συνολικοί πελάτες που έχουν δημιουργηθεί</div></div></div>
-  <div class="col-xl-3 col-md-6"><div class="bv-kpi-box bv-kpi-green"><div class="kpi-icon"><i class="fe fe-check-circle"></i></div><div class="kpi-title">{{ tt(request, 'active_tenants') }}</div><div class="kpi-value">{{ active_tenants }}</div><div class="kpi-meta">Ενεργοί πελάτες αυτή τη στιγμή</div></div></div>
-  <div class="col-xl-3 col-md-6"><div class="bv-kpi-box bv-kpi-blue"><div class="kpi-icon"><i class="fe fe-user"></i></div><div class="kpi-title">{{ tt(request, 'users') }}</div><div class="kpi-value">{{ total_users }}</div><div class="kpi-meta">Ενεργοί λογαριασμοί portal</div></div></div>
-  <div class="col-xl-3 col-md-6"><div class="bv-kpi-box bv-kpi-orange"><div class="kpi-icon"><i class="fe fe-link"></i></div><div class="kpi-title">{{ tt(request, 'connections') }}</div><div class="kpi-value">{{ total_connections }}</div><div class="kpi-meta">Διασυνδέσεις δεδομένων</div></div></div>
-</div>
+<div class="bv-admin-page">
+  <div class="bv-admin-hero">
+    <div>
+      <h4>Κέντρο Διαχείρισης BoxVisio</h4>
+      <p>Συνοπτική εικόνα πελατών, χρηστών, συνδρομών και υποδομής για καθημερινό operational έλεγχο.</p>
+    </div>
+    <div class="bv-admin-hero-actions">
+      <a class="btn btn-outline-secondary" href="/admin/tenants"><i class="fe fe-users me-1"></i>Tenants</a>
+      <a class="btn btn-primary" href="/admin/subscriptions"><i class="fe fe-credit-card me-1"></i>Συνδρομές</a>
+    </div>
+  </div>
 
-<div class="row g-3 mb-3">
-  <div class="col-lg-8">
-    <div class="card content-card">
-      <div class="card-header d-flex justify-content-between align-items-center">
-        <h5 class="mb-0">{{ tt(request, 'subscription_distribution') }}</h5>
+  <div class="bv-admin-kpi-grid">
+    <div class="bv-admin-kpi-card">
+      <div class="bv-admin-kpi-card-head">
+        <p class="bv-admin-kpi-label">{{ tt(request, 'total_tenants') }}</p>
+        <span class="bv-admin-kpi-icon"><i class="fe fe-users"></i></span>
+      </div>
+      <div>
+        <div class="bv-admin-kpi-value">{{ total_tenants }}</div>
+        <p class="bv-admin-kpi-meta">Συνολικοί πελάτες στο control plane</p>
+      </div>
+    </div>
+    <div class="bv-admin-kpi-card">
+      <div class="bv-admin-kpi-card-head">
+        <p class="bv-admin-kpi-label">{{ tt(request, 'active_tenants') }}</p>
+        <span class="bv-admin-kpi-icon"><i class="fe fe-check-circle"></i></span>
+      </div>
+      <div>
+        <div class="bv-admin-kpi-value">{{ active_tenants }}</div>
+        <p class="bv-admin-kpi-meta">Tenants με ενεργή πρόσβαση</p>
+      </div>
+    </div>
+    <div class="bv-admin-kpi-card">
+      <div class="bv-admin-kpi-card-head">
+        <p class="bv-admin-kpi-label">{{ tt(request, 'users') }}</p>
+        <span class="bv-admin-kpi-icon"><i class="fe fe-user"></i></span>
+      </div>
+      <div>
+        <div class="bv-admin-kpi-value">{{ total_users }}</div>
+        <p class="bv-admin-kpi-meta">Λογαριασμοί portal και admin</p>
+      </div>
+    </div>
+    <div class="bv-admin-kpi-card">
+      <div class="bv-admin-kpi-card-head">
+        <p class="bv-admin-kpi-label">{{ tt(request, 'connections') }}</p>
+        <span class="bv-admin-kpi-icon"><i class="fe fe-link"></i></span>
+      </div>
+      <div>
+        <div class="bv-admin-kpi-value">{{ total_connections }}</div>
+        <p class="bv-admin-kpi-meta">Ενεργές πηγές δεδομένων</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="bv-admin-card-grid-2">
+    <div class="bv-admin-panel">
+      <div class="bv-admin-panel-head">
+        <div>
+          <h5>{{ tt(request, 'subscription_distribution') }}</h5>
+          <p>Κατανομή συνδρομών ανά κατάσταση.</p>
+        </div>
         <span id="subChartLoading" class="text-muted"><span class="spinner-border spinner-border-sm"></span> {{ tt(request, 'loading') }}</span>
       </div>
-      <div class="card-body"><canvas id="subChart" height="120"></canvas></div>
-    </div>
-  </div>
-  <div class="col-lg-4">
-    <div class="card content-card h-100">
-      <div class="card-header"><h5 class="mb-0">{{ tt(request, 'subscription_distribution') }}</h5></div>
-      <div class="card-body">
-        <div class="mb-3">
-          <div class="d-flex justify-content-between"><span class="small text-muted">active</span><span id="pctActive" class="small fw-bold">0%</span></div>
-          <div class="progress progress-sm"><div id="barActive" class="progress-bar bg-success" style="width:0%"></div></div>
-        </div>
-        <div class="mb-3">
-          <div class="d-flex justify-content-between"><span class="small text-muted">trial</span><span id="pctTrial" class="small fw-bold">0%</span></div>
-          <div class="progress progress-sm"><div id="barTrial" class="progress-bar bg-info" style="width:0%"></div></div>
-        </div>
-        <div class="mb-3">
-          <div class="d-flex justify-content-between"><span class="small text-muted">suspended</span><span id="pctSuspended" class="small fw-bold">0%</span></div>
-          <div class="progress progress-sm"><div id="barSuspended" class="progress-bar bg-warning" style="width:0%"></div></div>
-        </div>
-        <div>
-          <div class="d-flex justify-content-between"><span class="small text-muted">canceled</span><span id="pctCanceled" class="small fw-bold">0%</span></div>
-          <div class="progress progress-sm"><div id="barCanceled" class="progress-bar bg-danger" style="width:0%"></div></div>
-        </div>
+      <div class="bv-admin-panel-body">
+        <div class="bv-admin-chart-box"><canvas id="subChart" height="120"></canvas></div>
       </div>
     </div>
-  </div>
-</div>
 
-<div class="row g-3 mb-3">
-  <div class="col-12">
-    <div class="card content-card">
-      <div class="card-header">
-        <h5 class="mb-0">{{ tt(request, 'server_info') }}</h5>
+    <div class="bv-admin-panel">
+      <div class="bv-admin-panel-head">
+        <div>
+          <h5>Lifecycle</h5>
+          <p>Ποσοστά ανά κατάσταση συνδρομής.</p>
+        </div>
       </div>
-      <div class="card-body">
-        <div class="row g-3">
-          <div class="col-lg-4">
-            <div class="bv-stat-strip bv-kpi-style bv-tone-blue">
-              <div class="label">{{ tt(request, 'cpu_usage') }}</div>
-              <div class="value" id="srvCpuPct">{{ '%.2f'|format(server_info.cpu.percent) }}%</div>
-              <div class="small text-muted" id="srvCpuMeta">{{ tt(request, 'used') }} CPU</div>
-            </div>
+      <div class="bv-admin-panel-body">
+        <div class="bv-admin-meter-list">
+          <div>
+            <div class="bv-admin-meter-label"><span>active</span><strong id="pctActive">0%</strong></div>
+            <div class="progress progress-sm"><div id="barActive" class="progress-bar bg-success" style="width:0%"></div></div>
           </div>
-          <div class="col-lg-4">
-            <div class="bv-stat-strip bv-kpi-style bv-tone-green">
-              <div class="label">{{ tt(request, 'ram_usage') }}</div>
-              <div class="value" id="srvRamPct">{{ '%.2f'|format(server_info.ram.percent) }}%</div>
-              <div class="small text-muted" id="srvRamMeta">{{ tt(request, 'used') }} {{ '%.2f'|format(server_info.ram.used_gb) }} GB / {{ '%.2f'|format(server_info.ram.total_gb) }} GB</div>
-            </div>
+          <div>
+            <div class="bv-admin-meter-label"><span>trial</span><strong id="pctTrial">0%</strong></div>
+            <div class="progress progress-sm"><div id="barTrial" class="progress-bar bg-info" style="width:0%"></div></div>
           </div>
-          <div class="col-lg-4">
-            <div class="bv-stat-strip bv-kpi-style bv-tone-orange">
-              <div class="label">{{ tt(request, 'disk_usage') }}</div>
-              <div class="value" id="srvDiskPct">{{ '%.2f'|format(server_info.disk.percent) }}%</div>
-              <div class="small text-muted" id="srvDiskMeta">{{ tt(request, 'used') }} {{ '%.2f'|format(server_info.disk.used_gb) }} GB / {{ '%.2f'|format(server_info.disk.total_gb) }} GB</div>
-            </div>
+          <div>
+            <div class="bv-admin-meter-label"><span>suspended</span><strong id="pctSuspended">0%</strong></div>
+            <div class="progress progress-sm"><div id="barSuspended" class="progress-bar bg-warning" style="width:0%"></div></div>
+          </div>
+          <div>
+            <div class="bv-admin-meter-label"><span>canceled</span><strong id="pctCanceled">0%</strong></div>
+            <div class="progress progress-sm"><div id="barCanceled" class="progress-bar bg-danger" style="width:0%"></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="bv-admin-panel">
+    <div class="bv-admin-panel-head">
+      <div>
+        <h5>{{ tt(request, 'server_info') }}</h5>
+        <p>Live ένδειξη πόρων του server.</p>
+      </div>
+    </div>
+    <div class="bv-admin-panel-body">
+      <div class="bv-admin-kpi-grid is-three">
+        <div class="bv-admin-kpi-card">
+          <div class="bv-admin-kpi-card-head">
+            <p class="bv-admin-kpi-label">{{ tt(request, 'cpu_usage') }}</p>
+            <span class="bv-admin-kpi-icon"><i class="fe fe-cpu"></i></span>
+          </div>
+          <div>
+            <div class="bv-admin-kpi-value" id="srvCpuPct">{{ '%.2f'|format(server_info.cpu.percent) }}%</div>
+            <p class="bv-admin-kpi-meta" id="srvCpuMeta">{{ tt(request, 'used') }} CPU</p>
+          </div>
+        </div>
+        <div class="bv-admin-kpi-card">
+          <div class="bv-admin-kpi-card-head">
+            <p class="bv-admin-kpi-label">{{ tt(request, 'ram_usage') }}</p>
+            <span class="bv-admin-kpi-icon"><i class="fe fe-server"></i></span>
+          </div>
+          <div>
+            <div class="bv-admin-kpi-value" id="srvRamPct">{{ '%.2f'|format(server_info.ram.percent) }}%</div>
+            <p class="bv-admin-kpi-meta" id="srvRamMeta">{{ tt(request, 'used') }} {{ '%.2f'|format(server_info.ram.used_gb) }} GB / {{ '%.2f'|format(server_info.ram.total_gb) }} GB</p>
+          </div>
+        </div>
+        <div class="bv-admin-kpi-card">
+          <div class="bv-admin-kpi-card-head">
+            <p class="bv-admin-kpi-label">{{ tt(request, 'disk_usage') }}</p>
+            <span class="bv-admin-kpi-icon"><i class="fe fe-hard-drive"></i></span>
+          </div>
+          <div>
+            <div class="bv-admin-kpi-value" id="srvDiskPct">{{ '%.2f'|format(server_info.disk.percent) }}%</div>
+            <p class="bv-admin-kpi-meta" id="srvDiskMeta">{{ tt(request, 'used') }} {{ '%.2f'|format(server_info.disk.used_gb) }} GB / {{ '%.2f'|format(server_info.disk.total_gb) }} GB</p>
           </div>
         </div>
       </div>

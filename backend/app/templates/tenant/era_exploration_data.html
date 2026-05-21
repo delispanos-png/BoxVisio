@@ -1,0 +1,663 @@
+{% extends "base_tenant.html" %}
+
+{% block filters %}
+<form id="eraFilters" class="row g-3 align-items-end">
+  <div class="col-xl-3 col-md-6">
+    <label class="form-label">Αναζήτηση</label>
+    <input id="eraSearch" type="search" class="form-control" placeholder="Προϊόν, barcode ή brand">
+  </div>
+  <div class="col-xl-3 col-md-6">
+    <label class="form-label">Brand</label>
+    <select id="eraBrand" class="form-select">
+      <option value="">Όλα</option>
+    </select>
+  </div>
+  <div class="col-xl-3 col-md-6">
+    <label class="form-label">Κατηγορία eRA</label>
+    <select id="eraCategory" class="form-select">
+      <option value="">Όλες</option>
+    </select>
+  </div>
+  <div class="col-xl-3 col-md-6 d-flex gap-2">
+    <button class="btn btn-primary flex-fill" type="submit"><i class="fe fe-filter me-1"></i>Εφαρμογή</button>
+    <button id="eraReset" class="btn btn-outline-secondary" type="button">Καθαρισμός</button>
+  </div>
+</form>
+{% endblock %}
+
+{% block content %}
+<style>
+  .era-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 16px;
+    margin-bottom: 18px;
+  }
+  .era-card {
+    background: var(--panel-bg);
+    border: 1px solid var(--panel-border);
+    border-radius: 8px;
+    padding: 18px;
+    min-height: 116px;
+    box-shadow: var(--panel-shadow);
+  }
+  .era-card small,
+  .era-table th {
+    color: var(--text-muted);
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0;
+    font-size: 12px;
+  }
+  .era-card strong {
+    display: block;
+    color: var(--text-main);
+    font-size: 24px;
+    line-height: 1.1;
+    margin-top: 8px;
+  }
+  .era-card span {
+    color: var(--text-muted);
+    display: block;
+    margin-top: 8px;
+    font-weight: 700;
+  }
+  .era-card.is-action {
+    cursor: pointer;
+    transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+  }
+  .era-card.is-action:hover,
+  .era-card.is-action:focus-visible {
+    border-color: color-mix(in srgb, var(--primary) 45%, var(--panel-border));
+    box-shadow: 0 16px 36px rgba(79, 70, 229, 0.16);
+    outline: none;
+    transform: translateY(-1px);
+  }
+  .era-panel {
+    background: var(--panel-bg);
+    border: 1px solid var(--panel-border);
+    border-radius: 8px;
+    box-shadow: var(--panel-shadow);
+    overflow: hidden;
+  }
+  .era-panel-head {
+    padding: 18px 20px;
+    border-bottom: 1px solid var(--panel-border);
+    display: flex;
+    gap: 14px;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .era-table-wrap {
+    max-height: calc(100vh - 360px);
+    overflow: auto;
+  }
+  .era-table {
+    min-width: 1480px;
+    margin: 0;
+  }
+  .era-table thead th {
+    position: sticky;
+    top: 0;
+    background: var(--panel-bg);
+    z-index: 2;
+    border-bottom: 2px solid var(--panel-border);
+    padding: 14px 16px;
+    white-space: nowrap;
+  }
+  .era-table td {
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--panel-border);
+    vertical-align: top;
+  }
+  .era-product {
+    min-width: 360px;
+    max-width: 480px;
+    white-space: normal;
+    line-height: 1.35;
+    font-weight: 750;
+  }
+  .era-barcodes {
+    min-width: 150px;
+    max-width: 180px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .era-barcode-pill {
+    display: inline-flex;
+    align-items: center;
+    border: 1px solid var(--panel-border);
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--panel-bg) 92%, #f8fafc);
+    color: var(--text-main);
+    font-size: 12px;
+    font-weight: 800;
+    line-height: 1.2;
+    padding: 5px 7px;
+    white-space: nowrap;
+  }
+  .era-muted {
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 700;
+  }
+  .era-row {
+    cursor: zoom-in;
+  }
+  .era-row:hover td {
+    background: color-mix(in srgb, var(--primary) 5%, transparent);
+  }
+  .era-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 1090;
+    background: rgba(15, 23, 42, 0.45);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+  .era-modal {
+    width: min(980px, 100%);
+    max-height: min(760px, calc(100vh - 48px));
+    overflow: auto;
+    background: var(--panel-bg);
+    border: 1px solid var(--panel-border);
+    border-radius: 10px;
+    box-shadow: 0 24px 70px rgba(15, 23, 42, 0.28);
+  }
+  .era-modal.is-wide {
+    width: min(1240px, 100%);
+  }
+  .era-modal-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 22px 24px;
+    border-bottom: 1px solid var(--panel-border);
+  }
+  .era-detail-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+    padding: 20px 24px 24px;
+  }
+  .era-detail-cell {
+    border: 1px solid var(--panel-border);
+    border-radius: 8px;
+    padding: 12px;
+    min-height: 78px;
+  }
+  .era-detail-cell.is-wide {
+    grid-column: 1 / -1;
+  }
+  .era-detail-cell span {
+    color: var(--text-muted);
+    display: block;
+    font-size: 12px;
+    font-weight: 800;
+    margin-bottom: 6px;
+    text-transform: uppercase;
+  }
+  .era-detail-cell strong {
+    color: var(--text-main);
+    font-size: 16px;
+  }
+  .era-status-pill {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 850;
+    line-height: 1.1;
+    padding: 7px 10px;
+    white-space: nowrap;
+  }
+  .era-status-success { background:#dcfce7; color:#166534; }
+  .era-status-warning { background:#fef3c7; color:#92400e; }
+  .era-status-danger { background:#fee2e2; color:#991b1b; }
+  .era-status-info { background:#e0f2fe; color:#075985; }
+  .era-status-muted { background:#f1f5f9; color:#475569; }
+  .era-kpi-table-wrap {
+    max-height: min(560px, calc(100vh - 230px));
+    overflow: auto;
+  }
+  .era-kpi-table {
+    min-width: 1120px;
+    margin: 0;
+  }
+  .era-kpi-table th {
+    position: sticky;
+    top: 0;
+    background: var(--panel-bg);
+    z-index: 2;
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 850;
+    letter-spacing: 0;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .era-kpi-table td,
+  .era-kpi-table th {
+    padding: 13px 14px;
+    border-bottom: 1px solid var(--panel-border);
+    vertical-align: top;
+  }
+  @media (max-width: 1100px) {
+    .era-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  @media (max-width: 640px) {
+    .era-grid { grid-template-columns: 1fr; }
+    .era-detail-grid { grid-template-columns: 1fr; }
+  }
+</style>
+
+<div id="eraError" class="alert alert-danger d-none"></div>
+
+<section class="era-grid">
+  <div class="era-card">
+    <small>Προϊόντα</small>
+    <strong id="eraProducts">-</strong>
+    <span>γραμμές στο επιλεγμένο δείγμα</span>
+  </div>
+  <div class="era-card">
+    <small>Αξία αγοράς eRA</small>
+    <strong id="eraMarketSales">-</strong>
+    <span>συνολικές πωλήσεις αγοράς</span>
+  </div>
+  <div class="era-card">
+    <small>Δικές μας πωλήσεις</small>
+    <strong id="eraYourSales">-</strong>
+    <span id="eraValueShare">μερίδιο αξίας -</span>
+  </div>
+  <div class="era-card">
+    <small>Μονάδες</small>
+    <strong id="eraUnits">-</strong>
+    <span id="eraUnitShare">μερίδιο τεμαχίων -</span>
+  </div>
+  <div class="era-card is-action" data-era-kpi="recommended_add" role="button" tabindex="0" aria-label="Άνοιγμα προτάσεων προσθήκης">
+    <small>Προτάσεις προσθήκης</small>
+    <strong id="eraRecommended">-</strong>
+    <span>δυνατό μερίδιο αγοράς χωρίς αντιστοίχιση</span>
+  </div>
+  <div class="era-card is-action" data-era-kpi="above_market" role="button" tabindex="0" aria-label="Άνοιγμα ειδών με τιμή πάνω από αγορά">
+    <small>Τιμή πάνω από αγορά</small>
+    <strong id="eraAboveMarket">-</strong>
+    <span>είδη με υψηλότερη μέση τιμή</span>
+  </div>
+  <div class="era-card is-action" data-era-kpi="below_market" role="button" tabindex="0" aria-label="Άνοιγμα ειδών με τιμή κάτω από αγορά">
+    <small>Τιμή κάτω από αγορά</small>
+    <strong id="eraBelowMarket">-</strong>
+    <span>είδη με χαμηλότερη μέση τιμή</span>
+  </div>
+</section>
+
+<section class="era-panel">
+  <div class="era-panel-head">
+    <div>
+      <h5 class="mb-1">eRA Exploration Data</h5>
+      <div class="era-muted" id="eraMeta">Φόρτωση δεδομένων...</div>
+    </div>
+    <div class="d-flex gap-2 align-items-center">
+      <select id="eraSort" class="form-select form-select-sm">
+        <option value="market_sales">Ταξινόμηση: Αξία αγοράς</option>
+        <option value="your_sales">Δικές μας πωλήσεις</option>
+        <option value="your_sales_value_ms">Μερίδιο αξίας</option>
+        <option value="market_units">Μονάδες αγοράς</option>
+        <option value="your_units">Δικές μας μονάδες</option>
+        <option value="gap_sales">Ευκαιρία αξίας</option>
+      </select>
+    </div>
+  </div>
+  <div class="era-table-wrap">
+    <table class="table era-table">
+      <thead>
+        <tr>
+          <th>Προϊόν</th>
+          <th>Barcode</th>
+          <th>Brand</th>
+          <th>Κατηγορία</th>
+          <th>Χαρακτηρισμός</th>
+          <th>Έλεγχος τιμής</th>
+          <th class="text-end">Μέση τιμή αγοράς</th>
+          <th class="text-end">Μέση δική μας</th>
+          <th class="text-end">Διαφορά τιμής</th>
+          <th class="text-end">Αξία αγοράς</th>
+          <th class="text-end">Δική μας αξία</th>
+          <th class="text-end">MS αξίας</th>
+          <th class="text-end">Μον. αγοράς</th>
+          <th class="text-end">Δικές μας μον.</th>
+          <th class="text-end">MS μον.</th>
+          <th class="text-end">Ευκαιρία αξίας</th>
+        </tr>
+      </thead>
+      <tbody id="eraRows">
+        <tr><td colspan="16" class="text-muted p-4">Φόρτωση...</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="d-flex justify-content-between align-items-center p-3 border-top">
+    <div class="era-muted" id="eraPageInfo">-</div>
+    <div class="btn-group">
+      <button id="eraPrev" class="btn btn-outline-secondary btn-sm" type="button">Προηγούμενα</button>
+      <button id="eraNext" class="btn btn-outline-secondary btn-sm" type="button">Επόμενα</button>
+    </div>
+  </div>
+</section>
+
+<div id="eraDetailBackdrop" class="era-modal-backdrop" hidden>
+  <div class="era-modal" role="dialog" aria-modal="true" aria-labelledby="eraDetailTitle">
+    <div class="era-modal-head">
+      <div>
+        <h5 id="eraDetailTitle" class="mb-1">Λεπτομέρειες είδους</h5>
+        <div id="eraDetailSub" class="era-muted">-</div>
+      </div>
+      <button id="eraDetailClose" class="btn btn-outline-primary" type="button"><i class="fe fe-x me-1"></i>Κλείσιμο</button>
+    </div>
+    <div id="eraDetailBody" class="era-detail-grid"></div>
+  </div>
+</div>
+
+<div id="eraKpiBackdrop" class="era-modal-backdrop" hidden>
+  <div class="era-modal is-wide" role="dialog" aria-modal="true" aria-labelledby="eraKpiTitle">
+    <div class="era-modal-head">
+      <div>
+        <h5 id="eraKpiTitle" class="mb-1">Ανάλυση KPI</h5>
+        <div id="eraKpiSub" class="era-muted">-</div>
+      </div>
+      <button id="eraKpiClose" class="btn btn-outline-primary" type="button"><i class="fe fe-x me-1"></i>Κλείσιμο</button>
+    </div>
+    <div class="era-kpi-table-wrap">
+      <table class="table era-kpi-table">
+        <thead>
+          <tr>
+            <th>Προϊόν</th>
+            <th>Barcode</th>
+            <th>Brand</th>
+            <th>Κατηγορία</th>
+            <th>Χαρακτηρισμός</th>
+            <th>Έλεγχος τιμής</th>
+            <th class="text-end">Μ.Τ. αγοράς</th>
+            <th class="text-end">Μ.Τ. δική μας</th>
+            <th class="text-end">Διαφορά</th>
+            <th class="text-end">Αξία αγοράς</th>
+            <th class="text-end">Δική μας αξία</th>
+          </tr>
+        </thead>
+        <tbody id="eraKpiRows">
+          <tr><td colspan="11" class="text-muted p-4">Επιλέξτε KPI.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(() => {
+  const state = { page: 1, pageSize: 80, filtersLoaded: false, rows: [], kpiRows: [] };
+  const kpiDefs = {
+    recommended_add: {
+      title: 'Προτάσεις προσθήκης',
+      sub: 'Είδη που δεν υπάρχουν στη δική μας βάση και περνούν το όριο σημαντικού μεριδίου αγοράς.',
+      extra: { assortment_status: 'recommended_add', sort: 'market_sales', direction: 'desc' },
+    },
+    above_market: {
+      title: 'Τιμή πάνω από αγορά',
+      sub: 'Είδη όπου η μέση δική μας τιμή είναι υψηλότερη από τη μέση τιμή αγοράς.',
+      extra: { price_position: 'above_market', sort: 'price_diff_pct', direction: 'desc' },
+    },
+    below_market: {
+      title: 'Τιμή κάτω από αγορά',
+      sub: 'Είδη όπου η μέση δική μας τιμή είναι χαμηλότερη από τη μέση τιμή αγοράς.',
+      extra: { price_position: 'below_market', sort: 'price_diff_pct', direction: 'asc' },
+    },
+  };
+  const el = (id) => document.getElementById(id);
+  const money = (v) => new Intl.NumberFormat('el-GR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(v || 0));
+  const num = (v) => new Intl.NumberFormat('el-GR', { maximumFractionDigits: 0 }).format(Number(v || 0));
+  const pct = (v) => `${new Intl.NumberFormat('el-GR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(v || 0))}%`;
+  const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (ch) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+  const barcodeFields = (value) => {
+    const parts = String(value || '').split(/[\s,;|]+/).map((item) => item.trim()).filter(Boolean);
+    return parts.length
+      ? parts.map((item) => `<span class="era-barcode-pill">${esc(item)}</span>`).join('')
+      : '<span class="era-muted">-</span>';
+  };
+  const allBarcodes = (row) => Array.isArray(row.barcodes) && row.barcodes.length ? row.barcodes : String(row.barcode || '').split(/[\s,;|]+/).map((item) => item.trim()).filter(Boolean);
+  const primaryBarcode = (row) => row.primary_barcode || allBarcodes(row)[0] || '';
+  const detailCell = (label, value, cls = '') => `<div class="era-detail-cell ${cls}"><span>${esc(label)}</span><strong>${value}</strong></div>`;
+  const statusBadge = (status) => {
+    const tone = status?.tone || 'muted';
+    return `<span class="era-status-pill era-status-${esc(tone)}">${esc(status?.label || '-')}</span>`;
+  };
+  const signedMoney = (v) => `${Number(v || 0) >= 0 ? '+' : ''}${money(v)} €`;
+  const signedPct = (v) => `${Number(v || 0) >= 0 ? '+' : ''}${pct(v)}`;
+
+  function params(){
+    const qs = new URLSearchParams();
+    qs.set('page', state.page);
+    qs.set('page_size', state.pageSize);
+    qs.set('sort', el('eraSort').value || 'market_sales');
+    qs.set('direction', 'desc');
+    if(el('eraSearch').value.trim()) qs.set('q', el('eraSearch').value.trim());
+    if(el('eraBrand').value) qs.set('brand', el('eraBrand').value);
+    if(el('eraCategory').value) qs.set('category', el('eraCategory').value);
+    return qs.toString();
+  }
+
+  function currentFilterParams(){
+    const qs = new URLSearchParams();
+    if(el('eraSearch').value.trim()) qs.set('q', el('eraSearch').value.trim());
+    if(el('eraBrand').value) qs.set('brand', el('eraBrand').value);
+    if(el('eraCategory').value) qs.set('category', el('eraCategory').value);
+    return qs;
+  }
+
+  function fillSelect(select, values, current){
+    const first = select.id === 'eraBrand' ? 'Όλα' : 'Όλες';
+    select.innerHTML = `<option value="">${first}</option>` + values.map((v) => `<option value="${esc(v)}">${esc(v)}</option>`).join('');
+    select.value = current || '';
+  }
+
+  async function load(){
+    el('eraError').classList.add('d-none');
+    const res = await fetch(`/v1/kpi/era-exploration?${params()}`);
+    if(!res.ok){
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.detail || 'Αποτυχία φόρτωσης eRA Exploration Data.');
+    }
+    const data = await res.json();
+    const s = data.summary || {};
+    if(!state.filtersLoaded){
+      fillSelect(el('eraBrand'), data.filters?.brands || [], el('eraBrand').value);
+      fillSelect(el('eraCategory'), data.filters?.categories || [], el('eraCategory').value);
+      state.filtersLoaded = true;
+    }
+    el('eraProducts').textContent = num(s.products);
+    el('eraMarketSales').textContent = `${money(s.market_sales)} €`;
+    el('eraYourSales').textContent = `${money(s.your_sales)} €`;
+    el('eraValueShare').textContent = `μερίδιο αξίας ${pct(s.your_sales_ms)}`;
+    el('eraUnits').textContent = `${num(s.your_units)} / ${num(s.market_units)}`;
+    el('eraUnitShare').textContent = `μερίδιο τεμαχίων ${pct(s.your_units_ms)}`;
+    el('eraRecommended').textContent = num(s.status_counts?.recommended_add || 0);
+    const recThreshold = s.recommendation_thresholds || {};
+    const recCard = document.querySelector('[data-era-kpi="recommended_add"] span');
+    if(recCard){
+      recCard.textContent = `δεν υπάρχουν στη βάση με μερίδιο αξίας >= ${pct(recThreshold.value_share_pct ?? 0.05)}`;
+    }
+    el('eraAboveMarket').textContent = num(s.price_counts?.above_market || 0);
+    el('eraBelowMarket').textContent = num(s.price_counts?.below_market || 0);
+    const p = data.pagination || {};
+    el('eraMeta').textContent = `${num(p.total)} προϊόντα · Περίοδος ${data.period || '-'} · Πηγή: ${data.file || '-'}`;
+    el('eraPageInfo').textContent = `Σελίδα ${p.page || 1} · Εμφάνιση ${Math.min((p.page || 1) * (p.page_size || state.pageSize), p.total || 0)} από ${num(p.total)}`;
+    el('eraPrev').disabled = state.page <= 1;
+    el('eraNext').disabled = (state.page * state.pageSize) >= (p.total || 0);
+    state.rows = data.rows || [];
+    el('eraRows').innerHTML = state.rows.map((row, idx) => `
+      <tr class="era-row" data-era-row="${idx}" title="Διπλό κλικ για λεπτομέρειες">
+        <td class="era-product">${esc(row.product_name)}</td>
+        <td><div class="era-barcodes">${barcodeFields(primaryBarcode(row))}</div></td>
+        <td>${esc(row.brand)}</td>
+        <td>${esc(row.category)}</td>
+        <td>${statusBadge(row.assortment_status)}</td>
+        <td>${statusBadge(row.price_position)}</td>
+        <td class="text-end">${money(row.market_avg_price)} €</td>
+        <td class="text-end">${money(row.your_avg_price)} €</td>
+        <td class="text-end">${signedMoney(row.price_position?.diff_amount)} <div class="era-muted">${signedPct(row.price_position?.diff_pct)}</div></td>
+        <td class="text-end">${money(row.market_sales)} €</td>
+        <td class="text-end">${money(row.your_sales)} €</td>
+        <td class="text-end">${pct(row.your_sales_value_ms)}</td>
+        <td class="text-end">${num(row.market_units)}</td>
+        <td class="text-end">${num(row.your_units)}</td>
+        <td class="text-end">${pct(row.your_units_ms)}</td>
+        <td class="text-end">${money(row.gap_sales)} €</td>
+      </tr>
+    `).join('') || '<tr><td colspan="16" class="text-muted p-4">Δεν υπάρχουν αποτελέσματα.</td></tr>';
+  }
+
+  function showDetails(row){
+    if(!row) return;
+    const barcodes = allBarcodes(row);
+    el('eraDetailTitle').textContent = row.product_name || 'Λεπτομέρειες είδους';
+    el('eraDetailSub').textContent = `${row.brand || '-'} · ${row.category || '-'} · ${barcodes.length} barcode`;
+    el('eraDetailBody').innerHTML = [
+      detailCell('Προϊόν', esc(row.product_name || '-'), 'is-wide'),
+      detailCell('Όλα τα barcodes', `<div class="era-barcodes" style="max-width:none">${barcodeFields(barcodes.join(' '))}</div>`, 'is-wide'),
+      detailCell('Brand', esc(row.brand || '-')),
+      detailCell('Κατηγορία', esc(row.category || '-')),
+      detailCell('Κύριο barcode', esc(primaryBarcode(row) || '-')),
+      detailCell('Χαρακτηρισμός', `${statusBadge(row.assortment_status)}<div class="era-muted mt-2">${esc(row.assortment_status?.action || '')}</div>`, 'is-wide'),
+      detailCell('Έλεγχος τιμής', `${statusBadge(row.price_position)}<div class="era-muted mt-2">${esc(row.price_position?.action || '')}</div>`, 'is-wide'),
+      detailCell('Είδος στη βάση μας', row.tenant_item ? `${esc(row.tenant_item.item_name || '-')}<div class="era-muted">${esc(row.tenant_item.item_code || '')}</div>` : '-'),
+      detailCell('Matched barcode', esc(row.matched_barcode || '-')),
+      detailCell('Περίοδος/Εποχή', `${esc(row.period || '-')} · ${esc(row.season || '-')}`),
+      detailCell('Μέση τιμή αγοράς', `${money(row.market_avg_price)} €`),
+      detailCell('Μέση δική μας τιμή', `${money(row.your_avg_price)} €`),
+      detailCell('Απόκλιση τιμής', `${signedMoney(row.price_position?.diff_amount)} · ${signedPct(row.price_position?.diff_pct)}`),
+      detailCell('Αξία αγοράς', `${money(row.market_sales)} €`),
+      detailCell('Δική μας αξία', `${money(row.your_sales)} €`),
+      detailCell('MS αξίας', pct(row.your_sales_value_ms)),
+      detailCell('Μερίδιο αγοράς αξίας', pct(row.market_value_share_pct)),
+      detailCell('Μονάδες αγοράς', num(row.market_units)),
+      detailCell('Δικές μας μονάδες', num(row.your_units)),
+      detailCell('MS μονάδων', pct(row.your_units_ms)),
+      detailCell('Μερίδιο αγοράς μονάδων', pct(row.market_unit_share_pct)),
+      detailCell('Ευκαιρία αξίας', `${money(row.gap_sales)} €`),
+      detailCell('Ευκαιρία μονάδων', num(row.gap_units)),
+    ].join('');
+    el('eraDetailBackdrop').hidden = false;
+  }
+
+  function kpiRowHtml(row, idx){
+    return `
+      <tr class="era-row" data-era-kpi-row="${idx}" title="Διπλό κλικ για λεπτομέρειες">
+        <td class="era-product">${esc(row.product_name)}</td>
+        <td><div class="era-barcodes">${barcodeFields(primaryBarcode(row))}</div></td>
+        <td>${esc(row.brand)}</td>
+        <td>${esc(row.category)}</td>
+        <td>${statusBadge(row.assortment_status)}</td>
+        <td>${statusBadge(row.price_position)}</td>
+        <td class="text-end">${money(row.market_avg_price)} €</td>
+        <td class="text-end">${money(row.your_avg_price)} €</td>
+        <td class="text-end">${signedMoney(row.price_position?.diff_amount)} <div class="era-muted">${signedPct(row.price_position?.diff_pct)}</div></td>
+        <td class="text-end">${money(row.market_sales)} €</td>
+        <td class="text-end">${money(row.your_sales)} €</td>
+      </tr>
+    `;
+  }
+
+  async function openKpi(key){
+    const def = kpiDefs[key];
+    if(!def) return;
+    const qs = currentFilterParams();
+    qs.set('page', '1');
+    qs.set('page_size', '500');
+    Object.entries(def.extra).forEach(([name, value]) => qs.set(name, value));
+    el('eraKpiTitle').textContent = def.title;
+    el('eraKpiSub').textContent = 'Φόρτωση...';
+    el('eraKpiRows').innerHTML = '<tr><td colspan="11" class="text-muted p-4">Φόρτωση...</td></tr>';
+    el('eraKpiBackdrop').hidden = false;
+    const res = await fetch(`/v1/kpi/era-exploration?${qs.toString()}`);
+    if(!res.ok){
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.detail || 'Αποτυχία φόρτωσης ανάλυσης KPI.');
+    }
+    const data = await res.json();
+    const total = data.pagination?.total || 0;
+    state.kpiRows = data.rows || [];
+    el('eraKpiSub').textContent = `${def.sub} Εμφάνιση ${num(state.kpiRows.length)} από ${num(total)} είδη.`;
+    el('eraKpiRows').innerHTML = state.kpiRows.map(kpiRowHtml).join('')
+      || '<tr><td colspan="11" class="text-muted p-4">Δεν υπάρχουν είδη για αυτό το KPI με τα τρέχοντα φίλτρα.</td></tr>';
+  }
+
+  function closeKpi(){
+    el('eraKpiBackdrop').hidden = true;
+  }
+
+  function closeDetails(){
+    el('eraDetailBackdrop').hidden = true;
+  }
+
+  async function refresh(){
+    try { await load(); }
+    catch(err){
+      el('eraRows').innerHTML = '<tr><td colspan="16" class="text-muted p-4">Δεν υπάρχουν διαθέσιμα δεδομένα.</td></tr>';
+      el('eraError').textContent = err.message || 'Σφάλμα φόρτωσης.';
+      el('eraError').classList.remove('d-none');
+    }
+  }
+
+  el('eraFilters').addEventListener('submit', (ev) => { ev.preventDefault(); state.page = 1; refresh(); });
+  el('eraReset').addEventListener('click', () => {
+    el('eraSearch').value = '';
+    el('eraBrand').value = '';
+    el('eraCategory').value = '';
+    state.page = 1;
+    refresh();
+  });
+  el('eraSort').addEventListener('change', () => { state.page = 1; refresh(); });
+  el('eraPrev').addEventListener('click', () => { if(state.page > 1){ state.page -= 1; refresh(); } });
+  el('eraNext').addEventListener('click', () => { state.page += 1; refresh(); });
+  el('eraRows').addEventListener('dblclick', (ev) => {
+    const tr = ev.target.closest?.('[data-era-row]');
+    if(tr) showDetails(state.rows[Number(tr.dataset.eraRow)]);
+  });
+  document.querySelectorAll('[data-era-kpi]').forEach((card) => {
+    const open = () => openKpi(card.dataset.eraKpi).catch((err) => {
+      el('eraKpiSub').textContent = err.message || 'Σφάλμα φόρτωσης.';
+      el('eraKpiRows').innerHTML = '<tr><td colspan="11" class="text-muted p-4">Δεν ήταν δυνατή η φόρτωση.</td></tr>';
+    });
+    card.addEventListener('click', open);
+    card.addEventListener('keydown', (ev) => {
+      if(ev.key === 'Enter' || ev.key === ' '){
+        ev.preventDefault();
+        open();
+      }
+    });
+  });
+  el('eraKpiRows').addEventListener('dblclick', (ev) => {
+    const tr = ev.target.closest?.('[data-era-kpi-row]');
+    if(tr) showDetails(state.kpiRows[Number(tr.dataset.eraKpiRow)]);
+  });
+  el('eraKpiClose').addEventListener('click', closeKpi);
+  el('eraKpiBackdrop').addEventListener('click', (ev) => {
+    if(ev.target === el('eraKpiBackdrop')) closeKpi();
+  });
+  el('eraDetailClose').addEventListener('click', closeDetails);
+  el('eraDetailBackdrop').addEventListener('click', (ev) => {
+    if(ev.target === el('eraDetailBackdrop')) closeDetails();
+  });
+  document.addEventListener('keydown', (ev) => {
+    if(ev.key === 'Escape'){
+      closeDetails();
+      closeKpi();
+    }
+  });
+  refresh();
+})();
+</script>
+{% endblock %}

@@ -342,13 +342,21 @@ Regenerate insights:
   - `backend/querypacks/pharmacyone/facts/supplier_balances_facts.sql`
   - `backend/querypacks/pharmacyone/facts/expenses_facts.sql`
 
-### 18.2 Operational Note
+### 18.2 Purchase Analytics SoftOne Rules
+- Purchase document quantities count only SoftOne behaviors `102`, `103` as positive and `151` as negative for analytics quantities.
+- Purchase period spend in the purchase documents control center is `clean purchase value + document expenses`.
+- Purchase item YTD/PYTD value uses `MTRLINES.LINEVAL` from SoftOne lines.
+- Purchase item YTD/PYTD discount uses the average line percentage for the item and period:
+  `AVG(DISC1PRC + DISC2PRC + DISC3PRC)`.
+- Purchase supplier margin uses `NODSCAMNT` for pre-discount purchases and `net value + expenses` for cost.
+
+### 18.3 Operational Note
 - Tenant dashboards still read only from PostgreSQL tenant facts/aggregates.
 - The displayed `Τελευταίος συγχρονισμός` timestamp in tenant UI is informational and comes from control DB connector state (`tenant_connections.last_sync_at`).
 - It indicates the last successful sync recorded by the active connector, not live direct querying from the ERP at dashboard runtime.
 - In the current runtime environment this value is resolved from the active control DB used by API/worker (`bi_control_recovery`).
 
-### 18.3 Documentation Maintenance Rule
+### 18.4 Documentation Maintenance Rule
 - From this release onward, the following are mandatory for every architectural or functional change:
   - update `TECHNICAL_MANUAL.md`
   - update `USER_MANUAL.md` and/or in-app user manual when the change is user-facing
@@ -913,3 +921,97 @@ Affected KPI paths:
 - sales monthly trend
 - company monthly sales totals
 - sales decision pack
+
+## 23. FnR / Availability SoftOne Fields (2026-05-19)
+
+Purpose:
+- support Replenishment and Availability dashboards from BI facts instead of Excel-only logic
+- keep item/store/vendor replenishment parameters in canonical tenant tables
+- allow customer-specific SoftOne fields through dynamic bridge column detection
+
+Canonical additions:
+- `dim_items.commercial_status`
+- `dim_items.replenishment_status_1`
+- `dim_items.replenishment_status_2`
+- `dim_items.min_stock`
+- `dim_items.replenishment_moq`
+- `dim_items.vendor_moq`
+- `dim_items.current_purchase_price`
+- `fact_inventory.qty_expected`
+- `fact_inventory.qty_available`
+
+SoftOne source strategy:
+- `manual_order_category` comes from the SoftOne item extra `UTBL04` with `UTBL04.NAME` / `UTBL04.CODE` fallback. In the SQL schema of pharmacy295 this is stored in `MTREXTRA.UTBL04`; the JS bridge can fall back between `ITEEXTRA` and `MTREXTRA` where available.
+- `commercial_status` comes from the SoftOne item extra `UTBL05` with `UTBL05.NAME` / `UTBL05.CODE` fallback. In the SQL schema of pharmacy295 this is stored in `MTREXTRA.UTBL05`; the JS bridge can fall back between `ITEEXTRA` and `MTREXTRA` where available.
+- `min_stock` comes from `MTRBRNLIMITS.REMAINLIMMIN` per item/branch; if SoftOne is empty, BI stores `1`.
+- `replenishment_moq` comes from `MTRBRNLIMITS.REORDERLEVEL` per item/branch; if SoftOne is empty, BI stores `1`.
+- `vendor_moq` comes from `MTRSUPCODE.CCC88MOQ`, joined by `MTRSUPCODE.MTRL`; BI stores the minimum positive MOQ per item and falls back to `1` when SoftOne is empty.
+- `qty_expected` means supplier-side incoming stock already expected by the business, not customer orders. In pharmacy295 `MTRBALSHEET` does not expose a confirmed expected-stock column (`EXPCTQTY1` is not present), so the SQL QueryPack keeps `0` until open supplier purchase-order extraction is implemented/confirmed.
+- `qty_reserved` is read from `MTRBALSHEET` candidates where available; otherwise it defaults to `0`.
+- `qty_available` is computed as `qty_on_hand - qty_reserved` for stock snapshots.
+- Temporary FnR bootstrap rule: `min_stock` and `replenishment_moq` remain `1` where SoftOne is empty. `vendor_moq` is now read from `MTRSUPCODE.CCC88MOQ`; when empty it remains `1`.
+
+Operational rule:
+- any customer-specific field confirmation must be reflected in:
+  - `integrations/softone/boxvisio_bi_bridge.js`
+  - `backend/querypacks/pharmacyone/facts/inventory_facts.sql` when SQL connector tenants need the same field
+  - `integrations/softone/SOFTONE_BI_BRIDGE_TECHNICAL_MANUAL.md`
+
+## 24. Supplier Orders Circuit (2026-05-19)
+
+Purpose:
+- expose a separate tenant business circuit for purchase orders to suppliers
+- use supplier orders as the operational source for expected incoming quantities before FnR creates a new supplier-order proposal
+
+SoftOne source:
+- `FINDOC` + `MTRLINES`
+- supplier side: `FINDOC.SOSOURCE = 1251`
+- supplier document entity: `FINDOC.SODTYPE = 12`
+- supplier order behavior: `FINDOC.TFPRMS = 201`
+- order series currently used by pharmacy295:
+  - `2021` = `Παραγγελία Σε Προμηθευτή`
+  - `2031` = `Παραγγελία Σε Προμηθευτή (καταστημάτων)`
+
+Open/closed rule:
+- open supplier order = order document with no transformation to purchase documents
+- closed supplier order = any transformation exists, or `FINDOC.FULLYTRANSF = 1`
+- no backorders are kept in BI. If a supplier delivers partially and the order is transformed, BI treats the order as closed according to the business rule.
+
+Implementation points:
+- tenant UI circuit: `/tenant/supplier-orders`
+- tenant setting: `tenant.feature_flags.supplier_orders.lookback_days`, default `30`
+- JavaScript bridge stream: `GetSupplierOrdersForBI(obj)` with `includeSupplierOrders`
+- SQL connector querypack stream: `backend/querypacks/pharmacyone/facts/supplier_orders_facts.sql`
+- Canonical tenant fact table: `fact_supplier_orders`
+- Both SQL connector and JavaScript bridge expose the same `supplier_orders` stream, so a tenant can use either connection method standalone.
+- The stream reads order line quantities from `MTRLINES.QTY1`, covered quantity from `MTRLINES.QTY1COV`, cancelled quantity from `MTRLINES.QTY1CANC`, and line value from `MTRLINES.LINEVAL` fallback chain.
+
+## 25. Release Candidate 2026-05-21
+
+Status:
+- feature freeze is active from this release candidate onward
+- only bug fixes, reconciliation fixes, security fixes, documentation corrections, and production blockers are allowed
+- new dashboard/features must be deferred until after production go-live unless explicitly approved as a release blocker
+
+Release artifacts:
+- canonical JavaScript bridge: `integrations/softone/boxvisio_bi_bridge.js`
+- customer JavaScript bridge snapshot: `integrations/softone/boxvisio_bi_bridge_2026-05-21.js`
+- bridge version: `2026-05-19_15-30-00`
+- canonical bridge SHA-256: `a14d6df91565a77535f40e2c99fd0213eb90b0a5dd67e4a1e7399a96739781b6`
+- release snapshot SHA-256: `4c25f50fc070681d9119ad9662904f52aca7d0ce53224cdd6f12e4565e8b4d01`
+
+RC gates completed:
+- SQL connector / JavaScript bridge parity check: PASS
+- tenant migrations head check: PASS
+- production readiness check for `pharmacy295`: WARN only for known data-quality gaps, no blocking application failure
+- real UAT flow for `pharmacy295`: PASS
+- no `500`, `Traceback`, `ERROR`, or `CRITICAL` logs during the UAT verification window
+
+Known non-blocking data-quality warnings to monitor after go-live:
+- missing barcode/VAT/ABC/commercial-status enrichment on part of the item master
+- customer names equal to codes for a small number of records
+- historical sales/purchase lines without item link
+- first cache miss for some heavy analytics can still be slower than warm-cache response
+
+Operational rule:
+- any SoftOne field/stream change after this point must update the SQL querypack, JavaScript bridge, SoftOne bridge manual, database technical manual when schema changes, and user manual when behavior changes.

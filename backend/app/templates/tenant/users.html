@@ -1,0 +1,179 @@
+{% extends "base_tenant.html" %}
+
+{% block content %}
+<style>
+  .tenant-users-page { --tu-border:#e2e8f0; --tu-muted:#64748b; --tu-ink:#0f172a; }
+  .tu-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin-bottom:16px; }
+  .tu-stat { border:1px solid var(--tu-border); border-radius:8px; background:#fff; padding:14px 16px; }
+  .tu-stat span { display:block; color:var(--tu-muted); font-size:.72rem; font-weight:900; letter-spacing:.04em; text-transform:uppercase; }
+  .tu-stat strong { display:block; color:var(--tu-ink); font-size:1.7rem; line-height:1.1; margin-top:4px; }
+  .tu-panel { border:1px solid var(--tu-border); border-radius:8px; background:#fff; margin-bottom:16px; overflow:hidden; }
+  .tu-panel-head { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:15px 18px; border-bottom:1px solid var(--tu-border); }
+  .tu-panel-head h5 { margin:0; font-weight:900; color:var(--tu-ink); }
+  .tu-panel-body { padding:18px; }
+  .tu-form .form-label { color:var(--tu-muted); font-size:.72rem; font-weight:900; letter-spacing:.04em; text-transform:uppercase; }
+  .tu-table-wrap { overflow-x:auto; }
+  .tu-table { min-width:980px; }
+  .tu-table th { color:var(--tu-muted) !important; font-size:.7rem; font-weight:900; letter-spacing:.05em; text-transform:uppercase; white-space:nowrap; }
+  .tu-user-main strong { display:block; color:var(--tu-ink); font-weight:900; }
+  .tu-user-main span { display:block; color:var(--tu-muted); font-size:.82rem; margin-top:2px; }
+  .tu-pill { display:inline-flex; align-items:center; gap:6px; border-radius:999px; padding:5px 9px; font-size:.74rem; font-weight:900; border:1px solid var(--tu-border); background:#f8fafc; color:#475569; }
+  .tu-pill.is-active { background:#ecfdf5; border-color:#bbf7d0; color:#047857; }
+  .tu-pill.is-inactive { background:#f1f5f9; color:#64748b; }
+  .tu-actions { display:flex; justify-content:flex-end; gap:8px; flex-wrap:wrap; }
+  .tu-actions form { margin:0; }
+  .tu-alert { border:1px solid #c7d2fe; background:#eef2ff; color:#3730a3; border-radius:8px; padding:12px 14px; margin-bottom:16px; font-weight:800; }
+  .tu-alert.is-error { border-color:#fecaca; background:#fef2f2; color:#991b1b; }
+  .tu-invite code { word-break:break-all; white-space:normal; }
+  @media (max-width: 768px) {
+    .tu-grid { grid-template-columns:1fr; }
+    .tu-panel-head { align-items:flex-start; flex-direction:column; }
+  }
+</style>
+
+{% set max_users = license_context.max_users if license_context is mapping else license_context['max_users'] %}
+{% set active_users = license_context.active_users if license_context is mapping else license_context['active_users'] %}
+{% set available_users = license_context.available_users if license_context is mapping else license_context['available_users'] %}
+
+<div class="tenant-users-page">
+  {% if request.query_params.get('reason') == 'no_seats' %}
+  <div class="tu-alert is-error">Δεν υπάρχουν διαθέσιμες άδειες. Απενεργοποίησε έναν χρήστη ή ζήτησε αύξηση θέσεων.</div>
+  {% elif request.query_params.get('reason') == 'email_exists' %}
+  <div class="tu-alert is-error">Υπάρχει ήδη χρήστης με αυτό το email στον πελάτη.</div>
+  {% elif request.query_params.get('reason') == 'self_disable' %}
+  <div class="tu-alert is-error">Δεν μπορείς να απενεργοποιήσεις τον δικό σου ενεργό λογαριασμό.</div>
+  {% elif request.query_params.get('created') == '1' %}
+  <div class="tu-alert">Ο χρήστης δημιουργήθηκε και δεσμεύτηκε μία άδεια.</div>
+  {% elif request.query_params.get('updated') == '1' %}
+  <div class="tu-alert">Η κατάσταση του χρήστη ενημερώθηκε.</div>
+  {% endif %}
+
+  {% if invite_url %}
+  <div class="tu-alert tu-invite">
+    Link πρόσκλησης για ορισμό κωδικού:
+    <code>{{ invite_url }}</code>
+  </div>
+  {% endif %}
+
+  <div class="tu-grid">
+    <div class="tu-stat"><span>Αγορασμένες άδειες</span><strong>{{ max_users }}</strong></div>
+    <div class="tu-stat"><span>Δεσμευμένες</span><strong>{{ active_users }}</strong></div>
+    <div class="tu-stat"><span>Διαθέσιμες</span><strong>{{ available_users }}</strong></div>
+  </div>
+
+  <div class="tu-panel">
+    <div class="tu-panel-head">
+      <div>
+        <h5>Νέος χρήστης</h5>
+        <div class="text-muted small mt-1">Κάθε ενεργός χρήστης δεσμεύει μία άδεια χρήσης.</div>
+      </div>
+      {% if available_users <= 0 %}
+      <span class="tu-pill is-inactive"><i class="fe fe-lock"></i> Δεν υπάρχουν διαθέσιμες άδειες</span>
+      {% endif %}
+    </div>
+    <div class="tu-panel-body">
+      <form method="post" action="/tenant/users/create" class="row g-3 align-items-end tu-form">
+        <div class="col-lg-3 col-md-6">
+          <label class="form-label">Ονοματεπώνυμο</label>
+          <input class="form-control" name="full_name" placeholder="Πλήρες όνομα" {% if available_users <= 0 %}disabled{% endif %}>
+        </div>
+        <div class="col-lg-3 col-md-6">
+          <label class="form-label">Email</label>
+          <input class="form-control" type="email" name="email" placeholder="user@company.gr" required {% if available_users <= 0 %}disabled{% endif %}>
+        </div>
+        <div class="col-lg-2 col-md-6">
+          <label class="form-label">Τηλέφωνο</label>
+          <input class="form-control" name="phone" placeholder="+30 ..." {% if available_users <= 0 %}disabled{% endif %}>
+        </div>
+        <div class="col-lg-2 col-md-6">
+          <label class="form-label">Ρόλος</label>
+          <select class="form-select" name="role" {% if available_users <= 0 %}disabled{% endif %}>
+            <option value="tenant_user">Χρήστης</option>
+            <option value="tenant_admin">Διαχειριστής</option>
+          </select>
+        </div>
+        <div class="col-lg-2 col-md-6">
+          <label class="form-label">Προφίλ</label>
+          <select class="form-select" name="professional_profile_code" {% if available_users <= 0 %}disabled{% endif %}>
+            {% for p in professional_profiles %}
+            <option value="{{ p.profile_code }}">{{ p.profile_name }} ({{ p.profile_code }})</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-12 col-md-4 col-xl-2">
+          <button class="btn btn-primary w-100" type="submit" {% if available_users <= 0 %}disabled{% endif %}>
+            <i class="fe fe-user-plus me-1"></i>Δημιουργία
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="tu-panel">
+    <div class="tu-panel-head">
+      <h5>Χρήστες πελάτη</h5>
+      <span class="text-muted small">{{ users|length }} λογαριασμοί</span>
+    </div>
+    <div class="tu-panel-body">
+      <div class="tu-table-wrap">
+        <table class="table table-hover align-middle tu-table bv-unified-table">
+          <thead>
+            <tr>
+              <th>Χρήστης</th>
+              <th>Ρόλος</th>
+              <th>Κατάσταση</th>
+              <th>Πρόσβαση</th>
+              <th class="text-end">Ενέργειες</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for u in users %}
+            <tr>
+              <td>
+                <div class="tu-user-main">
+                  <strong>{{ u.full_name or 'Χωρίς όνομα' }}</strong>
+                  <span>{{ u.email }}</span>
+                </div>
+              </td>
+              <td>
+                <span class="tu-pill">{{ 'Διαχειριστής' if u.role.value == 'tenant_admin' else 'Χρήστης' }}</span>
+              </td>
+              <td>
+                <span class="tu-pill {{ 'is-active' if u.is_active else 'is-inactive' }}">
+                  <i class="fe {{ 'fe-check-circle' if u.is_active else 'fe-pause-circle' }}"></i>
+                  {{ 'Ενεργός' if u.is_active else 'Ανενεργός' }}
+                </span>
+              </td>
+              <td>
+                {% if u.reset_token %}
+                  <span class="text-muted small">Πρόσκληση σε εκκρεμότητα</span>
+                {% else %}
+                  <span class="text-muted small">Κωδικός ορισμένος</span>
+                {% endif %}
+              </td>
+              <td>
+                <div class="tu-actions">
+                  <form method="post" action="/tenant/users/{{ u.id }}/invite-reset">
+                    <button class="btn btn-sm btn-outline-secondary" type="submit" title="Νέα πρόσκληση">
+                      <i class="fe fe-mail"></i>
+                    </button>
+                  </form>
+                  <form method="post" action="/tenant/users/{{ u.id }}/toggle">
+                    <button class="btn btn-sm {{ 'btn-outline-danger' if u.is_active else 'btn-outline-success' }}" type="submit" {% if u.id == user.id and u.is_active %}disabled title="Δεν μπορείς να απενεργοποιήσεις τον εαυτό σου"{% endif %}>
+                      <i class="fe {{ 'fe-user-x' if u.is_active else 'fe-user-check' }}"></i>
+                      {{ 'Απενεργοποίηση' if u.is_active else 'Ενεργοποίηση' }}
+                    </button>
+                  </form>
+                </div>
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5" class="text-center text-muted py-4">Δεν υπάρχουν χρήστες.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

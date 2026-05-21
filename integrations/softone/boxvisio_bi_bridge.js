@@ -1,6 +1,6 @@
 /*
   BoxVisio BI Bridge for SoftOne Advanced JavaScript
-  Version: 2026-05-11_18-57-20
+  Version: 2026-05-19_15-30-00
 
   Purpose
   - Extract Sales, Purchases, Inventory, Cash, Balances, Expenses data directly from SoftOne tables.
@@ -20,10 +20,11 @@
       /s1services/JS/myWS/GetSupplierBalancesForBI
       /s1services/JS/myWS/GetCustomerBalancesForBI
       /s1services/JS/myWS/GetOperatingExpensesForBI
+      /s1services/JS/myWS/GetSupplierOrdersForBI
       /s1services/JS/myWS/GetAllForBI
 */
 
-var BVBI_VERSION = "2026-05-11_18-57-20";
+var BVBI_VERSION = "2026-05-19_15-30-00";
 var _BVBI_COL_CACHE = {};
 
 function _bv_is_array(v) {
@@ -136,6 +137,11 @@ function _bv_sqlserver_read_hints(sql) {
     ["LEFT JOIN VAT VT ON", "LEFT JOIN VAT VT WITH (NOLOCK) ON"],
     ["LEFT JOIN MTRMARK MK ON", "LEFT JOIN MTRMARK MK WITH (NOLOCK) ON"],
     ["LEFT JOIN MTRMANFCTR MF ON", "LEFT JOIN MTRMANFCTR MF WITH (NOLOCK) ON"],
+    ["LEFT JOIN MTREXTRA IX ON", "LEFT JOIN MTREXTRA IX WITH (NOLOCK) ON"],
+    ["LEFT JOIN ITEEXTRA IX ON", "LEFT JOIN ITEEXTRA IX WITH (NOLOCK) ON"],
+    ["LEFT JOIN MTREXTRA RX ON", "LEFT JOIN MTREXTRA RX WITH (NOLOCK) ON"],
+    ["LEFT JOIN ITEEXTRA RX ON", "LEFT JOIN ITEEXTRA RX WITH (NOLOCK) ON"],
+    ["LEFT JOIN UTBL04 U4 ON", "LEFT JOIN UTBL04 U4 WITH (NOLOCK) ON"],
     ["LEFT JOIN CCC88POCAT1 PC1 ON", "LEFT JOIN CCC88POCAT1 PC1 WITH (NOLOCK) ON"],
     ["LEFT JOIN CCC88POCAT2 PC2 ON", "LEFT JOIN CCC88POCAT2 PC2 WITH (NOLOCK) ON"],
     ["LEFT JOIN CCC88POCAT3 PC3 ON", "LEFT JOIN CCC88POCAT3 PC3 WITH (NOLOCK) ON"],
@@ -265,6 +271,139 @@ function _bv_col_expr(aliasName, tableName, candidates, fallbackExpr) {
   return fallbackExpr;
 }
 
+function _bv_item_manual_order_info(itemAlias) {
+  var extraTable = "";
+  var ixMtrlExpr;
+  var ixCompanyExpr;
+  var ixUtblexpr;
+  var ixStatusExpr;
+  var u4NameExpr;
+  var u4CodeExpr;
+  var u5NameExpr;
+  var u5CodeExpr;
+  var info = { expr: "''", commercialStatusExpr: "''", joinSql: "" };
+  if (_bv_table_exists("ITEEXTRA")) {
+    extraTable = "ITEEXTRA";
+  } else if (_bv_table_exists("MTREXTRA")) {
+    extraTable = "MTREXTRA";
+  }
+  if (extraTable === "") return info;
+
+  ixMtrlExpr = _bv_col_expr("IX", extraTable, ["MTRL"], "NULL");
+  ixCompanyExpr = _bv_col_expr("IX", extraTable, ["COMPANY"], itemAlias + ".COMPANY");
+  ixUtblexpr = _bv_col_expr("IX", extraTable, ["UTBL04"], "NULL");
+  ixStatusExpr = _bv_col_expr("IX", extraTable, ["UTBL05"], "NULL");
+  info.joinSql = "LEFT JOIN " + extraTable + " IX ON " + ixMtrlExpr + " = " + itemAlias + ".MTRL AND " + ixCompanyExpr + " = " + itemAlias + ".COMPANY ";
+  info.expr = "NULLIF(CAST(" + ixUtblexpr + " AS VARCHAR(128)), '0')";
+  info.commercialStatusExpr = "NULLIF(CAST(" + ixStatusExpr + " AS VARCHAR(128)), '0')";
+  if (_bv_table_exists("UTBL04")) {
+    u4NameExpr = _bv_col_expr("U4", "UTBL04", ["NAME"], "''");
+    u4CodeExpr = _bv_col_expr("U4", "UTBL04", ["CODE"], "''");
+    info.joinSql +=
+      "LEFT JOIN UTBL04 U4 ON U4.UTBL04 = " +
+      ixUtblexpr +
+      " AND U4.COMPANY = " +
+      ixCompanyExpr +
+      " AND U4.SODTYPE = " +
+      itemAlias +
+      ".SODTYPE ";
+    info.expr =
+      "COALESCE(NULLIF(" +
+      u4NameExpr +
+      ", ''), NULLIF(" +
+      u4CodeExpr +
+      ", ''), " +
+      info.expr +
+      ", '')";
+  }
+  if (_bv_table_exists("UTBL05")) {
+    u5NameExpr = _bv_col_expr("U5", "UTBL05", ["NAME"], "''");
+    u5CodeExpr = _bv_col_expr("U5", "UTBL05", ["CODE"], "''");
+    info.joinSql +=
+      "LEFT JOIN UTBL05 U5 ON U5.UTBL05 = " +
+      ixStatusExpr +
+      " AND U5.COMPANY = " +
+      ixCompanyExpr +
+      " AND U5.SODTYPE = " +
+      itemAlias +
+      ".SODTYPE ";
+    info.commercialStatusExpr =
+      "COALESCE(NULLIF(" +
+      u5NameExpr +
+      ", ''), NULLIF(" +
+      u5CodeExpr +
+      ", ''), " +
+      info.commercialStatusExpr +
+      ", '')";
+  }
+  return info;
+}
+
+function _bv_item_replenishment_info(itemAlias) {
+  var extraTable = "";
+  var ixMtrlExpr;
+  var ixCompanyExpr;
+  var vendorMoqJoinSql = "";
+  var info = {
+    joinSql: "",
+    status1Expr: "''",
+    status2Expr: "''",
+    minStockExpr: "1",
+    replMoqExpr: "1",
+    vendorMoqExpr: "1",
+    purchasePriceExpr: _bv_col_expr(itemAlias, "MTRL", ["LASTPURPRICE", "PURPRICE", "PRICEP", "PRICEW"], "NULL")
+  };
+  if (_bv_table_exists("MTREXTRA")) {
+    extraTable = "MTREXTRA";
+  } else if (_bv_table_exists("ITEEXTRA")) {
+    extraTable = "ITEEXTRA";
+  }
+  if (extraTable === "") {
+    info.status1Expr = _bv_col_expr(itemAlias, "MTRL", ["REPLSTATUS1", "FNRSTATUS1", "STATUS1"], "''");
+    info.status2Expr = _bv_col_expr(itemAlias, "MTRL", ["REPLSTATUS2", "FNRSTATUS2", "STATUS2"], "''");
+    info.minStockExpr = "1";
+    info.replMoqExpr = "1";
+    info.vendorMoqExpr = "1";
+  }
+  if (extraTable !== "") {
+    ixMtrlExpr = _bv_col_expr("RX", extraTable, ["MTRL"], "NULL");
+    ixCompanyExpr = _bv_col_expr("RX", extraTable, ["COMPANY"], itemAlias + ".COMPANY");
+    info.joinSql = "LEFT JOIN " + extraTable + " RX ON " + ixMtrlExpr + " = " + itemAlias + ".MTRL AND " + ixCompanyExpr + " = " + itemAlias + ".COMPANY ";
+    info.status1Expr =
+      "COALESCE(NULLIF(CAST(" +
+      _bv_col_expr("RX", extraTable, ["REPLSTATUS1", "FNRSTATUS1", "STATUS1", "STATUS_1", "UTBL01"], "''") +
+      " AS VARCHAR(64)), ''), NULLIF(CAST(" +
+      _bv_col_expr(itemAlias, "MTRL", ["REPLSTATUS1", "FNRSTATUS1", "STATUS1"], "''") +
+      " AS VARCHAR(64)), ''), '')";
+    info.status2Expr =
+      "COALESCE(NULLIF(CAST(" +
+      _bv_col_expr("RX", extraTable, ["REPLSTATUS2", "FNRSTATUS2", "STATUS2", "STATUS_2", "UTBL02"], "''") +
+      " AS VARCHAR(128)), ''), NULLIF(CAST(" +
+      _bv_col_expr(itemAlias, "MTRL", ["REPLSTATUS2", "FNRSTATUS2", "STATUS2"], "''") +
+      " AS VARCHAR(128)), ''), '')";
+    info.minStockExpr = "1";
+    info.replMoqExpr = "1";
+    info.purchasePriceExpr =
+      "COALESCE(" +
+      _bv_col_expr("RX", extraTable, ["PURCHASEPRICE", "PURCHASE_PRICE", "LASTPURPRICE", "FINALPURCHASEPRICE", "NUM04"], "NULL") +
+      ", " +
+      info.purchasePriceExpr +
+      ")";
+  }
+  if (_bv_table_exists("MTRSUPCODE") && _bv_has_column("MTRSUPCODE", "CCC88MOQ")) {
+    vendorMoqJoinSql =
+      "OUTER APPLY (SELECT MIN(NULLIF(TRY_CAST(MSC.CCC88MOQ AS FLOAT), 0)) AS VENDOR_MOQ " +
+      "FROM MTRSUPCODE MSC WHERE MSC.MTRL = " +
+      itemAlias +
+      ".MTRL AND MSC.COMPANY = " +
+      itemAlias +
+      ".COMPANY) VMQ ";
+    info.joinSql += vendorMoqJoinSql;
+    info.vendorMoqExpr = "COALESCE(VMQ.VENDOR_MOQ, 1)";
+  }
+  return info;
+}
+
 function _bv_parse_source_codes(raw, defaultsCsv) {
   var list = [];
   var i;
@@ -316,6 +455,7 @@ function _bv_resolve_request(obj) {
   r.includeSupplierBalances = _bv_bool(obj && obj.includeSupplierBalances, false);
   r.includeCustomerBalances = _bv_bool(obj && obj.includeCustomerBalances, false);
   r.includeOperatingExpenses = _bv_bool(obj && obj.includeOperatingExpenses, true);
+  r.includeSupplierOrders = _bv_bool(obj && obj.includeSupplierOrders, false);
 
   r.salesSourceCodes = _bv_parse_source_codes(obj && obj.salesSourceCodes, "1351,11351");
   r.purchaseSourceCodes = _bv_parse_source_codes(obj && obj.purchaseSourceCodes, "1251,1253");
@@ -464,6 +604,12 @@ function _bv_sales_sql(cfg) {
   var brandName = _bv_col_expr("MK", "MTRMARK", ["NAME"], "''");
   var itemGroup = _bv_col_expr("I", "MTRL", ["MTRGROUP"], "0");
   var groupName = _bv_col_expr("MG", "MTRGROUP", ["NAME"], "''");
+  var manualOrderInfo = _bv_item_manual_order_info("I");
+  var manualOrderCategoryExpr = manualOrderInfo.expr;
+  var commercialStatusExpr = manualOrderInfo.commercialStatusExpr;
+  var itemExtraJoinSql = manualOrderInfo.joinSql;
+  var replInfo = _bv_item_replenishment_info("I");
+  var itemReplJoinSql = replInfo.joinSql;
   var shippingExpenseValueExpr = "0";
   var shippingExpenseDescriptionExpr = "''";
   var chargeRevenueNetValueExpr = "0";
@@ -513,6 +659,7 @@ function _bv_sales_sql(cfg) {
     "ELSE N'Open' END)";
   var lQty = _bv_col_expr("L", "MTRLINES", ["QTY1", "QTY"], "0");
   var lNet = _bv_col_expr("L", "MTRLINES", ["NETLINEVAL", "NETVAL", "NETAMNT", "LINEVAL"], "0");
+  var lLineValue = _bv_col_expr("L", "MTRLINES", ["LINEVAL", "NETLINEVAL", "NETVAL", "NETAMNT"], "0");
   var lVat = _bv_col_expr("L", "MTRLINES", ["VATAMNT", "TAXAMNT", "FPAAMNT", "LINEVAT", "LINETAX", "LINEVATAMNT", "LINETAXAMNT"], "NULL");
   var lGross = _bv_col_expr("L", "MTRLINES", ["GROSSVAL", "SUMAMNT", "TOTVAL", "LINEGROSS"], "NULL");
   var lCost = _bv_col_expr("L", "MTRLINES", ["COSTVAL", "COSTVALUE", "LCOST", "COST", "LINEVAL"], lNet);
@@ -696,6 +843,9 @@ function _bv_sales_sql(cfg) {
     c.trdr +
     ") AS VARCHAR(128)) AS CUSTOMER_EXT_ID," +
     "CAST(ISNULL(C.NAME, '') AS VARCHAR(255)) AS CUSTOMER_NAME," +
+    "CAST(ISNULL(" +
+    _bv_col_expr("C", "TRDR", ["AFM"], "''") +
+    ", '') AS VARCHAR(64)) AS CUSTOMER_AFM," +
     "CAST(ISNULL(I.CODE, " +
     lMtrl +
     ") AS VARCHAR(128)) AS ITEM_CODE," +
@@ -714,6 +864,12 @@ function _bv_sales_sql(cfg) {
     "CAST(ISNULL(" +
     groupName +
     ", '') AS VARCHAR(255)) AS GROUP_NAME," +
+    "CAST(ISNULL(" +
+    manualOrderCategoryExpr +
+    ", '') AS VARCHAR(128)) AS MANUAL_ORDER_CATEGORY," +
+    "CAST(ISNULL(" +
+    commercialStatusExpr +
+    ", '') AS VARCHAR(128)) AS COMMERCIAL_STATUS," +
     "CAST(" +
     docChannelResolved +
     " AS VARCHAR(64)) AS CHANNEL_EXT_ID," +
@@ -939,6 +1095,7 @@ function _bv_sales_sql(cfg) {
     "LEFT JOIN MTRL I ON I.MTRL=" +
     lMtrl +
     " AND I.COMPANY=F.COMPANY " +
+    itemExtraJoinSql +
     "LEFT JOIN MTRMARK MK ON MK.MTRMARK=I.MTRMARK AND MK.COMPANY=I.COMPANY " +
     "LEFT JOIN MTRGROUP MG ON MG.MTRGROUP=I.MTRGROUP AND MG.COMPANY=I.COMPANY " +
     (_bv_table_exists("SALDOC") ? ("LEFT JOIN SALDOC SD ON SD.FINDOC=" + c.findoc + " AND SD.COMPANY=F.COMPANY ") : "") +
@@ -974,10 +1131,13 @@ function _bv_purchases_sql(cfg) {
   var iName = _bv_col_expr("I", "MTRL", ["NAME", "DESCR", "TITLE"], "''");
   var lQty = _bv_col_expr("L", "MTRLINES", ["QTY1", "QTY"], "0");
   var lNet = _bv_col_expr("L", "MTRLINES", ["NETLINEVAL", "NETVAL", "NETAMNT", "LINEVAL"], "0");
+  var lLineValue = _bv_col_expr("L", "MTRLINES", ["LINEVAL", "NETLINEVAL", "NETVAL", "NETAMNT"], "0");
   var lVat = _bv_col_expr("L", "MTRLINES", ["VATAMNT", "TAXAMNT", "FPAAMNT", "LINEVAT", "LINETAX", "LINEVATAMNT", "LINETAXAMNT"], "NULL");
   var lGross = _bv_col_expr("L", "MTRLINES", ["GROSSVAL", "SUMAMNT", "TOTVAL", "LINEGROSS"], "NULL");
   var lCost = _bv_col_expr("L", "MTRLINES", ["COSTVAL", "COSTVALUE", "LCOST", "COST", "LINEVAL"], lNet);
   var lPrice = _bv_col_expr("L", "MTRLINES", ["PRICE", "PRICEM", "PRICELISTVALUE"], "NULL");
+  var lNoDiscountFallback = "(ABS(ISNULL(" + lPrice + ",0)) * ABS(ISNULL(" + lQty + ",0)))";
+  var lNoDiscount = _bv_col_expr("L", "MTRLINES", ["NODSCAMNT"], lNoDiscountFallback);
   var disc1Pct = _bv_col_expr("L", "MTRLINES", ["DISC1PRC", "DISC1", "DISCOUNT1"], "NULL");
   var disc2Pct = _bv_col_expr("L", "MTRLINES", ["DISC2PRC", "DISC2", "DISCOUNT2"], "NULL");
   var disc3Pct = _bv_col_expr("L", "MTRLINES", ["DISC3PRC", "DISC3", "DISCOUNT3"], "NULL");
@@ -990,6 +1150,10 @@ function _bv_purchases_sql(cfg) {
     ",''), NULLIF(" +
     paymentCode +
     ",''), NULLIF(CAST(ISNULL(F.PAYMENT,0) AS VARCHAR(128)),'0'), '')";
+  var manualOrderInfo = _bv_item_manual_order_info("I");
+  var manualOrderCategoryExpr = manualOrderInfo.expr;
+  var commercialStatusExpr = manualOrderInfo.commercialStatusExpr;
+  var itemExtraJoinSql = manualOrderInfo.joinSql;
   var grossLineExpr = "(ABS(ISNULL(" + lPrice + ",0)) * ABS(ISNULL(" + lQty + ",0)))";
   var discAmtExpr = "(CASE WHEN " + lPrice + " IS NOT NULL AND " + grossLineExpr + " > ABS(ISNULL(" + lNet + ",0))" +
     " THEN " + grossLineExpr + " - ABS(ISNULL(" + lNet + ",0)) ELSE 0 END)";
@@ -1104,12 +1268,21 @@ function _bv_purchases_sql(cfg) {
     c.trdr +
     ") AS VARCHAR(128)) AS SUPPLIER_EXT_ID," +
     "CAST(ISNULL(S.NAME, '') AS VARCHAR(255)) AS SUPPLIER_NAME," +
+    "CAST(ISNULL(" +
+    _bv_col_expr("S", "TRDR", ["AFM"], "''") +
+    ", '') AS VARCHAR(64)) AS SUPPLIER_AFM," +
     "CAST(ISNULL(I.CODE, " +
     lMtrl +
     ") AS VARCHAR(128)) AS ITEM_CODE," +
     "CAST(ISNULL(" +
     iName +
     ", '') AS VARCHAR(255)) AS ITEM_NAME," +
+    "CAST(ISNULL(" +
+    manualOrderCategoryExpr +
+    ", '') AS VARCHAR(128)) AS MANUAL_ORDER_CATEGORY," +
+    "CAST(ISNULL(" +
+    commercialStatusExpr +
+    ", '') AS VARCHAR(128)) AS COMMERCIAL_STATUS," +
     "CAST(" +
     purchaseSign +
     " * ABS(ISNULL(" +
@@ -1120,6 +1293,11 @@ function _bv_purchases_sql(cfg) {
     " * ABS(ISNULL(" +
     lNet +
     ",0)) AS FLOAT) AS NET_VALUE," +
+    "CAST(" +
+    purchaseSign +
+    " * ABS(ISNULL(" +
+    lLineValue +
+    ",0)) AS FLOAT) AS LINE_VALUE," +
     "CAST(" +
     purchaseSign +
     " * (" +
@@ -1152,6 +1330,16 @@ function _bv_purchases_sql(cfg) {
     " * ABS(ISNULL(" +
     docGrossTotal +
     ",0)) AS FLOAT) AS DOC_GROSS_TOTAL," +
+    "CAST(" +
+    purchaseSign +
+    " * ABS(ISNULL(" +
+    lNoDiscount +
+    ",0)) AS FLOAT) AS NO_DISCOUNT_AMOUNT," +
+    "CAST(" +
+    purchaseSign +
+    " * ABS(ISNULL(" +
+    lNoDiscount +
+    ",0)) AS FLOAT) AS NODSCAMNT," +
     "CAST(" +
     purchaseSign +
     " * ABS(ISNULL(" +
@@ -1207,6 +1395,7 @@ function _bv_purchases_sql(cfg) {
     "LEFT JOIN MTRL I ON I.MTRL=" +
     lMtrl +
     " AND I.COMPANY=F.COMPANY " +
+    itemExtraJoinSql +
     branchInfo.joinSql +
     seriesInfo.joinSql +
     whereSql +
@@ -1218,6 +1407,65 @@ function _bv_purchases_sql(cfg) {
     lLineId +
     " ASC";
   return sql;
+}
+
+function _bv_supplier_orders_sql(cfg) {
+  var c = _bv_findoc_common_exprs();
+  var seriesInfo = _bv_series_info_expr(c);
+  var branchInfo = _bv_branch_info_expr(c);
+  var lLineId = _bv_col_expr("L", "MTRLINES", ["MTRLINES", "LINENUM"], "0");
+  var lMtrl = _bv_col_expr("L", "MTRLINES", ["MTRL"], "0");
+  var lQty = _bv_col_expr("L", "MTRLINES", ["QTY1", "QTY"], "0");
+  var lCoveredQty = _bv_col_expr("L", "MTRLINES", ["QTY1COV"], "0");
+  var lCancelledQty = _bv_col_expr("L", "MTRLINES", ["QTY1CANC"], "0");
+  var lValue = _bv_col_expr("L", "MTRLINES", ["LINEVAL", "NETLINEVAL", "NETVAL", "NETAMNT"], "0");
+  var supplierCode = _bv_col_expr("SUP", "TRDR", ["CODE"], c.trdr);
+  var supplierName = _bv_col_expr("SUP", "TRDR", ["NAME"], "''");
+  var supplierAfm = _bv_col_expr("SUP", "TRDR", ["AFM", "VATREGNO"], "''");
+  var iName = _bv_col_expr("I", "MTRL", ["NAME", "DESCR", "TITLE"], "''");
+  var hasTransformation =
+    "(CASE WHEN ISNULL(" + _bv_col_expr("F", "FINDOC", ["FULLYTRANSF"], "0") + ",0)=1 THEN 1 " +
+    "WHEN EXISTS (SELECT 1 FROM MTRLINES T WHERE T.COMPANY=L.COMPANY AND T.FINDOCS=" + c.findoc + ") THEN 1 ELSE 0 END)";
+  var whereSql =
+    " WHERE F.COMPANY=" + cfg.company +
+    " AND ISNULL(" + c.sosource + ",0)=1251" +
+    " AND ISNULL(" + c.sodtype + ",0)=12" +
+    " AND ISNULL(" + c.tfprms + ",0)=201" +
+    " AND ISNULL(" + c.series + ",0) IN (2021,2031)" +
+    " AND ISNULL(" + _bv_col_expr("F", "FINDOC", ["ISCANCEL"], "0") + ",0)=0";
+  if (cfg.fromDate) whereSql += " AND " + c.trnDate + " >= '" + cfg.fromDate + "'";
+  if (cfg.toDate) whereSql += " AND " + c.trnDate + " < DATEADD(day, 1, '" + cfg.toDate + "')";
+
+  return "SELECT " + _bv_top_clause(cfg.limit) +
+    "CAST(" + c.findoc + " AS VARCHAR(40)) + '-' + CAST(ISNULL(" + lLineId + ",0) AS VARCHAR(40)) AS EVENT_ID," +
+    "CAST(" + c.findoc + " AS VARCHAR(40)) AS DOCUMENT_ID," +
+    "CAST(" + c.finCode + " AS VARCHAR(128)) AS DOCUMENT_NO," +
+    "CAST(" + c.series + " AS VARCHAR(128)) AS DOCUMENT_SERIES," +
+    seriesInfo.seriesNameExpr + " AS DOCUMENT_SERIES_NAME," +
+    "CONVERT(VARCHAR(10), " + c.trnDate + ", 23) AS DOC_DATE," +
+    "CONVERT(VARCHAR(19), ISNULL(" + c.updDate + ", " + c.trnDate + "), 126) AS UPDATED_AT," +
+    "CAST(ISNULL(" + c.tfprms + ",0) AS INT) AS DOCUMENT_BEHAVIOR_CODE," +
+    "CAST(ISNULL(" + c.branch + ",0) AS VARCHAR(64)) AS BRANCH_EXT_ID," +
+    branchInfo.branchNameExpr + " AS BRANCH_NAME," +
+    "CAST(ISNULL(" + supplierCode + ", " + c.trdr + ") AS VARCHAR(128)) AS SUPPLIER_EXT_ID," +
+    "CAST(ISNULL(" + supplierName + ", '') AS VARCHAR(255)) AS SUPPLIER_NAME," +
+    "CAST(ISNULL(" + supplierAfm + ", '') AS VARCHAR(64)) AS SUPPLIER_AFM," +
+    "CAST(ISNULL(I.CODE, " + lMtrl + ") AS VARCHAR(128)) AS ITEM_CODE," +
+    "CAST(ISNULL(" + iName + ", '') AS VARCHAR(512)) AS ITEM_NAME," +
+    "CAST(ISNULL(" + lQty + ",0) AS FLOAT) AS ORDER_QTY," +
+    "CAST(ISNULL(" + lCoveredQty + ",0) AS FLOAT) AS COVERED_QTY," +
+    "CAST(ISNULL(" + lCancelledQty + ",0) AS FLOAT) AS CANCELLED_QTY," +
+    "CAST(ISNULL(" + lValue + ",0) AS FLOAT) AS LINE_VALUE," +
+    "CAST(" + hasTransformation + " AS INT) AS HAS_TRANSFORMATION," +
+    "CASE WHEN " + hasTransformation + "=1 THEN 'closed' ELSE 'open' END AS ORDER_STATUS " +
+    "FROM FINDOC F " +
+    "INNER JOIN MTRLINES L ON L.FINDOC=" + c.findoc + " AND L.COMPANY=F.COMPANY " +
+    "LEFT JOIN TRDR SUP ON SUP.TRDR=" + c.trdr + " AND SUP.COMPANY=F.COMPANY " +
+    "LEFT JOIN MTRL I ON I.MTRL=" + lMtrl + " AND I.COMPANY=F.COMPANY " +
+    branchInfo.joinSql +
+    seriesInfo.joinSql +
+    whereSql +
+    " ORDER BY " + c.trnDate + " ASC, " + c.findoc + " ASC, " + lLineId + " ASC";
 }
 
 function _bv_inventory_sql(cfg) {
@@ -1245,6 +1493,48 @@ function _bv_inventory_sql(cfg) {
   var mdWhouse = _bv_col_expr("MD", "MTRDOC", ["WHOUSE"], "0");
   var activeExpr = _bv_col_expr("I", "MTRL", ["ISACTIVE"], "1");
   var vatExpr = _bv_col_expr("I", "MTRL", ["VAT"], "NULL");
+  var manualOrderInfo = _bv_item_manual_order_info("I");
+  var manualOrderCategoryExpr = manualOrderInfo.expr;
+  var commercialStatusExpr = manualOrderInfo.commercialStatusExpr;
+  var itemExtraJoinSql = manualOrderInfo.joinSql;
+  var replInfo = _bv_item_replenishment_info("I");
+  var itemReplJoinSql = replInfo.joinSql;
+  var stockReservedExpr = _bv_col_expr("S", "MTRBALSHEET", ["RESQTY1", "RESERVEDQTY", "RESQTY", "COMMITQTY1"], "0");
+  var stockExpectedExpr = _bv_col_expr("S", "MTRBALSHEET", ["EXPCTQTY1", "EXPECTEDQTY", "ONORDERQTY", "ORDEREDQTY1"], "0");
+  var branchLimitSnapshotJoinSql = "";
+  var branchLimitAdjustmentJoinSql = "";
+  var minStockExpr = replInfo.minStockExpr;
+  var replMoqExpr = replInfo.replMoqExpr;
+  if (_bv_table_exists("MTRBRNLIMITS")) {
+    var blMtrlExpr = _bv_col_expr("RBL", "MTRBRNLIMITS", ["MTRL"], "NULL");
+    var blCompanyExpr = _bv_col_expr("RBL", "MTRBRNLIMITS", ["COMPANY"], "I.COMPANY");
+    var blBranchExpr = _bv_col_expr("RBL", "MTRBRNLIMITS", ["BRANCH"], "NULL");
+    var blMinStockExpr = _bv_col_expr("RBL", "MTRBRNLIMITS", ["REMAINLIMMIN"], "NULL");
+    var blReplMoqExpr = _bv_col_expr("RBL", "MTRBRNLIMITS", ["REORDERLEVEL"], "NULL");
+    var snapshotBranchExpr = "ISNULL(BR.BRANCH, ISNULL(NULLIF(W.WHOUSEG,0), ISNULL(S.WHOUSE,0)))";
+    branchLimitSnapshotJoinSql =
+      "LEFT JOIN MTRBRNLIMITS RBL ON " +
+      blMtrlExpr +
+      "=I.MTRL AND " +
+      blCompanyExpr +
+      "=I.COMPANY AND " +
+      blBranchExpr +
+      "=" +
+      snapshotBranchExpr +
+      " ";
+    branchLimitAdjustmentJoinSql =
+      "LEFT JOIN MTRBRNLIMITS RBL ON " +
+      blMtrlExpr +
+      "=I.MTRL AND " +
+      blCompanyExpr +
+      "=I.COMPANY AND " +
+      blBranchExpr +
+      "=" +
+      c.branch +
+      " ";
+    minStockExpr = "COALESCE(" + blMinStockExpr + ", " + minStockExpr + ")";
+    replMoqExpr = "COALESCE(" + blReplMoqExpr + ", " + replMoqExpr + ")";
+  }
   var snapshotAsOf = cfg.toDate !== "" ? _bv_sql_quote(cfg.toDate) : "GETDATE()";
 
   var whereSql = " WHERE F.COMPANY=" + cfg.company + " AND F.SOSOURCE IN (" + cfg.inventorySourceCodes + ")";
@@ -1287,16 +1577,27 @@ function _bv_inventory_sql(cfg) {
     "CAST(ISNULL(PC1.NAME,'') AS VARCHAR(255)) AS CATEGORY_1," +
     "CAST(ISNULL(PC2.NAME,'') AS VARCHAR(255)) AS CATEGORY_2," +
     "CAST(ISNULL(PC3.NAME,'') AS VARCHAR(255)) AS CATEGORY_3," +
+    "CAST(ISNULL(" + manualOrderCategoryExpr + ", '') AS VARCHAR(128)) AS MANUAL_ORDER_CATEGORY," +
+    "CAST(ISNULL(" + commercialStatusExpr + ", '') AS VARCHAR(128)) AS COMMERCIAL_STATUS," +
     "CAST(NULLIF(CAST(ISNULL(I.MTRMARK,0) AS VARCHAR(64)), '0') AS VARCHAR(64)) AS BRAND_EXTERNAL_ID," +
     "CAST(ISNULL(MK.NAME,'') AS VARCHAR(255)) AS BRAND_NAME," +
     "CAST(NULLIF(CAST(ISNULL(I.MTRMANFCTR,0) AS VARCHAR(128)), '0') AS VARCHAR(128)) AS MANUFACTURER_CODE," +
     "CAST(ISNULL(MF.NAME,'') AS VARCHAR(255)) AS MANUFACTURER_NAME," +
     "CAST(ISNULL(S.IMPQTY1,0)-ISNULL(S.EXPQTY1,0) AS FLOAT) AS QTY," +
+    "CAST(ISNULL(" + stockReservedExpr + ",0) AS FLOAT) AS QTY_RESERVED," +
+    "CAST(ISNULL(" + stockExpectedExpr + ",0) AS FLOAT) AS QTY_EXPECTED," +
+    "CAST((ISNULL(S.IMPQTY1,0)-ISNULL(S.EXPQTY1,0))-ISNULL(" + stockReservedExpr + ",0) AS FLOAT) AS QTY_AVAILABLE," +
     "CAST(ISNULL(S.IMPVAL,0)-ISNULL(S.EXPVAL,0) AS FLOAT) AS COST_AMOUNT," +
     "CAST((ISNULL(S.IMPQTY1,0)-ISNULL(S.EXPQTY1,0)) * ISNULL(I.PRICEW,0) AS FLOAT) AS VALUE_AMOUNT," +
     "CAST((ISNULL(S.IMPQTY1,0)-ISNULL(S.EXPQTY1,0)) * ISNULL(I.PRICER,0) AS FLOAT) AS RETAIL_VALUE_AMOUNT," +
     "CAST(ISNULL(S.IMPVAL,0)-ISNULL(S.EXPVAL,0) AS FLOAT) AS FINANCIAL_VALUE_AMOUNT," +
     "CAST(ISNULL(I.ISACTIVE,1) AS INT) AS IS_ACTIVE_SOURCE," +
+    "CAST(ISNULL(" + replInfo.status1Expr + ", '') AS VARCHAR(64)) AS REPLENISHMENT_STATUS_1," +
+    "CAST(ISNULL(" + replInfo.status2Expr + ", '') AS VARCHAR(128)) AS REPLENISHMENT_STATUS_2," +
+    "CAST(" + minStockExpr + " AS FLOAT) AS MIN_STOCK," +
+    "CAST(" + replMoqExpr + " AS FLOAT) AS REPLENISHMENT_MOQ," +
+    "CAST(" + replInfo.vendorMoqExpr + " AS FLOAT) AS VENDOR_MOQ," +
+    "CAST(" + replInfo.purchasePriceExpr + " AS FLOAT) AS CURRENT_PURCHASE_PRICE," +
     "CAST('snapshot' AS VARCHAR(32)) AS MOVEMENT_TYPE," +
     "CAST(ISNULL(S.FISCPRD,0) AS INT) AS SOURCE_MODULE_ID," +
     "CAST(0 AS INT) AS REDIRECT_MODULE_ID," +
@@ -1308,6 +1609,9 @@ function _bv_inventory_sql(cfg) {
     "LEFT JOIN WHOUSE W ON W.WHOUSE=S.WHOUSE AND W.COMPANY=S.COMPANY " +
     "LEFT JOIN BRANCH BR ON BR.BRANCH=ISNULL(NULLIF(W.WHOUSEG,0), ISNULL(S.WHOUSE,0)) AND BR.COMPANY=S.COMPANY " +
     "LEFT JOIN MTRL I ON I.MTRL=S.MTRL AND I.COMPANY=S.COMPANY " +
+    itemExtraJoinSql +
+    itemReplJoinSql +
+    branchLimitSnapshotJoinSql +
     "LEFT JOIN VAT VT ON VT.VAT=I.VAT " +
     "LEFT JOIN MTRMARK MK ON MK.MTRMARK=I.MTRMARK AND MK.COMPANY=I.COMPANY " +
     "LEFT JOIN MTRMANFCTR MF ON MF.MTRMANFCTR=I.MTRMANFCTR AND MF.COMPANY=I.COMPANY " +
@@ -1384,6 +1688,12 @@ function _bv_inventory_sql(cfg) {
     "CAST(ISNULL(" +
     iCat3 +
     ", '') AS VARCHAR(255)) AS CATEGORY_3," +
+    "CAST(ISNULL(" +
+    manualOrderCategoryExpr +
+    ", '') AS VARCHAR(128)) AS MANUAL_ORDER_CATEGORY," +
+    "CAST(ISNULL(" +
+    commercialStatusExpr +
+    ", '') AS VARCHAR(128)) AS COMMERCIAL_STATUS," +
     "CAST(NULLIF(CAST(ISNULL(" +
     iBrand +
     ",0) AS VARCHAR(64)), '0') AS VARCHAR(64)) AS BRAND_EXTERNAL_ID," +
@@ -1395,6 +1705,11 @@ function _bv_inventory_sql(cfg) {
     "CAST(ISNULL(" +
     lQty +
     ",0) AS FLOAT) AS QTY," +
+    "CAST(0 AS FLOAT) AS QTY_RESERVED," +
+    "CAST(0 AS FLOAT) AS QTY_EXPECTED," +
+    "CAST(ISNULL(" +
+    lQty +
+    ",0) AS FLOAT) AS QTY_AVAILABLE," +
     "CAST(ISNULL(" +
     lCost +
     ",0) AS FLOAT) AS COST_AMOUNT," +
@@ -1412,6 +1727,12 @@ function _bv_inventory_sql(cfg) {
     "CAST(ISNULL(" +
     activeExpr +
     ",1) AS INT) AS IS_ACTIVE_SOURCE," +
+    "CAST(ISNULL(" + replInfo.status1Expr + ", '') AS VARCHAR(64)) AS REPLENISHMENT_STATUS_1," +
+    "CAST(ISNULL(" + replInfo.status2Expr + ", '') AS VARCHAR(128)) AS REPLENISHMENT_STATUS_2," +
+    "CAST(" + minStockExpr + " AS FLOAT) AS MIN_STOCK," +
+    "CAST(" + replMoqExpr + " AS FLOAT) AS REPLENISHMENT_MOQ," +
+    "CAST(" + replInfo.vendorMoqExpr + " AS FLOAT) AS VENDOR_MOQ," +
+    "CAST(" + replInfo.purchasePriceExpr + " AS FLOAT) AS CURRENT_PURCHASE_PRICE," +
     "CASE WHEN ISNULL(" +
     lQty +
     ",0) >= 0 THEN 'entry' ELSE 'exit' END AS MOVEMENT_TYPE," +
@@ -1439,6 +1760,9 @@ function _bv_inventory_sql(cfg) {
     "LEFT JOIN MTRL I ON I.MTRL=" +
     lMtrl +
     " AND I.COMPANY=F.COMPANY " +
+    itemExtraJoinSql +
+    itemReplJoinSql +
+    branchLimitAdjustmentJoinSql +
     "LEFT JOIN VAT VT ON VT.VAT = I.VAT " +
     "LEFT JOIN MTRMARK MK ON MK.MTRMARK = I.MTRMARK AND MK.COMPANY = I.COMPANY " +
     "LEFT JOIN MTRMANFCTR MF ON MF.MTRMANFCTR = I.MTRMANFCTR AND MF.COMPANY = I.COMPANY " +
@@ -1478,6 +1802,12 @@ function _bv_item_master_sql(cfg) {
   var groupExpr = _bv_col_expr("I", "MTRL", ["MTRGROUP"], "NULL");
   var commercialCategoryExpr = _bv_col_expr("I", "MTRL", ["MTRPCATEGORY"], "NULL");
   var vatExpr = _bv_col_expr("I", "MTRL", ["VAT"], "NULL");
+  var manualOrderInfo = _bv_item_manual_order_info("I");
+  var manualOrderCategoryExpr = manualOrderInfo.expr;
+  var commercialStatusExpr = manualOrderInfo.commercialStatusExpr;
+  var itemExtraJoinSql = manualOrderInfo.joinSql;
+  var replInfo = _bv_item_replenishment_info("I");
+  var itemReplJoinSql = replInfo.joinSql;
 
   var sql =
     "SELECT " +
@@ -1522,11 +1852,25 @@ function _bv_item_master_sql(cfg) {
     "CAST(ISNULL(MG.NAME, '') AS VARCHAR(255)) AS GROUP_NAME," +
     "CAST(ISNULL(CG.NAME, '') AS VARCHAR(255)) AS COMMERCIAL_CATEGORY," +
     "CAST(ISNULL(" +
+    manualOrderCategoryExpr +
+    ", '') AS VARCHAR(128)) AS MANUAL_ORDER_CATEGORY," +
+    "CAST(ISNULL(" +
+    commercialStatusExpr +
+    ", '') AS VARCHAR(128)) AS COMMERCIAL_STATUS," +
+    "CAST(ISNULL(" + replInfo.status1Expr + ", '') AS VARCHAR(64)) AS REPLENISHMENT_STATUS_1," +
+    "CAST(ISNULL(" + replInfo.status2Expr + ", '') AS VARCHAR(128)) AS REPLENISHMENT_STATUS_2," +
+    "CAST(" + replInfo.minStockExpr + " AS FLOAT) AS MIN_STOCK," +
+    "CAST(" + replInfo.replMoqExpr + " AS FLOAT) AS REPLENISHMENT_MOQ," +
+    "CAST(" + replInfo.vendorMoqExpr + " AS FLOAT) AS VENDOR_MOQ," +
+    "CAST(" + replInfo.purchasePriceExpr + " AS FLOAT) AS CURRENT_PURCHASE_PRICE," +
+    "CAST(ISNULL(" +
     activeExpr +
     ", 1) AS INT) AS IS_ACTIVE_SOURCE " +
     "FROM MTRL I " +
     "LEFT JOIN MTRMARK MK ON MK.MTRMARK = I.MTRMARK AND MK.COMPANY = I.COMPANY " +
     "LEFT JOIN MTRMANFCTR MF ON MF.MTRMANFCTR = I.MTRMANFCTR AND MF.COMPANY = I.COMPANY " +
+    itemExtraJoinSql +
+    itemReplJoinSql +
     "LEFT JOIN MTRGROUP MG ON MG.MTRGROUP = I.MTRGROUP AND MG.COMPANY = I.COMPANY " +
     "LEFT JOIN VAT VT ON VT.VAT = I.VAT " +
     "LEFT JOIN CCC88POCAT1 PC1 ON PC1.CCC88POCAT1 = I.CCC88POCAT1 " +
@@ -1686,6 +2030,7 @@ function _bv_cash_sql(cfg) {
 function _bv_supplier_balances_sql(cfg) {
   var c = _bv_findoc_common_exprs();
   var branchInfo = _bv_branch_info_expr(c);
+  var supplierAfm = _bv_col_expr("T", "TRDR", ["AFM"], "''");
   var asOfExpr = cfg.toDate !== "" ? _bv_sql_quote(cfg.toDate) : "CONVERT(VARCHAR(10), GETDATE(), 23)";
   var dueBaseExpr = "ISNULL(" + c.dueDate + ", " + c.trnDate + ")";
   var supplierBaseAmount = "ABS(ISNULL(" + c.sumAmount + ",0) + ISNULL(" + c.taxAmount + ",0))";
@@ -1711,6 +2056,9 @@ function _bv_supplier_balances_sql(cfg) {
     c.trdr +
     ") AS VARCHAR(64)) AS SUPPLIER_EXT_ID," +
     "CAST(ISNULL(T.NAME, '') AS VARCHAR(255)) AS SUPPLIER_NAME," +
+    "CAST(ISNULL(" +
+    supplierAfm +
+    ", '') AS VARCHAR(64)) AS SUPPLIER_AFM," +
     "CAST(ISNULL(" +
     c.branch +
     ",0) AS VARCHAR(64)) AS BRANCH_EXT_ID," +
@@ -1766,6 +2114,8 @@ function _bv_supplier_balances_sql(cfg) {
     " GROUP BY ISNULL(T.CODE, " +
     c.trdr +
     "), ISNULL(T.NAME,''), ISNULL(" +
+    supplierAfm +
+    ",''), ISNULL(" +
     c.branch +
     ",0) " +
     " ORDER BY ISNULL(T.CODE, " +
@@ -1778,6 +2128,7 @@ function _bv_supplier_balances_sql(cfg) {
 function _bv_customer_balances_sql(cfg) {
   var c = _bv_findoc_common_exprs();
   var branchInfo = _bv_branch_info_expr(c);
+  var customerAfm = _bv_col_expr("T", "TRDR", ["AFM"], "''");
   var asOfExpr = cfg.toDate !== "" ? _bv_sql_quote(cfg.toDate) : "CONVERT(VARCHAR(10), GETDATE(), 23)";
   var dueBaseExpr = "ISNULL(" + c.dueDate + ", " + c.trnDate + ")";
   var customerBaseAmount = "ABS(ISNULL(" + c.sumAmount + ",0) + ISNULL(" + c.taxAmount + ",0))";
@@ -1803,6 +2154,9 @@ function _bv_customer_balances_sql(cfg) {
     c.trdr +
     ") AS VARCHAR(64)) AS CUSTOMER_EXT_ID," +
     "CAST(ISNULL(T.NAME, '') AS VARCHAR(255)) AS CUSTOMER_NAME," +
+    "CAST(ISNULL(" +
+    customerAfm +
+    ", '') AS VARCHAR(64)) AS CUSTOMER_AFM," +
     "CAST(ISNULL(" +
     c.branch +
     ",0) AS VARCHAR(64)) AS BRANCH_EXT_ID," +
@@ -1858,6 +2212,8 @@ function _bv_customer_balances_sql(cfg) {
     " GROUP BY ISNULL(T.CODE, " +
     c.trdr +
     "), ISNULL(T.NAME,''), ISNULL(" +
+    customerAfm +
+    ",''), ISNULL(" +
     c.branch +
     ",0) " +
     " ORDER BY ISNULL(T.CODE, " +
@@ -2078,6 +2434,7 @@ function _bv_sales_record(ds) {
     source_created_at: _bv_text(_bv_field(ds, "SOURCE_CREATED_AT", ""), ""),
     customer_ext_id: _bv_text(_bv_field(ds, "CUSTOMER_EXT_ID", ""), ""),
     customer_name: _bv_text(_bv_field(ds, "CUSTOMER_NAME", ""), ""),
+    customer_afm: _bv_text(_bv_field(ds, "CUSTOMER_AFM", ""), ""),
     entity_ext_id: _bv_text(_bv_field(ds, "CUSTOMER_EXT_ID", ""), ""),
     item_code: _bv_text(_bv_field(ds, "ITEM_CODE", ""), ""),
     item_name: _bv_text(_bv_field(ds, "ITEM_NAME", ""), ""),
@@ -2085,6 +2442,8 @@ function _bv_sales_record(ds) {
     brand_name: _bv_text(_bv_field(ds, "BRAND_NAME", ""), ""),
     group_ext_id: _bv_text(_bv_field(ds, "GROUP_EXT_ID", ""), ""),
     group_name: _bv_text(_bv_field(ds, "GROUP_NAME", ""), ""),
+    manual_order_category: _bv_text(_bv_field(ds, "MANUAL_ORDER_CATEGORY", ""), ""),
+    commercial_status: _bv_text(_bv_field(ds, "COMMERCIAL_STATUS", ""), ""),
     channel_ext_id: _bv_text(_bv_field(ds, "CHANNEL_EXT_ID", ""), ""),
     channel_name: _bv_text(_bv_field(ds, "CHANNEL_NAME", ""), ""),
     eshop_code: _bv_text(_bv_field(ds, "ESHOP_CODE", ""), ""),
@@ -2134,6 +2493,7 @@ function _bv_sales_record(ds) {
     marketplace_internal_id: _bv_text(_bv_field(ds, "MARKETPLACE_INTERNAL_ID", ""), ""),
     qty: _bv_num(_bv_field(ds, "QTY", 0), 0),
     net_value: _bv_num(_bv_field(ds, "NET_VALUE", 0), 0),
+    line_value: _bv_num(_bv_field(ds, "LINE_VALUE", _bv_field(ds, "NET_VALUE", 0)), 0),
     gross_value: _bv_num(_bv_field(ds, "GROSS_VALUE", 0), 0),
     vat_amount: _bv_num(_bv_field(ds, "VAT_AMOUNT", 0), 0),
     doc_net_total: _bv_num(_bv_field(ds, "DOC_NET_TOTAL", 0), 0),
@@ -2169,14 +2529,49 @@ function _bv_purchase_record(ds) {
     warehouse_name: _bv_text(_bv_field(ds, "WAREHOUSE_NAME", ""), ""),
     supplier_ext_id: _bv_text(_bv_field(ds, "SUPPLIER_EXT_ID", ""), ""),
     supplier_name: _bv_text(_bv_field(ds, "SUPPLIER_NAME", ""), ""),
+    supplier_afm: _bv_text(_bv_field(ds, "SUPPLIER_AFM", ""), ""),
     entity_ext_id: _bv_text(_bv_field(ds, "SUPPLIER_EXT_ID", ""), ""),
     item_code: _bv_text(_bv_field(ds, "ITEM_CODE", ""), ""),
     item_name: _bv_text(_bv_field(ds, "ITEM_NAME", ""), ""),
+    manual_order_category: _bv_text(_bv_field(ds, "MANUAL_ORDER_CATEGORY", ""), ""),
+    commercial_status: _bv_text(_bv_field(ds, "COMMERCIAL_STATUS", ""), ""),
     qty: _bv_num(_bv_field(ds, "QTY", 0), 0),
     net_value: _bv_num(_bv_field(ds, "NET_VALUE", 0), 0),
     gross_value: _bv_num(_bv_field(ds, "GROSS_VALUE", 0), 0),
     vat_amount: _bv_num(_bv_field(ds, "VAT_AMOUNT", 0), 0),
+    no_discount_amount: _bv_num(_bv_field(ds, "NO_DISCOUNT_AMOUNT", _bv_field(ds, "NODSCAMNT", 0)), 0),
+    nodscamnt: _bv_num(_bv_field(ds, "NODSCAMNT", _bv_field(ds, "NO_DISCOUNT_AMOUNT", 0)), 0),
     cost_amount: _bv_num(_bv_field(ds, "COST_AMOUNT", 0), 0)
+  };
+  return _bv_attach_org_fields(_bv_attach_common_doc_fields(rec, ds), ds);
+}
+
+function _bv_supplier_order_record(ds) {
+  var eventId = _bv_text(_bv_field(ds, "EVENT_ID", ""), "");
+  var rec = {
+    event_id: eventId,
+    external_id: eventId,
+    doc_date: _bv_text(_bv_field(ds, "DOC_DATE", ""), ""),
+    updated_at: _bv_text(_bv_field(ds, "UPDATED_AT", ""), ""),
+    document_type: "supplier_order",
+    document_id: _bv_text(_bv_field(ds, "DOCUMENT_ID", ""), ""),
+    document_no: _bv_text(_bv_field(ds, "DOCUMENT_NO", ""), ""),
+    document_series: _bv_text(_bv_field(ds, "DOCUMENT_SERIES", ""), ""),
+    document_series_name: _bv_text(_bv_field(ds, "DOCUMENT_SERIES_NAME", ""), ""),
+    document_behavior_code: _bv_num(_bv_field(ds, "DOCUMENT_BEHAVIOR_CODE", 201), 201),
+    branch_ext_id: _bv_text(_bv_field(ds, "BRANCH_EXT_ID", ""), ""),
+    branch_name: _bv_text(_bv_field(ds, "BRANCH_NAME", ""), ""),
+    supplier_ext_id: _bv_text(_bv_field(ds, "SUPPLIER_EXT_ID", ""), ""),
+    supplier_name: _bv_text(_bv_field(ds, "SUPPLIER_NAME", ""), ""),
+    supplier_afm: _bv_text(_bv_field(ds, "SUPPLIER_AFM", ""), ""),
+    item_code: _bv_text(_bv_field(ds, "ITEM_CODE", ""), ""),
+    item_name: _bv_text(_bv_field(ds, "ITEM_NAME", ""), ""),
+    order_qty: _bv_num(_bv_field(ds, "ORDER_QTY", 0), 0),
+    covered_qty: _bv_num(_bv_field(ds, "COVERED_QTY", 0), 0),
+    cancelled_qty: _bv_num(_bv_field(ds, "CANCELLED_QTY", 0), 0),
+    line_value: _bv_num(_bv_field(ds, "LINE_VALUE", 0), 0),
+    has_transformation: _bv_bool(_bv_field(ds, "HAS_TRANSFORMATION", 0), false),
+    order_status: _bv_text(_bv_field(ds, "ORDER_STATUS", "open"), "open")
   };
   return _bv_attach_org_fields(_bv_attach_common_doc_fields(rec, ds), ds);
 }
@@ -2215,8 +2610,19 @@ function _bv_inventory_record(ds) {
     category_1: _bv_text(_bv_field(ds, "CATEGORY_1", ""), ""),
     category_2: _bv_text(_bv_field(ds, "CATEGORY_2", ""), ""),
     category_3: _bv_text(_bv_field(ds, "CATEGORY_3", ""), ""),
+    manual_order_category: _bv_text(_bv_field(ds, "MANUAL_ORDER_CATEGORY", ""), ""),
+    commercial_status: _bv_text(_bv_field(ds, "COMMERCIAL_STATUS", ""), ""),
     is_active: _bv_bool(_bv_field(ds, "IS_ACTIVE_SOURCE", 1), true),
+    replenishment_status_1: _bv_text(_bv_field(ds, "REPLENISHMENT_STATUS_1", ""), ""),
+    replenishment_status_2: _bv_text(_bv_field(ds, "REPLENISHMENT_STATUS_2", ""), ""),
+    min_stock: _bv_num(_bv_field(ds, "MIN_STOCK", null), null),
+    replenishment_moq: _bv_num(_bv_field(ds, "REPLENISHMENT_MOQ", null), null),
+    vendor_moq: _bv_num(_bv_field(ds, "VENDOR_MOQ", null), null),
+    current_purchase_price: _bv_num(_bv_field(ds, "CURRENT_PURCHASE_PRICE", null), null),
     qty: _bv_num(_bv_field(ds, "QTY", 0), 0),
+    qty_reserved: _bv_num(_bv_field(ds, "QTY_RESERVED", 0), 0),
+    qty_expected: _bv_num(_bv_field(ds, "QTY_EXPECTED", 0), 0),
+    qty_available: _bv_num(_bv_field(ds, "QTY_AVAILABLE", _bv_field(ds, "QTY", 0)), 0),
     cost_amount: costAmount,
     value_amount: valueAmount,
     retail_value_amount: retailValueAmount,
@@ -2244,6 +2650,14 @@ function _bv_item_master_record(ds) {
     group_ext_id: _bv_text(_bv_field(ds, "GROUP_EXT_ID", ""), ""),
     group_name: _bv_text(_bv_field(ds, "GROUP_NAME", ""), ""),
     commercial_category: _bv_text(_bv_field(ds, "COMMERCIAL_CATEGORY", ""), ""),
+    manual_order_category: _bv_text(_bv_field(ds, "MANUAL_ORDER_CATEGORY", ""), ""),
+    commercial_status: _bv_text(_bv_field(ds, "COMMERCIAL_STATUS", ""), ""),
+    replenishment_status_1: _bv_text(_bv_field(ds, "REPLENISHMENT_STATUS_1", ""), ""),
+    replenishment_status_2: _bv_text(_bv_field(ds, "REPLENISHMENT_STATUS_2", ""), ""),
+    min_stock: _bv_num(_bv_field(ds, "MIN_STOCK", null), null),
+    replenishment_moq: _bv_num(_bv_field(ds, "REPLENISHMENT_MOQ", null), null),
+    vendor_moq: _bv_num(_bv_field(ds, "VENDOR_MOQ", null), null),
+    current_purchase_price: _bv_num(_bv_field(ds, "CURRENT_PURCHASE_PRICE", null), null),
     is_active: _bv_bool(_bv_field(ds, "IS_ACTIVE_SOURCE", 1), true)
   };
 }
@@ -2285,6 +2699,7 @@ function _bv_supplier_balance_record(ds) {
     supplier_id: supplierId,
     supplier_ext_id: supplierId,
     supplier_name: _bv_text(_bv_field(ds, "SUPPLIER_NAME", ""), ""),
+    supplier_afm: _bv_text(_bv_field(ds, "SUPPLIER_AFM", ""), ""),
     branch_id: branchExt,
     branch_ext_id: branchExt,
     balance_date: balanceDate,
@@ -2311,6 +2726,7 @@ function _bv_customer_balance_record(ds) {
     customer_id: customerId,
     customer_ext_id: customerId,
     customer_name: _bv_text(_bv_field(ds, "CUSTOMER_NAME", ""), ""),
+    customer_afm: _bv_text(_bv_field(ds, "CUSTOMER_AFM", ""), ""),
     branch_id: branchExt,
     branch_ext_id: branchExt,
     balance_date: balanceDate,
@@ -2496,6 +2912,22 @@ function GetOperatingExpensesForBI(obj) {
   }
 }
 
+function GetSupplierOrdersForBI(obj) {
+  try {
+    _bv_require_client(obj);
+    var cfg = _bv_resolve_request(obj || {});
+    var sql = _bv_supplier_orders_sql(cfg);
+    var records = _bv_query_records(sql, _bv_supplier_order_record);
+    return _bv_stream_result("supplier_orders", records, sql, cfg.debug);
+  } catch (e) {
+    return {
+      success: false,
+      stream_code: "supplier_orders",
+      error: _bv_text(e && e.message, _bv_text(e, "Unknown error"))
+    };
+  }
+}
+
 function GetAllForBI(obj) {
   var out = {
     success: true,
@@ -2537,6 +2969,10 @@ function GetAllForBI(obj) {
       out.streams.operating_expenses = GetOperatingExpensesForBI(obj || {});
       if (!out.streams.operating_expenses.success) out.success = false;
     }
+    if (cfg.includeSupplierOrders) {
+      out.streams.supplier_orders = GetSupplierOrdersForBI(obj || {});
+      if (!out.streams.supplier_orders.success) out.success = false;
+    }
 
     if (
       !cfg.includeSales &&
@@ -2545,7 +2981,8 @@ function GetAllForBI(obj) {
       !cfg.includeCashTransactions &&
       !cfg.includeSupplierBalances &&
       !cfg.includeCustomerBalances &&
-      !cfg.includeOperatingExpenses
+      !cfg.includeOperatingExpenses &&
+      !cfg.includeSupplierOrders
     ) {
       out.warnings.push("No stream selected via include* flags.");
     }
@@ -2604,6 +3041,12 @@ function BuildBoxVisioIngestPayload(obj) {
       records: base.streams.operating_expenses.records
     };
   }
+  if (base.streams.supplier_orders && base.streams.supplier_orders.success) {
+    payloads.supplier_orders = {
+      stream_code: "supplier_orders",
+      records: base.streams.supplier_orders.records
+    };
+  }
 
   return {
     success: true,
@@ -2640,6 +3083,7 @@ function HealthCheckBIBridge(obj) {
         allowFullBalanceSync: false,
         includeSupplierBalances: false,
         includeCustomerBalances: false,
+        includeSupplierOrders: false,
         salesSourceCodes: "1351,11351",
         purchaseSourceCodes: "1251,1253",
         inventorySourceCodes: "1151",

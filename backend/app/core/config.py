@@ -101,7 +101,7 @@ class Settings(BaseSettings):
     ingest_recovery_chunk_days: int = 1
     ingest_recovery_limit: int = 500
     ingest_recovery_max_jobs: int = 5000
-    ingest_recovery_streams_csv: str = 'sales_documents,purchase_documents,inventory_documents,cash_transactions,operating_expenses'
+    ingest_recovery_streams_csv: str = 'sales_documents,purchase_documents,inventory_documents,cash_transactions,operating_expenses,supplier_orders'
     rate_limit_per_minute: int = 120
     ingest_tenant_lock_ttl_seconds: int = 300
     ingest_throttle_jobs_per_window: int = 120

@@ -1,6 +1,7 @@
 SELECT
   CAST(ISNULL(T.CODE, F.TRDR) AS nvarchar(128)) AS customer_id,
   CAST(ISNULL(T.NAME, '') AS nvarchar(255)) AS customer_name,
+  CAST(ISNULL(T.AFM, '') AS nvarchar(64)) AS customer_afm,
   CAST(COALESCE(CAST(@to_date AS date), CAST(GETDATE() AS date)) AS date) AS balance_date,
   CAST(COALESCE(CAST(@to_date AS date), CAST(GETDATE() AS date)) AS date) AS doc_date,
   CAST(CAST(ISNULL(F.COMPANY, 0) AS nvarchar(32)) + ':' + CAST(ISNULL(F.BRANCH, 0) AS nvarchar(32)) AS nvarchar(64)) AS branch_external_id,
@@ -45,5 +46,6 @@ WHERE
 GROUP BY
   ISNULL(T.CODE, F.TRDR),
   ISNULL(T.NAME, ''),
+  ISNULL(T.AFM, ''),
   ISNULL(F.COMPANY, 0),
   ISNULL(F.BRANCH, 0)

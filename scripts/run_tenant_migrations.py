@@ -15,10 +15,10 @@ from app.core.config import settings  # noqa: E402
 # NOTE: alembic config currently exposes both control + tenant heads.
 # Keep tenant migrations pinned to the latest tenant revision to avoid
 # ambiguous "head" errors.
-TENANT_MIGRATION_HEAD = '20260418_0020_tenant'
+TENANT_MIGRATION_HEAD = '20260520_0035_tenant'
 
 
-def _tenant_creds(tenant_slug: str) -> tuple[str, str, str]:
+def _tenant_db_name(tenant_slug: str) -> str:
     control_dsn = (
         f"host={settings.tenant_db_host} port={settings.tenant_db_port} "
         f"dbname={settings.control_database_url_sync.rsplit('/', 1)[-1]} "
@@ -27,13 +27,13 @@ def _tenant_creds(tenant_slug: str) -> tuple[str, str, str]:
     with psycopg.connect(control_dsn) as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT db_name, db_user, db_password FROM tenants WHERE slug = %s",
+                "SELECT db_name FROM tenants WHERE slug = %s",
                 (tenant_slug,),
             )
             row = cur.fetchone()
             if not row:
                 raise RuntimeError(f'tenant not found: {tenant_slug}')
-            return row[0], row[1], row[2]
+            return row[0]
 
 
 def main() -> None:
@@ -41,10 +41,10 @@ def main() -> None:
     parser.add_argument('--tenant', required=True)
     args = parser.parse_args()
 
-    db_name, db_user, db_password = _tenant_creds(args.tenant)
+    db_name = _tenant_db_name(args.tenant)
     url = settings.tenant_database_url_template_sync.format(
-        user=db_user,
-        password=db_password,
+        user=settings.tenant_db_superuser,
+        password=settings.tenant_db_superpass,
         db_name=db_name,
     )
 

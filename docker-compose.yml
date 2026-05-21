@@ -97,7 +97,7 @@ services:
     command:
       - /bin/sh
       - -lc
-      - ln -sf /usr/local/bin/python /usr/bin/python3 && exec /opt/cloudon-bi/.venv/bin/celery -A worker.celery_app worker -l INFO -Q celery,default,ingest
+      - ln -sf /usr/local/bin/python /usr/bin/python3 && exec /opt/cloudon-bi/.venv/bin/celery -A worker.celery_app worker -l INFO -Q celery,default,ingest -c 2
     restart: unless-stopped
     env_file:
       - .env

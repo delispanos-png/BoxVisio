@@ -62,6 +62,18 @@ def _normalize_optional_bool(value: object | None) -> bool | None:
     return None
 
 
+def _normalize_optional_float(value: object | None, default: float | None = None) -> float | None:
+    if value is None:
+        return default
+    try:
+        text = str(value).strip().replace(',', '.')
+        if not text:
+            return default
+        return float(text)
+    except Exception:
+        return default
+
+
 def _tenant_sync_url(*, db_name: str, db_user: str, db_password: str) -> str:
     return settings.tenant_database_url_template_sync.format(user=db_user, password=db_password, db_name=db_name)
 
@@ -129,6 +141,23 @@ def _source_item_sotypes(connection_string: str, *, company: int | None = None) 
       CAST(ISNULL(C2.NAME, '') AS nvarchar(255)) AS category_2,
       CAST(ISNULL(C3.NAME, '') AS nvarchar(255)) AS category_3,
       CAST(ISNULL(CG.NAME, '') AS nvarchar(255)) AS commercial_category,
+      CAST(
+        COALESCE(
+          NULLIF(UT4.NAME, ''),
+          NULLIF(UT4.CODE, ''),
+          NULLIF(CAST(IX.UTBL04 AS nvarchar(128)), '0'),
+          ''
+        ) AS nvarchar(128)
+      ) AS manual_order_category,
+      CAST(
+        COALESCE(
+          NULLIF(UT5.NAME, ''),
+          NULLIF(UT5.CODE, ''),
+          NULLIF(CAST(IX.UTBL05 AS nvarchar(128)), '0'),
+          ''
+        ) AS nvarchar(128)
+      ) AS commercial_status,
+      COALESCE(TRY_CAST(VMQ.vendor_moq AS decimal(18,4)), CAST(1 AS decimal(18,4))) AS vendor_moq,
       CAST(NULLIF(CAST(ISNULL(M.MTRGROUP, 0) AS nvarchar(64)), '0') AS nvarchar(64)) AS group_ext_id,
       CAST(ISNULL(MG.NAME, '') AS nvarchar(255)) AS group_name,
       CASE
@@ -153,6 +182,23 @@ def _source_item_sotypes(connection_string: str, *, company: int | None = None) 
     LEFT JOIN MTRPCATEGORY CG
       ON CG.MTRPCATEGORY = M.MTRPCATEGORY
      AND CG.COMPANY = M.COMPANY
+    LEFT JOIN MTREXTRA IX
+      ON IX.MTRL = M.MTRL
+     AND IX.COMPANY = M.COMPANY
+    OUTER APPLY (
+      SELECT MIN(NULLIF(TRY_CAST(MSC.CCC88MOQ AS decimal(18,4)), 0)) AS vendor_moq
+      FROM MTRSUPCODE MSC
+      WHERE MSC.MTRL = M.MTRL
+        AND MSC.COMPANY = M.COMPANY
+    ) VMQ
+    LEFT JOIN UTBL04 UT4
+      ON UT4.UTBL04 = IX.UTBL04
+     AND UT4.COMPANY = IX.COMPANY
+     AND UT4.SODTYPE = M.SODTYPE
+    LEFT JOIN UTBL05 UT5
+      ON UT5.UTBL05 = IX.UTBL05
+     AND UT5.COMPANY = IX.COMPANY
+     AND UT5.SODTYPE = M.SODTYPE
     WHERE (? IS NULL OR M.COMPANY = ?)
       AND ISNULL(M.CODE, '') <> ''
     """
@@ -177,9 +223,12 @@ def _source_item_sotypes(connection_string: str, *, company: int | None = None) 
                     "category_2": _normalize_softone_text(row[10]),
                     "category_3": _normalize_softone_text(row[11]),
                     "commercial_category": _normalize_softone_text(row[12]),
-                    "group_ext_id": _normalize_softone_text(row[13]),
-                    "group_name": _normalize_softone_text(row[14]),
-                    "is_active_source": None if row[15] is None else bool(int(row[15])),
+                    "manual_order_category": _normalize_softone_text(row[13]),
+                    "commercial_status": _normalize_softone_text(row[14]),
+                    "vendor_moq": _normalize_optional_float(row[15], 1),
+                    "group_ext_id": _normalize_softone_text(row[16]),
+                    "group_name": _normalize_softone_text(row[17]),
+                    "is_active_source": None if row[18] is None else bool(int(row[18])),
                 }
             )
         return out
@@ -237,6 +286,9 @@ def _source_item_sotypes_via_api(api_connection: TenantConnection, *, tenant_slu
                 "category_2": _normalize_softone_text(record.get("category_2")),
                 "category_3": _normalize_softone_text(record.get("category_3")),
                 "commercial_category": _normalize_softone_text(record.get("commercial_category")),
+                "manual_order_category": _normalize_softone_text(record.get("manual_order_category")),
+                "commercial_status": _normalize_softone_text(record.get("commercial_status")),
+                "vendor_moq": _normalize_optional_float(record.get("vendor_moq"), 1),
                 "group_ext_id": _normalize_softone_text(record.get("group_ext_id")),
                 "group_name": _normalize_softone_text(record.get("group_name")),
                 "is_active_source": _normalize_optional_bool(
@@ -336,6 +388,9 @@ def _upsert_dim_items(tenant_session: Session, rows: list[dict]) -> tuple[int, i
                 "category_2": text("COALESCE(NULLIF(EXCLUDED.category_2, ''), dim_items.category_2)"),
                 "category_3": text("COALESCE(NULLIF(EXCLUDED.category_3, ''), dim_items.category_3)"),
                 "commercial_category": text("COALESCE(NULLIF(EXCLUDED.commercial_category, ''), dim_items.commercial_category)"),
+                "manual_order_category": text("COALESCE(NULLIF(EXCLUDED.manual_order_category, ''), dim_items.manual_order_category)"),
+                "commercial_status": text("COALESCE(NULLIF(EXCLUDED.commercial_status, ''), dim_items.commercial_status)"),
+                "vendor_moq": text("COALESCE(EXCLUDED.vendor_moq, dim_items.vendor_moq, 1)"),
                 "brand_id": text("COALESCE(EXCLUDED.brand_id, dim_items.brand_id)"),
                 "group_id": text("COALESCE(EXCLUDED.group_id, dim_items.group_id)"),
                 "is_active_source": text("COALESCE(EXCLUDED.is_active_source, dim_items.is_active_source)"),

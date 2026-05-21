@@ -10,9 +10,9 @@
   <link href="/static/azea/css/main.css" rel="stylesheet">
   <link href="/static/azea/css/themes/all-themes.css" rel="stylesheet">
   <link href="/static/css/boxvisio-ui.css?v=20260417a" rel="stylesheet">
-  <link href="/static/css/bv-modal-system.css?v=20260416a" rel="stylesheet">
+  <link href="/static/css/bv-modal-system.css?v=20260520qa1" rel="stylesheet">
   <link href="/static/css/bv-unified-ui.css?v=20260514mobile4" rel="stylesheet">
-  <link href="/static/css/tenant-shell.css?v=20260514mobile4" rel="stylesheet">
+  <link href="/static/css/tenant-shell.css?v=20260520qa1" rel="stylesheet">
   <script src="/static/js/bv-unified-ui.js?v=20260513multi"></script>
 </head>
 <body class="azea-shell tenant-shell" data-theme="{{ request.cookies.get('theme', 'light') }}">
@@ -22,8 +22,17 @@
   <script>
     (() => {
       const isMobileMenu = () => window.matchMedia('(max-width: 991.98px)').matches;
+      const closeProfileMenus = () => {
+        document.querySelectorAll('[data-profile-dropdown]').forEach((node) => {
+          node.hidden = true;
+        });
+        document.querySelectorAll('[data-profile-toggle]').forEach((btn) => {
+          btn.setAttribute('aria-expanded', 'false');
+        });
+      };
       const setMobileMenu = (open) => {
         if (!isMobileMenu()) return false;
+        if (open) closeProfileMenus();
         document.body.classList.remove('admin-sidebar-collapsed', 'sidebar-icon-only', 'ls-closed', 'overlay-open');
         document.body.classList.toggle('bv-mobile-sidebar-open', !!open);
         document.getElementById('bvSidebarBackdrop')?.classList.toggle('active', !!open);
@@ -39,15 +48,18 @@
           const dropdown = menu?.querySelector('[data-profile-dropdown]');
           if (!dropdown) return;
           document.querySelectorAll('[data-profile-dropdown]').forEach((node) => {
-            if (node !== dropdown) node.hidden = true;
+            if (node !== dropdown) {
+              node.hidden = true;
+              node.closest('.bv-profile-menu')?.querySelector('[data-profile-toggle]')?.setAttribute('aria-expanded', 'false');
+            }
           });
-          dropdown.hidden = !dropdown.hidden;
+          const willOpen = dropdown.hidden;
+          dropdown.hidden = !willOpen;
+          profileToggle.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
           return;
         }
         if (!event.target.closest?.('.bv-profile-menu')) {
-          document.querySelectorAll('[data-profile-dropdown]').forEach((node) => {
-            node.hidden = true;
-          });
+          closeProfileMenus();
         }
         const toggle = event.target.closest?.('#sidebarToggleBtn, #sidebarExpandMiniBtn');
         if (toggle && isMobileMenu()) {
@@ -70,6 +82,12 @@
         if (!isMobileMenu()) setMobileMenu(false);
         else document.body.classList.remove('admin-sidebar-collapsed', 'sidebar-icon-only', 'ls-closed', 'overlay-open');
       }, { passive: true });
+      document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') {
+          closeProfileMenus();
+          setMobileMenu(false);
+        }
+      });
     })();
   </script>
   <section>
@@ -87,6 +105,7 @@
         {% set _cashflow_stream_categories = ['customer_collections', 'customer_transfers', 'supplier_payments', 'supplier_transfers', 'financial_accounts'] %}
         {% set _cashflow_is_stream = _cashflow_category in _cashflow_stream_categories %}
         {% set _menu_visibility = request.state.menu_visibility if request.state.menu_visibility is defined else {} %}
+        {% set _menu_locked = request.state.menu_locked if request.state.menu_locked is defined else {} %}
         {% set _menu_dashboard_executive = _menu_visibility.get('dashboard_executive', true) %}
         {% set _menu_dashboard_finance = _menu_visibility.get('dashboard_finance', true) %}
         {% set _menu_insights = _menu_visibility.get('insights', true) %}
@@ -95,25 +114,34 @@
         {% set _menu_stream_inventory = _menu_visibility.get('stream_inventory_documents', true) %}
         {% set _menu_stream_cash = _menu_visibility.get('stream_cash_transactions', true) %}
         {% set _menu_stream_expenses = _menu_visibility.get('stream_operating_expenses', true) %}
+        {% set _menu_stream_supplier_orders = _menu_visibility.get('stream_supplier_orders', true) %}
         {% set _menu_stream_suppliers = _menu_visibility.get('stream_supplier_balances', true) %}
         {% set _menu_stream_customers = _menu_visibility.get('stream_customer_balances', true) %}
         {% set _menu_analytics_sales = _menu_visibility.get('analytics_sales', true) %}
+        {% set _menu_analytics_pos = _menu_visibility.get('analytics_pos', _menu_analytics_sales) %}
+        {% set _menu_analytics_eshop = _menu_visibility.get('analytics_eshop', _menu_analytics_sales) %}
+        {% set _menu_analytics_sellout = _menu_visibility.get('analytics_sellout', _menu_analytics_sales) %}
         {% set _menu_analytics_purchases = _menu_visibility.get('analytics_purchases', true) %}
         {% set _menu_analytics_inventory = _menu_visibility.get('analytics_inventory', true) %}
+        {% set _menu_analytics_era_exploration = _menu_visibility.get('analytics_era_exploration_data', true) %}
+        {% set _menu_analytics_replenishment = _menu_visibility.get('analytics_replenishment', _menu_analytics_inventory) %}
+        {% set _menu_analytics_items = _menu_visibility.get('analytics_items', _menu_analytics_inventory) %}
         {% set _menu_analytics_cash = _menu_visibility.get('analytics_cashflows', true) %}
         {% set _menu_analytics_receivables = _menu_visibility.get('analytics_receivables_payables', true) %}
         {% set _menu_analytics_supplier_targets = _menu_visibility.get('analytics_supplier_targets', true) %}
+        {% set _menu_analytics_price_control = _menu_visibility.get('analytics_price_control', true) %}
+        {% set _menu_analytics_business_advisor = _menu_visibility.get('analytics_business_advisor', true) %}
         {% set _menu_comparisons = _menu_visibility.get('comparisons', true) %}
         {% set _menu_exports = _menu_visibility.get('exports', true) %}
         {% set _show_dashboard_group = _menu_dashboard_executive or _menu_dashboard_finance or _menu_insights %}
-        {% set _show_operational_stream_group = _menu_stream_sales or _menu_stream_purchases or _menu_stream_inventory or _menu_stream_cash or _menu_stream_expenses or _menu_stream_suppliers or _menu_stream_customers %}
-        {% set _show_analytics_group = _menu_analytics_sales or _menu_analytics_purchases or _menu_analytics_inventory or _menu_analytics_cash or _menu_analytics_receivables or _menu_analytics_supplier_targets %}
+        {% set _show_operational_stream_group = _menu_stream_sales or _menu_stream_purchases or _menu_stream_inventory or _menu_stream_cash or _menu_stream_expenses or _menu_stream_supplier_orders or _menu_stream_suppliers or _menu_stream_customers %}
+        {% set _show_analytics_group = _menu_analytics_sales or _menu_analytics_pos or _menu_analytics_eshop or _menu_analytics_sellout or _menu_analytics_era_exploration or _menu_analytics_replenishment or _menu_analytics_purchases or _menu_analytics_inventory or _menu_analytics_items or _menu_analytics_cash or _menu_analytics_receivables or _menu_analytics_supplier_targets or _menu_analytics_price_control or _menu_analytics_business_advisor %}
         {% set _has_multiple_branches = tenant_has_multiple_branches if tenant_has_multiple_branches is defined else true %}
-        {% set _operational_stream_pages = ['sales_documents', 'purchase_documents', 'warehouse_documents', 'expense_documents', 'operating_expenses', 'suppliers', 'customers'] %}
+        {% set _operational_stream_pages = ['sales_documents', 'purchase_documents', 'supplier_orders', 'warehouse_documents', 'expense_documents', 'operating_expenses', 'suppliers', 'customers'] %}
         {% set _operational_stream_open = active_page in _operational_stream_pages or (active_page == 'cashflow' and _cashflow_is_stream) %}
         {% set _dashboard_pages = ['dashboard', 'finance_dashboard', 'insights'] %}
         {% set _dashboard_open = active_page in _dashboard_pages %}
-        {% set _analytics_open = active_page in ['sales', 'pos', 'eshop_analysis', 'purchases', 'inventory', 'items', 'analytics_receivables_payables', 'supplier_targets', 'price_control', 'exports_sellout'] or (active_page == 'cashflow' and not _cashflow_is_stream) %}
+        {% set _analytics_open = active_page in ['sales', 'pos', 'eshop_analysis', 'purchases', 'inventory', 'items', 'replenishment', 'analytics_receivables_payables', 'supplier_targets', 'price_control', 'business_advisor', 'era_exploration_data', 'exports_sellout'] or (active_page == 'cashflow' and not _cashflow_is_stream) %}
         {% set _comparison_pages = ['compare_period', 'compare_branch', 'compare_category'] %}
         {% set _comparison_open = active_page in _comparison_pages %}
         {% set _exports_open = active_page in ['exports_reports', 'exports_csv_excel'] %}
@@ -141,10 +169,10 @@
               </li>
               {% endif %}
               {% if _menu_dashboard_finance %}
-              <li class="{% if active_page == 'finance_dashboard' %}is-active{% endif %}">
+              <li class="{% if active_page == 'finance_dashboard' %}is-active{% endif %} {% if _menu_locked.get('dashboard_finance', false) %}opacity-75{% endif %}">
                 <a class="bv-submenu-link" href="/tenant/finance-dashboard">
                   <i class="fe fe-briefcase"></i>
-                  <span>{{ tt(request, 'finance_dashboard_short') }}</span>
+                  <span>{{ tt(request, 'finance_dashboard_short') }}</span>{% if _menu_locked.get('dashboard_finance', false) %}<i class="fe fe-lock ms-auto"></i>{% endif %}
                 </a>
               </li>
               {% endif %}
@@ -183,37 +211,45 @@
               </li>
               {% endif %}
               {% if _menu_stream_purchases %}
-              <li class="{% if active_page == 'purchase_documents' %}is-active{% endif %}">
+              <li class="{% if active_page == 'purchase_documents' %}is-active{% endif %} {% if _menu_locked.get('stream_purchase_documents', false) %}opacity-75{% endif %}">
                 <a class="bv-submenu-link" href="/tenant/purchase-documents">
                   <i class="fe fe-file"></i>
-                  <span>{{ tt(request, 'purchases_documents_short') }}</span>
+                  <span>{{ tt(request, 'purchases_documents_short') }}</span>{% if _menu_locked.get('stream_purchase_documents', false) %}<i class="fe fe-lock ms-auto"></i>{% endif %}
+                </a>
+              </li>
+              {% endif %}
+              {% if _menu_stream_supplier_orders %}
+              <li class="{% if active_page == 'supplier_orders' %}is-active{% endif %} {% if _menu_locked.get('stream_supplier_orders', false) %}opacity-75{% endif %}">
+                <a class="bv-submenu-link" href="/tenant/supplier-orders">
+                  <i class="fe fe-clipboard"></i>
+                  <span>Παρ. Προμηθευτών</span>{% if _menu_locked.get('stream_supplier_orders', false) %}<i class="fe fe-lock ms-auto"></i>{% endif %}
                 </a>
               </li>
               {% endif %}
               {% if _menu_stream_inventory %}
-              <li class="{% if active_page == 'warehouse_documents' %}is-active{% endif %} {% if not _inventory_ok %}disabled opacity-75{% endif %}">
+              <li class="{% if active_page == 'warehouse_documents' %}is-active{% endif %} {% if _menu_locked.get('stream_inventory_documents', false) %}opacity-75{% endif %}">
                 <a class="bv-submenu-link" href="/tenant/warehouse-documents">
                   <i class="fe fe-repeat"></i>
-                  <span>{{ tt(request, 'warehouse_documents_short') }}</span>
+                  <span>{{ tt(request, 'warehouse_documents_short') }}</span>{% if _menu_locked.get('stream_inventory_documents', false) %}<i class="fe fe-lock ms-auto"></i>{% endif %}
                 </a>
               </li>
               {% endif %}
               {% if _menu_stream_expenses %}
-              <li class="{% if active_page == 'expense_documents' %}is-active{% endif %}">
+              <li class="{% if active_page == 'expense_documents' %}is-active{% endif %} {% if _menu_locked.get('stream_operating_expenses', false) %}opacity-75{% endif %}">
                 <a class="bv-submenu-link" href="/tenant/expense-documents">
                   <i class="fe fe-file-text"></i>
-                  <span>{{ tt(request, 'expense_documents_short') }}</span>
+                  <span>{{ tt(request, 'expense_documents_short') }}</span>{% if _menu_locked.get('stream_operating_expenses', false) %}<i class="fe fe-lock ms-auto"></i>{% endif %}
                 </a>
               </li>
-              <li class="{% if active_page == 'operating_expenses' %}is-active{% endif %}">
+              <li class="{% if active_page == 'operating_expenses' %}is-active{% endif %} {% if _menu_locked.get('stream_operating_expenses', false) %}opacity-75{% endif %}">
                 <a class="bv-submenu-link" href="/tenant/operating-expenses">
                   <i class="fe fe-credit-card"></i>
-                  <span>{{ tt(request, 'operating_expenses_short') }}</span>
+                  <span>{{ tt(request, 'operating_expenses_short') }}</span>{% if _menu_locked.get('stream_operating_expenses', false) %}<i class="fe fe-lock ms-auto"></i>{% endif %}
                 </a>
               </li>
               {% endif %}
               {% if _menu_stream_cash %}
-              <li class="bv-menu-group {% if active_page == 'cashflow' and _cashflow_is_stream %}active open{% endif %} {% if not _cashflow_ok %}disabled opacity-75{% endif %}">
+              <li class="bv-menu-group {% if active_page == 'cashflow' and _cashflow_is_stream %}active open{% endif %} {% if _menu_locked.get('stream_cash_transactions', false) %}opacity-75{% endif %}">
                 <button
                   type="button"
                   class="bv-submenu-link bv-group-toggle"
@@ -223,7 +259,7 @@
                 >
                   <i class="fe fe-credit-card"></i>
                   <span>{{ tt(request, 'cash_transactions_short') }}</span>
-                  <i class="fe fe-chevron-down bv-group-arrow"></i>
+                  {% if _menu_locked.get('stream_cash_transactions', false) %}<i class="fe fe-lock ms-auto"></i>{% endif %}<i class="fe fe-chevron-down bv-group-arrow"></i>
                 </button>
                 <ul class="bv-submenu bv-submenu--nested" data-menu-group="operational-cash-transactions">
                   <li class="{% if _cashflow_category == 'customer_collections' %}is-active{% endif %}">
@@ -260,18 +296,18 @@
               </li>
               {% endif %}
               {% if _menu_stream_suppliers %}
-              <li class="{% if active_page == 'suppliers' %}is-active{% endif %}">
+              <li class="{% if active_page == 'suppliers' %}is-active{% endif %} {% if _menu_locked.get('stream_supplier_balances', false) %}opacity-75{% endif %}">
                 <a class="bv-submenu-link" href="/tenant/suppliers">
                   <i class="fe fe-truck"></i>
-                  <span>{{ tt(request, 'supplier_open_balances_short') }}</span>
+                  <span>{{ tt(request, 'supplier_open_balances_short') }}</span>{% if _menu_locked.get('stream_supplier_balances', false) %}<i class="fe fe-lock ms-auto"></i>{% endif %}
                 </a>
               </li>
               {% endif %}
               {% if _menu_stream_customers %}
-              <li class="{% if active_page == 'customers' %}is-active{% endif %}">
+              <li class="{% if active_page == 'customers' %}is-active{% endif %} {% if _menu_locked.get('stream_customer_balances', false) %}opacity-75{% endif %}">
                 <a class="bv-submenu-link" href="/tenant/customers">
                   <i class="fe fe-users"></i>
-                  <span>{{ tt(request, 'customer_open_balances_short') }}</span>
+                  <span>{{ tt(request, 'customer_open_balances_short') }}</span>{% if _menu_locked.get('stream_customer_balances', false) %}<i class="fe fe-lock ms-auto"></i>{% endif %}
                 </a>
               </li>
               {% endif %}
@@ -297,47 +333,72 @@
               <li class="{% if active_page == 'sales' %}is-active{% endif %}">
                 <a class="bv-submenu-link" href="/tenant/sales"><i class="fe fe-bar-chart-2"></i><span>{{ tt(request, 'sales') }}</span></a>
               </li>
-              <li class="{% if active_page == 'pos' %}is-active{% endif %}">
-                <a class="bv-submenu-link" href="/tenant/pos"><i class="fe fe-shopping-bag"></i><span>Φυσικό Σημείο</span></a>
+              {% endif %}
+              {% if _menu_analytics_pos %}
+              <li class="{% if active_page == 'pos' %}is-active{% endif %} {% if _menu_locked.get('analytics_pos', false) %}opacity-75{% endif %}">
+                <a class="bv-submenu-link" href="/tenant/pos"><i class="fe fe-shopping-bag"></i><span>Φυσικό Σημείο</span>{% if _menu_locked.get('analytics_pos', false) %}<i class="fe fe-lock ms-auto"></i>{% endif %}</a>
               </li>
-              <li class="{% if active_page == 'eshop_analysis' %}is-active{% endif %}">
-                <a class="bv-submenu-link" href="/tenant/e-shop-analysis"><i class="fe fe-truck"></i><span>E-Shop analysis</span></a>
+              {% endif %}
+              {% if _menu_analytics_eshop %}
+              <li class="{% if active_page == 'eshop_analysis' %}is-active{% endif %} {% if _menu_locked.get('analytics_eshop', false) %}opacity-75{% endif %}">
+                <a class="bv-submenu-link" href="/tenant/e-shop-analysis"><i class="fe fe-truck"></i><span>E-Shop analysis</span>{% if _menu_locked.get('analytics_eshop', false) %}<i class="fe fe-lock ms-auto"></i>{% endif %}</a>
               </li>
-              <li class="{% if active_page == 'exports_sellout' %}is-active{% endif %}">
-                <a class="bv-submenu-link" href="/tenant/exports/sellout"><i class="fe fe-trending-up"></i><span>Sell Out</span></a>
+              {% endif %}
+              {% if _menu_analytics_sellout %}
+              <li class="{% if active_page == 'exports_sellout' %}is-active{% endif %} {% if _menu_locked.get('analytics_sellout', false) %}opacity-75{% endif %}">
+                <a class="bv-submenu-link" href="/tenant/exports/sellout"><i class="fe fe-trending-up"></i><span>Sell Out</span>{% if _menu_locked.get('analytics_sellout', false) %}<i class="fe fe-lock ms-auto"></i>{% endif %}</a>
+              </li>
+              {% endif %}
+              {% if _menu_analytics_era_exploration %}
+              <li class="{% if active_page == 'era_exploration_data' %}is-active{% endif %} {% if _menu_locked.get('analytics_era_exploration_data', false) %}opacity-75{% endif %}">
+                <a class="bv-submenu-link" href="/tenant/era-exploration-data"><i class="fe fe-database"></i><span>eRA Exploration Data</span>{% if _menu_locked.get('analytics_era_exploration_data', false) %}<i class="fe fe-lock ms-auto"></i>{% endif %}</a>
               </li>
               {% endif %}
               {% if _menu_analytics_purchases %}
-              <li class="{% if active_page == 'purchases' %}is-active{% endif %}">
-                <a class="bv-submenu-link" href="/tenant/purchases"><i class="fe fe-shopping-cart"></i><span>{{ tt(request, 'purchases') }}</span></a>
+              <li class="{% if active_page == 'purchases' %}is-active{% endif %} {% if _menu_locked.get('analytics_purchases', false) %}opacity-75{% endif %}">
+                <a class="bv-submenu-link" href="/tenant/purchases"><i class="fe fe-shopping-cart"></i><span>{{ tt(request, 'purchases') }}</span>{% if _menu_locked.get('analytics_purchases', false) %}<i class="fe fe-lock ms-auto"></i>{% endif %}</a>
               </li>
               {% endif %}
               {% if _menu_analytics_inventory %}
-              <li class="{% if active_page == 'inventory' %}is-active{% endif %} {% if not _inventory_ok %}disabled opacity-75{% endif %}">
-                <a class="bv-submenu-link" href="/tenant/inventory"><i class="fe fe-layers"></i><span>{{ tt(request, 'analytics_inventory') }}</span></a>
+              <li class="{% if active_page == 'inventory' %}is-active{% endif %} {% if _menu_locked.get('analytics_inventory', false) %}opacity-75{% endif %}">
+                <a class="bv-submenu-link" href="/tenant/inventory"><i class="fe fe-layers"></i><span>{{ tt(request, 'analytics_inventory') }}</span>{% if _menu_locked.get('analytics_inventory', false) %}<i class="fe fe-lock ms-auto"></i>{% endif %}</a>
               </li>
-              <li class="{% if active_page == 'items' %}is-active{% endif %} {% if not _inventory_ok %}disabled opacity-75{% endif %}">
-                <a class="bv-submenu-link" href="/tenant/items"><i class="fe fe-box"></i><span>{{ tt(request, 'items_warehouse') }}</span></a>
+              {% endif %}
+              {% if _menu_analytics_replenishment %}
+              <li class="{% if active_page == 'replenishment' %}is-active{% endif %} {% if _menu_locked.get('analytics_replenishment', false) %}opacity-75{% endif %}">
+                <a class="bv-submenu-link" href="/tenant/replenishment"><i class="fe fe-repeat"></i><span>Replenishment</span>{% if _menu_locked.get('analytics_replenishment', false) %}<i class="fe fe-lock ms-auto"></i>{% endif %}</a>
+              </li>
+              {% endif %}
+              {% if _menu_analytics_items %}
+              <li class="{% if active_page == 'items' %}is-active{% endif %} {% if _menu_locked.get('analytics_items', false) %}opacity-75{% endif %}">
+                <a class="bv-submenu-link" href="/tenant/items"><i class="fe fe-box"></i><span>{{ tt(request, 'items_warehouse') }}</span>{% if _menu_locked.get('analytics_items', false) %}<i class="fe fe-lock ms-auto"></i>{% endif %}</a>
               </li>
               {% endif %}
               {% if _menu_analytics_cash %}
-              <li class="{% if active_page == 'cashflow' and not _cashflow_is_stream %}is-active{% endif %} {% if not _cashflow_ok %}disabled opacity-75{% endif %}">
-                <a class="bv-submenu-link" href="/tenant/cashflow"><i class="fe fe-credit-card"></i><span>{{ tt(request, 'analytics_cashflows') }}</span></a>
+              <li class="{% if active_page == 'cashflow' and not _cashflow_is_stream %}is-active{% endif %} {% if _menu_locked.get('analytics_cashflows', false) %}opacity-75{% endif %}">
+                <a class="bv-submenu-link" href="/tenant/cashflow"><i class="fe fe-credit-card"></i><span>{{ tt(request, 'analytics_cashflows') }}</span>{% if _menu_locked.get('analytics_cashflows', false) %}<i class="fe fe-lock ms-auto"></i>{% endif %}</a>
               </li>
               {% endif %}
               {% if _menu_analytics_receivables %}
-              <li class="{% if active_page in ['analytics_receivables_payables', 'finance_dashboard'] %}is-active{% endif %}">
-                <a class="bv-submenu-link" href="/tenant/finance-dashboard"><i class="fe fe-pie-chart"></i><span>{{ tt(request, 'analytics_receivables_payables_short') }}</span></a>
+              <li class="{% if active_page in ['analytics_receivables_payables', 'finance_dashboard'] %}is-active{% endif %} {% if _menu_locked.get('analytics_receivables_payables', false) %}opacity-75{% endif %}">
+                <a class="bv-submenu-link" href="/tenant/finance-dashboard"><i class="fe fe-pie-chart"></i><span>{{ tt(request, 'analytics_receivables_payables_short') }}</span>{% if _menu_locked.get('analytics_receivables_payables', false) %}<i class="fe fe-lock ms-auto"></i>{% endif %}</a>
               </li>
               {% endif %}
-              {% if _menu_analytics_supplier_targets and (supplier_targets_enabled if supplier_targets_enabled is defined else false) %}
-              <li class="{% if active_page == 'supplier_targets' %}is-active{% endif %}">
-                <a class="bv-submenu-link" href="/tenant/supplier-targets"><i class="fe fe-target"></i><span>{{ tt(request, 'supplier_targets') }}</span></a>
+              {% if _menu_analytics_supplier_targets %}
+              <li class="{% if active_page == 'supplier_targets' %}is-active{% endif %} {% if _menu_locked.get('analytics_supplier_targets', false) %}opacity-75{% endif %}">
+                <a class="bv-submenu-link" href="/tenant/supplier-targets"><i class="fe fe-target"></i><span>{{ tt(request, 'supplier_targets') }}</span>{% if _menu_locked.get('analytics_supplier_targets', false) %}<i class="fe fe-lock ms-auto"></i>{% endif %}</a>
               </li>
               {% endif %}
-              <li class="{% if active_page == 'price_control' %}is-active{% endif %}">
-                <a class="bv-submenu-link" href="/tenant/price-control"><i class="fe fe-percent"></i><span>Έλεγχος Τιμών</span></a>
+              {% if _menu_analytics_price_control %}
+              <li class="{% if active_page == 'price_control' %}is-active{% endif %} {% if _menu_locked.get('analytics_price_control', false) %}opacity-75{% endif %}">
+                <a class="bv-submenu-link" href="/tenant/price-control"><i class="fe fe-percent"></i><span>Έλεγχος Τιμών</span>{% if _menu_locked.get('analytics_price_control', false) %}<i class="fe fe-lock ms-auto"></i>{% endif %}</a>
               </li>
+              {% endif %}
+              {% if _menu_analytics_business_advisor %}
+              <li class="{% if active_page == 'business_advisor' %}is-active{% endif %} {% if _menu_locked.get('analytics_business_advisor', false) %}opacity-75{% endif %}">
+                <a class="bv-submenu-link" href="/tenant/business-advisor"><i class="fe fe-compass"></i><span>Σύμβουλος Επιχείρησης</span>{% if _menu_locked.get('analytics_business_advisor', false) %}<i class="fe fe-lock ms-auto"></i>{% endif %}</a>
+              </li>
+              {% endif %}
             </ul>
           </li>
           {% endif %}
@@ -397,6 +458,9 @@
         </ul>
       </div>
       <div class="sidebar-foot">
+        {% set _footer_tenant = tenant if tenant is defined else (request.state.tenant if request.state.tenant is defined else none) %}
+        {% set _footer_plan = _footer_tenant.plan.value if _footer_tenant and _footer_tenant.plan else '' %}
+        {% set _footer_plan_label = {'standard': 'Standard', 'pro': 'Pro', 'enterprise': 'Enterprise', 'custom': 'Custom'}.get(_footer_plan, _footer_plan|capitalize) %}
         <div class="bottom-meta">
           <div class="bottom-meta-item">
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -404,6 +468,12 @@
             </svg>
             <span>v<strong>{{ app_version }}</strong></span>
           </div>
+          {% if _footer_plan_label %}
+          <div class="bottom-meta-item bottom-meta-plan">
+            <i class="fe fe-package"></i>
+            <span><strong>{{ _footer_plan_label }}</strong></span>
+          </div>
+          {% endif %}
           <div class="bottom-meta-item">
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
@@ -443,7 +513,7 @@
             </div>
           </div>
           <div class="bv-profile-menu">
-            <button class="bv-profile-toggle" type="button" data-profile-toggle>
+            <button class="bv-profile-toggle" type="button" data-profile-toggle aria-expanded="false" aria-haspopup="menu">
               <span class="bv-avatar-initial">BV</span>
               <i class="fe fe-chevron-down"></i>
             </button>
@@ -453,6 +523,9 @@
                 <div class="bv-profile-role">Tenant Portal · {{ request.state.professional_profile_name if request.state.professional_profile_name is defined else 'Manager' }}</div>
               </div>
               <a class="bv-profile-item" href="/tenant/profile"><i class="fe fe-user"></i> Profile</a>
+              {% if request.state.user_role is defined and request.state.user_role == 'tenant_admin' %}
+              <a class="bv-profile-item" href="/tenant/users"><i class="fe fe-user-check"></i> Χρήστες &amp; Άδειες</a>
+              {% endif %}
               <a class="bv-profile-item" href="/tenant/settings"><i class="fe fe-settings"></i> Settings</a>
               <a class="bv-profile-item" href="/tenant/messages"><i class="fe fe-message-circle"></i> Messages</a>
               <form method="post" action="/logout" class="mb-0">
@@ -471,6 +544,7 @@
             'insights': 'insights',
             'sales_documents': 'sales-documents',
             'purchase_documents': 'purchase-documents',
+            'supplier_orders': 'supplier-orders',
             'expense_documents': 'expense-documents',
             'warehouse_documents': 'warehouse-documents',
             'operating_expenses': 'operating-expenses',
@@ -482,11 +556,14 @@
             'pos': 'pos',
             'eshop_analysis': 'eshop-analysis',
             'exports_sellout': 'sellout',
+            'era_exploration_data': 'era-exploration-data',
             'purchases': 'purchases-analytics',
             'inventory': 'inventory-analytics',
+            'replenishment': 'replenishment',
             'items': 'warehouse-items',
             'analytics_receivables_payables': 'finance-dashboard',
             'price_control': 'price-control',
+            'business_advisor': 'business-advisor',
             'compare_period': 'comparisons',
             'compare_branch': 'comparisons',
             'compare_category': 'comparisons',
@@ -505,11 +582,15 @@
             <p class="bv-page-subtitle">Executive KPIs και εικόνα εταιρείας από τα επιχειρησιακά κυκλώματα.</p>
             {% elif active_page == 'finance_dashboard' %}
             <p class="bv-page-subtitle">Ανάλυση απαιτήσεων, υποχρεώσεων και ταμειακών ροών.</p>
+            {% elif active_page == 'business_advisor' %}
+            <p class="bv-page-subtitle">Συμπυκνωμένη επιχειρησιακή διάγνωση με θετικά σήματα, κινδύνους και προτεινόμενες ενέργειες.</p>
             {% elif active_page in ['sales_documents', 'purchase_documents', 'expense_documents', 'warehouse_documents', 'operating_expenses', 'cashflow'] %}
             <p class="bv-page-subtitle">Λίστα παραστατικών με ενιαία φίλτρα, αναζήτηση και σελιδοποίηση.</p>
+            {% elif active_page == 'supplier_orders' %}
+            <p class="bv-page-subtitle">Παραγγελίες προς προμηθευτές και ανοιχτές ποσότητες πριν την πρόταση FnR.</p>
             {% elif active_page in ['suppliers', 'customers'] %}
             <p class="bv-page-subtitle">Υπόλοιπα και ιστορικά στοιχεία με ενιαίο pattern πινάκων.</p>
-            {% elif active_page in ['sales', 'purchases', 'inventory', 'items', 'analytics_receivables_payables', 'supplier_targets', 'price_control', 'exports_sellout', 'pos', 'eshop_analysis'] %}
+            {% elif active_page in ['sales', 'purchases', 'inventory', 'items', 'replenishment', 'analytics_receivables_payables', 'supplier_targets', 'price_control', 'business_advisor', 'era_exploration_data', 'exports_sellout', 'pos', 'eshop_analysis'] %}
             <p class="bv-page-subtitle">Αναλυτικά KPIs, τάσεις και breakdowns σε συνεπή διάταξη.</p>
             {% elif active_page in ['compare_period', 'compare_branch', 'compare_category'] %}
             <p class="bv-page-subtitle">Συγκρίσεις περιόδων και διαστάσεων με κοινή παρουσίαση.</p>
@@ -531,7 +612,7 @@
         </div>
 
         {% set _hide_page_filters = hide_page_filters if hide_page_filters is defined else false %}
-        {% if active_page in ['dashboard', 'finance_dashboard', 'sales', 'pos', 'eshop_analysis', 'sales_documents', 'purchases', 'purchase_documents', 'expense_documents', 'suppliers', 'warehouse_documents', 'operating_expenses', 'inventory', 'items', 'cashflow', 'customers', 'compare_period', 'compare_branch', 'compare_category', 'insights', 'analytics_receivables_payables', 'supplier_targets', 'price_control', 'exports_reports', 'exports_csv_excel', 'exports_sellout'] and not _hide_page_filters %}
+        {% if active_page in ['dashboard', 'finance_dashboard', 'sales', 'pos', 'eshop_analysis', 'sales_documents', 'purchases', 'purchase_documents', 'expense_documents', 'suppliers', 'warehouse_documents', 'operating_expenses', 'inventory', 'items', 'replenishment', 'cashflow', 'customers', 'compare_period', 'compare_branch', 'compare_category', 'insights', 'analytics_receivables_payables', 'supplier_targets', 'price_control', 'business_advisor', 'era_exploration_data', 'exports_reports', 'exports_csv_excel', 'exports_sellout'] and not _hide_page_filters %}
         <div class="card filter-card mb-3">
           <div class="card-header d-flex justify-content-between align-items-center">
             <h5 class="mb-0">{{ tt(request, 'filters') }}</h5>
@@ -1141,12 +1222,17 @@
         e.stopPropagation();
         const dd = btn.parentElement.querySelector('[data-profile-dropdown]');
         if (!dd) return;
-        dd.hidden = !dd.hidden;
+        const willOpen = dd.hidden;
+        dd.hidden = !willOpen;
+        btn.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
       });
     });
     document.addEventListener('click', () => {
       document.querySelectorAll('[data-profile-dropdown]').forEach((dd) => {
         dd.hidden = true;
+      });
+      document.querySelectorAll('[data-profile-toggle]').forEach((btn) => {
+        btn.setAttribute('aria-expanded', 'false');
       });
     });
     function syncFullscreenLayout() {

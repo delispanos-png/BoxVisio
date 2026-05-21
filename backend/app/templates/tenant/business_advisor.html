@@ -1,0 +1,923 @@
+{% extends "base_tenant.html" %}
+
+{% block filters %}
+<form id="baFiltersForm" class="row g-3">
+  <div class="col-xl-3 col-md-6">
+    <label class="form-label">{{ tt(request, 'from') }}</label>
+    <input id="baFrom" type="text" class="form-control" data-date-format="dmy" value="{{ default_from.strftime('%d/%m/%Y') if default_from else '' }}" placeholder="ηη/μμ/εεεε" inputmode="numeric">
+  </div>
+  <div class="col-xl-3 col-md-6">
+    <label class="form-label">{{ tt(request, 'to') }}</label>
+    <input id="baTo" type="text" class="form-control" data-date-format="dmy" value="{{ default_to.strftime('%d/%m/%Y') if default_to else '' }}" placeholder="ηη/μμ/εεεε" inputmode="numeric">
+  </div>
+  <div class="col-xl-3 col-md-6">
+    <label class="form-label">Στόχος μικτού περιθωρίου %</label>
+    <input id="baTargetMargin" type="number" min="0" max="95" step="0.1" class="form-control" value="{{ default_target_margin }}">
+  </div>
+  <div class="col-xl-3 col-md-6 d-flex align-items-end gap-2">
+    <button type="submit" class="btn btn-primary flex-fill"><i class="fe fe-compass me-1"></i>Ανάλυση</button>
+    <button id="baResetBtn" type="button" class="btn btn-outline-secondary">Καθαρισμός</button>
+  </div>
+</form>
+{% endblock %}
+
+{% block content %}
+<style>
+  body.tenant-shell .ba-shell {
+    display: grid;
+    gap: 18px;
+  }
+
+  body.tenant-shell .ba-overview {
+    display: grid;
+    grid-template-columns: minmax(260px, 360px) minmax(0, 1fr);
+    gap: 18px;
+  }
+
+  body.tenant-shell .ba-command-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.25fr) minmax(280px, 0.75fr);
+    align-items: stretch;
+    gap: 18px;
+  }
+
+  body.tenant-shell .ba-command-grid > .ba-panel {
+    height: 100%;
+  }
+
+  body.tenant-shell .ba-command-grid .ba-panel-tight {
+    display: flex;
+    flex-direction: column;
+  }
+
+  body.tenant-shell .ba-command-grid .ba-list {
+    flex: 1;
+  }
+
+  body.tenant-shell .ba-score-card,
+  body.tenant-shell .ba-panel,
+  body.tenant-shell .ba-module {
+    background: var(--panel-bg, #fff);
+    border: 1px solid var(--panel-border, #dbe4f0);
+    border-radius: 10px;
+    box-shadow: 0 14px 34px rgba(15, 23, 42, 0.06);
+  }
+
+  body.tenant-shell .ba-score-card {
+    padding: 22px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  body.tenant-shell .ba-score-card::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, rgba(37, 99, 235, 0.12), rgba(16, 185, 129, 0.10) 48%, rgba(245, 158, 11, 0.08));
+    pointer-events: none;
+  }
+
+  body.tenant-shell .ba-score-content {
+    position: relative;
+    z-index: 1;
+  }
+
+  body.tenant-shell .ba-eyebrow {
+    color: var(--muted-text, #64748b);
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0;
+    text-transform: uppercase;
+  }
+
+  body.tenant-shell .ba-score {
+    display: flex;
+    align-items: end;
+    gap: 10px;
+    margin-top: 14px;
+  }
+
+  body.tenant-shell .ba-score-value {
+    color: #0f172a;
+    font-size: 58px;
+    font-weight: 900;
+    line-height: 0.95;
+  }
+
+  body.tenant-shell .ba-score-max {
+    color: #64748b;
+    font-size: 16px;
+    font-weight: 800;
+    padding-bottom: 7px;
+  }
+
+  body.tenant-shell .ba-score-bar {
+    height: 10px;
+    margin: 18px 0 12px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: #e5edf7;
+  }
+
+  body.tenant-shell .ba-score-fill {
+    width: 0%;
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, #ef4444, #f59e0b 45%, #22c55e);
+    transition: width 260ms ease;
+  }
+
+  body.tenant-shell .ba-score-label {
+    color: #172033;
+    font-size: 18px;
+    font-weight: 850;
+  }
+
+  body.tenant-shell .ba-brief {
+    padding: 22px;
+  }
+
+  body.tenant-shell .ba-brief h4,
+  body.tenant-shell .ba-panel h4 {
+    margin: 0;
+    color: #172033;
+    font-size: 18px;
+    font-weight: 850;
+  }
+
+  body.tenant-shell .ba-brief-list {
+    display: grid;
+    gap: 12px;
+    margin: 18px 0 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  body.tenant-shell .ba-brief-list li {
+    display: grid;
+    grid-template-columns: 28px minmax(0, 1fr);
+    gap: 10px;
+    align-items: start;
+    color: #172033;
+    font-weight: 650;
+    line-height: 1.45;
+  }
+
+  body.tenant-shell .ba-brief-list i {
+    display: grid;
+    width: 28px;
+    height: 28px;
+    place-items: center;
+    border-radius: 8px;
+    color: #2563eb;
+    background: #eff6ff;
+  }
+
+  body.tenant-shell .ba-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 18px;
+  }
+
+  body.tenant-shell .ba-panel {
+    min-height: 260px;
+    padding: 18px;
+  }
+
+  body.tenant-shell .ba-panel.ba-panel-tight {
+    min-height: 0;
+  }
+
+  body.tenant-shell .ba-panel.ba-command-summary {
+    justify-content: space-between;
+  }
+
+  body.tenant-shell .ba-panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 14px;
+  }
+
+  body.tenant-shell .ba-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border-radius: 999px;
+    padding: 5px 10px;
+    color: #475569;
+    background: #f1f5f9;
+    font-size: 12px;
+    font-weight: 800;
+  }
+
+  body.tenant-shell .ba-list {
+    display: grid;
+    gap: 10px;
+  }
+
+  body.tenant-shell .ba-thesis {
+    margin: 0;
+    color: #0f172a;
+    font-size: 18px;
+    font-weight: 800;
+    line-height: 1.5;
+  }
+
+  body.tenant-shell .ba-focus-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 16px;
+  }
+
+  body.tenant-shell .ba-focus-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 8px 11px;
+    border: 1px solid #dbe4f0;
+    border-radius: 8px;
+    color: #172033;
+    background: #f8fafc;
+    font-weight: 850;
+  }
+
+  body.tenant-shell .ba-decision-facts {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+    margin-top: 16px;
+  }
+
+  body.tenant-shell .ba-decision-fact {
+    padding: 12px;
+    border: 1px solid #e1e9f4;
+    border-radius: 8px;
+    background: #fbfdff;
+  }
+
+  body.tenant-shell .ba-decision-fact-label {
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 850;
+    text-transform: uppercase;
+  }
+
+  body.tenant-shell .ba-decision-fact-value {
+    margin-top: 6px;
+    color: #0f172a;
+    font-size: 20px;
+    font-weight: 900;
+    line-height: 1.1;
+  }
+
+  body.tenant-shell .ba-confidence-text {
+    margin-top: 14px;
+    color: #64748b;
+    font-weight: 650;
+    line-height: 1.45;
+  }
+
+  body.tenant-shell .ba-item {
+    display: grid;
+    gap: 8px;
+    padding: 12px;
+    border: 1px solid #e1e9f4;
+    border-radius: 8px;
+    background: #fbfdff;
+  }
+
+  body.tenant-shell .ba-item-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #0f172a;
+    font-weight: 850;
+  }
+
+  body.tenant-shell .ba-dot {
+    width: 8px;
+    height: 8px;
+    flex: 0 0 8px;
+    border-radius: 50%;
+    background: #64748b;
+  }
+
+  body.tenant-shell .ba-dot.success { background: #16a34a; }
+  body.tenant-shell .ba-dot.warning { background: #f59e0b; }
+  body.tenant-shell .ba-dot.danger { background: #ef4444; }
+  body.tenant-shell .ba-dot.info { background: #2563eb; }
+
+  body.tenant-shell .ba-item p {
+    margin: 0;
+    color: #475569;
+    line-height: 1.45;
+    font-weight: 600;
+  }
+
+  body.tenant-shell .ba-action-link {
+    width: fit-content;
+    color: #4f46e5;
+    font-weight: 850;
+    text-decoration: none;
+  }
+
+  body.tenant-shell .ba-lever-value {
+    color: #0f172a;
+    font-size: 20px;
+    font-weight: 900;
+  }
+
+  body.tenant-shell .ba-plan {
+    display: grid;
+    gap: 10px;
+  }
+
+  body.tenant-shell .ba-diagnosis-grid {
+    display: grid;
+    grid-template-columns: minmax(340px, 0.75fr) minmax(680px, 1.35fr);
+    align-items: start;
+    gap: 18px;
+  }
+
+  body.tenant-shell .ba-diagnosis-table-wrap {
+    min-width: 0;
+  }
+
+  body.tenant-shell .ba-diagnosis-secondary {
+    grid-column: 1 / -1;
+    margin-top: 4px;
+    padding-top: 16px;
+    border-top: 1px solid #e1e9f4;
+  }
+
+  body.tenant-shell .ba-diagnosis-secondary-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+
+  body.tenant-shell .ba-diagnosis-secondary-head h5 {
+    margin: 0;
+    color: #172033;
+    font-size: 16px;
+    font-weight: 850;
+  }
+
+  body.tenant-shell .ba-diagnosis-summary {
+    color: #0f172a;
+    font-size: 17px;
+    font-weight: 800;
+    line-height: 1.45;
+  }
+
+  body.tenant-shell .ba-diagnosis-action {
+    margin-top: 10px;
+    color: #64748b;
+    font-weight: 650;
+    line-height: 1.45;
+  }
+
+  body.tenant-shell .ba-mini-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    overflow: hidden;
+    border: 1px solid #e1e9f4;
+    border-radius: 8px;
+  }
+
+  body.tenant-shell .ba-mini-table th,
+  body.tenant-shell .ba-mini-table td {
+    padding: 9px 12px;
+    border-bottom: 1px solid #e1e9f4;
+    color: #172033;
+    font-weight: 700;
+    vertical-align: top;
+  }
+
+  body.tenant-shell .ba-mini-table th:first-child,
+  body.tenant-shell .ba-mini-table td:first-child {
+    width: 48%;
+  }
+
+  body.tenant-shell .ba-mini-table th {
+    color: #64748b;
+    background: #f8fafc;
+    font-size: 12px;
+    font-weight: 850;
+    text-transform: uppercase;
+  }
+
+  body.tenant-shell .ba-mini-table tr:last-child td {
+    border-bottom: 0;
+  }
+
+  body.tenant-shell .ba-plan-item {
+    display: grid;
+    grid-template-columns: 110px minmax(0, 1fr);
+    gap: 12px;
+    padding: 12px;
+    border: 1px solid #e1e9f4;
+    border-radius: 8px;
+    background: #fbfdff;
+  }
+
+  body.tenant-shell .ba-plan-range {
+    color: #4f46e5;
+    font-size: 13px;
+    font-weight: 900;
+  }
+
+  body.tenant-shell .ba-plan-title {
+    color: #0f172a;
+    font-weight: 900;
+  }
+
+  body.tenant-shell .ba-plan-owner,
+  body.tenant-shell .ba-plan-text {
+    margin-top: 4px;
+    color: #64748b;
+    font-weight: 650;
+    line-height: 1.45;
+  }
+
+  body.tenant-shell .ba-modules {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  body.tenant-shell .ba-module {
+    padding: 14px;
+  }
+
+  body.tenant-shell .ba-module-title {
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 850;
+    text-transform: uppercase;
+  }
+
+  body.tenant-shell .ba-module-value {
+    margin-top: 7px;
+    color: #0f172a;
+    font-size: 22px;
+    font-weight: 900;
+    line-height: 1.05;
+  }
+
+  body.tenant-shell .ba-module-sub {
+    margin-top: 6px;
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  body.tenant-shell .ba-loading {
+    padding: 26px;
+    color: #64748b;
+    font-weight: 800;
+  }
+
+  @media (max-width: 1199px) {
+    body.tenant-shell .ba-overview,
+    body.tenant-shell .ba-command-grid,
+    body.tenant-shell .ba-grid,
+    body.tenant-shell .ba-diagnosis-grid {
+      grid-template-columns: 1fr;
+    }
+
+    body.tenant-shell .ba-modules {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  @media (max-width: 575px) {
+    body.tenant-shell .ba-score-value {
+      font-size: 46px;
+    }
+
+    body.tenant-shell .ba-modules {
+      grid-template-columns: 1fr;
+    }
+
+    body.tenant-shell .ba-decision-facts {
+      grid-template-columns: 1fr;
+    }
+
+    body.tenant-shell .ba-plan-item {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+
+<section class="ba-shell">
+  <div class="ba-overview">
+    <article class="ba-score-card">
+      <div class="ba-score-content">
+        <div class="ba-eyebrow">Business Advisor</div>
+        <div class="ba-score">
+          <div id="baScoreValue" class="ba-score-value">--</div>
+          <div class="ba-score-max">/ 100</div>
+        </div>
+        <div class="ba-score-bar"><div id="baScoreFill" class="ba-score-fill"></div></div>
+        <div id="baScoreLabel" class="ba-score-label">Ανάγνωση επιχείρησης</div>
+        <p id="baScoreSummary" class="text-muted fw-semibold mt-2 mb-0">Συνθέτουμε τα KPI σε μία επιχειρησιακή εικόνα.</p>
+      </div>
+    </article>
+
+    <article class="ba-panel ba-brief">
+      <div class="ba-panel-head">
+        <h4>Συμπυκνωμένη εικόνα</h4>
+        <span id="baPeriodBadge" class="ba-pill"><i class="fe fe-calendar"></i>Περίοδος</span>
+      </div>
+      <ul id="baBriefList" class="ba-brief-list">
+        <li><i class="fe fe-loader"></i><span>Φόρτωση ανάλυσης...</span></li>
+      </ul>
+    </article>
+  </div>
+
+  <div class="ba-command-grid">
+    <article class="ba-panel ba-panel-tight ba-command-summary">
+      <div class="ba-panel-head">
+        <h4>Συμπέρασμα Διοίκησης</h4>
+        <span id="baConfidenceBadge" class="ba-pill"><i class="fe fe-shield"></i>Βεβαιότητα</span>
+      </div>
+      <p id="baThesis" class="ba-thesis">Συνθέτουμε τη στρατηγική ανάγνωση...</p>
+      <div id="baFocusStrip" class="ba-focus-strip"></div>
+      <div id="baDecisionFacts" class="ba-decision-facts"></div>
+      <div id="baConfidenceText" class="ba-confidence-text"></div>
+    </article>
+
+    <article class="ba-panel ba-panel-tight">
+      <div class="ba-panel-head">
+        <h4>Μοχλοί Βελτίωσης</h4>
+        <span id="baLeversCount" class="ba-pill">0</span>
+      </div>
+      <div id="baLevers" class="ba-list"></div>
+    </article>
+  </div>
+
+  <div class="ba-grid">
+    <article class="ba-panel">
+      <div class="ba-panel-head">
+        <h4>Θετικά σήματα</h4>
+        <span id="baPositiveCount" class="ba-pill">0</span>
+      </div>
+      <div id="baPositives" class="ba-list"></div>
+    </article>
+
+    <article class="ba-panel">
+      <div class="ba-panel-head">
+        <h4>Κίνδυνοι</h4>
+        <span id="baRiskCount" class="ba-pill">0</span>
+      </div>
+      <div id="baRisks" class="ba-list"></div>
+    </article>
+
+    <article class="ba-panel">
+      <div class="ba-panel-head">
+        <h4>Προτεινόμενες ενέργειες</h4>
+        <span id="baActionCount" class="ba-pill">0</span>
+      </div>
+      <div id="baActions" class="ba-list"></div>
+    </article>
+  </div>
+
+  <article class="ba-panel">
+    <div class="ba-panel-head">
+      <h4>Πλάνο 7 / 30 ημερών</h4>
+      <span class="ba-pill"><i class="fe fe-flag"></i>Execution</span>
+    </div>
+    <div id="baActionPlan" class="ba-plan"></div>
+  </article>
+
+  <article class="ba-panel">
+    <div class="ba-panel-head">
+      <h4 id="baDimensionTitle">Διάγνωση φυσικών σημείων / κατηγοριών</h4>
+      <span id="baDimensionBadge" class="ba-pill"><i class="fe fe-map-pin"></i>Ανάλυση</span>
+    </div>
+    <div id="baDimensionDiagnosis" class="ba-diagnosis-grid"></div>
+  </article>
+
+  <article class="ba-panel">
+    <div class="ba-panel-head">
+      <h4>Ανά κύκλωμα</h4>
+      <span class="ba-pill"><i class="fe fe-layers"></i>Πηγή KPI</span>
+    </div>
+    <div id="baModules" class="ba-modules"></div>
+  </article>
+
+  <div id="baDiagnostics" class="alert alert-warning d-none mb-0"></div>
+</section>
+
+<script>
+(() => {
+  const defaults = {
+    from: "{{ default_from.strftime('%d/%m/%Y') if default_from else '' }}",
+    to: "{{ default_to.strftime('%d/%m/%Y') if default_to else '' }}",
+    targetMargin: "{{ default_target_margin }}",
+  };
+
+  const $ = (id) => document.getElementById(id);
+  const money = new Intl.NumberFormat('el-GR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 2 });
+  const number = new Intl.NumberFormat('el-GR', { maximumFractionDigits: 2 });
+
+  function dmyToIso(value) {
+    const clean = String(value || '').trim();
+    const match = clean.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (!match) return clean;
+    const [, dd, mm, yyyy] = match;
+    return `${yyyy}-${String(mm).padStart(2, '0')}-${String(dd).padStart(2, '0')}`;
+  }
+
+  function isoToDmy(value) {
+    const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    return match ? `${match[3]}/${match[2]}/${match[1]}` : value;
+  }
+
+  function severityIcon(severity) {
+    if (severity === 'danger') return 'fe-alert-triangle';
+    if (severity === 'warning') return 'fe-alert-circle';
+    if (severity === 'success') return 'fe-check-circle';
+    return 'fe-info';
+  }
+
+  function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, (char) => ({
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#039;',
+    }[char]));
+  }
+
+  function itemHtml(item, includeAction = false) {
+    const severity = item.severity || 'info';
+    const action = includeAction && item.action
+      ? `<p><strong>Ενέργεια:</strong> ${escapeHtml(item.action)}</p>`
+      : '';
+    const link = item.href
+      ? `<a class="ba-action-link" href="${escapeHtml(item.href)}">Άνοιγμα κυκλώματος</a>`
+      : '';
+    return `
+      <div class="ba-item">
+        <div class="ba-item-title"><span class="ba-dot ${severity}"></span><i class="fe ${severityIcon(severity)}"></i>${escapeHtml(item.title || '')}</div>
+        <p>${escapeHtml(item.text || '')}</p>
+        ${action}
+        ${link}
+      </div>
+    `;
+  }
+
+  function leverHtml(item) {
+    const severity = item.severity || 'info';
+    const href = item.href ? `<a class="ba-action-link" href="${escapeHtml(item.href)}">Άνοιγμα ανάλυσης</a>` : '';
+    const value = item.unit && item.unit.startsWith('€')
+      ? money.format(item.value || 0)
+      : `${number.format(item.value || 0)} ${escapeHtml(item.unit || '')}`;
+    return `
+      <div class="ba-item">
+        <div class="ba-item-title"><span class="ba-dot ${severity}"></span><i class="fe ${severityIcon(severity)}"></i>${escapeHtml(item.title || '')}</div>
+        <div class="ba-lever-value">${value}</div>
+        <p>${escapeHtml(item.text || '')}</p>
+        <p><strong>Κίνηση:</strong> ${escapeHtml(item.action || '')}</p>
+        ${href}
+      </div>
+    `;
+  }
+
+  function planHtml(item) {
+    const href = item.href ? `<a class="ba-action-link mt-2" href="${escapeHtml(item.href)}">Άνοιγμα</a>` : '';
+    return `
+      <div class="ba-plan-item">
+        <div class="ba-plan-range">${escapeHtml(item.range || '')}</div>
+        <div>
+          <div class="ba-plan-title">${escapeHtml(item.title || '')}</div>
+          <div class="ba-plan-owner">${escapeHtml(item.owner || '')}</div>
+          <div class="ba-plan-text">${escapeHtml(item.text || '')}</div>
+          ${href}
+        </div>
+      </div>
+    `;
+  }
+
+  function deltaText(value) {
+    return value == null ? '-' : `${number.format(value)}%`;
+  }
+
+  function dimensionTable(rows) {
+    if (!rows || !rows.length) return emptyHtml('Δεν υπάρχουν αρκετά δεδομένα για διάγνωση.');
+    return `
+      <table class="ba-mini-table">
+        <thead><tr><th>Μέτρηση</th><th class="text-end">Τζίρος</th><th class="text-end">Μεταβολή</th><th class="text-end">Συμμ.</th></tr></thead>
+        <tbody>
+          ${rows.map((row) => `
+            <tr>
+              <td>${escapeHtml(row.name || '-')}</td>
+              <td class="text-end">${money.format(row.net_value || 0)}</td>
+              <td class="text-end">${escapeHtml(deltaText(row.delta_pct))}</td>
+              <td class="text-end">${number.format(row.share_pct || 0)}%</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+  }
+
+  function renderDimensionDiagnosis(data) {
+    const diagnosis = data?.primary || {};
+    const secondary = data?.secondary || null;
+    $('baDimensionTitle').textContent = diagnosis.title || 'Διάγνωση φυσικών σημείων / κατηγοριών';
+    $('baDimensionBadge').innerHTML = `<i class="fe ${data?.mode === 'branches' ? 'fe-map-pin' : 'fe-layers'}"></i>${data?.mode === 'branches' ? 'Φυσικά σημεία' : 'Κατηγορίες'}`;
+    const best = diagnosis.best;
+    const worst = diagnosis.worst;
+    const cards = `
+      <div>
+        <div class="ba-diagnosis-summary">${escapeHtml(diagnosis.summary || 'Δεν υπάρχουν αρκετά δεδομένα για διάγνωση.')}</div>
+        ${best ? itemHtml({ title: `Κινείται σωστά: ${best.name}`, text: `Τζίρος ${money.format(best.net_value || 0)}, μεταβολή ${deltaText(best.delta_pct)}, συμμετοχή ${number.format(best.share_pct || 0)}%.`, severity: 'success', href: diagnosis.href }) : ''}
+        ${worst ? itemHtml({ title: `Δημιουργεί πίεση: ${worst.name}`, text: `Τζίρος ${money.format(worst.net_value || 0)}, μεταβολή ${deltaText(worst.delta_pct)}, συμμετοχή ${number.format(worst.share_pct || 0)}%.`, severity: 'warning', href: diagnosis.href }) : ''}
+        <div class="ba-diagnosis-action"><strong>Κίνηση:</strong> ${escapeHtml(diagnosis.action || '')}</div>
+        ${secondary ? `<div class="ba-diagnosis-action mt-3"><strong>Δεύτερη ανάγνωση:</strong> ${escapeHtml(secondary.summary || '')}</div>` : ''}
+      </div>
+    `;
+    const secondaryBlock = secondary ? `
+      <div class="ba-diagnosis-secondary">
+        <div class="ba-diagnosis-secondary-head">
+          <h5>${escapeHtml(secondary.title || 'Ανάλυση κατηγοριών')}</h5>
+          <span class="ba-pill"><i class="fe fe-layers"></i>${secondary.mode === 'branches' ? 'Φυσικά σημεία' : 'Κατηγορίες'}</span>
+        </div>
+        <div class="ba-diagnosis-summary mb-3">${escapeHtml(secondary.summary || '')}</div>
+        <div class="ba-diagnosis-table-wrap">${dimensionTable(secondary.rows || [])}</div>
+      </div>
+    ` : '';
+    $('baDimensionDiagnosis').innerHTML = `${cards}<div class="ba-diagnosis-table-wrap">${dimensionTable(diagnosis.rows || [])}</div>${secondaryBlock}`;
+  }
+
+  function emptyHtml(text) {
+    return `<div class="ba-item"><div class="ba-item-title"><span class="ba-dot info"></span><i class="fe fe-info"></i>${escapeHtml(text)}</div></div>`;
+  }
+
+  function renderList(target, rows, emptyText, includeAction = false) {
+    $(target).innerHTML = rows && rows.length
+      ? rows.map((item) => itemHtml(item, includeAction)).join('')
+      : emptyHtml(emptyText);
+  }
+
+  function moduleValue(key, data) {
+    if (key === 'sales') return money.format(data.net_value || 0);
+    if (key === 'purchases') return money.format(data.net_value || 0);
+    if (key === 'profitability') return `${number.format(data.margin_pct || 0)}%`;
+    if (key === 'cashflow') return money.format(data.net || 0);
+    if (key === 'receivables') return money.format(data.total || 0);
+    if (key === 'suppliers') return money.format(data.open_balance || 0);
+    if (key === 'inventory') return money.format(data.value_amount || 0);
+    if (key === 'pricing') return `${number.format(data.below_target || 0)} κάτω`;
+    return number.format(data.value || 0);
+  }
+
+  function moduleSub(key, data) {
+    if (key === 'sales') return `Μεταβολή ${data.delta_pct == null ? '-' : number.format(data.delta_pct) + '%'}`;
+    if (key === 'purchases') return `Αγορές/πωλήσεις ${number.format(data.purchases_to_sales_pct || 0)}%`;
+    if (key === 'profitability') return `Στόχος ${number.format(data.target_margin_pct || 0)}%`;
+    if (key === 'cashflow') return `Εισροές ${money.format(data.inflows || 0)} / Εκροές ${money.format(data.outflows || 0)}`;
+    if (key === 'receivables') return `Ληξιπρόθεσμα ${number.format(data.overdue_ratio_pct || 0)}%`;
+    if (key === 'suppliers') return `Ληξιπρόθεσμα ${number.format(data.overdue_ratio_pct || 0)}%`;
+    if (key === 'inventory') return `${number.format(data.qty_on_hand || 0)} τεμάχια / ${number.format(data.sales_days_equivalent || 0)} ημ. με στόχο ${number.format(data.target_coverage_days || 0)}`;
+    if (key === 'pricing') return `${number.format(data.above_target || 0)} πάνω από στόχο`;
+    return '';
+  }
+
+  function renderModules(modules) {
+    const order = ['sales', 'purchases', 'profitability', 'cashflow', 'receivables', 'suppliers', 'inventory', 'pricing'];
+    $('baModules').innerHTML = order
+      .filter((key) => modules && modules[key])
+      .map((key) => {
+        const data = modules[key] || {};
+        return `
+          <div class="ba-module">
+            <div class="ba-module-title">${escapeHtml(data.label || key)}</div>
+            <div class="ba-module-value">${escapeHtml(moduleValue(key, data))}</div>
+            <div class="ba-module-sub">${escapeHtml(moduleSub(key, data))}</div>
+          </div>
+        `;
+      })
+      .join('');
+  }
+
+  function renderDecisionFacts(modules, score) {
+    const profitability = modules?.profitability || {};
+    const cashflow = modules?.cashflow || {};
+    const pricing = modules?.pricing || {};
+    const facts = [
+      { label: 'Score', value: `${number.format(score || 0)}/100` },
+      { label: 'Περιθώριο / Στόχος', value: `${number.format(profitability.margin_pct || 0)}% / ${number.format(profitability.target_margin_pct || 0)}%` },
+      { label: 'Κάτω από στόχο', value: `${number.format(pricing.below_target || 0)} είδη` },
+      { label: 'Καθαρή ροή', value: money.format(cashflow.net || 0) },
+      { label: 'Μικτό κέρδος', value: money.format(profitability.gross_profit || 0) },
+      { label: 'Μέσος στόχος τιμών', value: `${number.format(pricing.avg_target_margin_pct || profitability.target_margin_pct || 0)}%` },
+      { label: 'Κάλυψη αποθέματος', value: `${number.format(modules?.inventory?.sales_days_equivalent || 0)} / ${number.format(modules?.inventory?.target_coverage_days || 0)} ημ.` },
+    ];
+    $('baDecisionFacts').innerHTML = facts.map((fact) => `
+      <div class="ba-decision-fact">
+        <div class="ba-decision-fact-label">${escapeHtml(fact.label)}</div>
+        <div class="ba-decision-fact-value">${escapeHtml(fact.value)}</div>
+      </div>
+    `).join('');
+  }
+
+  function setLoading() {
+    $('baBriefList').innerHTML = '<li><i class="fe fe-loader"></i><span>Φόρτωση ανάλυσης...</span></li>';
+    $('baPositives').innerHTML = '<div class="ba-loading">Ανάγνωση θετικών σημάτων...</div>';
+    $('baRisks').innerHTML = '<div class="ba-loading">Ανάγνωση κινδύνων...</div>';
+    $('baActions').innerHTML = '<div class="ba-loading">Σύνθεση ενεργειών...</div>';
+    $('baLevers').innerHTML = '<div class="ba-loading">Υπολογισμός μοχλών βελτίωσης...</div>';
+    $('baActionPlan').innerHTML = '<div class="ba-loading">Δόμηση πλάνου...</div>';
+    $('baModules').innerHTML = '';
+  }
+
+  async function loadAdvisor() {
+    setLoading();
+    const params = new URLSearchParams();
+    params.set('from', dmyToIso($('baFrom').value));
+    params.set('to', dmyToIso($('baTo').value));
+    params.set('target_margin_pct', $('baTargetMargin').value || '35');
+    const response = await fetch(`/v1/kpi/business-advisor?${params.toString()}`, { headers: { Accept: 'application/json' } });
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    const data = await response.json();
+    const score = data.score || {};
+    const scoreValue = Number(score.value || 0);
+    $('baScoreValue').textContent = String(scoreValue);
+    $('baScoreFill').style.width = `${Math.max(0, Math.min(100, scoreValue))}%`;
+    $('baScoreLabel').textContent = score.label || 'Ανάγνωση επιχείρησης';
+    $('baScoreSummary').textContent = score.summary || '';
+    $('baPeriodBadge').innerHTML = `<i class="fe fe-calendar"></i>${escapeHtml(isoToDmy(data.period?.from))} - ${escapeHtml(isoToDmy(data.period?.to))}`;
+    $('baBriefList').innerHTML = (data.executive_brief || []).map((line) => `<li><i class="fe fe-check"></i><span>${escapeHtml(line)}</span></li>`).join('');
+    const advisor = data.advisor || {};
+    const confidence = advisor.confidence || {};
+    $('baThesis').textContent = advisor.thesis || 'Δεν υπάρχει ακόμη αρκετή εικόνα για συμπέρασμα διοίκησης.';
+    $('baConfidenceBadge').innerHTML = `<i class="fe fe-shield"></i>${escapeHtml(confidence.label || 'Βεβαιότητα')}`;
+    $('baConfidenceText').textContent = confidence.text || '';
+    $('baFocusStrip').innerHTML = (advisor.focus_order || []).map((label, idx) => (
+      `<span class="ba-focus-chip"><i class="fe fe-crosshair"></i>${idx + 1}. ${escapeHtml(label)}</span>`
+    )).join('');
+    renderDecisionFacts(data.modules || {}, scoreValue);
+    $('baPositiveCount').textContent = String((data.positives || []).length);
+    $('baRiskCount').textContent = String((data.risks || []).length);
+    $('baActionCount').textContent = String((data.actions || []).length);
+    $('baLeversCount').textContent = String((data.levers || []).length);
+    renderList('baPositives', data.positives || [], 'Δεν εντοπίστηκε έντονο θετικό σήμα για την επιλεγμένη περίοδο.');
+    renderList('baRisks', data.risks || [], 'Δεν εντοπίστηκε σοβαρός κίνδυνος για την επιλεγμένη περίοδο.');
+    renderList('baActions', data.actions || [], 'Δεν απαιτείται συγκεκριμένη διορθωτική ενέργεια.', true);
+    $('baLevers').innerHTML = (data.levers || []).length
+      ? data.levers.map(leverHtml).join('')
+      : emptyHtml('Δεν εντοπίστηκε μετρήσιμος μοχλός βελτίωσης για την περίοδο.');
+    $('baActionPlan').innerHTML = (data.action_plan || []).map(planHtml).join('');
+    renderDimensionDiagnosis(data.dimension_diagnosis || {});
+    renderModules(data.modules || {});
+
+    const warnings = data.diagnostics?.warnings || [];
+    const diagnostics = $('baDiagnostics');
+    if (warnings.length) {
+      diagnostics.classList.remove('d-none');
+      diagnostics.textContent = `Διαγνωστική σημείωση: ${warnings.length} κύκλωμα/τα χρειάζονται τεχνικό έλεγχο ανάγνωσης.`;
+    } else {
+      diagnostics.classList.add('d-none');
+      diagnostics.textContent = '';
+    }
+  }
+
+  $('baFiltersForm')?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    loadAdvisor().catch((error) => {
+      $('baBriefList').innerHTML = `<li><i class="fe fe-alert-triangle"></i><span>Δεν ήταν δυνατή η φόρτωση: ${escapeHtml(error.message)}</span></li>`;
+    });
+  });
+
+  $('baResetBtn')?.addEventListener('click', () => {
+    $('baFrom').value = defaults.from;
+    $('baTo').value = defaults.to;
+    $('baTargetMargin').value = defaults.targetMargin;
+    loadAdvisor().catch(() => {});
+  });
+
+  loadAdvisor().catch((error) => {
+    $('baBriefList').innerHTML = `<li><i class="fe fe-alert-triangle"></i><span>Δεν ήταν δυνατή η φόρτωση: ${escapeHtml(error.message)}</span></li>`;
+    renderList('baPositives', [], 'Δεν υπάρχουν δεδομένα.');
+    renderList('baRisks', [], 'Δεν υπάρχουν δεδομένα.');
+    renderList('baActions', [], 'Δεν υπάρχουν δεδομένα.', true);
+    $('baLevers').innerHTML = emptyHtml('Δεν υπάρχουν δεδομένα.');
+    $('baActionPlan').innerHTML = '';
+    $('baDimensionDiagnosis').innerHTML = emptyHtml('Δεν υπάρχουν δεδομένα.');
+  });
+})();
+</script>
+{% endblock %}

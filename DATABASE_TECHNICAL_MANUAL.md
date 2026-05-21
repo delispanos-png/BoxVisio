@@ -166,7 +166,7 @@ Tenant DBs hold business data and KPI-ready aggregates for each tenant.
 | `dim_brands` | Brand master | `external_id`, `name` | Product classification |
 | `dim_categories` | Category hierarchy | `external_id`, `name`, `parent_id`, `level` | Tree-like product categorization |
 | `dim_groups` | Group master | `external_id`, `name` | Additional item grouping |
-| `dim_items` | Product/item master | `external_id`, `sku`, `barcode`, `name`, `brand_id`, `category_id`, `group_id`, `is_active_source` | Primary table for item lookups |
+| `dim_items` | Product/item master | `external_id`, `sku`, `barcode`, `name`, `brand_id`, `category_id`, `group_id`, `is_active_source`, `manual_order_category`, `commercial_status`, `replenishment_status_1`, `replenishment_status_2`, `min_stock`, `replenishment_moq`, `vendor_moq`, `current_purchase_price` | Primary table for item lookups and FnR/Replenishment metadata |
 | `dim_customers` | Customer master | `external_id`, `customer_code`, `name` | Used in sales and receivables |
 | `dim_suppliers` | Supplier master | `external_id`, `name` | Used in purchases/payables/targets |
 | `dim_accounts` | Account master | `external_id`, `name`, `account_type`, `currency` | Cashflow accounting dimension |
@@ -175,6 +175,20 @@ Tenant DBs hold business data and KPI-ready aggregates for each tenant.
 | `dim_expense_categories` | Expense category hierarchy | `external_id`, `category_code`, `classification`, `parent_category_id` | Expense analytics model |
 | `dim_calendar` | Date dimension | `full_date`, `year`, `month`, `week_of_year`, `is_weekend` | Time intelligence |
 | `dim_products` | Legacy compatibility item table | similar to `dim_items` | Kept for compatibility paths |
+
+FnR/Replenishment item-source notes:
+- `dim_items.vendor_moq` is sourced from SoftOne `MTRSUPCODE.CCC88MOQ` through `MTRSUPCODE.MTRL`; BI stores the minimum positive MOQ per item and falls back to `1` when SoftOne has no maintained value.
+- `dim_items.min_stock` and `dim_items.replenishment_moq` are branch-aware values from `MTRBRNLIMITS.REMAINLIMMIN` and `MTRBRNLIMITS.REORDERLEVEL`, with fallback `1`.
+- `fact_inventory.qty_expected` is supplier-side expected stock used by FnR before proposing a new supplier order. It must not be confused with customer orders. In pharmacy295 `MTRBALSHEET` has no confirmed expected-stock column, so the SQL QueryPack keeps `0`; expected supplier quantities are now reviewed through the Supplier Orders circuit until they are canonicalized into FnR facts.
+
+Supplier Orders circuit:
+- UI route: `/tenant/supplier-orders`
+- tenant configuration: `tenants.feature_flags -> supplier_orders.lookback_days`
+- canonical fact table: `fact_supplier_orders`
+- ingestion stream: `supplier_orders`, available from both SQL querypack and JavaScript bridge
+- SoftOne source: `FINDOC` + `MTRLINES`, `SOSOURCE=1251`, `SODTYPE=12`, `TFPRMS=201`, series `2021/2031`
+- open order logic: no transformation exists from the order via `MTRLINES.FINDOCS` and `FINDOC.FULLYTRANSF` is not set
+- BI business rule: transformed orders are closed even when supplier delivery was partial; BI does not keep supplier backorders.
 
 ### 6.2 Staging and raw ingestion (`stg_*`, `staging_*`)
 
@@ -194,8 +208,8 @@ Tenant DBs hold business data and KPI-ready aggregates for each tenant.
 | Table | Purpose | Key Columns | Notes |
 |---|---|---|---|
 | `fact_sales` | Sales line-level canonical fact | `event_id`, `doc_date`, `branch_id`, `item_id`, `customer_id`, `qty`, `net_value`, `cost_amount`, `profit_amount` | Core sales truth for drilldowns and aggregates |
-| `fact_purchases` | Purchases line-level canonical fact | `event_id`, `doc_date`, `branch_id`, `item_id`, `supplier_id`, `qty`, `net_value`, `cost_amount` | Core purchases truth |
-| `fact_inventory` | Inventory snapshots/events | `external_id`, `doc_date`, `branch_id`, `item_id`, `warehouse_id`, `qty_on_hand`, `value_amount` | Stock state inputs |
+| `fact_purchases` | Purchases line-level canonical fact | `event_id`, `doc_date`, `branch_id`, `item_id`, `supplier_id`, `qty`, `net_value`, `cost_amount`, `discount1_pct`, `discount2_pct`, `discount3_pct` | Core purchases truth. SoftOne `LINEVAL` is preserved in `source_payload_json.line_value` for item purchase analysis. |
+| `fact_inventory` | Inventory snapshots/events | `external_id`, `doc_date`, `branch_id`, `item_id`, `warehouse_id`, `qty_on_hand`, `qty_reserved`, `qty_expected`, `qty_available`, `value_amount` | Stock state inputs for Inventory, Availability and FnR/Replenishment |
 | `fact_cashflows` | Cashflow fact | `external_id`, `doc_date`, `branch_id`, `entry_type`, `amount`, `transaction_type`, `account_id` | Inflows/outflows |
 | `fact_supplier_balances` | Supplier balances fact | `supplier_id`, `balance_date`, `branch_id`, `open_balance`, `overdue_balance`, aging buckets | Payables analytics |
 | `fact_customer_balances` | Customer balances fact | `customer_id`, `balance_date`, `branch_id`, `open_balance`, `overdue_balance`, aging buckets | Receivables analytics |
@@ -227,6 +241,11 @@ Legacy/compatibility fact tables:
 | `agg_purchases_daily_company` | Daily company-level purchases summary |
 | `agg_purchases_daily_branch` | Daily branch-level purchases summary and contribution |
 | `agg_purchases_monthly` | Monthly purchases by major dimensions |
+
+Purchase analytics note:
+- item YTD/PYTD value reads SoftOne `MTRLINES.LINEVAL` from `fact_purchases.source_payload_json.line_value`;
+- item YTD/PYTD discount is `AVG(discount1_pct + discount2_pct + discount3_pct)`;
+- purchase document spend is clean purchase value plus document expenses.
 
 #### Inventory aggregates
 
@@ -314,6 +333,9 @@ Legacy/compatibility fact tables:
 - `fact_purchases.supplier_id -> dim_suppliers.id`
 - `fact_inventory.warehouse_id -> dim_warehouses.id`
 - `fact_supplier_balances.supplier_id -> dim_suppliers.id`
+- `fact_supplier_orders.supplier_id -> dim_suppliers.id`
+- `fact_supplier_orders.item_id -> dim_items.id`
+- `fact_supplier_orders.branch_id -> dim_branches.id`
 - `fact_customer_balances.customer_id -> dim_customers.id`
 - `fact_expenses.category_id -> dim_expense_categories.id`
 - `fact_expenses.supplier_id -> dim_suppliers.id`
@@ -474,4 +496,3 @@ Then run pending migrations and re-check schema.
   - canonical `fact_*`
   - relevant `agg_*`
   - ingestion retry/dead-letter handling
-

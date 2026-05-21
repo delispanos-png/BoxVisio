@@ -43,6 +43,10 @@ async def get_ingest_tenant(
 def _enqueue_batch(stream: str, tenant: Tenant, payload: IngestBatchRequest) -> None:
     entity = STREAM_TO_ENTITY[stream]  # type: ignore[index]
     serialized = {'records': [record.model_dump(mode='json') for record in payload.records]}
+    flags = tenant.feature_flags if isinstance(tenant.feature_flags, dict) else {}
+    tenant_priority = flags.get('ingest_priority') or flags.get('tenant_priority')
+    if tenant_priority is None:
+        tenant_priority = 20 if tenant.plan in {PlanName.enterprise, PlanName.custom} else 80 if tenant.plan == PlanName.pro else 120
     enqueue_tenant_job(
         tenant.slug,
         {
@@ -50,6 +54,7 @@ def _enqueue_batch(stream: str, tenant: Tenant, payload: IngestBatchRequest) -> 
             'stream': stream,
             'entity': entity,
             'tenant_slug': tenant.slug,
+            'tenant_priority': tenant_priority,
             'payload': serialized,
             'attempt': 0,
             'max_retries': settings.ingest_job_max_retries,

@@ -778,7 +778,7 @@
 {% if not documents_mode %}
 <div class="row g-3 mb-3">
   <div class="col-xl-3 col-md-6">
-    <div class="bv-metric-card" style="--mc-color:#6f42c1" data-kpi-what="Συνολική καθαρή αξία πωλήσεων στο επιλεγμένο διάστημα." data-kpi-formula="Σύνολο Τζίρου = άθροισμα net_value όλων των παραστατικών που έχουν χαρακτηριστεί ως Έσοδα, στο [Από, Έως].">
+    <div class="bv-metric-card" style="--mc-color:#6f42c1" data-kpi-what="Συνολική αξία πωλήσεων χωρίς ΦΠΑ, μαζί με τα καθαρά έξοδα του παραστατικού." data-kpi-formula="Σύνολο Τζίρου = καθαρή αξία γραμμών + καθαρή αξία εξόδων παραστατικού, μία φορά ανά παραστατικό, στο [Από, Έως].">
       <div class="mc-icon"><i class="fe fe-trending-up"></i></div>
       <div class="mc-label">{{ tt(request, 'total_turnover') }}</div>
       <div id="cardTurnover" class="mc-value">0.00</div>
@@ -786,7 +786,7 @@
     </div>
   </div>
   <div class="col-xl-3 col-md-6">
-    <div class="bv-metric-card" style="--mc-color:#0ea46f" data-kpi-what="Μικτό αποτέλεσμα πωλήσεων στο επιλεγμένο διάστημα." data-kpi-formula="Μικτό Κέρδος = Σύνολο Τζίρου - Κόστος Πωλήσεων.">
+    <div class="bv-metric-card" style="--mc-color:#0ea46f" data-kpi-what="Μικτό αποτέλεσμα πωλήσεων στο επιλεγμένο διάστημα." data-kpi-formula="Μικτό Κέρδος = Τζίρος (καθαρή αξία + έξοδα παραστατικού) - Κόστος Πωληθέντων. Το κόστος πωληθέντων είναι το άθροισμα cost_amount των γραμμών πώλησης.">
       <div class="mc-icon"><i class="fe fe-award"></i></div>
       <div class="mc-label">{{ tt(request, 'gross_profit') }}</div>
       <div id="cardGrossProfit" class="mc-value">0.00</div>
@@ -840,7 +840,7 @@
 
 <div class="row g-3 mb-3">
   <div class="col-xl-3 col-md-6">
-    <div class="bv-metric-card" style="--mc-color:#ef4444" data-kpi-what="Καθαρή αξία πωλήσεων του προηγούμενου έτους μέχρι την ίδια ημέρα cutoff." data-kpi-formula="Τζίρος Προηγ. Έτους YTD = άθροισμα net_value από 01/01/{προηγ. έτος} έως ίδια ημερομηνία cutoff.">
+    <div class="bv-metric-card" style="--mc-color:#ef4444" data-kpi-what="Τζίρος πωλήσεων του προηγούμενου έτους μέχρι την ίδια ημέρα cutoff, χωρίς ΦΠΑ και με έξοδα παραστατικών." data-kpi-formula="Τζίρος Προηγ. Έτους YTD = άθροισμα καθαρής αξίας + καθαρών εξόδων παραστατικού από 01/01/{προηγ. έτος} έως ίδια ημερομηνία cutoff.">
       <div class="mc-icon"><i class="fe fe-clock"></i></div>
       <div class="mc-label">Τζίρος <span id="salesPrevYearLabel">{{ default_to.year - 1 }}</span> (YTD)</div>
       <div id="salesPrevYearValue" class="mc-value">0.00</div>
@@ -848,7 +848,7 @@
     </div>
   </div>
   <div class="col-xl-3 col-md-6">
-    <div class="bv-metric-card" style="--mc-color:#3b82f6" data-kpi-what="Καθαρή αξία πωλήσεων του τρέχοντος έτους μέχρι την ημερομηνία cutoff." data-kpi-formula="Τζίρος Τρέχοντος Έτους YTD = άθροισμα net_value από 01/01/{τρέχον έτος} έως ημερομηνία 'Έως'.">
+    <div class="bv-metric-card" style="--mc-color:#3b82f6" data-kpi-what="Τζίρος πωλήσεων του τρέχοντος έτους μέχρι την ημερομηνία cutoff, χωρίς ΦΠΑ και με έξοδα παραστατικών." data-kpi-formula="Τζίρος Τρέχοντος Έτους YTD = άθροισμα καθαρής αξίας + καθαρών εξόδων παραστατικού από 01/01/{τρέχον έτος} έως ημερομηνία 'Έως'.">
       <div class="mc-icon"><i class="fe fe-trending-up"></i></div>
       <div class="mc-label">Τζίρος <span id="salesYearLabel">{{ default_to.year }}</span> (YTD)</div>
       <div id="salesYearValue" class="mc-value">0.00</div>
@@ -856,7 +856,7 @@
     </div>
   </div>
   <div class="col-xl-3 col-md-6">
-    <div class="bv-metric-card" style="--mc-color:#ef4444" data-kpi-what="Συνολική καθαρή αξία πωλήσεων για όλο το προηγούμενο έτος." data-kpi-formula="Τζίρος Προηγ. Έτους Full = άθροισμα net_value από 01/01 έως 31/12 του προηγούμενου έτους.">
+    <div class="bv-metric-card" style="--mc-color:#ef4444" data-kpi-what="Συνολικός τζίρος πωλήσεων για όλο το προηγούμενο έτος, χωρίς ΦΠΑ και με έξοδα παραστατικών." data-kpi-formula="Τζίρος Προηγ. Έτους Full = άθροισμα καθαρής αξίας + καθαρών εξόδων παραστατικού από 01/01 έως 31/12 του προηγούμενου έτους.">
       <div class="mc-icon"><i class="fe fe-calendar"></i></div>
       <div class="mc-label">Τζίρος <span id="salesFullPrevYearLabel">{{ default_to.year - 1 }}</span> (FULL YEAR)</div>
       <div id="salesFullPrevYearValue" class="mc-value">0.00</div>
@@ -864,7 +864,7 @@
     </div>
   </div>
   <div class="col-xl-3 col-md-6">
-    <div class="bv-metric-card" style="--mc-color:#3b82f6" data-kpi-what="Ο φετινός τζίρος YTD, με σύγκριση απέναντι στο full προηγούμενο έτος." data-kpi-formula="Τζίρος Τρέχοντος Έτους YTD = άθροισμα net_value από 01/01/{τρέχον έτος} έως 'Έως'. Σύγκριση = ((YTD - Προηγ. Έτος Full) / Προηγ. Έτος Full) * 100.">
+    <div class="bv-metric-card" style="--mc-color:#3b82f6" data-kpi-what="Ο φετινός τζίρος YTD, με σύγκριση απέναντι στο full προηγούμενο έτος." data-kpi-formula="Τζίρος Τρέχοντος Έτους YTD = άθροισμα καθαρής αξίας + καθαρών εξόδων παραστατικού από 01/01/{τρέχον έτος} έως 'Έως'. Σύγκριση = ((YTD - Προηγ. Έτος Full) / Προηγ. Έτος Full) * 100.">
       <div class="mc-icon"><i class="fe fe-flag"></i></div>
       <div class="mc-label">Τζίρος <span id="salesFullCurrentYearLabel">{{ default_to.year }}</span> (YTD)</div>
       <div id="salesFullCurrentYearValue" class="mc-value">0.00</div>
@@ -1843,6 +1843,7 @@ function rebuildSalesHiddenCategories(){
   const hidden = document.getElementById('salesCategories');
   if(!hidden) return;
   hidden.innerHTML = '';
+  if(!l1.size && !l2.size && !l3.size) return;
   salesCategoryHierarchy
     .filter(c => !l1.size || l1.has(c.l1))
     .filter(c => !l2.size || l2.has(c.l2))

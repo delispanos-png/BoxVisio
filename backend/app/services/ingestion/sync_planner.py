@@ -5,7 +5,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.control import TenantConnection
+from app.models.control import PlanName, Tenant, TenantConnection
 from app.services.ingestion.base import (
     ALL_OPERATIONAL_STREAMS,
     STREAM_TO_ENTITY,
@@ -15,6 +15,33 @@ from app.services.ingestion.base import (
 )
 
 SQL_CONNECTOR_ALIASES = {'sql_connector', 'pharmacyone_sql'}
+
+
+def _priority_from_raw(value: Any) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        aliases = {'critical': 0, 'high': 10, 'production': 20, 'normal': 100, 'low': 200, 'demo': 250}
+        if lowered in aliases:
+            return aliases[lowered]
+    try:
+        return max(0, min(999, int(value)))
+    except Exception:
+        return None
+
+
+def _tenant_ingest_priority(tenant: Tenant | None) -> int:
+    flags = tenant.feature_flags if tenant is not None and isinstance(tenant.feature_flags, dict) else {}
+    priority = _priority_from_raw(flags.get('ingest_priority') or flags.get('tenant_priority'))
+    if priority is not None:
+        return priority
+    plan = tenant.plan if tenant is not None else PlanName.standard
+    if plan in {PlanName.enterprise, PlanName.custom}:
+        return 20
+    if plan == PlanName.pro:
+        return 80
+    return 120
 
 
 def _normalize_source_type(connector_type: str, source_type: str | None) -> str:
@@ -91,13 +118,14 @@ def _connector_matches_preference(connector_type: str, preferred_connector: str 
     return connector == preferred
 
 
-def _default_sql_jobs(tenant_slug: str) -> list[dict[str, Any]]:
+def _default_sql_jobs(tenant_slug: str, *, tenant_priority: int = 100) -> list[dict[str, Any]]:
     return [
         {
             'connector': 'sql_connector',
             'stream': stream,
             'entity': STREAM_TO_ENTITY[stream],
             'tenant_slug': tenant_slug,
+            'tenant_priority': tenant_priority,
             'payload': {},
             'attempt': 0,
         }
@@ -112,6 +140,10 @@ async def plan_tenant_sync_jobs(
     tenant_slug: str,
     preferred_connector: str | None = None,
 ) -> list[dict[str, Any]]:
+    tenant = (
+        await control_db.execute(select(Tenant).where(Tenant.id == tenant_id))
+    ).scalar_one_or_none()
+    tenant_priority = _tenant_ingest_priority(tenant)
     rows = (
         await control_db.execute(
             select(TenantConnection).where(TenantConnection.tenant_id == tenant_id).order_by(TenantConnection.id.asc())
@@ -119,7 +151,7 @@ async def plan_tenant_sync_jobs(
     ).scalars().all()
 
     if not rows:
-        return _default_sql_jobs(tenant_slug)
+        return _default_sql_jobs(tenant_slug, tenant_priority=tenant_priority)
     active_rows = [row for row in rows if bool(getattr(row, 'is_active', True))]
     if not active_rows:
         return []
@@ -161,7 +193,7 @@ async def plan_tenant_sync_jobs(
         )
 
     if not candidates:
-        return _default_sql_jobs(tenant_slug)
+        return _default_sql_jobs(tenant_slug, tenant_priority=tenant_priority)
 
     jobs: list[dict[str, Any]] = []
     for stream in ALL_OPERATIONAL_STREAMS:
@@ -187,6 +219,7 @@ async def plan_tenant_sync_jobs(
                 'stream': stream,
                 'entity': STREAM_TO_ENTITY[stream],
                 'tenant_slug': tenant_slug,
+                'tenant_priority': tenant_priority,
                 'payload': payload,
                 'attempt': 0,
             }

@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from sqlalchemy.orm.attributes import flag_modified
+
 from app.models.control import TenantConnection
 
 _PROVIDER_ALIASES: dict[str, str] = {
@@ -27,6 +29,7 @@ class QueryPack:
     supplier_balances_sql: str | None = None
     customer_balances_sql: str | None = None
     expenses_sql: str | None = None
+    supplier_orders_sql: str | None = None
 
 
 def _querypack_dir(provider: str) -> Path:
@@ -70,6 +73,11 @@ def load_querypack(provider: str = 'erp_sql', pack_name: str = 'default') -> Que
         ['facts/expenses_facts.sql'],
         required=False,
     )
+    supplier_orders_sql = _read_sql(
+        root,
+        ['facts/supplier_orders_facts.sql'],
+        required=False,
+    )
 
     return QueryPack(
         name=str(mapping.get('name') or 'unknown'),
@@ -82,6 +90,7 @@ def load_querypack(provider: str = 'erp_sql', pack_name: str = 'default') -> Que
         supplier_balances_sql=supplier_balances_sql,
         customer_balances_sql=customer_balances_sql,
         expenses_sql=expenses_sql,
+        supplier_orders_sql=supplier_orders_sql,
     )
 
 
@@ -100,6 +109,9 @@ def apply_querypack_to_connection(conn: TenantConnection, pack: QueryPack) -> No
     if pack.expenses_sql:
         conn.stream_query_mapping = conn.stream_query_mapping or {}
         conn.stream_query_mapping['operating_expenses'] = pack.expenses_sql
+    if pack.supplier_orders_sql:
+        conn.stream_query_mapping = conn.stream_query_mapping or {}
+        conn.stream_query_mapping['supplier_orders'] = pack.supplier_orders_sql
     conn.incremental_column = str(colmap.get('incremental_column') or 'updated_at')
     conn.id_column = str(colmap.get('id_column') or 'external_id')
     conn.date_column = str(colmap.get('date_column') or 'doc_date')
@@ -117,6 +129,7 @@ def apply_querypack_to_connection(conn: TenantConnection, pack: QueryPack) -> No
         'supplier_balances',
         'customer_balances',
         'operating_expenses',
+        'supplier_orders',
     ]
     # Keep operating expenses supported but disabled by default to avoid
     # breaking ingest on SQL sources that do not expose this object/table.
@@ -127,6 +140,7 @@ def apply_querypack_to_connection(conn: TenantConnection, pack: QueryPack) -> No
         'cash_transactions',
         'supplier_balances',
         'customer_balances',
+        'supplier_orders',
     ]
     params = conn.connection_parameters if isinstance(conn.connection_parameters, dict) else {}
     if bool(params.get('enable_operating_expenses')):
@@ -140,8 +154,19 @@ def apply_querypack_to_connection(conn: TenantConnection, pack: QueryPack) -> No
         'supplier_balances': conn.supplier_balances_query_template or '',
         'customer_balances': conn.customer_balances_query_template or '',
         'operating_expenses': (pack.expenses_sql or ''),
+        'supplier_orders': (pack.supplier_orders_sql or ''),
     }
     conn.stream_field_mapping = conn.stream_field_mapping or {}
     conn.stream_file_mapping = conn.stream_file_mapping or {}
     conn.stream_api_endpoint = conn.stream_api_endpoint or {}
     conn.connection_parameters = conn.connection_parameters or {'connector_type': conn.connector_type, 'source_type': 'sql'}
+    for attr in (
+        'supported_streams',
+        'enabled_streams',
+        'stream_query_mapping',
+        'stream_field_mapping',
+        'stream_file_mapping',
+        'stream_api_endpoint',
+        'connection_parameters',
+    ):
+        flag_modified(conn, attr)

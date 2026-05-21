@@ -24,6 +24,7 @@ SELECT
 
   CAST(ISNULL(T.CODE, F.TRDR) AS nvarchar(64)) AS supplier_ext_id,
   CAST(ISNULL(T.NAME, '') AS nvarchar(255)) AS supplier_name,
+  CAST(ISNULL(T.AFM, '') AS nvarchar(64)) AS supplier_afm,
   CAST(MAX(ISNULL(BR.NAME, CAST(F.BRANCH AS nvarchar(255)))) AS nvarchar(255)) AS branch_name,
   CAST(MAX(F.BRANCH) AS nvarchar(64)) AS branch_code,
   CAST(MAX(F.COMPANY) AS nvarchar(64)) AS company_id
@@ -38,6 +39,7 @@ WHERE
   AND (@to_date IS NULL OR F.TRNDATE < DATEADD(day, 1, @to_date))
 GROUP BY
   ISNULL(T.CODE, F.TRDR),
+  ISNULL(T.AFM, ''),
   ISNULL(T.NAME, ''),
   ISNULL(F.COMPANY, 0),
   ISNULL(F.BRANCH, 0)

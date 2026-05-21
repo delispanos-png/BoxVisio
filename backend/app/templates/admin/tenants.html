@@ -1,5 +1,6 @@
 {% extends "base_admin.html" %}
 {% block content %}
+<div class="bv-admin-page">
 {% if request.query_params.get('updated') == '1' %}
 <div class="alert alert-success mt-3">Ο πελάτης ενημερώθηκε επιτυχώς.</div>
 {% elif request.query_params.get('updated') == '0' %}
@@ -40,35 +41,49 @@
 </div>
 {% endif %}
 
+<div class="bv-admin-hero">
+  <div>
+    <h4>Tenants &amp; Provisioning</h4>
+    <p>Δημιουργία πελάτη, admin χρήστη, API keys, συνδρομή και πηγή δεδομένων από ένα ενοποιημένο σημείο.</p>
+  </div>
+  <div class="bv-admin-hero-actions">
+    <a class="btn btn-outline-secondary" href="/admin/subscriptions"><i class="fe fe-credit-card me-1"></i>Συνδρομές</a>
+    <a class="btn btn-primary" href="/admin/plans"><i class="fe fe-sliders me-1"></i>{{ tt(request, 'manage_plan_features') }}</a>
+  </div>
+</div>
+
 <div class="bv-admin-workflow">
-<div class="card mt-3">
-  <div class="card-body">
-    <div class="bv-admin-section-title">
+<div class="bv-admin-panel">
+  <div class="bv-admin-panel-head">
       <div>
         <h5>{{ tt(request, 'tenant_wizard') }}</h5>
         <p>Δημιουργία tenant, admin χρήστη, API keys και προαιρετικό provisioning πρόσβασης.</p>
       </div>
-      <a class="btn btn-sm bv-action-btn bv-action-edit" href="/admin/plans"><i class="fe fe-sliders"></i>{{ tt(request, 'manage_plan_features') }}</a>
-    </div>
-    <form id="tenantCreateForm" method="post" action="/admin/tenants/create" class="row g-2">
-      <div class="col-md-2"><input class="form-control" name="name" placeholder="{{ tt(request, 'tenant_name') }}" required></div>
-      <div class="col-md-2"><input class="form-control" name="slug" placeholder="tenant-slug" required></div>
-      <div class="col-md-2"><input class="form-control" name="admin_email" placeholder="admin@tenant.com" required></div>
-      <div class="col-md-2">
+      <span class="bv-admin-chip"><i class="fe fe-layers"></i> provisioning flow</span>
+  </div>
+  <div class="bv-admin-panel-body">
+    <form id="tenantCreateForm" method="post" action="/admin/tenants/create" class="bv-admin-form-grid">
+      <div class="bv-admin-field"><label class="form-label">Πελάτης</label><input class="form-control" name="name" placeholder="{{ tt(request, 'tenant_name') }}" required></div>
+      <div class="bv-admin-field-sm"><label class="form-label">Slug</label><input class="form-control" name="slug" placeholder="tenant-slug" required></div>
+      <div class="bv-admin-field"><label class="form-label">Admin email</label><input class="form-control" name="admin_email" placeholder="admin@tenant.com" required></div>
+      <div class="bv-admin-field-sm">
+        <label class="form-label">{{ tt(request, 'plan') }}</label>
         <select class="form-select" name="plan">
           <option value="standard">Standard</option>
           <option value="pro">Pro</option>
           <option value="enterprise">Enterprise</option>
         </select>
       </div>
-      <div class="col-md-2">
+      <div class="bv-admin-field-sm">
+        <label class="form-label">{{ tt(request, 'source') }}</label>
         <select class="form-select" name="source">
           <option value="sql">SQL</option>
           <option value="external">API</option>
           <option value="files">Αρχεία</option>
         </select>
       </div>
-      <div class="col-md-2">
+      <div class="bv-admin-field-sm">
+        <label class="form-label">{{ tt(request, 'status') }}</label>
         <select class="form-select" name="subscription_status">
           <option value="trial">trial</option>
           <option value="active">active</option>
@@ -77,29 +92,34 @@
           <option value="canceled">canceled</option>
         </select>
       </div>
-      <div class="col-md-2"><input class="form-control" type="number" min="0" name="trial_days" value="14" placeholder="{{ tt(request, 'trial_days') }}"></div>
-      <div class="col-md-3 d-flex align-items-center">
+      <div class="bv-admin-field-sm"><label class="form-label">{{ tt(request, 'trial_days') }}</label><input class="form-control" type="number" min="0" name="trial_days" value="14" placeholder="{{ tt(request, 'trial_days') }}"></div>
+      <div class="bv-admin-field-wide">
         <label class="form-check mb-0 small">
           <input class="form-check-input" type="checkbox" name="send_welcome_email" value="true" checked>
           <span class="form-check-label">Αποστολή email πρόσκλησης</span>
         </label>
       </div>
-      <div class="col-md-3 d-flex align-items-center">
+      <div class="bv-admin-field-wide">
         <label class="form-check mb-0 small">
           <input class="form-check-input" type="checkbox" name="create_subdomain" value="true">
           <span class="form-check-label">Δημιουργία subdomain στο Cloudflare</span>
         </label>
       </div>
-      <div class="col-md-2"><button id="tenantCreateBtn" class="btn btn-primary w-100" type="submit"><i class="fe fe-plus-circle"></i>{{ tt(request, 'create_tenant') }}</button></div>
-      <div class="col-12"><small class="text-muted">Βήματα: στοιχεία πελάτη -> πλάνο -> πηγή -> DB/migrations -> admin user -> API keys -> subdomain -> email πρόσκλησης</small></div>
+      <div class="bv-admin-field-sm bv-admin-field-actions"><button id="tenantCreateBtn" class="btn btn-primary w-100" type="submit"><i class="fe fe-plus-circle me-1"></i>{{ tt(request, 'create_tenant') }}</button></div>
+      <div class="bv-admin-field-full"><div class="bv-admin-note"><i class="fe fe-info"></i><span>Βήματα: στοιχεία πελάτη -> πλάνο -> πηγή -> DB/migrations -> admin user -> API keys -> subdomain -> email πρόσκλησης.</span></div></div>
     </form>
   </div>
 </div>
 
 {% if provisioning_result and provisioning_result.steps %}
-<div class="card mt-3">
-  <div class="card-body">
-    <h5 class="mb-3">{{ tt(request, 'last_provisioning_run') }}</h5>
+<div class="bv-admin-panel">
+  <div class="bv-admin-panel-head">
+    <div>
+      <h5>{{ tt(request, 'last_provisioning_run') }}</h5>
+      <p>Αναλυτική εικόνα των βημάτων που εκτελέστηκαν.</p>
+    </div>
+  </div>
+  <div class="bv-admin-panel-body">
     <div class="table-responsive">
       <table class="table table-sm bv-unified-table" data-bv-admin-table="1">
         <thead><tr><th>{{ tt(request, 'step') }}</th><th>{{ tt(request, 'title') }}</th><th>{{ tt(request, 'status') }}</th><th>{{ tt(request, 'message') }}</th></tr></thead>
@@ -119,14 +139,15 @@
 </div>
 {% endif %}
 
-<div class="card">
-  <div class="card-body">
-    <div class="bv-admin-section-title">
+<div class="bv-admin-panel">
+  <div class="bv-admin-panel-head">
       <div>
         <h5>{{ tt(request, 'tenants_list') }}</h5>
         <p>Lifecycle πελατών, πλάνα, κατάσταση συνδρομής και πηγή δεδομένων.</p>
       </div>
-    </div>
+      <span class="bv-admin-chip">{{ tenants|length }} tenants</span>
+  </div>
+  <div class="bv-admin-panel-body">
     <div class="table-responsive">
       <table class="table table-hover align-middle bv-unified-table" data-bv-admin-table="1">
         <thead>
@@ -168,7 +189,7 @@
                 <a class="btn btn-sm bv-action-btn bv-action-edit" href="/admin/tenants/{{ t.id }}/edit?next=/admin/tenants" title="Επεξεργασία" aria-label="Επεξεργασία {{ t.name }}">
                   <i class="fe fe-edit-2"></i>
                 </a>
-                <form method="post" action="/admin/tenants/{{ t.id }}/delete" onsubmit="return confirm('Να διαγραφεί ο πελάτης {{ t.name }}; Θα τερματιστεί η πρόσβαση (soft delete).');">
+                <form method="post" action="/admin/tenants/{{ t.id }}/delete" onsubmit="return confirm('Οριστική διαγραφή πελάτη {{ t.name }}; Θα διαγραφούν οι χρήστες, οι συνδέσεις και η βάση δεδομένων του tenant. Δεν αναιρείται.');">
                   <input type="hidden" name="next_url" value="/admin/tenants">
                   <button class="btn btn-sm bv-action-btn bv-action-delete" type="submit" title="Διαγραφή" aria-label="Διαγραφή {{ t.name }}"><i class="fe fe-trash-2"></i></button>
                 </form>
@@ -180,6 +201,7 @@
       </table>
     </div>
   </div>
+</div>
 </div>
 </div>
 {% endblock %}

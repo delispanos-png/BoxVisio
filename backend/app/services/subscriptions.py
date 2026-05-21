@@ -13,7 +13,8 @@ from app.models.control import (
     Tenant,
     TenantStatus,
 )
-from app.services.subscription_features import infer_subscription_feature_defaults
+from app.services.subscription_features import infer_subscription_feature_defaults, normalize_subscription_feature_flags
+from app.services.subscription_features import FEATURE_KEYS
 
 
 async def get_or_create_subscription(db: AsyncSession, tenant: Tenant) -> Subscription:
@@ -43,11 +44,23 @@ async def sync_tenant_from_subscription(db: AsyncSession, tenant: Tenant, sub: S
     tenant.trial_ends_at = sub.trial_ends_at
     tenant.current_period_end = sub.current_period_end
     tenant.canceled_at = sub.canceled_at
-    tenant_flags = dict(tenant.feature_flags or {})
+    tenant_flags = {
+        key: value
+        for key, value in dict(tenant.feature_flags or {}).items()
+        if key not in FEATURE_KEYS and key != '_temporary_upgrade'
+    }
     sub_flags = dict(sub.feature_flags or {})
+    normalized_flags = normalize_subscription_feature_flags(sub.plan, sub_flags)
+    tenant_flags.update(normalized_flags)
+    cleaned_sub_flags = dict(normalized_flags)
     for key, enabled in sub_flags.items():
-        if isinstance(enabled, bool):
+        if key == '_temporary_upgrade' and isinstance(enabled, dict):
             tenant_flags[key] = enabled
+            cleaned_sub_flags[key] = enabled
+        elif sub.plan == PlanName.custom and isinstance(enabled, bool):
+            tenant_flags[key] = enabled
+            cleaned_sub_flags[key] = enabled
+    sub.feature_flags = cleaned_sub_flags
     tenant.feature_flags = tenant_flags
     if sub.status in {SubscriptionStatus.suspended, SubscriptionStatus.canceled}:
         tenant.status = TenantStatus.suspended
@@ -58,6 +71,72 @@ async def sync_tenant_from_subscription(db: AsyncSession, tenant: Tenant, sub: S
 async def apply_subscription_time_transitions(db: AsyncSession, tenant: Tenant, sub: Subscription) -> bool:
     now = datetime.utcnow()
     prev = sub.status
+    changed = False
+
+    flags = dict(sub.feature_flags or {})
+    temporary_upgrade = flags.get('_temporary_upgrade') if isinstance(flags.get('_temporary_upgrade'), dict) else None
+    if temporary_upgrade and temporary_upgrade.get('active'):
+        expires_raw = str(temporary_upgrade.get('expires_at') or '').strip()
+        expires_at: datetime | None = None
+        if expires_raw:
+            try:
+                expires_at = datetime.fromisoformat(expires_raw.replace('Z', '+00:00'))
+                if expires_at.tzinfo is not None:
+                    expires_at = expires_at.astimezone().replace(tzinfo=None)
+            except ValueError:
+                expires_at = None
+        if expires_at is not None and expires_at <= now:
+            original_plan_raw = str(temporary_upgrade.get('original_plan') or '').strip()
+            try:
+                sub.plan = PlanName(original_plan_raw)
+            except ValueError:
+                sub.plan = tenant.plan if tenant.plan != sub.plan else PlanName.standard
+            original_status_raw = str(temporary_upgrade.get('original_status') or '').strip()
+            try:
+                sub.status = SubscriptionStatus(original_status_raw)
+            except ValueError:
+                pass
+            original_feature_flags = temporary_upgrade.get('original_feature_flags')
+            flags = dict(original_feature_flags) if isinstance(original_feature_flags, dict) else {}
+            sub.feature_flags = flags
+            original_current_period_end = str(temporary_upgrade.get('original_current_period_end') or '').strip()
+            if original_current_period_end:
+                try:
+                    parsed_period_end = datetime.fromisoformat(original_current_period_end.replace('Z', '+00:00'))
+                    sub.current_period_end = (
+                        parsed_period_end.astimezone().replace(tzinfo=None)
+                        if parsed_period_end.tzinfo is not None
+                        else parsed_period_end
+                    )
+                except ValueError:
+                    pass
+            else:
+                sub.current_period_end = None
+            original_trial_ends_at = str(temporary_upgrade.get('original_trial_ends_at') or '').strip()
+            if original_trial_ends_at:
+                try:
+                    parsed_trial_end = datetime.fromisoformat(original_trial_ends_at.replace('Z', '+00:00'))
+                    sub.trial_ends_at = (
+                        parsed_trial_end.astimezone().replace(tzinfo=None)
+                        if parsed_trial_end.tzinfo is not None
+                        else parsed_trial_end
+                    )
+                except ValueError:
+                    pass
+            db.add(
+                AuditLog(
+                    tenant_id=tenant.id,
+                    action='subscription_temporary_upgrade_expired',
+                    entity_type='subscription',
+                    entity_id=str(sub.id),
+                    payload={
+                        'expired_at': now.isoformat(),
+                        'temporary_plan': temporary_upgrade.get('temporary_plan'),
+                        'restored_plan': sub.plan.value,
+                    },
+                )
+            )
+            changed = True
 
     if sub.status == SubscriptionStatus.trial and sub.trial_ends_at and sub.trial_ends_at < now:
         sub.status = SubscriptionStatus.suspended
@@ -82,6 +161,8 @@ async def apply_subscription_time_transitions(db: AsyncSession, tenant: Tenant, 
                 payload={'from': prev.value, 'to': sub.status.value},
             )
         )
+        changed = True
+    if changed:
         await sync_tenant_from_subscription(db, tenant, sub)
         return True
     return False
@@ -108,9 +189,9 @@ async def is_feature_enabled(
         plan_default = bool(row.enabled)
 
     override = (sub.feature_flags or {}).get(feature)
-    if override is None:
-        return plan_default
-    return bool(override)
+    if sub.plan == PlanName.custom and override is not None:
+        return bool(override)
+    return plan_default
 
 
 def infer_default_features_for_plan(plan: PlanName) -> dict[str, bool]:

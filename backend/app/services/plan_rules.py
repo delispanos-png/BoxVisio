@@ -1,9 +1,10 @@
 from dataclasses import dataclass
 
 from app.models.control import PlanName, Tenant
+from app.services.subscription_features import infer_subscription_feature_defaults
 
 # Standard feature keys included in fixed plans.
-_STANDARD_FEATURES = frozenset({'sales', 'purchases', 'inventory', 'cashflows'})
+_STANDARD_FEATURES = frozenset(infer_subscription_feature_defaults(PlanName.enterprise).keys())
 
 
 @dataclass(frozen=True)
@@ -68,21 +69,13 @@ def is_feature_enabled(tenant: Tenant, feature: str) -> bool:
     not in _STANDARD_FEATURES) are gated by tenant.feature_flags so CloudOn
     can activate them individually after implementation.
     """
-    policy = resolve_plan_policy(tenant)
     flags: dict = tenant.feature_flags if isinstance(tenant.feature_flags, dict) else {}
-    if feature in flags and isinstance(flags.get(feature), bool):
+    if tenant.plan == PlanName.custom and feature in flags and isinstance(flags.get(feature), bool):
         return bool(flags.get(feature))
 
-    if feature == 'sales':
-        return policy.feature_sales
-    if feature == 'purchases':
-        return policy.feature_purchases
-    if feature == 'inventory':
-        return policy.feature_inventory
-    if feature == 'cashflows':
-        return policy.feature_cashflows
-    if feature == 'supplier_targets':
-        return policy.feature_supplier_targets
+    defaults = infer_subscription_feature_defaults(tenant.plan)
+    if feature in defaults:
+        return bool(defaults.get(feature))
 
     # Bespoke / custom feature key — only meaningful for custom plan.
     if tenant.plan == PlanName.custom:

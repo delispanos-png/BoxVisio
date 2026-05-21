@@ -1,4 +1,5 @@
 import secrets
+import asyncio
 import json
 import logging
 import re
@@ -9,11 +10,11 @@ from pathlib import Path
 from urllib.parse import urlencode
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Form, Query, Request
+from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from redis import Redis
-from sqlalchemy import func, select, text
+from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -30,7 +31,6 @@ from app.core.security import (
     safe_decode,
     verify_password,
 )
-from app.models.control import RefreshToken
 from app.db.control_session import ControlSessionLocal, get_control_db
 from app.db.tenant_manager import get_tenant_db_session
 from app.models.control import (
@@ -39,6 +39,7 @@ from app.models.control import (
     GlobalRuleSet,
     OperationalStream,
     OverrideMode,
+    Plan,
     PlanFeature,
     PlanName,
     TenantRuleOverride,
@@ -53,8 +54,13 @@ from app.models.control import (
     TenantStatus,
     User,
     ProfessionalProfile,
+    Invoice,
+    Payment,
+    RefreshToken,
+    SubscriptionLimit,
+    WhmcsService,
 )
-from app.models.tenant import DimBranch, Insight
+from app.models.tenant import DimBranch, Insight, ReplenishmentDataQualityIssue, ReplenishmentLine, ReplenishmentSnapshot
 from app.services.intelligence_service import (
     insights_counts_by_severity,
     list_insights as list_tenant_insights,
@@ -66,6 +72,14 @@ from app.services.connection_secrets import (
     build_odbc_connection_string,
     decrypt_sqlserver_secret,
     encrypt_sqlserver_secret,
+)
+from app.services.era_exploration import clear_era_exploration_cache, era_period_from_filename, validate_era_exploration_file
+from app.services.replenishment import build_replenishment_from_facts
+from app.services.supplier_orders import (
+    SupplierOrdersFilters,
+    build_supplier_orders_dashboard,
+    normalize_supplier_order_settings,
+    supplier_order_settings_for_tenant,
 )
 from app.services.sqlserver_connector import (
     DEFAULT_GENERIC_CASHFLOW_QUERY,
@@ -83,8 +97,10 @@ from app.services.provisioning_wizard import run_tenant_provisioning_wizard
 from app.services.ingestion.queueing import close_ingest_circuit
 from app.services.ingestion import enqueue_tenant_job
 from app.services.ingestion.base import ALL_OPERATIONAL_STREAMS, STREAM_TO_ENTITY, normalize_stream_name, normalize_stream_values
+from app.services.ingestion.chunking import stream_chunk_days
 from app.services.ingestion.progress import begin_ingest_progress, clear_ingest_progress, get_ingest_progress, queue_depth, update_ingest_progress
 from app.services.ingestion.queueing import (
+    priority_pool_snapshot,
     tenant_delete_active_key,
     tenant_lock_name,
     tenant_queue_name,
@@ -94,9 +110,18 @@ from app.services.ingestion.queueing import (
 from app.services.ingestion.sync_planner import plan_tenant_sync_jobs
 from app.services.kpi_cache import invalidate_tenant_cache
 from app.services.querypacks import apply_querypack_to_connection, load_querypack
-from app.services.subscriptions import get_or_create_subscription, sync_tenant_from_subscription
-from app.services.subscription_features import SUBSCRIPTION_FEATURES, normalize_subscription_feature_flags
-from app.services.kpi_queries import normalize_document_series_labels_config, normalize_eshop_fulfillment_config
+from app.services.subscriptions import apply_subscription_time_transitions, get_or_create_subscription, sync_tenant_from_subscription
+from app.services.provisioning_wizard import _drop_db_and_role
+from app.services.subscription_features import (
+    SUBSCRIPTION_FEATURES,
+    infer_subscription_feature_defaults,
+    normalize_subscription_feature_flags,
+)
+from app.services.kpi_queries import (
+    normalize_document_series_labels_config,
+    normalize_eshop_fulfillment_config,
+    normalize_price_margin_targets_config,
+)
 
 router = APIRouter(tags=['ui'])
 templates = Jinja2Templates(
@@ -249,6 +274,7 @@ def _normalize_source(raw: str) -> str:
 _DEFAULT_INVENTORY_ITEM_CLASSIFICATION_SETTINGS = {
     'status_source': 'sales_window',
     'active_last_sale_days': 60,
+    'movement_window_days': 30,
     'fast_sales_qty_30d_min': 50,
     'slow_sales_qty_30d_max': 5,
 }
@@ -304,6 +330,7 @@ _SYNC_STREAM_LABELS = {
     'supplier_balances': 'Υπόλοιπα προμηθευτών',
     'customer_balances': 'Υπόλοιπα πελατών',
     'operating_expenses': 'Έξοδα',
+    'supplier_orders': 'Παραγγελίες προμηθευτών',
 }
 
 
@@ -338,6 +365,12 @@ def _tenant_inventory_item_classification_settings(tenant: Tenant | None) -> dic
         min_value=1,
         max_value=3650,
     )
+    movement_window_days = _parse_int_in_range(
+        source.get('movement_window_days'),
+        default=_DEFAULT_INVENTORY_ITEM_CLASSIFICATION_SETTINGS['movement_window_days'],
+        min_value=1,
+        max_value=3650,
+    )
     fast_min = _parse_int_in_range(
         source.get('fast_sales_qty_30d_min'),
         default=_DEFAULT_INVENTORY_ITEM_CLASSIFICATION_SETTINGS['fast_sales_qty_30d_min'],
@@ -355,6 +388,7 @@ def _tenant_inventory_item_classification_settings(tenant: Tenant | None) -> dic
     return {
         'status_source': status_source,
         'active_last_sale_days': active_days,
+        'movement_window_days': movement_window_days,
         'fast_sales_qty_30d_min': fast_min,
         'slow_sales_qty_30d_max': slow_max,
     }
@@ -531,6 +565,108 @@ def _tenant_document_series_labels_settings(tenant: Tenant | None) -> dict[str, 
     return normalize_document_series_labels_config(source)
 
 
+def _tenant_price_margin_targets_settings(tenant: Tenant | None) -> dict[str, object]:
+    flags = tenant.feature_flags if tenant is not None else None
+    source = {}
+    if isinstance(flags, dict):
+        cfg = flags.get('price_margin_targets')
+        if isinstance(cfg, dict):
+            source = cfg
+    return normalize_price_margin_targets_config(source)
+
+
+def _tenant_business_advisor_targets_settings(tenant: Tenant | None) -> dict[str, object]:
+    flags = tenant.feature_flags if tenant is not None else None
+    source = {}
+    if isinstance(flags, dict):
+        cfg = flags.get('business_advisor_targets')
+        if isinstance(cfg, dict):
+            source = cfg
+    try:
+        inventory_coverage_days = int(str(source.get('inventory_coverage_days') or 60).strip())
+    except Exception:
+        inventory_coverage_days = 60
+    return {'inventory_coverage_days': max(1, min(3650, inventory_coverage_days))}
+
+
+def _tenant_supplier_order_settings(tenant: Tenant | None) -> dict[str, int]:
+    flags = tenant.feature_flags if tenant is not None else None
+    source = {}
+    if isinstance(flags, dict) and isinstance(flags.get('supplier_orders'), dict):
+        source = flags.get('supplier_orders') or {}
+    return normalize_supplier_order_settings(source)
+
+
+def _tenant_era_exploration_settings(tenant: Tenant | None) -> dict[str, object]:
+    flags = tenant.feature_flags if tenant is not None else None
+    source: dict[str, object] = {}
+    if isinstance(flags, dict):
+        cfg = flags.get('era_exploration_data_config') or flags.get('era_exploration')
+        if not isinstance(cfg, dict) and isinstance(flags.get('era_exploration_data'), dict):
+            cfg = flags.get('era_exploration_data')
+        if isinstance(cfg, dict):
+            source = cfg
+    return {
+        'file_path': str(source.get('file_path') or ''),
+        'archive_path': str(source.get('archive_path') or ''),
+        'filename': str(source.get('filename') or ''),
+        'uploaded_at': str(source.get('uploaded_at') or ''),
+        'uploaded_by': str(source.get('uploaded_by') or ''),
+        'period': str(source.get('period') or era_period_from_filename(source.get('filename') or source.get('file_path'))),
+        'rows': int(source.get('rows') or 0),
+        'brands': int(source.get('brands') or 0),
+        'categories': int(source.get('categories') or 0),
+    }
+
+
+def _save_era_exploration_upload(
+    tenant: Tenant,
+    upload: UploadFile,
+    user_identity: str,
+) -> tuple[dict[str, object] | None, str | None]:
+    uploaded_name = Path(upload.filename or '').name
+    if not uploaded_name.lower().endswith('.xlsx'):
+        return None, 'era_file_type'
+    upload_dir = Path('/opt/cloudon-bi/uploads/tenants') / tenant.slug / 'era_exploration'
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    target_path = upload_dir / 'current.xlsx'
+    tmp_path = upload_dir / f'.{int(time.time())}.uploading.xlsx'
+    try:
+        with tmp_path.open('wb') as out_file:
+            shutil.copyfileobj(upload.file, out_file)
+        validation = validate_era_exploration_file(tmp_path)
+        period = str(validation.get('period') or era_period_from_filename(uploaded_name) or 'unknown')
+        archive_path = upload_dir / f'{period}.xlsx'
+        tmp_path.replace(archive_path)
+        shutil.copyfile(archive_path, target_path)
+        clear_era_exploration_cache()
+        return {
+            'file_path': str(target_path),
+            'archive_path': str(archive_path),
+            'filename': uploaded_name,
+            'uploaded_at': datetime.utcnow().isoformat(timespec='seconds') + 'Z',
+            'uploaded_by': user_identity or 'tenant',
+            'period': period,
+            'rows': int(validation.get('rows') or 0),
+            'brands': int(validation.get('brands') or 0),
+            'categories': int(validation.get('categories') or 0),
+        }, None
+    except ValueError as exc:
+        logger.warning('era_exploration_upload_invalid', extra={'tenant_id': tenant.id, 'reason': str(exc)})
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+        return None, 'era_file_invalid'
+    except Exception:
+        logger.exception('era_exploration_upload_failed', extra={'tenant_id': tenant.id})
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+        return None, 'era_file_upload_failed'
+
+
 _CASHFLOW_CATEGORY_ALIAS_MAP: dict[str, str] = {
     'customer_collections': 'customer_collections',
     'customer_collection': 'customer_collections',
@@ -660,6 +796,8 @@ def _tenant_feature_flags(tenant: Tenant) -> dict[str, bool]:
         'inventory_enabled': is_feature_enabled(tenant, 'inventory'),
         'cashflow_enabled': is_feature_enabled(tenant, 'cashflows'),
         'supplier_targets_enabled': is_feature_enabled(tenant, 'supplier_targets'),
+        'replenishment_enabled': is_feature_enabled(tenant, 'replenishment'),
+        'supplier_orders_enabled': is_feature_enabled(tenant, 'supplier_orders'),
     }
 
 
@@ -1047,6 +1185,7 @@ _STREAM_LABEL_KEYS: list[tuple[str, str]] = [
     ('inventory_documents', 'warehouse_documents_menu'),
     ('cash_transactions', 'cash_transactions_menu'),
     ('operating_expenses', 'operating_expenses_menu'),
+    ('supplier_orders', 'supplier_orders_menu'),
     ('supplier_balances', 'supplier_open_balances_menu'),
     ('customer_balances', 'customer_open_balances_menu'),
 ]
@@ -1584,8 +1723,6 @@ async def _upsert_document_rule_tenant_override(
 
 
 def _stream_defaults_for_connector(connector_type: str) -> list[str]:
-    if str(connector_type or '').strip().lower() == 'external_api':
-        return ['sales_documents', 'purchase_documents']
     return list(ALL_OPERATIONAL_STREAMS)
 
 
@@ -1614,6 +1751,7 @@ def _coerce_stream_query_mapping_from_values(form_values: dict) -> dict[str, str
         'cash_transactions': str(form_values.get('cashflow_query_template') or ''),
         'supplier_balances': str(form_values.get('supplier_balances_query_template') or ''),
         'customer_balances': str(form_values.get('customer_balances_query_template') or ''),
+        'supplier_orders': str((form_values.get('stream_query_mapping') or {}).get('supplier_orders') or ''),
     }
     mapping_raw = form_values.get('stream_query_mapping')
     out: dict[str, str] = {}
@@ -2443,9 +2581,8 @@ def _enqueue_external_backfill_jobs(
         if stream == 'purchase_documents' and not include_purchases:
             continue
 
-        # SoftOne document streams are much more stable with daily windows.
-        stream_chunk_days = 1 if stream in {'sales_documents', 'purchase_documents', 'inventory_documents'} else default_chunk_days
-        for chunk_from, chunk_to in _iter_chunks(from_dt, to_dt, stream_chunk_days):
+        effective_chunk_days = stream_chunk_days(stream, default_chunk_days)
+        for chunk_from, chunk_to in _iter_chunks(from_dt, to_dt, effective_chunk_days):
             queued_job = dict(job)
             merged_payload = dict(queued_job.get('payload') or {})
             merged_payload.update(
@@ -2812,6 +2949,7 @@ async def admin_tenants(
     ).scalars().all()
     for t in tenants:
         sub = await get_or_create_subscription(db, t)
+        await apply_subscription_time_transitions(db, t, sub)
         await sync_tenant_from_subscription(db, t, sub)
     await db.commit()
     return templates.TemplateResponse(
@@ -2938,6 +3076,9 @@ async def admin_tenant_edit_get_redirect(
             'duplicate_protection': _tenant_duplicate_protection_settings(tenant),
             'eshop_fulfillment': _tenant_eshop_fulfillment_settings(tenant),
             'document_series_labels': _tenant_document_series_labels_settings(tenant),
+            'price_margin_targets': _tenant_price_margin_targets_settings(tenant),
+            'business_advisor_targets': _tenant_business_advisor_targets_settings(tenant),
+            'era_exploration_data': _tenant_era_exploration_settings(tenant),
             'active_page': 'tenants',
             'title': 'title_tenants',
             'next_url': request.query_params.get('next') or '/admin/tenants',
@@ -2976,6 +3117,7 @@ async def admin_tenant_edit(
     duplicate_protection_mode: str = Form(default='natural_key'),
     status_source: str = Form(default='sales_window'),
     active_last_sale_days: str = Form(default='60'),
+    movement_window_days: str = Form(default='30'),
     fast_sales_qty_30d_min: str = Form(default='50'),
     slow_sales_qty_30d_max: str = Form(default='5'),
     pickup_warehouses_text: str = Form(default=''),
@@ -2985,9 +3127,14 @@ async def admin_tenant_edit(
     shipping_method_labels_text: str = Form(default=''),
     sales_series_channel_labels_text: str = Form(default=''),
     document_series_labels_text: str = Form(default=''),
+    default_margin_pct: str = Form(default='35'),
+    category_margin_targets_text: str = Form(default=''),
+    group_margin_targets_text: str = Form(default=''),
+    inventory_coverage_days: str = Form(default='60'),
     physical_branch_names_text: str = Form(default=''),
+    era_exploration_file: UploadFile | None = File(default=None),
     next_url: str = Form(default='/admin/tenants'),
-    _: object = Depends(require_roles(RoleName.cloudon_admin)),
+    admin_user: object = Depends(require_roles(RoleName.cloudon_admin)),
     db: AsyncSession = Depends(get_control_db),
 ):
     next_url = (next_url or '/admin/tenants').strip()
@@ -3042,6 +3189,9 @@ async def admin_tenant_edit(
         'inventory_item_classification': _tenant_inventory_item_classification_settings(tenant),
         'eshop_fulfillment': _tenant_eshop_fulfillment_settings(tenant),
         'document_series_labels': _tenant_document_series_labels_settings(tenant),
+        'price_margin_targets': _tenant_price_margin_targets_settings(tenant),
+        'business_advisor_targets': _tenant_business_advisor_targets_settings(tenant),
+        'era_exploration_data': _tenant_era_exploration_settings(tenant),
     }
 
     tenant.name = name or tenant.name
@@ -3067,6 +3217,12 @@ async def admin_tenant_edit(
     settings_payload['active_last_sale_days'] = _parse_int_in_range(
         active_last_sale_days,
         default=settings_payload['active_last_sale_days'],
+        min_value=1,
+        max_value=3650,
+    )
+    settings_payload['movement_window_days'] = _parse_int_in_range(
+        movement_window_days,
+        default=settings_payload['movement_window_days'],
         min_value=1,
         max_value=3650,
     )
@@ -3294,6 +3450,57 @@ async def admin_tenant_edit(
     if not document_series_label_map:
         document_series_label_map = dict(current_document_series_labels or {})
 
+    current_price_margin_targets = _tenant_price_margin_targets_settings(tenant)
+
+    def _parse_margin_target_map(raw: str, fallback: dict[str, float]) -> dict[str, float]:
+        out: dict[str, float] = {}
+        for line in str(raw or '').splitlines():
+            raw_line = str(line or '').strip()
+            if not raw_line:
+                continue
+            if '=' in raw_line:
+                key, value = raw_line.split('=', 1)
+            elif ':' in raw_line:
+                key, value = raw_line.split(':', 1)
+            else:
+                continue
+            key_clean = str(key or '').strip()
+            value_clean = str(value or '').strip().replace(',', '.')
+            try:
+                pct = max(0.0, min(95.0, float(value_clean)))
+            except Exception:
+                continue
+            if key_clean:
+                out[key_clean] = pct
+        return out if str(raw or '').strip() else dict(fallback or {})
+
+    try:
+        default_margin_value = max(0.0, min(95.0, float(str(default_margin_pct or '').replace(',', '.'))))
+    except Exception:
+        default_margin_value = float(current_price_margin_targets.get('default_margin_pct') or 35.0)
+    price_margin_targets_payload = normalize_price_margin_targets_config(
+        {
+            'default_margin_pct': default_margin_value,
+            'category_margin_pct': _parse_margin_target_map(
+                category_margin_targets_text,
+                dict(current_price_margin_targets.get('category_margin_pct') or {}),
+            ),
+            'group_margin_pct': _parse_margin_target_map(
+                group_margin_targets_text,
+                dict(current_price_margin_targets.get('group_margin_pct') or {}),
+            ),
+        }
+    )
+    current_business_advisor_targets = _tenant_business_advisor_targets_settings(tenant)
+    business_advisor_targets_payload = {
+        'inventory_coverage_days': _parse_int_in_range(
+            inventory_coverage_days,
+            default=int(current_business_advisor_targets.get('inventory_coverage_days') or 60),
+            min_value=1,
+            max_value=3650,
+        )
+    }
+
     physical_branch_names: list[str] = []
     seen_physical_branch_names: set[str] = set()
     for line in str(physical_branch_names_text or '').splitlines():
@@ -3339,6 +3546,21 @@ async def admin_tenant_edit(
     flags['inventory_item_classification'] = settings_payload
     flags['eshop_fulfillment'] = eshop_fulfillment_payload
     flags['document_series_labels'] = normalize_document_series_labels_config(document_series_label_map)
+    flags['price_margin_targets'] = price_margin_targets_payload
+    flags['business_advisor_targets'] = business_advisor_targets_payload
+    era_upload_payload = _tenant_era_exploration_settings(tenant)
+    if era_exploration_file is not None and era_exploration_file.filename:
+        era_saved_payload, era_error = _save_era_exploration_upload(
+            tenant,
+            era_exploration_file,
+            str(getattr(admin_user, 'email', '') or getattr(admin_user, 'username', '') or 'admin'),
+        )
+        if era_error:
+            sep = '&' if '?' in redirect_target else '?'
+            return RedirectResponse(url=f'{redirect_target}{sep}updated=0&reason={era_error}', status_code=303)
+        era_upload_payload = era_saved_payload or era_upload_payload
+    if era_upload_payload.get('file_path'):
+        flags['era_exploration_data_config'] = era_upload_payload
     tenant.feature_flags = flags
 
     tenant_connections = (
@@ -3386,6 +3608,9 @@ async def admin_tenant_edit(
                     'inventory_item_classification': settings_payload,
                     'eshop_fulfillment': eshop_fulfillment_payload,
                     'document_series_labels': flags['document_series_labels'],
+                    'price_margin_targets': price_margin_targets_payload,
+                    'business_advisor_targets': business_advisor_targets_payload,
+                    'era_exploration_data': era_upload_payload,
                 },
             },
         )
@@ -3416,40 +3641,53 @@ async def admin_tenant_delete(
     if tenant is None:
         return RedirectResponse(url='/admin/tenants?deleted=0', status_code=303)
 
-    sub = await get_or_create_subscription(db, tenant)
-    sub.status = SubscriptionStatus.canceled
-    if sub.canceled_at is None:
-        sub.canceled_at = datetime.utcnow()
+    tenant_db_name_value = tenant.db_name
+    tenant_db_user_value = tenant.db_user
+    tenant_user_ids = (
+        await db.execute(select(User.id).where(User.tenant_id == tenant.id))
+    ).scalars().all()
+    subscription_ids = (
+        await db.execute(select(Subscription.id).where(Subscription.tenant_id == tenant.id))
+    ).scalars().all()
+    invoice_ids = (
+        await db.execute(select(Invoice.id).where(Invoice.tenant_id == tenant.id))
+    ).scalars().all()
 
-    await sync_tenant_from_subscription(db, tenant, sub)
-    # Soft delete semantics: keep tenant hidden from UI lists.
-    tenant.status = TenantStatus.terminated
+    if tenant_user_ids:
+        await db.execute(delete(RefreshToken).where(RefreshToken.user_id.in_(tenant_user_ids)))
+        await db.execute(update(AuditLog).where(AuditLog.actor_user_id.in_(tenant_user_ids)).values(actor_user_id=None))
 
-    users = (await db.execute(select(User).where(User.tenant_id == tenant.id))).scalars().all()
-    for u in users:
-        u.is_active = False
-
-    keys = (await db.execute(select(TenantApiKey).where(TenantApiKey.tenant_id == tenant.id))).scalars().all()
-    for k in keys:
-        k.is_active = False
-
-    conns = (await db.execute(select(TenantConnection).where(TenantConnection.tenant_id == tenant.id))).scalars().all()
-    for c in conns:
-        c.sync_status = 'terminated'
-
-    db.add(
-        AuditLog(
-            tenant_id=tenant.id,
-            action='tenant_deleted_ui_soft',
-            entity_type='tenant',
-            entity_id=str(tenant.id),
-            payload={'status': 'terminated', 'subscription_status': 'canceled'},
-        )
-    )
+    if invoice_ids:
+        await db.execute(delete(Payment).where(Payment.invoice_id.in_(invoice_ids)))
+    await db.execute(delete(Payment).where(Payment.tenant_id == tenant.id))
+    if subscription_ids:
+        await db.execute(delete(SubscriptionLimit).where(SubscriptionLimit.subscription_id.in_(subscription_ids)))
+    await db.execute(delete(Invoice).where(Invoice.tenant_id == tenant.id))
+    await db.execute(delete(SubscriptionEvent).where(SubscriptionEvent.tenant_id == tenant.id))
+    await db.execute(delete(Subscription).where(Subscription.tenant_id == tenant.id))
+    await db.execute(delete(TenantApiKey).where(TenantApiKey.tenant_id == tenant.id))
+    await db.execute(delete(TenantConnection).where(TenantConnection.tenant_id == tenant.id))
+    await db.execute(delete(TenantRuleOverride).where(TenantRuleOverride.tenant_id == tenant.id))
+    await db.execute(update(WhmcsService).where(WhmcsService.tenant_id == tenant.id).values(tenant_id=None))
+    await db.execute(update(AuditLog).where(AuditLog.tenant_id == tenant.id).values(tenant_id=None))
+    await db.execute(delete(User).where(User.tenant_id == tenant.id))
+    await db.delete(tenant)
     await db.commit()
+
+    try:
+        await asyncio.to_thread(_drop_db_and_role, tenant_db_name_value, tenant_db_user_value)
+    except Exception:
+        logging.exception(
+            "Failed to drop tenant database after control hard delete",
+            extra={'tenant_id': tenant_id, 'db_name': tenant_db_name_value, 'db_user': tenant_db_user_value},
+        )
+        redirect_target = next_url if next_url.startswith('/admin/') else '/admin/tenants'
+        sep = '&' if '?' in redirect_target else '?'
+        return RedirectResponse(url=f'{redirect_target}{sep}deleted=1&db_deleted=0', status_code=303)
+
     redirect_target = next_url if next_url.startswith('/admin/') else '/admin/tenants'
     sep = '&' if '?' in redirect_target else '?'
-    return RedirectResponse(url=f'{redirect_target}{sep}deleted=1', status_code=303)
+    return RedirectResponse(url=f'{redirect_target}{sep}deleted=1&db_deleted=1', status_code=303)
 
 
 @router.get('/admin/subscriptions', response_class=HTMLResponse)
@@ -3461,11 +3699,14 @@ async def admin_subscriptions(
     tenants = (await db.execute(select(Tenant).order_by(Tenant.created_at.desc()))).scalars().all()
     subscriptions_by_tenant: dict[int, Subscription] = {}
     subscription_features_by_tenant: dict[int, dict[str, bool]] = {}
+    subscription_limits_by_tenant: dict[int, dict[str, object]] = {}
     for t in tenants:
         sub = await get_or_create_subscription(db, t)
         await sync_tenant_from_subscription(db, t, sub)
+        limit_context = await _tenant_user_license_context(db, t)
         subscriptions_by_tenant[int(t.id)] = sub
         subscription_features_by_tenant[int(t.id)] = normalize_subscription_feature_flags(sub.plan, sub.feature_flags)
+        subscription_limits_by_tenant[int(t.id)] = limit_context
     await db.commit()
     return templates.TemplateResponse(
         'admin/subscriptions.html',
@@ -3474,6 +3715,7 @@ async def admin_subscriptions(
             'tenants': tenants,
             'subscriptions_by_tenant': subscriptions_by_tenant,
             'subscription_features_by_tenant': subscription_features_by_tenant,
+            'subscription_limits_by_tenant': subscription_limits_by_tenant,
             'subscription_features': SUBSCRIPTION_FEATURES,
             'active_page': 'subscriptions',
             'title': 'title_subscriptions',
@@ -3494,6 +3736,7 @@ async def admin_subscription_update_get_redirect(
 async def admin_subscription_update(
     tenant_id: int,
     subscription_status: str = Form(default=''),
+    max_users: str = Form(default=''),
     enabled_features: list[str] = Form(default=[]),
     note: str = Form(default=''),
     next_url: str = Form(default='/admin/subscriptions'),
@@ -3510,6 +3753,21 @@ async def admin_subscription_update(
         return RedirectResponse(url=f'{redirect_target}?saved=0&reason=tenant_not_found', status_code=303)
 
     sub = await get_or_create_subscription(db, tenant)
+    limit_context = await _tenant_user_license_context(db, tenant)
+    requested_max_users_raw = (max_users or '').strip()
+    requested_max_users = int(limit_context['max_users'])
+    if requested_max_users_raw:
+        try:
+            requested_max_users = int(requested_max_users_raw)
+        except ValueError:
+            return RedirectResponse(url=f'{redirect_target}?saved=0&reason=bad_max_users', status_code=303)
+        requested_max_users = max(1, min(requested_max_users, 9999))
+        if requested_max_users < int(limit_context['active_users']):
+            return RedirectResponse(url=f'{redirect_target}?saved=0&reason=max_users_below_active', status_code=303)
+        limit_obj = limit_context.get('limit')
+        if isinstance(limit_obj, SubscriptionLimit):
+            limit_obj.limit_value = requested_max_users
+            limit_obj.used_value = int(limit_context['active_users'])
     try:
         next_status = SubscriptionStatus(subscription_status or sub.status.value)
     except ValueError:
@@ -3546,6 +3804,7 @@ async def admin_subscription_update(
                 'to': sub.status.value,
                 'note': note or None,
                 'feature_flags': sub.feature_flags,
+                'max_users': requested_max_users,
             },
         )
     )
@@ -3557,6 +3816,164 @@ async def admin_subscription_update(
         return RedirectResponse(url=f'{redirect_target}?saved=0&reason=commit_failed', status_code=303)
     sep = '&' if '?' in redirect_target else '?'
     return RedirectResponse(url=f'{redirect_target}{sep}saved=1', status_code=303)
+
+
+@router.post('/admin/subscriptions/{tenant_id}/temporary-upgrade')
+async def admin_subscription_temporary_upgrade(
+    tenant_id: int,
+    target_plan: str = Form(default='enterprise'),
+    trial_days: int = Form(default=14),
+    note: str = Form(default=''),
+    next_url: str = Form(default='/admin/subscriptions'),
+    _: object = Depends(require_roles(RoleName.cloudon_admin)),
+    db: AsyncSession = Depends(get_control_db),
+):
+    note = (note or '').strip()
+    next_url = (next_url or '/admin/subscriptions').strip()
+    redirect_target = next_url if next_url.startswith('/admin/') else '/admin/subscriptions'
+    try:
+        selected_plan = PlanName(target_plan)
+    except ValueError:
+        return RedirectResponse(url=f'{redirect_target}?saved=0&reason=invalid_plan', status_code=303)
+    if selected_plan not in {PlanName.pro, PlanName.enterprise, PlanName.custom}:
+        return RedirectResponse(url=f'{redirect_target}?saved=0&reason=invalid_trial_plan', status_code=303)
+    trial_days = max(1, min(int(trial_days or 14), 90))
+
+    tenant = (await db.execute(select(Tenant).where(Tenant.id == tenant_id))).scalar_one_or_none()
+    if not tenant:
+        return RedirectResponse(url=f'{redirect_target}?saved=0&reason=tenant_not_found', status_code=303)
+
+    sub = await get_or_create_subscription(db, tenant)
+    now = datetime.utcnow()
+    expires_at = now + timedelta(days=trial_days)
+    previous_plan = sub.plan
+    previous_status = sub.status
+    previous_current_period_end = sub.current_period_end
+    previous_trial_ends_at = sub.trial_ends_at
+    previous_flags = dict(sub.feature_flags or {})
+    previous_flags.pop('_temporary_upgrade', None)
+
+    sub.plan = selected_plan
+    sub.status = SubscriptionStatus.active
+    sub.current_period_start = now
+    sub.current_period_end = expires_at
+    sub.feature_flags = {
+        **infer_subscription_feature_defaults(selected_plan),
+        '_temporary_upgrade': {
+            'active': True,
+            'started_at': now.isoformat(),
+            'expires_at': expires_at.isoformat(),
+            'temporary_plan': selected_plan.value,
+            'original_plan': previous_plan.value,
+            'original_status': previous_status.value,
+            'original_feature_flags': previous_flags,
+            'original_current_period_end': previous_current_period_end.isoformat() if previous_current_period_end else None,
+            'original_trial_ends_at': previous_trial_ends_at.isoformat() if previous_trial_ends_at else None,
+            'days': trial_days,
+            'note': note or None,
+        },
+    }
+    await sync_tenant_from_subscription(db, tenant, sub)
+    db.add(
+        SubscriptionEvent(
+            tenant_id=tenant.id,
+            from_status=previous_status.value,
+            to_status=sub.status.value,
+            note=f'Temporary upgrade to {selected_plan.value} for {trial_days} days' + (f' - {note}' if note else ''),
+        )
+    )
+    db.add(
+        AuditLog(
+            tenant_id=tenant.id,
+            action='subscription_temporary_upgrade_started',
+            entity_type='subscription',
+            entity_id=str(sub.id),
+            payload={
+                'from_plan': previous_plan.value,
+                'to_plan': selected_plan.value,
+                'from_status': previous_status.value,
+                'to_status': sub.status.value,
+                'expires_at': expires_at.isoformat(),
+                'days': trial_days,
+                'note': note or None,
+            },
+        )
+    )
+    try:
+        await db.commit()
+    except Exception:
+        logger.exception('subscription_temporary_upgrade_failed', extra={'tenant_id': tenant_id})
+        await db.rollback()
+        return RedirectResponse(url=f'{redirect_target}?saved=0&reason=commit_failed', status_code=303)
+    sep = '&' if '?' in redirect_target else '?'
+    return RedirectResponse(url=f'{redirect_target}{sep}trial_upgrade=1', status_code=303)
+
+
+@router.post('/admin/subscriptions/{tenant_id}/temporary-upgrade/cancel')
+async def admin_subscription_temporary_upgrade_cancel(
+    tenant_id: int,
+    note: str = Form(default=''),
+    next_url: str = Form(default='/admin/subscriptions'),
+    _: object = Depends(require_roles(RoleName.cloudon_admin)),
+    db: AsyncSession = Depends(get_control_db),
+):
+    note = (note or '').strip()
+    next_url = (next_url or '/admin/subscriptions').strip()
+    redirect_target = next_url if next_url.startswith('/admin/') else '/admin/subscriptions'
+    tenant = (await db.execute(select(Tenant).where(Tenant.id == tenant_id))).scalar_one_or_none()
+    if not tenant:
+        return RedirectResponse(url=f'{redirect_target}?saved=0&reason=tenant_not_found', status_code=303)
+    sub = await get_or_create_subscription(db, tenant)
+    flags = dict(sub.feature_flags or {})
+    temporary_upgrade = flags.get('_temporary_upgrade') if isinstance(flags.get('_temporary_upgrade'), dict) else None
+    if not temporary_upgrade or not temporary_upgrade.get('active'):
+        return RedirectResponse(url=f'{redirect_target}?saved=0&reason=no_temporary_upgrade', status_code=303)
+
+    previous_plan = sub.plan
+    previous_status = sub.status
+    try:
+        sub.plan = PlanName(str(temporary_upgrade.get('original_plan') or tenant.plan.value))
+    except ValueError:
+        sub.plan = PlanName.standard
+    try:
+        sub.status = SubscriptionStatus(str(temporary_upgrade.get('original_status') or tenant.subscription_status.value))
+    except ValueError:
+        sub.status = SubscriptionStatus.active
+    original_feature_flags = temporary_upgrade.get('original_feature_flags')
+    sub.feature_flags = dict(original_feature_flags) if isinstance(original_feature_flags, dict) else {}
+    original_current_period_end = str(temporary_upgrade.get('original_current_period_end') or '').strip()
+    if original_current_period_end:
+        try:
+            sub.current_period_end = datetime.fromisoformat(original_current_period_end)
+        except ValueError:
+            sub.current_period_end = None
+    else:
+        sub.current_period_end = None
+    original_trial_ends_at = str(temporary_upgrade.get('original_trial_ends_at') or '').strip()
+    if original_trial_ends_at:
+        try:
+            sub.trial_ends_at = datetime.fromisoformat(original_trial_ends_at)
+        except ValueError:
+            pass
+    await sync_tenant_from_subscription(db, tenant, sub)
+    db.add(
+        AuditLog(
+            tenant_id=tenant.id,
+            action='subscription_temporary_upgrade_cancelled',
+            entity_type='subscription',
+            entity_id=str(sub.id),
+            payload={
+                'from_plan': previous_plan.value,
+                'to_plan': sub.plan.value,
+                'from_status': previous_status.value,
+                'to_status': sub.status.value,
+                'note': note or None,
+            },
+        )
+    )
+    await db.commit()
+    sep = '&' if '?' in redirect_target else '?'
+    return RedirectResponse(url=f'{redirect_target}{sep}trial_upgrade_cancelled=1', status_code=303)
 
 
 @router.get('/admin/plans', response_class=HTMLResponse)
@@ -4313,6 +4730,7 @@ async def admin_connections_backfill(
                 'chunk_days': selected_chunk_days,
                 'limit': selected_chunk_records,
                 'include_purchases': bool(include_purchases),
+                'include_supplier_orders': True,
                 'operation': 'backfill',
             },
             queue='default',
@@ -4781,12 +5199,14 @@ async def admin_sync_status(
         tenant_id_key = int(tenant.id)
         if tenant_id_key not in progress_by_tenant:
             progress_by_tenant[tenant_id_key] = get_ingest_progress(tenant.slug)
+    priority_rows = priority_pool_snapshot(limit=100)
     return templates.TemplateResponse(
         'admin/sync_status.html',
         {
             'request': request,
             'rows': rows,
             'progress_by_tenant': progress_by_tenant,
+            'priority_rows': priority_rows,
             'active_page': 'sync',
             'title': 'title_sync_status',
         },
@@ -6603,9 +7023,249 @@ async def admin_user_delete(
     user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
     if not user:
         return RedirectResponse(url='/admin/users?deleted=0', status_code=303)
+    await db.execute(delete(RefreshToken).where(RefreshToken.user_id == user_id))
+    await db.execute(update(AuditLog).where(AuditLog.actor_user_id == user_id).values(actor_user_id=None))
     await db.delete(user)
     await db.commit()
     return RedirectResponse(url='/admin/users?deleted=1', status_code=303)
+
+
+async def _tenant_user_license_context(db: AsyncSession, tenant: Tenant) -> dict[str, object]:
+    sub = await get_or_create_subscription(db, tenant)
+    limit = (
+        await db.execute(
+            select(SubscriptionLimit).where(
+                SubscriptionLimit.subscription_id == sub.id,
+                SubscriptionLimit.limit_key == 'max_users',
+            )
+        )
+    ).scalar_one_or_none()
+    if limit is None:
+        plan_row = (await db.execute(select(Plan).where(Plan.code == sub.plan.value))).scalar_one_or_none()
+        fallback_limit = int(plan_row.max_users) if plan_row else 5
+        limit = SubscriptionLimit(
+            subscription_id=sub.id,
+            limit_key='max_users',
+            limit_value=fallback_limit,
+            used_value=0,
+        )
+        db.add(limit)
+        await db.flush()
+
+    active_used = (
+        await db.execute(
+            select(func.count(User.id)).where(
+                User.tenant_id == tenant.id,
+                User.role.in_([RoleName.tenant_admin, RoleName.tenant_user]),
+                User.is_active.is_(True),
+            )
+        )
+    ).scalar_one()
+    total_users = (
+        await db.execute(
+            select(func.count(User.id)).where(
+                User.tenant_id == tenant.id,
+                User.role.in_([RoleName.tenant_admin, RoleName.tenant_user]),
+            )
+        )
+    ).scalar_one()
+    limit.used_value = int(active_used or 0)
+    return {
+        'subscription': sub,
+        'limit': limit,
+        'max_users': int(limit.limit_value or 0),
+        'active_users': int(active_used or 0),
+        'available_users': max(0, int(limit.limit_value or 0) - int(active_used or 0)),
+        'total_users': int(total_users or 0),
+    }
+
+
+@router.get('/tenant/users', response_class=HTMLResponse)
+async def tenant_users_page(
+    request: Request,
+    tenant: Tenant = Depends(get_request_tenant),
+    user: User = Depends(require_roles(RoleName.tenant_admin)),
+    db: AsyncSession = Depends(get_control_db),
+):
+    users = (
+        await db.execute(
+            select(User)
+            .where(
+                User.tenant_id == tenant.id,
+                User.role.in_([RoleName.tenant_admin, RoleName.tenant_user]),
+            )
+            .order_by(User.is_active.desc(), User.full_name.asc().nullslast(), User.email.asc())
+        )
+    ).scalars().all()
+    professional_profiles = await _list_professional_profiles(db)
+    license_context = await _tenant_user_license_context(db, tenant)
+    await db.commit()
+    invite_token = str(request.query_params.get('invite') or '').strip()
+    invite_url = f'/invite?token={invite_token}' if invite_token else None
+    return templates.TemplateResponse(
+        'tenant/users.html',
+        {
+            'request': request,
+            'tenant': tenant,
+            'user': user,
+            'users': users,
+            'professional_profiles': professional_profiles,
+            'license_context': license_context,
+            'invite_url': invite_url,
+            **(await _tenant_navigation_context(tenant)),
+            'active_page': 'tenant_users',
+            'title': 'Χρήστες & Άδειες',
+        },
+    )
+
+
+@router.post('/tenant/users/create')
+async def tenant_user_create(
+    full_name: str = Form(default=''),
+    email: str = Form(...),
+    phone: str = Form(default=''),
+    role: str = Form(default='tenant_user'),
+    professional_profile_code: str | None = Form(default=None),
+    tenant: Tenant = Depends(get_request_tenant),
+    actor: User = Depends(require_roles(RoleName.tenant_admin)),
+    db: AsyncSession = Depends(get_control_db),
+):
+    selected_role = RoleName.tenant_admin if role == RoleName.tenant_admin.value else RoleName.tenant_user
+    license_context = await _tenant_user_license_context(db, tenant)
+    if int(license_context['active_users']) >= int(license_context['max_users']):
+        await db.rollback()
+        return RedirectResponse(url='/tenant/users?created=0&reason=no_seats', status_code=303)
+    try:
+        professional_profile_id = await _resolve_professional_profile_id(
+            db,
+            selected_role=selected_role,
+            requested_profile_code=professional_profile_code,
+        )
+    except ValueError:
+        await db.rollback()
+        return RedirectResponse(url='/tenant/users?created=0&reason=bad_profile', status_code=303)
+    invite_token = secrets.token_urlsafe(24)
+    new_user = User(
+        tenant_id=tenant.id,
+        professional_profile_id=professional_profile_id,
+        full_name=full_name.strip() or None,
+        phone=phone.strip() or None,
+        email=email.strip().lower(),
+        role=selected_role,
+        password_hash=get_password_hash(secrets.token_urlsafe(18)),
+        is_active=True,
+        reset_token=invite_token,
+        reset_token_expires_at=datetime.utcnow() + timedelta(days=7),
+    )
+    db.add(new_user)
+    limit_obj = license_context.get('limit')
+    if isinstance(limit_obj, SubscriptionLimit):
+        limit_obj.used_value = int(license_context['active_users']) + 1
+    db.add(
+        AuditLog(
+            tenant_id=tenant.id,
+            actor_user_id=actor.id,
+            action='tenant_user_created',
+            entity_type='user',
+            payload={'email': new_user.email, 'role': selected_role.value},
+        )
+    )
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        return RedirectResponse(url='/tenant/users?created=0&reason=email_exists', status_code=303)
+    return RedirectResponse(url=f'/tenant/users?created=1&invite={invite_token}', status_code=303)
+
+
+@router.post('/tenant/users/{user_id}/toggle')
+async def tenant_user_toggle(
+    user_id: int,
+    tenant: Tenant = Depends(get_request_tenant),
+    actor: User = Depends(require_roles(RoleName.tenant_admin)),
+    db: AsyncSession = Depends(get_control_db),
+):
+    target = (
+        await db.execute(
+            select(User).where(
+                User.id == user_id,
+                User.tenant_id == tenant.id,
+                User.role.in_([RoleName.tenant_admin, RoleName.tenant_user]),
+            )
+        )
+    ).scalar_one_or_none()
+    if not target:
+        return RedirectResponse(url='/tenant/users?updated=0&reason=user_not_found', status_code=303)
+    if target.id == actor.id and target.is_active:
+        return RedirectResponse(url='/tenant/users?updated=0&reason=self_disable', status_code=303)
+    license_context = await _tenant_user_license_context(db, tenant)
+    if not target.is_active:
+        if int(license_context['active_users']) >= int(license_context['max_users']):
+            await db.rollback()
+            return RedirectResponse(url='/tenant/users?updated=0&reason=no_seats', status_code=303)
+    target.is_active = not target.is_active
+    limit_obj = license_context.get('limit')
+    if isinstance(limit_obj, SubscriptionLimit):
+        delta = 1 if target.is_active else -1
+        limit_obj.used_value = max(0, int(license_context['active_users']) + delta)
+    db.add(
+        AuditLog(
+            tenant_id=tenant.id,
+            actor_user_id=actor.id,
+            action='tenant_user_activated' if target.is_active else 'tenant_user_deactivated',
+            entity_type='user',
+            entity_id=str(target.id),
+            payload={'email': target.email},
+        )
+    )
+    await db.commit()
+    return RedirectResponse(url='/tenant/users?updated=1', status_code=303)
+
+
+@router.post('/tenant/users/{user_id}/invite-reset')
+async def tenant_user_invite_reset(
+    user_id: int,
+    tenant: Tenant = Depends(get_request_tenant),
+    actor: User = Depends(require_roles(RoleName.tenant_admin)),
+    db: AsyncSession = Depends(get_control_db),
+):
+    target = (
+        await db.execute(
+            select(User).where(
+                User.id == user_id,
+                User.tenant_id == tenant.id,
+                User.role.in_([RoleName.tenant_admin, RoleName.tenant_user]),
+            )
+        )
+    ).scalar_one_or_none()
+    if not target:
+        return RedirectResponse(url='/tenant/users?invite_reset=0&reason=user_not_found', status_code=303)
+    license_context = None
+    if not target.is_active:
+        license_context = await _tenant_user_license_context(db, tenant)
+        if int(license_context['active_users']) >= int(license_context['max_users']):
+            await db.rollback()
+            return RedirectResponse(url='/tenant/users?invite_reset=0&reason=no_seats', status_code=303)
+    token = secrets.token_urlsafe(24)
+    target.reset_token = token
+    target.reset_token_expires_at = datetime.utcnow() + timedelta(days=7)
+    target.is_active = True
+    if license_context is not None:
+        limit_obj = license_context.get('limit')
+        if isinstance(limit_obj, SubscriptionLimit):
+            limit_obj.used_value = int(license_context['active_users']) + 1
+    db.add(
+        AuditLog(
+            tenant_id=tenant.id,
+            actor_user_id=actor.id,
+            action='tenant_user_invite_reset',
+            entity_type='user',
+            entity_id=str(target.id),
+            payload={'email': target.email},
+        )
+    )
+    await db.commit()
+    return RedirectResponse(url=f'/tenant/users?invite_reset=1&invite={token}', status_code=303)
 
 
 @router.get('/tenant/profile', response_class=HTMLResponse)
@@ -6656,10 +7316,78 @@ async def tenant_settings(
             'tenant': tenant,
             'user': user,
             **(await _tenant_navigation_context(tenant)),
+            'era_exploration_data': _tenant_era_exploration_settings(tenant),
+            'supplier_orders': _tenant_supplier_order_settings(tenant),
             'active_page': 'dashboard',
             'title': 'Settings',
         },
     )
+
+
+@router.post('/tenant/settings/supplier-orders')
+async def tenant_settings_supplier_orders(
+    lookback_days: int = Form(default=30),
+    tenant: Tenant = Depends(get_request_tenant),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_control_db),
+):
+    if user.role not in {RoleName.tenant_admin, RoleName.cloudon_admin}:
+        return RedirectResponse(url='/tenant/settings?supplier_orders_saved=0&reason=permission', status_code=303)
+    db_tenant = (await db.execute(select(Tenant).where(Tenant.id == tenant.id))).scalar_one_or_none()
+    if db_tenant is None:
+        return RedirectResponse(url='/tenant/settings?supplier_orders_saved=0&reason=tenant_not_found', status_code=303)
+    payload = normalize_supplier_order_settings({'lookback_days': lookback_days})
+    flags = dict(db_tenant.feature_flags or {})
+    flags['supplier_orders'] = payload
+    db_tenant.feature_flags = flags
+    db.add(
+        AuditLog(
+            tenant_id=db_tenant.id,
+            action='tenant_supplier_orders_settings_saved',
+            entity_type='tenant',
+            entity_id=str(db_tenant.id),
+            payload=payload,
+        )
+    )
+    await db.commit()
+    return RedirectResponse(url='/tenant/settings?supplier_orders_saved=1', status_code=303)
+
+
+@router.post('/tenant/settings/era-exploration')
+async def tenant_settings_era_exploration_upload(
+    era_exploration_file: UploadFile | None = File(default=None),
+    tenant: Tenant = Depends(get_request_tenant),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_control_db),
+):
+    if user.role not in {RoleName.tenant_admin, RoleName.cloudon_admin}:
+        return RedirectResponse(url='/tenant/settings?era_upload=0&reason=permission', status_code=303)
+    if era_exploration_file is None or not era_exploration_file.filename:
+        return RedirectResponse(url='/tenant/settings?era_upload=0&reason=missing_file', status_code=303)
+    db_tenant = (await db.execute(select(Tenant).where(Tenant.id == tenant.id))).scalar_one_or_none()
+    if db_tenant is None:
+        return RedirectResponse(url='/tenant/settings?era_upload=0&reason=tenant_not_found', status_code=303)
+    payload, error = _save_era_exploration_upload(
+        db_tenant,
+        era_exploration_file,
+        str(user.email or user.full_name or user.id),
+    )
+    if error:
+        return RedirectResponse(url=f'/tenant/settings?era_upload=0&reason={error}', status_code=303)
+    flags = dict(db_tenant.feature_flags or {})
+    flags['era_exploration_data_config'] = payload or {}
+    db_tenant.feature_flags = flags
+    db.add(
+        AuditLog(
+            tenant_id=db_tenant.id,
+            action='tenant_era_exploration_uploaded',
+            entity_type='tenant',
+            entity_id=str(db_tenant.id),
+            payload=payload or {},
+        )
+    )
+    await db.commit()
+    return RedirectResponse(url='/tenant/settings?era_upload=1', status_code=303)
 
 
 @router.get('/tenant/messages', response_class=HTMLResponse)
@@ -7031,6 +7759,164 @@ async def tenant_inventory_dashboard(
     )
 
 
+@router.get('/tenant/replenishment', response_class=HTMLResponse)
+async def tenant_replenishment_dashboard(
+    request: Request,
+    tenant: Tenant = Depends(get_request_tenant),
+    tenant_db: AsyncSession = Depends(get_tenant_db),
+    _user=Depends(get_current_user),
+):
+    feature_flags = await _tenant_navigation_context(tenant)
+    top_need_rows = []
+    top_overstock_rows = []
+    issue_rows = []
+    latest_snapshot = None
+    summary = {}
+    try:
+        latest_snapshot = (
+            await tenant_db.execute(
+                select(ReplenishmentSnapshot).order_by(ReplenishmentSnapshot.imported_at.desc()).limit(1)
+            )
+        ).scalar_one_or_none()
+        summary = latest_snapshot.summary_json if latest_snapshot and isinstance(latest_snapshot.summary_json, dict) else {}
+        if latest_snapshot is not None:
+            top_need_rows = (
+                (
+                    await tenant_db.execute(
+                        select(ReplenishmentLine)
+                        .where(ReplenishmentLine.snapshot_id == latest_snapshot.id)
+                        .order_by(ReplenishmentLine.supplier_order_qty.desc())
+                        .limit(10)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            top_overstock_rows = (
+                (
+                    await tenant_db.execute(
+                        select(ReplenishmentLine)
+                        .where(ReplenishmentLine.snapshot_id == latest_snapshot.id)
+                        .order_by(ReplenishmentLine.total_overstock_qty.asc())
+                        .limit(10)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            issue_rows = (
+                (
+                    await tenant_db.execute(
+                        select(ReplenishmentDataQualityIssue)
+                        .where(ReplenishmentDataQualityIssue.snapshot_id == latest_snapshot.id)
+                        .order_by(
+                            ReplenishmentDataQualityIssue.severity.asc(),
+                            ReplenishmentDataQualityIssue.source_row.asc(),
+                        )
+                        .limit(20)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+        else:
+            facts_replenishment = await build_replenishment_from_facts(tenant_db)
+            summary = facts_replenishment['summary']
+            top_need_rows = facts_replenishment['top_need_rows']
+            top_overstock_rows = facts_replenishment['top_overstock_rows']
+            issue_rows = facts_replenishment['issue_rows']
+    except Exception:
+        logger.exception('tenant_replenishment_snapshot_load_failed', extra={'tenant_id': tenant.id})
+        await tenant_db.rollback()
+        latest_snapshot = None
+        summary = {}
+        top_need_rows = []
+        top_overstock_rows = []
+        issue_rows = []
+    return templates.TemplateResponse(
+        'tenant/replenishment_dashboard.html',
+        {
+            'request': request,
+            'tenant': tenant,
+            **feature_flags,
+            'feature_locked': not feature_flags['replenishment_enabled'],
+            'active_page': 'replenishment',
+            'title': 'Replenishment / Availability',
+            'latest_snapshot': latest_snapshot,
+            'summary': summary,
+            'top_need_rows': top_need_rows,
+            'top_overstock_rows': top_overstock_rows,
+            'issue_rows': issue_rows,
+            'hide_page_filters': True,
+        },
+    )
+
+
+@router.get('/tenant/supplier-orders', response_class=HTMLResponse)
+async def tenant_supplier_orders_dashboard(
+    request: Request,
+    tenant: Tenant = Depends(get_request_tenant),
+    control_db: AsyncSession = Depends(get_control_db),
+    _user=Depends(get_current_user),
+):
+    feature_flags = await _tenant_navigation_context(tenant)
+    settings_payload = await supplier_order_settings_for_tenant(tenant)
+    feature_locked = not feature_flags.get('supplier_orders_enabled', False)
+    today = date.today()
+    lookback_days = int(settings_payload.get('lookback_days') or 30)
+
+    def _parse_filter_date(raw: str | None, fallback: date) -> date:
+        text_value = str(raw or '').strip()
+        if not text_value:
+            return fallback
+        for fmt in ('%Y-%m-%d', '%d/%m/%Y'):
+            try:
+                return datetime.strptime(text_value, fmt).date()
+            except ValueError:
+                continue
+        return fallback
+
+    default_from = today - timedelta(days=max(1, lookback_days))
+    from_date = _parse_filter_date(request.query_params.get('from'), default_from)
+    to_date = _parse_filter_date(request.query_params.get('to'), today)
+    if from_date > to_date:
+        from_date, to_date = to_date, from_date
+    only_open = str(request.query_params.get('only_open', '1')).strip().lower() not in {'0', 'false', 'no'}
+    supplier = str(request.query_params.get('supplier') or '').strip()
+    filters = SupplierOrdersFilters(
+        from_date=from_date,
+        to_date=to_date,
+        supplier=supplier,
+        only_open=only_open,
+        limit=500,
+    )
+    if feature_locked:
+        dashboard = {
+            'filters': filters,
+            'summary': {'documents': 0, 'open_documents': 0, 'closed_documents': 0, 'lines': 0, 'open_qty': 0.0, 'open_value': 0.0, 'suppliers': 0},
+            'supplier_rows': [],
+            'document_rows': [],
+            'line_rows': [],
+            'error': None,
+        }
+    else:
+        dashboard = await build_supplier_orders_dashboard(control_db, tenant, filters)
+    return templates.TemplateResponse(
+        'tenant/supplier_orders_dashboard.html',
+        {
+            'request': request,
+            'tenant': tenant,
+            **feature_flags,
+            'feature_locked': feature_locked,
+            'active_page': 'supplier_orders',
+            'title': 'Παραγγελίες Προμηθευτών',
+            'dashboard': dashboard,
+            'supplier_order_settings': settings_payload,
+            'hide_page_filters': True,
+        },
+    )
+
+
 @router.get('/tenant/items', response_class=HTMLResponse)
 async def tenant_items_dashboard(
     request: Request,
@@ -7154,6 +8040,48 @@ async def tenant_price_control_dashboard(
             'default_target_margin': 35.0,
             'active_page': 'price_control',
             'title': 'title_price_control',
+        },
+    )
+
+
+@router.get('/tenant/era-exploration-data', response_class=HTMLResponse)
+async def tenant_era_exploration_dashboard(
+    request: Request,
+    tenant: Tenant = Depends(get_request_tenant),
+    _user=Depends(get_current_user),
+):
+    return templates.TemplateResponse(
+        'tenant/era_exploration_data.html',
+        {
+            'request': request,
+            'tenant': tenant,
+            **(await _tenant_navigation_context(tenant)),
+            'active_page': 'era_exploration_data',
+            'title': 'eRA Exploration Data',
+        },
+    )
+
+
+@router.get('/tenant/business-advisor', response_class=HTMLResponse)
+async def tenant_business_advisor_dashboard(
+    request: Request,
+    tenant: Tenant = Depends(get_request_tenant),
+    _user=Depends(get_current_user),
+):
+    to_date = date.today()
+    from_date = to_date - timedelta(days=30)
+    return templates.TemplateResponse(
+        'tenant/business_advisor.html',
+        {
+            'request': request,
+            'tenant': tenant,
+            **(await _tenant_navigation_context(tenant)),
+            'default_from': from_date,
+            'default_to': to_date,
+            'default_target_margin': 35.0,
+            'active_page': 'business_advisor',
+            'title': 'Σύμβουλος Επιχείρησης',
+            'manual_help_anchor': 'business-advisor',
         },
     )
 

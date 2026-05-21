@@ -2,8 +2,22 @@
 {% block content %}
 {% if request.query_params.get('saved') == '1' or request.query_params.get('updated') == '1' %}
 <div class="alert alert-success mt-3">Οι αλλαγές αποθηκεύτηκαν επιτυχώς.</div>
+{% elif request.query_params.get('trial_upgrade') == '1' %}
+<div class="alert alert-success mt-3">Η προσωρινή αναβάθμιση ενεργοποιήθηκε.</div>
+{% elif request.query_params.get('trial_upgrade_cancelled') == '1' %}
+<div class="alert alert-success mt-3">Η προσωρινή αναβάθμιση ακυρώθηκε και το πακέτο επανήλθε.</div>
 {% elif request.query_params.get('saved') == '0' or request.query_params.get('updated') == '0' %}
-<div class="alert alert-danger mt-3">Αποτυχία αποθήκευσης. Αιτία: {{ request.query_params.get('reason') or 'unknown' }}</div>
+{% set _reason = request.query_params.get('reason') or 'unknown' %}
+<div class="alert alert-danger mt-3">
+  Αποτυχία αποθήκευσης.
+  {% if _reason == 'max_users_below_active' %}
+    Δεν μπορείς να δηλώσεις λιγότερους ταυτόχρονους χρήστες από τους ήδη ενεργούς.
+  {% elif _reason == 'bad_max_users' %}
+    Ο αριθμός ταυτόχρονων χρηστών δεν είναι έγκυρος.
+  {% else %}
+    Αιτία: {{ _reason }}
+  {% endif %}
+</div>
 {% endif %}
 {% if request.query_params.get('deleted') == '1' %}
 <div class="alert alert-success mt-3">Ο πελάτης διαγράφηκε επιτυχώς.</div>
@@ -11,89 +25,130 @@
 <div class="alert alert-danger mt-3">Αποτυχία διαγραφής πελάτη.</div>
 {% endif %}
 
-<div class="card mt-3">
-  <div class="card-header d-flex align-items-center justify-content-between gap-2">
+<div class="subs-admin-page">
+  <div class="subs-admin-hero">
     <div>
-      <h5 class="mb-0">{{ tt(request, 'subscription_management') }}</h5>
-      <div class="text-muted small mt-1">Έλεγχος κατάστασης και πρόσβασης κυκλωμάτων ανά tenant.</div>
+      <h5>{{ tt(request, 'subscription_management') }}</h5>
+      <p>Έλεγχος κατάστασης, θέσεων χρήσης και πρόσβασης κυκλωμάτων ανά tenant.</p>
     </div>
-    <span class="badge bg-light text-dark border">Δικαιώματα ανά συνδρομή</span>
+    <span class="subs-chip"><i class="fe fe-shield"></i> Δικαιώματα ανά συνδρομή</span>
   </div>
-  <div class="card-body">
-    <div class="table-responsive">
-      <table class="table table-hover align-middle bv-unified-table" data-bv-admin-table="1">
-        <thead>
-          <tr>
-            <th>{{ tt(request, 'tenant') }}</th>
-            <th>{{ tt(request, 'plan') }}</th>
-            <th>{{ tt(request, 'status') }}</th>
-            <th>{{ tt(request, 'period_end') }}</th>
-            <th style="min-width:520px">Πρόσβαση σε κυκλώματα</th>
-            <th class="text-end">{{ tt(request, 'actions') }}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for t in tenants %}
-          {% set sub = subscriptions_by_tenant.get(t.id) %}
-          {% set feature_values = subscription_features_by_tenant.get(t.id, {}) %}
-          <tr>
-            <td>
-              <div class="fw-semibold">{{ t.name }}</div>
-              <div class="text-muted small">{{ t.slug }}</div>
-            </td>
-            <td>
-              <span class="badge bg-light text-dark border">{{ sub.plan.value if sub else t.plan.value }}</span>
-            </td>
-            <td>
-              <span class="badge {% if t.subscription_status.value in ['active','trial'] %}bg-info text-dark{% elif t.subscription_status.value in ['past_due','suspended'] %}bg-warning text-dark{% else %}bg-secondary{% endif %}">
-                {{ t.subscription_status.value }}
-              </span>
-            </td>
-            <td class="small">
-              {% if t.trial_ends_at %}<div>Trial: {{ t.trial_ends_at }}</div>{% endif %}
-              {% if t.current_period_end %}<div>Period: {{ t.current_period_end }}</div>{% endif %}
-              {% if not t.trial_ends_at and not t.current_period_end %}-{% endif %}
-            </td>
-            <td>
-              <form method="post" action="/admin/subscriptions/{{ t.id }}/update" class="d-flex flex-column gap-2">
-                <input type="hidden" name="next_url" value="/admin/subscriptions">
-                <div class="d-flex flex-wrap gap-2">
-                  <select class="form-select form-select-sm" name="subscription_status" style="width:150px">
+
+  <div class="subs-admin-list">
+    {% for t in tenants %}
+    {% set sub = subscriptions_by_tenant.get(t.id) %}
+    {% set feature_values = subscription_features_by_tenant.get(t.id, {}) %}
+    {% set limit_values = subscription_limits_by_tenant.get(t.id, {}) %}
+    {% set temporary_upgrade = sub.feature_flags.get('_temporary_upgrade') if sub and sub.feature_flags and sub.feature_flags.get('_temporary_upgrade') else none %}
+    <section class="subs-tenant-card">
+      <div class="subs-card-head">
+        <div>
+          <div class="subs-tenant-title">{{ t.name }}</div>
+          <div class="subs-tenant-slug">{{ t.slug }}</div>
+          <div class="subs-chip-row">
+            <span class="subs-chip"><i class="fe fe-package"></i>{{ sub.plan.value if sub else t.plan.value }}</span>
+            <span class="subs-chip {% if t.subscription_status.value in ['active','trial'] %}is-active{% elif t.subscription_status.value in ['past_due','suspended'] %}is-warning{% else %}is-muted{% endif %}">
+              <i class="fe fe-activity"></i>{{ t.subscription_status.value }}
+            </span>
+            <span class="subs-chip"><i class="fe fe-users"></i>{{ limit_values.active_users or 0 }} / {{ limit_values.max_users or 1 }} χρήστες</span>
+            {% if t.trial_ends_at %}<span class="subs-chip is-warning">Trial έως {{ t.trial_ends_at }}</span>{% endif %}
+            {% if t.current_period_end %}<span class="subs-chip">Period έως {{ t.current_period_end }}</span>{% endif %}
+            {% if temporary_upgrade and temporary_upgrade.get('active') %}
+            <span class="subs-chip is-warning"><i class="fe fe-unlock"></i>Trial upgrade έως {{ temporary_upgrade.get('expires_at') }}</span>
+            {% endif %}
+          </div>
+        </div>
+        <div class="subs-card-actions">
+          <a class="btn btn-sm bv-action-btn bv-action-edit" href="/admin/tenants/{{ t.id }}/edit?next=/admin/subscriptions" title="Επεξεργασία" aria-label="Επεξεργασία {{ t.name }}">
+            <i class="fe fe-edit-2"></i>
+          </a>
+          <form method="post" action="/admin/tenants/{{ t.id }}/delete" onsubmit="return confirm('Οριστική διαγραφή πελάτη {{ t.name }}; Θα διαγραφούν οι χρήστες, οι συνδέσεις και η βάση δεδομένων του tenant. Δεν αναιρείται.');">
+            <input type="hidden" name="next_url" value="/admin/subscriptions">
+            <button class="btn btn-sm bv-action-btn bv-action-delete" type="submit" title="Διαγραφή" aria-label="Διαγραφή {{ t.name }}"><i class="fe fe-trash-2"></i></button>
+          </form>
+        </div>
+      </div>
+      <div class="subs-card-body">
+        <form method="post" action="/admin/subscriptions/{{ t.id }}/update">
+          <input type="hidden" name="next_url" value="/admin/subscriptions">
+          <div class="subs-main-grid">
+            <div class="subs-panel">
+              <p class="subs-panel-title">Συνδρομή</p>
+              <div class="subs-control-grid">
+                <div>
+                  <label class="form-label">Κατάσταση</label>
+                  <select class="form-select form-select-sm" name="subscription_status">
                     <option value="trial" {% if t.subscription_status.value == 'trial' %}selected{% endif %}>δοκιμή</option>
                     <option value="active" {% if t.subscription_status.value == 'active' %}selected{% endif %}>ενεργή</option>
                     <option value="past_due" {% if t.subscription_status.value == 'past_due' %}selected{% endif %}>ληξιπρόθεσμη</option>
                     <option value="suspended" {% if t.subscription_status.value == 'suspended' %}selected{% endif %}>σε αναστολή</option>
                     <option value="canceled" {% if t.subscription_status.value == 'canceled' %}selected{% endif %}>ακυρωμένη</option>
                   </select>
-                  <input class="form-control form-control-sm" name="note" placeholder="{{ tt(request, 'note') }}" style="max-width:220px">
-                  <button class="btn btn-sm bv-action-btn bv-action-save" type="submit"><i class="fe fe-save"></i>{{ tt(request, 'save') }}</button>
                 </div>
-                <div class="d-flex flex-wrap gap-2">
-                  {% for feature in subscription_features %}
-                  <label class="form-check form-check-inline border rounded px-2 py-1 m-0 small bv-feature-toggle" title="{{ feature.group }}">
+                <div>
+                  <label class="form-label">Ταυτόχρονοι χρήστες</label>
+                  <div class="input-group input-group-sm">
+                    <input class="form-control" type="number" min="{{ limit_values.active_users or 1 }}" max="9999" step="1" name="max_users" value="{{ limit_values.max_users or 1 }}" title="Αγορασμένες ταυτόχρονες θέσεις χρήσης">
+                    <span class="input-group-text">{{ limit_values.active_users or 0 }} ενεργοί</span>
+                  </div>
+                </div>
+                <div>
+                  <label class="form-label">Σημείωση</label>
+                  <input class="form-control form-control-sm" name="note" placeholder="{{ tt(request, 'note') }}">
+                </div>
+              </div>
+              <div class="subs-save-row">
+                <button class="btn btn-sm bv-action-btn bv-action-save" type="submit"><i class="fe fe-save"></i>{{ tt(request, 'save') }}</button>
+              </div>
+            </div>
+            <div class="subs-panel">
+              <p class="subs-panel-title">Πρόσβαση σε κυκλώματα</p>
+              <div class="subs-features-grid">
+                {% for group, features in subscription_features|groupby('group') %}
+                <div>
+                  <div class="subs-feature-group-title">{{ group }}</div>
+                  {% for feature in features %}
+                  <label class="subs-feature" title="{{ feature.minimum_plan }}">
                     <input class="form-check-input" type="checkbox" name="enabled_features" value="{{ feature.key }}" {% if feature_values.get(feature.key) %}checked{% endif %}>
-                    <span class="form-check-label">{{ feature.label }}</span>
+                    <span>{{ feature.label }}</span>
                   </label>
                   {% endfor %}
                 </div>
-              </form>
-            </td>
-            <td class="text-end">
-              <div class="bv-admin-compact-actions">
-                <a class="btn btn-sm bv-action-btn bv-action-edit" href="/admin/tenants/{{ t.id }}/edit?next=/admin/subscriptions" title="Επεξεργασία" aria-label="Επεξεργασία {{ t.name }}">
-                  <i class="fe fe-edit-2"></i>
-                </a>
-                <form method="post" action="/admin/tenants/{{ t.id }}/delete" onsubmit="return confirm('Να διαγραφεί ο πελάτης {{ t.name }}; Θα τερματιστεί η πρόσβαση (soft delete).');">
-                  <input type="hidden" name="next_url" value="/admin/subscriptions">
-                  <button class="btn btn-sm bv-action-btn bv-action-delete" type="submit" title="Διαγραφή" aria-label="Διαγραφή {{ t.name }}"><i class="fe fe-trash-2"></i></button>
-                </form>
+                {% endfor %}
               </div>
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
+            </div>
+          </div>
+        </form>
+
+        <form method="post" action="/admin/subscriptions/{{ t.id }}/temporary-upgrade" class="subs-trial">
+          <input type="hidden" name="next_url" value="/admin/subscriptions">
+          <span class="subs-trial-label">Προσωρινή αναβάθμιση</span>
+          <select class="form-select form-select-sm" name="target_plan">
+            <option value="pro">Pro</option>
+            <option value="enterprise" selected>Enterprise</option>
+            <option value="custom">Custom</option>
+          </select>
+          <select class="form-select form-select-sm" name="trial_days">
+            <option value="7">7 ημέρες</option>
+            <option value="14" selected>14 ημέρες</option>
+            <option value="30">30 ημέρες</option>
+            <option value="60">60 ημέρες</option>
+            <option value="90">90 ημέρες</option>
+          </select>
+          <input class="form-control form-control-sm" name="note" placeholder="Σημείωση παρουσίασης">
+          <button class="btn btn-sm btn-primary" type="submit"><i class="fe fe-unlock"></i> Άνοιγμα trial</button>
+        </form>
+        {% if temporary_upgrade and temporary_upgrade.get('active') %}
+        <form method="post" action="/admin/subscriptions/{{ t.id }}/temporary-upgrade/cancel" class="subs-trial">
+          <input type="hidden" name="next_url" value="/admin/subscriptions">
+          <span class="subs-trial-label">Ακύρωση trial</span>
+          <input class="form-control form-control-sm" name="note" placeholder="Λόγος ακύρωσης">
+          <button class="btn btn-sm btn-outline-warning" type="submit"><i class="fe fe-rotate-ccw"></i> Ακύρωση trial upgrade</button>
+        </form>
+        {% endif %}
+      </div>
+    </section>
+    {% endfor %}
   </div>
 </div>
 {% endblock %}

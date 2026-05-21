@@ -1,0 +1,208 @@
+{% extends "base_tenant.html" %}
+
+{% block content %}
+{% set summary = dashboard.summary or {} %}
+{% set filters = dashboard.filters %}
+{% macro money(v) -%}{{ "{:,.2f}".format(v or 0).replace(",", "X").replace(".", ",").replace("X", ".") }} €{%- endmacro %}
+{% macro qty(v) -%}{{ "{:,.0f}".format(v or 0).replace(",", ".") }}{%- endmacro %}
+
+<style>
+  .supplier-orders-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+  .supplier-orders-card{background:#fff;border:1px solid #dbe4f0;border-radius:8px;padding:16px;box-shadow:0 10px 24px rgba(15,23,42,.05)}
+  .supplier-orders-card small{display:block;color:#66758d;font-weight:800;text-transform:uppercase;letter-spacing:.02em}
+  .supplier-orders-card strong{display:block;font-size:26px;line-height:1.1;color:#121a2f;margin-top:8px}
+  .supplier-orders-card span{display:block;color:#52637c;font-weight:700;margin-top:6px}
+  .supplier-orders-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.35fr);gap:14px}
+  .supplier-orders-table th{white-space:nowrap;color:#6b7a93;font-size:12px;text-transform:uppercase}
+  .supplier-orders-table td{vertical-align:middle}
+  .supplier-orders-item{min-width:280px}
+  .supplier-orders-muted{color:#66758d;font-size:12px;font-weight:700}
+  .supplier-orders-status{display:inline-flex;align-items:center;border-radius:999px;padding:4px 9px;font-size:12px;font-weight:800}
+  .supplier-orders-status.open{background:#dcfce7;color:#166534}
+  .supplier-orders-status.closed{background:#edf2f7;color:#475569}
+  @media (max-width: 1199px){.supplier-orders-grid,.supplier-orders-layout{grid-template-columns:1fr 1fr}}
+  @media (max-width: 767px){.supplier-orders-grid,.supplier-orders-layout{grid-template-columns:1fr}}
+</style>
+
+{% if feature_locked %}
+<div class="alert alert-warning">
+  Το κύκλωμα Παραγγελίες Προμηθευτών δεν είναι διαθέσιμο στο τρέχον πακέτο. Αναβάθμισε το πακέτο για πρόσβαση.
+</div>
+{% endif %}
+
+<div class="card content-card mb-3">
+  <div class="card-header d-flex justify-content-between align-items-center gap-3 flex-wrap">
+    <div>
+      <h5 class="mb-1">Παραγγελίες Προμηθευτών</h5>
+      <div class="text-muted small">
+        Ανοιχτή θεωρείται παραγγελία που δεν έχει μετασχηματιστεί σε παραστατικό αγοράς. Δεν κρατάμε backorders.
+      </div>
+    </div>
+    <span class="badge bg-light text-dark border">Έλεγχος {{ supplier_order_settings.lookback_days }} ημερών</span>
+  </div>
+  <div class="card-body">
+    <form method="get" action="/tenant/supplier-orders" class="row g-3 align-items-end">
+      <div class="col-md-2">
+        <label class="form-label">Από</label>
+        <input class="form-control" type="date" name="from" value="{{ filters.from_date.isoformat() }}">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">Έως</label>
+        <input class="form-control" type="date" name="to" value="{{ filters.to_date.isoformat() }}">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Προμηθευτής / Παραστατικό</label>
+        <input class="form-control" type="text" name="supplier" value="{{ filters.supplier }}" placeholder="Αναζήτηση προμηθευτή ή αριθμού">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">Κατάσταση</label>
+        <select class="form-select" name="only_open">
+          <option value="1" {% if filters.only_open %}selected{% endif %}>Μόνο ανοιχτές</option>
+          <option value="0" {% if not filters.only_open %}selected{% endif %}>Όλες</option>
+        </select>
+      </div>
+      <div class="col-md-2 d-grid">
+        <button class="btn btn-primary" type="submit"><i class="fe fe-filter me-1"></i> Εφαρμογή</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% if dashboard.error %}
+<div class="alert alert-danger">{{ dashboard.error }}</div>
+{% endif %}
+
+<div class="supplier-orders-grid mb-3">
+  <div class="supplier-orders-card">
+    <small>Ανοιχτές παραγγελίες</small>
+    <strong>{{ summary.open_documents or 0 }}</strong>
+    <span>από {{ summary.documents or 0 }} στο διάστημα</span>
+  </div>
+  <div class="supplier-orders-card">
+    <small>Ανοιχτά τεμάχια</small>
+    <strong>{{ qty(summary.open_qty) }}</strong>
+    <span>ποσότητες προς παραλαβή</span>
+  </div>
+  <div class="supplier-orders-card">
+    <small>Αξία ανοιχτών</small>
+    <strong>{{ money(summary.open_value) }}</strong>
+    <span>βάσει γραμμών παραγγελίας</span>
+  </div>
+  <div class="supplier-orders-card">
+    <small>Προμηθευτές</small>
+    <strong>{{ summary.suppliers or 0 }}</strong>
+    <span>με παραγγελίες στο δείγμα</span>
+  </div>
+</div>
+
+<div class="supplier-orders-layout mb-3">
+  <div class="card content-card">
+    <div class="card-header"><h5 class="mb-0">Προμηθευτές με ανοιχτές παραγγελίες</h5></div>
+    <div class="table-responsive">
+      <table class="table table-sm table-hover mb-0 supplier-orders-table">
+        <thead>
+          <tr>
+            <th>Προμηθευτής</th>
+            <th class="text-end">Παραγγ.</th>
+            <th class="text-end">Τεμάχια</th>
+            <th class="text-end">Αξία</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in dashboard.supplier_rows %}
+          <tr>
+            <td>
+              <strong>{{ row.supplier_name }}</strong>
+              <div class="supplier-orders-muted">{{ row.supplier_code }}</div>
+            </td>
+            <td class="text-end">{{ row.open_documents }}</td>
+            <td class="text-end">{{ qty(row.open_qty) }}</td>
+            <td class="text-end">{{ money(row.open_value) }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="4" class="text-muted">Δεν βρέθηκαν ανοιχτές παραγγελίες.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card content-card">
+    <div class="card-header"><h5 class="mb-0">Παραγγελίες</h5></div>
+    <div class="table-responsive">
+      <table class="table table-sm table-hover mb-0 supplier-orders-table">
+        <thead>
+          <tr>
+            <th>Ημερομηνία</th>
+            <th>Παραστατικό</th>
+            <th>Προμηθευτής</th>
+            <th class="text-end">Γραμμές</th>
+            <th class="text-end">Τεμάχια</th>
+            <th class="text-end">Αξία</th>
+            <th>Κατάσταση</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in dashboard.document_rows %}
+          <tr>
+            <td>{{ row.doc_date }}</td>
+            <td>
+              <strong>{{ row.document_no }}</strong>
+              <div class="supplier-orders-muted">{{ row.series_name }}</div>
+            </td>
+            <td>{{ row.supplier_name }}</td>
+            <td class="text-end">{{ row.lines }}</td>
+            <td class="text-end">{{ qty(row.open_qty if row.is_open else row.order_qty) }}</td>
+            <td class="text-end">{{ money(row.open_value if row.is_open else row.value) }}</td>
+            <td><span class="supplier-orders-status {{ 'open' if row.is_open else 'closed' }}">{{ 'Ανοιχτή' if row.is_open else 'Κλειστή' }}</span></td>
+          </tr>
+          {% else %}
+          <tr><td colspan="7" class="text-muted">Δεν υπάρχουν παραγγελίες για τα φίλτρα.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="card content-card">
+  <div class="card-header"><h5 class="mb-0">Γραμμές ειδών</h5></div>
+  <div class="table-responsive">
+    <table class="table table-sm table-hover mb-0 supplier-orders-table">
+      <thead>
+        <tr>
+          <th>Ημ/νία</th>
+          <th>Παραστατικό</th>
+          <th>Προμηθευτής</th>
+          <th class="supplier-orders-item">Είδος</th>
+          <th class="text-end">Παραγγ.</th>
+          <th class="text-end">Καλυμ.</th>
+          <th class="text-end">Ακυρ.</th>
+          <th class="text-end">Αξία</th>
+          <th>Κατάσταση</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in dashboard.line_rows %}
+        <tr>
+          <td>{{ row.doc_date }}</td>
+          <td>{{ row.document_no }}</td>
+          <td>{{ row.supplier_name }}</td>
+          <td>
+            <strong>{{ row.item_code }}</strong>
+            <div>{{ row.item_name }}</div>
+          </td>
+          <td class="text-end">{{ qty(row.order_qty) }}</td>
+          <td class="text-end">{{ qty(row.covered_qty) }}</td>
+          <td class="text-end">{{ qty(row.cancelled_qty) }}</td>
+          <td class="text-end">{{ money(row.line_value) }}</td>
+          <td><span class="supplier-orders-status {{ 'open' if row.is_open else 'closed' }}">{{ 'Ανοιχτή' if row.is_open else 'Κλειστή' }}</span></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="9" class="text-muted">Δεν υπάρχουν γραμμές για τα φίλτρα.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

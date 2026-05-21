@@ -26,9 +26,9 @@
           <th>Τηλέφωνο 1</th>
           <th>Τηλέφωνο 2</th>
           <th>Επάγγελμα</th>
-          <th class="text-end">Υπόλοιπο</th>
+          <th class="text-end">Ανοικτό Υπόλοιπο</th>
           <th class="text-end">Εισπράξεις</th>
-          <th class="text-end">Τζίρος</th>
+          <th class="text-end">Πωλήσεις</th>
         </tr>
       </thead>
       <tbody id="customersBody">
@@ -476,11 +476,12 @@
     if(window.bvRenderFooterSummary){
       window.bvRenderFooterSummary(el, [
         { label: 'Πελάτες', value: formatInt(count) },
+        { label: 'Πωλήσεις', value: turnover },
         { label: 'Εισπράξεις', value: collections, tone: 'success' },
-        { label: 'Τζίρος', value: turnover, tone: 'total' },
+        { label: 'Ανοικτό υπόλοιπο', value: formatMoney(summary?.open_balance || 0), tone: 'total' },
       ]);
     } else {
-      el.textContent = `Πελάτες: ${formatInt(count)} | Εισπράξεις: ${collections} | Τζίρος: ${turnover}`;
+      el.textContent = `Πελάτες: ${formatInt(count)} | Πωλήσεις: ${turnover} | Εισπράξεις: ${collections} | Ανοικτό Υπόλοιπο: ${formatMoney(summary?.open_balance || 0)}`;
     }
     updateCustomersPagination(Number(rowsCount || 0));
   }
@@ -508,7 +509,7 @@
         <td>${escapeHtml(textOrDash(row.profession, ''))}</td>
         <td class="text-end">${escapeHtml(formatMoney(row.balance || 0))}</td>
         <td class="text-end">${escapeHtml(formatMoney(row.collections_total || 0))}</td>
-        <td class="text-end">${escapeHtml(formatMoney(row.turnover || 0))}</td>
+        <td class="text-end">${escapeHtml(formatMoney(row.gross_turnover ?? row.turnover ?? 0))}</td>
       </tr>`;
     }).join('');
 

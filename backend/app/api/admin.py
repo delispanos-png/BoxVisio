@@ -188,6 +188,8 @@ class BackfillRequest(BaseModel):
     include_cashflows: bool = True
     include_supplier_balances: bool = True
     include_customer_balances: bool = True
+    include_operating_expenses: bool = True
+    include_supplier_orders: bool = True
 
 
 class InsightRuleUpdateRequest(BaseModel):
@@ -245,8 +247,6 @@ def _default_source_type_for_connector(connector_type: str) -> str:
 
 
 def _default_supported_streams_for_connector(connector_type: str) -> list[str]:
-    if str(connector_type or '').strip().lower() == 'external_api':
-        return ['sales_documents', 'purchase_documents']
     return list(ALL_OPERATIONAL_STREAMS)
 
 
@@ -966,6 +966,8 @@ async def run_initial_backfill(
             'include_cashflows': bool(payload.include_cashflows),
             'include_supplier_balances': bool(payload.include_supplier_balances),
             'include_customer_balances': bool(payload.include_customer_balances),
+            'include_operating_expenses': bool(payload.include_operating_expenses),
+            'include_supplier_orders': bool(payload.include_supplier_orders),
         },
         queue='default',
     )

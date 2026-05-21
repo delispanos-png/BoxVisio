@@ -182,6 +182,14 @@ class DimItem(TenantBase):
     strict_purchase_rel: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     strict_sale_rel: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     abc_category: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    manual_order_category: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    commercial_status: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    replenishment_status_1: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    replenishment_status_2: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    min_stock: Mapped[float | None] = mapped_column(Numeric(18, 4), nullable=True)
+    replenishment_moq: Mapped[float | None] = mapped_column(Numeric(18, 4), nullable=True)
+    vendor_moq: Mapped[float | None] = mapped_column(Numeric(18, 4), nullable=True)
+    current_purchase_price: Mapped[float | None] = mapped_column(Numeric(14, 4), nullable=True)
     image_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     discount_pct: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
     is_active_source: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
@@ -219,6 +227,7 @@ class FactSales(TenantBase):
         Index('ix_fact_sales_doc_date_customer_id', 'doc_date', 'customer_id'),
         Index('ix_fact_sales_branch_item_doc_date', 'branch_id', 'item_id', 'doc_date'),
         Index('ix_fact_sales_document_id_doc_date', 'document_id', 'doc_date'),
+        Index('ix_fact_sales_doc_date_document_id', 'doc_date', 'document_id'),
         Index('ix_fact_sales_document_no', 'document_no'),
     )
 
@@ -330,6 +339,7 @@ class FactPurchases(TenantBase):
         Index('ix_fact_purchases_doc_date_supplier_id', 'doc_date', 'supplier_id'),
         Index('ix_fact_purchases_branch_supplier_doc_date', 'branch_id', 'supplier_id', 'doc_date'),
         Index('ix_fact_purchases_document_id_doc_date', 'document_id', 'doc_date'),
+        Index('ix_fact_purchases_doc_date_document_id', 'doc_date', 'document_id'),
         Index('ix_fact_purchases_document_no', 'document_no'),
     )
 
@@ -414,6 +424,8 @@ class FactInventory(TenantBase):
     source_connector_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     qty_on_hand: Mapped[float] = mapped_column(Numeric(18, 4), default=0)
     qty_reserved: Mapped[float] = mapped_column(Numeric(18, 4), default=0)
+    qty_expected: Mapped[float] = mapped_column(Numeric(18, 4), default=0)
+    qty_available: Mapped[float] = mapped_column(Numeric(18, 4), default=0)
     cost_amount: Mapped[float] = mapped_column(Numeric(14, 2), default=0)
     value_amount: Mapped[float] = mapped_column(Numeric(14, 2), default=0)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
@@ -430,6 +442,7 @@ class FactCashflow(TenantBase):
         Index('ix_fact_cashflows_subcategory_transaction_date', 'subcategory', 'transaction_date'),
         Index('ix_fact_cashflows_subcategory', 'subcategory'),
         Index('ix_fact_cashflows_account_id', 'account_id'),
+        Index('ix_fact_cashflows_reference_no', 'reference_no'),
     )
 
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, server_default=text('gen_random_uuid()'))
@@ -469,6 +482,7 @@ class FactSupplierBalance(TenantBase):
     external_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     supplier_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey('dim_suppliers.id'), nullable=True)
     supplier_ext_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    supplier_afm: Mapped[str | None] = mapped_column(String(64), nullable=True)
     balance_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     branch_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey('dim_branches.id'), nullable=True, index=True)
     branch_ext_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
@@ -482,6 +496,50 @@ class FactSupplierBalance(TenantBase):
     last_payment_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     trend_vs_previous: Mapped[float | None] = mapped_column(Numeric(14, 2), nullable=True)
     currency: Mapped[str] = mapped_column(String(3), nullable=False, default='EUR')
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class FactSupplierOrder(TenantBase):
+    __tablename__ = 'fact_supplier_orders'
+    __table_args__ = (
+        UniqueConstraint('external_id', name='uq_fact_supplier_orders_external_id'),
+        Index('ix_fact_supplier_orders_doc_date', 'doc_date'),
+        Index('ix_fact_supplier_orders_doc_date_supplier_id', 'doc_date', 'supplier_id'),
+        Index('ix_fact_supplier_orders_doc_date_branch_id', 'doc_date', 'branch_id'),
+        Index('ix_fact_supplier_orders_document_id', 'document_id'),
+        Index('ix_fact_supplier_orders_supplier_ext_id', 'supplier_ext_id'),
+        Index('ix_fact_supplier_orders_item_code', 'item_code'),
+        Index('ix_fact_supplier_orders_order_status', 'order_status'),
+        Index('ix_fact_supplier_orders_updated_at', 'updated_at'),
+    )
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, server_default=text('gen_random_uuid()'))
+    external_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    event_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    doc_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    branch_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey('dim_branches.id'), nullable=True, index=True)
+    branch_ext_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    supplier_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey('dim_suppliers.id'), nullable=True)
+    supplier_ext_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    supplier_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    supplier_afm: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    item_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey('dim_items.id'), nullable=True)
+    item_code: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    item_name: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    document_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    document_no: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    document_series: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    document_series_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    document_behavior_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    order_qty: Mapped[float] = mapped_column(Numeric(18, 4), default=0)
+    covered_qty: Mapped[float] = mapped_column(Numeric(18, 4), default=0)
+    cancelled_qty: Mapped[float] = mapped_column(Numeric(18, 4), default=0)
+    line_value: Mapped[float] = mapped_column(Numeric(14, 2), default=0)
+    has_transformation: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    order_status: Mapped[str] = mapped_column(String(32), nullable=False, default='open')
+    source_payload_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    source_connector_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
@@ -503,6 +561,7 @@ class FactCustomerBalance(TenantBase):
     customer_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey('dim_customers.id'), nullable=True)
     customer_ext_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     customer_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    customer_afm: Mapped[str | None] = mapped_column(String(64), nullable=True)
     balance_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     branch_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey('dim_branches.id'), nullable=True, index=True)
     branch_ext_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
@@ -1230,6 +1289,94 @@ class AggStockAging(TenantBase):
     days_since_last_sale: Mapped[int | None] = mapped_column(Integer, nullable=True)
     aging_bucket: Mapped[str | None] = mapped_column(String(16), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class ReplenishmentSnapshot(TenantBase):
+    __tablename__ = 'replenishment_snapshots'
+    __table_args__ = (
+        Index('ix_replenishment_snapshots_imported_at', 'imported_at'),
+        Index('ix_replenishment_snapshots_period', 'period_label'),
+    )
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, server_default=text('gen_random_uuid()'))
+    source_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    period_label: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    target_stock_weeks: Mapped[float] = mapped_column(Numeric(10, 4), nullable=False, default=4)
+    overstock_weeks: Mapped[float] = mapped_column(Numeric(10, 4), nullable=False, default=12)
+    sales_avg_period_1_weeks: Mapped[int] = mapped_column(Integer, nullable=False, default=4)
+    sales_avg_period_2_weeks: Mapped[int] = mapped_column(Integer, nullable=False, default=12)
+    rows_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    issue_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    summary_json: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    imported_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    imported_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+
+class ReplenishmentLine(TenantBase):
+    __tablename__ = 'replenishment_lines'
+    __table_args__ = (
+        UniqueConstraint('snapshot_id', 'item_code', name='uq_replenishment_lines_snapshot_item'),
+        Index('ix_replenishment_lines_snapshot_item', 'snapshot_id', 'item_code'),
+        Index('ix_replenishment_lines_categories', 'category_1', 'category_2', 'category_3'),
+        Index('ix_replenishment_lines_status', 'status_1', 'status_2'),
+        Index('ix_replenishment_lines_supplier_order', 'supplier_order_qty'),
+    )
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, server_default=text('gen_random_uuid()'))
+    snapshot_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey('replenishment_snapshots.id', ondelete='CASCADE'),
+        nullable=False,
+    )
+    source_row: Mapped[int] = mapped_column(Integer, nullable=False)
+    item_code: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    item_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    category_1: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    category_2: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    category_3: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    status_1: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    status_2: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    min_stock: Mapped[float | None] = mapped_column(Numeric(18, 4), nullable=True)
+    repl_moq: Mapped[float | None] = mapped_column(Numeric(18, 4), nullable=True)
+    vendor_moq: Mapped[float | None] = mapped_column(Numeric(18, 4), nullable=True)
+    purchase_price: Mapped[float | None] = mapped_column(Numeric(14, 4), nullable=True)
+    total_need_qty: Mapped[float] = mapped_column(Numeric(18, 4), nullable=False, default=0)
+    total_overstock_qty: Mapped[float] = mapped_column(Numeric(18, 4), nullable=False, default=0)
+    supplier_order_qty: Mapped[float] = mapped_column(Numeric(18, 4), nullable=False, default=0)
+    supplier_order_value: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False, default=0)
+    weeks_of_stock_total: Mapped[float | None] = mapped_column(Numeric(18, 4), nullable=True)
+    store_metrics_json: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    raw_json: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+
+class ReplenishmentDataQualityIssue(TenantBase):
+    __tablename__ = 'replenishment_data_quality_issues'
+    __table_args__ = (
+        Index('ix_replenishment_dq_snapshot_code', 'snapshot_id', 'issue_code'),
+        Index('ix_replenishment_dq_item', 'item_code'),
+    )
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, server_default=text('gen_random_uuid()'))
+    snapshot_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey('replenishment_snapshots.id', ondelete='CASCADE'),
+        nullable=False,
+    )
+    severity: Mapped[str] = mapped_column(String(16), nullable=False, default='warning')
+    issue_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_row: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    item_code: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    item_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    field_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    source_cell: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    raw_value: Mapped[str | None] = mapped_column(Text, nullable=True)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    metadata_json: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
 

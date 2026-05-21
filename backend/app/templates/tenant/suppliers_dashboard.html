@@ -23,7 +23,7 @@
     <div class="suppliers-filters mb-3">
       <div>
         <label class="form-label mb-1">Αναζήτηση</label>
-        <input type="text" id="suppliersSearch" class="form-control form-control-sm" placeholder="Αναζήτηση προμηθευτή / κωδικού">
+        <input type="text" id="suppliersSearch" class="form-control form-control-sm" placeholder="Αναζήτηση προμηθευτή / κωδικού / ΑΦΜ">
       </div>
       <div>
         <label class="form-label mb-1">Από</label>
@@ -45,6 +45,7 @@
         <thead class="table-light sticky-top">
           <tr>
             <th>Κωδικός</th>
+            <th>ΑΦΜ</th>
             <th>Επωνυμία</th>
             <th class="text-end">Παραστατικά</th>
             <th class="text-end">Αγορές</th>
@@ -54,7 +55,7 @@
           </tr>
         </thead>
         <tbody id="suppliersBody">
-          <tr><td colspan="7" class="text-center text-muted py-3">Φόρτωση προμηθευτών...</td></tr>
+          <tr><td colspan="8" class="text-center text-muted py-3">Φόρτωση προμηθευτών...</td></tr>
         </tbody>
       </table>
     </div>
@@ -159,15 +160,16 @@
   function renderSuppliersTable(rows){
     const body = document.getElementById('suppliersBody');
     if(!rows || rows.length === 0){
-      body.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-3">Δεν υπάρχουν διαθέσιμα δεδομένα.</td></tr>';
+      body.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-3">Δεν υπάρχουν διαθέσιμα δεδομένα.</td></tr>';
       return;
     }
     body.innerHTML = rows.map(r => `
       <tr>
         <td>${r.code || '-'}</td>
+        <td>${r.afm || '-'}</td>
         <td>${r.name || '-'}</td>
         <td class="text-end">${Number(r.purchase_docs || 0).toLocaleString('el-GR')}</td>
-        <td class="text-end">${money(r.purchases_net || 0)}</td>
+        <td class="text-end">${money(r.purchases_gross ?? r.purchases_net ?? 0)}</td>
         <td class="text-end">${money(r.payments_total || 0)}</td>
         <td class="text-end">${money(r.open_balance || 0)}</td>
         <td>${r.last_purchase_date || '-'}</td>
@@ -195,12 +197,12 @@
       if(window.bvRenderFooterSummary){
         window.bvRenderFooterSummary(summaryEl, [
           { label: 'Προμηθευτές', value: _suppliersTotal.toLocaleString('el-GR') },
-          { label: 'Αγορές', value: money(summary.purchases_net || 0) },
+          { label: 'Αγορές', value: money(summary.purchases_gross ?? summary.purchases_net ?? 0) },
           { label: 'Πληρωμές', value: money(summary.payments_total || 0) },
           { label: 'Ανοιχτό υπόλοιπο', value: money(summary.open_balance || 0), tone: 'total' },
         ]);
       } else if(summaryEl) {
-        summaryEl.textContent = `Προμηθευτές: ${_suppliersTotal} | Αγορές: ${money(summary.purchases_net || 0)} | Πληρωμές: ${money(summary.payments_total || 0)} | Ανοιχτό Υπόλοιπο: ${money(summary.open_balance || 0)}`;
+        summaryEl.textContent = `Προμηθευτές: ${_suppliersTotal} | Αγορές: ${money(summary.purchases_gross ?? summary.purchases_net ?? 0)} | Πληρωμές: ${money(summary.payments_total || 0)} | Ανοιχτό Υπόλοιπο: ${money(summary.open_balance || 0)}`;
       }
       const limit = Number(data.limit || 250);
       const offset = Number(data.offset || 0);

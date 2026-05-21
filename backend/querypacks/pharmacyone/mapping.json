@@ -41,7 +41,14 @@
     "expense_date": "Expense date for operating expense stream",
     "amount_net": "Operating expense net amount",
     "amount_tax": "Operating expense VAT amount",
-    "amount_gross": "Operating expense gross amount"
+    "amount_gross": "Operating expense gross amount",
+    "document_behavior_code": "SoftOne behavior code for supplier orders",
+    "order_qty": "Supplier order line quantity",
+    "covered_qty": "Quantity covered/transformed from supplier order",
+    "cancelled_qty": "Cancelled supplier order quantity",
+    "line_value": "Supplier order line value",
+    "has_transformation": "Whether the supplier order has any transformation to purchase document",
+    "order_status": "Supplier order status: open or closed"
   },
   "column_mappings": {
     "branch_column": "branch_external_id",

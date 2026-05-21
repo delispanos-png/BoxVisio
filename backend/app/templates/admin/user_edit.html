@@ -1,27 +1,40 @@
 {% extends "base_admin.html" %}
 {% block content %}
-<div class="admin-users-page">
-<div class="card mt-3 shadow-sm">
-  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
-    <h5 class="mb-0">Επεξεργασία Χρήστη: {{ user.email }}</h5>
-    <small class="text-muted">Ανανέωσε ρόλο, προφίλ, tenant και χρονικό παράθυρο πρόσβασης.</small>
+<div class="bv-admin-page">
+  <div class="bv-admin-hero">
+    <div>
+      <h4>Επεξεργασία χρήστη</h4>
+      <p>{{ user.email }} · ρόλος, επαγγελματικό προφίλ, tenant scope και χρονικό παράθυρο πρόσβασης.</p>
+    </div>
+    <div class="bv-admin-hero-actions">
+      <a class="btn btn-outline-secondary" href="{{ next_url }}"><i class="fe fe-arrow-left me-1"></i>Πίσω</a>
+    </div>
   </div>
-  <div class="card-body">
-    <form method="post" action="/admin/users/{{ user.id }}/edit" class="row g-3 admin-user-create-form">
+
+  <div class="bv-admin-panel">
+    <div class="bv-admin-panel-head">
+      <div>
+        <h5>Στοιχεία πρόσβασης</h5>
+        <p>Οι αλλαγές εφαρμόζονται άμεσα στον λογαριασμό του χρήστη.</p>
+      </div>
+      <span class="bv-admin-chip"><i class="fe fe-user"></i>{{ user.role.value }}</span>
+    </div>
+    <div class="bv-admin-panel-body">
+    <form method="post" action="/admin/users/{{ user.id }}/edit" class="bv-admin-form-grid">
       <input type="hidden" name="next_url" value="{{ next_url }}">
-      <div class="col-xl-4 col-md-6">
+      <div class="bv-admin-field-wide">
         <label class="form-label">{{ tt(request, 'name') }}</label>
         <input class="form-control" name="full_name" value="{{ user.full_name or '' }}">
       </div>
-      <div class="col-xl-2 col-md-6">
+      <div class="bv-admin-field-sm">
         <label class="form-label">{{ tt(request, 'phone') if tt(request, 'phone') != 'phone' else 'Phone' }}</label>
         <input class="form-control" name="phone" value="{{ user.phone or '' }}">
       </div>
-      <div class="col-xl-4 col-md-6">
+      <div class="bv-admin-field-wide">
         <label class="form-label">{{ tt(request, 'email') }}</label>
         <input class="form-control" type="email" name="email" value="{{ user.email }}" required>
       </div>
-      <div class="col-xl-2 col-md-6">
+      <div class="bv-admin-field-sm">
         <label class="form-label">{{ tt(request, 'role') }}</label>
         <select class="form-select" name="role" id="editUserRoleSelect">
           <option value="tenant_user" data-default-profile="FINANCE" {% if user.role.value == 'tenant_user' %}selected{% endif %}>Χρήστης Πελάτη</option>
@@ -29,7 +42,7 @@
           <option value="cloudon_admin" data-default-profile="OWNER" {% if user.role.value == 'cloudon_admin' %}selected{% endif %}>CloudOn Admin</option>
         </select>
       </div>
-      <div class="col-xl-4 col-md-6">
+      <div class="bv-admin-field-wide">
         <label class="form-label">Επαγγελματικό Προφίλ</label>
         <select class="form-select" name="professional_profile_code" id="editUserProfileSelect" required>
           {% for p in professional_profiles %}
@@ -38,7 +51,7 @@
           {% endfor %}
         </select>
       </div>
-      <div class="col-xl-4 col-md-6">
+      <div class="bv-admin-field-wide">
         <label class="form-label">{{ tt(request, 'tenant_id') }}</label>
         <select class="form-select" name="tenant_id">
           <option value="">{{ tt(request, 'no_tenant') }}</option>
@@ -47,25 +60,28 @@
           {% endfor %}
         </select>
       </div>
-      <div class="col-xl-2 col-md-6">
+      <div class="bv-admin-field-sm">
         <label class="form-label">Company ID Scope</label>
         <input class="form-control" name="company_id" value="{{ user.company_id or '' }}" placeholder="1001">
       </div>
-      <div class="col-xl-4 col-md-6">
+      <div class="bv-admin-field-wide">
         <label class="form-label">{{ tt(request, 'access_from') if tt(request, 'access_from') != 'access_from' else 'Access From' }}</label>
         <input class="form-control" type="datetime-local" name="access_starts_at" value="{{ user.access_starts_at.strftime('%Y-%m-%dT%H:%M') if user.access_starts_at else '' }}">
       </div>
-      <div class="col-xl-4 col-md-6">
+      <div class="bv-admin-field-wide">
         <label class="form-label">{{ tt(request, 'access_until') if tt(request, 'access_until') != 'access_until' else 'Access Until' }}</label>
         <input class="form-control" type="datetime-local" name="access_expires_at" value="{{ user.access_expires_at.strftime('%Y-%m-%dT%H:%M') if user.access_expires_at else '' }}">
       </div>
-      <div class="col-12 d-flex gap-2 mt-2">
+      <div class="bv-admin-field-full bv-admin-actionbar">
+        <div class="bv-admin-note"><i class="fe fe-info"></i><span>Για global CloudOn πρόσβαση άφησε κενό το tenant. Για χρήστη πελάτη σύνδεσέ τον με συγκεκριμένο tenant.</span></div>
+        <div class="d-flex gap-2">
         <button class="btn bv-action-btn bv-action-save" type="submit"><i class="fe fe-save me-1"></i>{{ tt(request, 'save') }}</button>
         <a class="btn bv-action-btn bv-action-edit" href="{{ next_url }}"><i class="fe fe-arrow-left me-1"></i>Ακύρωση</a>
+        </div>
       </div>
     </form>
+    </div>
   </div>
-</div>
 </div>
 <script>
 (() => {

@@ -13,6 +13,7 @@ IngestEntity = Literal[
     'supplier_balances',
     'customer_balances',
     'expenses',
+    'supplier_orders',
 ]
 OperationalIngestStream = Literal[
     'sales_documents',
@@ -22,6 +23,7 @@ OperationalIngestStream = Literal[
     'supplier_balances',
     'customer_balances',
     'operating_expenses',
+    'supplier_orders',
 ]
 ConnectorSourceType = Literal['sql', 'api', 'file']
 
@@ -33,6 +35,7 @@ ALL_OPERATIONAL_STREAMS: tuple[OperationalIngestStream, ...] = (
     'supplier_balances',
     'customer_balances',
     'operating_expenses',
+    'supplier_orders',
 )
 
 STREAM_TO_ENTITY: dict[OperationalIngestStream, IngestEntity] = {
@@ -43,6 +46,7 @@ STREAM_TO_ENTITY: dict[OperationalIngestStream, IngestEntity] = {
     'supplier_balances': 'supplier_balances',
     'customer_balances': 'customer_balances',
     'operating_expenses': 'expenses',
+    'supplier_orders': 'supplier_orders',
 }
 ENTITY_TO_STREAM: dict[IngestEntity, OperationalIngestStream] = {
     entity: stream for stream, entity in STREAM_TO_ENTITY.items()
@@ -71,6 +75,12 @@ def normalize_stream_name(value: str | None) -> OperationalIngestStream | None:
         'opex': 'operating_expenses',
         'operating_expense': 'operating_expenses',
         'operatingexpenses': 'operating_expenses',
+        'supplier_order': 'supplier_orders',
+        'supplier_orders': 'supplier_orders',
+        'purchase_orders': 'supplier_orders',
+        'purchase_order': 'supplier_orders',
+        'vendor_orders': 'supplier_orders',
+        'vendor_order': 'supplier_orders',
     }
     candidate = aliases.get(raw, raw)
     if candidate in ALL_OPERATIONAL_STREAMS:
@@ -124,6 +134,7 @@ class ConnectorContext:
     supplier_balances_query: str | None = None
     customer_balances_query: str | None = None
     expenses_query: str | None = None
+    supplier_orders_query: str | None = None
 
     def stream_enabled(self, stream: OperationalIngestStream) -> bool:
         if self.enabled_streams:
@@ -148,6 +159,8 @@ class ConnectorContext:
             return self.supplier_balances_query
         if stream == 'customer_balances':
             return self.customer_balances_query
+        if stream == 'supplier_orders':
+            return self.supplier_orders_query
         return self.expenses_query
 
 

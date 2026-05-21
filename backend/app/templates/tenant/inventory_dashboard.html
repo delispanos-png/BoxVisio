@@ -734,6 +734,13 @@
       emptyText: '{{ tt(request, "no_options_available") }}',
     });
   }
+  let invFilterOptionsReloadTimer = null;
+  function scheduleInvFilterOptionsReload(){
+    window.clearTimeout(invFilterOptionsReloadTimer);
+    invFilterOptionsReloadTimer = window.setTimeout(() => {
+      loadInvFilterOptions();
+    }, 120);
+  }
   async function loadInvFilterOptions(){
     const p = new URLSearchParams();
     if(asOfEl.value) p.set('as_of', window.bvToIsoDate ? window.bvToIsoDate(asOfEl.value) : asOfEl.value);
@@ -906,6 +913,10 @@
       const byManufacturer = Array.isArray(payload?.by_manufacturer) ? payload.by_manufacturer : [];
       latestSnapshot = snap;
       latestIntelligence = payload?.intelligence || {};
+      const requestedAsOf = p.get('as_of');
+      if(snap.snapshot_date && requestedAsOf && snap.snapshot_date !== requestedAsOf){
+        asOfEl.value = window.bvToDmyDate ? window.bvToDmyDate(snap.snapshot_date) : snap.snapshot_date;
+      }
       document.getElementById('kpiStockValue').textContent = fmtMoney(snap.cost_amount);
       document.getElementById('kpiQtyOnHand').textContent = fmtNum(snap.qty_on_hand);
       document.getElementById('kpiQtyReserved').textContent = fmtNum(snap.qty_reserved);
@@ -925,6 +936,9 @@
     ? window.bvToDmyDate(initialAsOf)
     : initialAsOf;
   invFieldDefs.forEach((f)=>initInvMulti(f.selectId, f.label));
+  invFieldDefs.forEach((f)=>{
+    document.getElementById(f.selectId)?.addEventListener('change', scheduleInvFilterOptionsReload);
+  });
   document.addEventListener('click', (e)=>{
     if(e.target.closest('#inventoryValueCard')) openInventoryValueAnalysis(e);
   }, true);
@@ -936,8 +950,8 @@
   asOfEl.addEventListener('change', loadInvFilterOptions);
   form.addEventListener('submit', async (e)=>{
     e.preventDefault();
-    await loadInvFilterOptions();
     await load();
+    await loadInvFilterOptions();
   });
   loadInvFilterOptions().then(load);
 })();

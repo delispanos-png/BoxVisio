@@ -220,6 +220,7 @@
           <th class="text-end">{{ tt(request, 'acquisition_after_discount') }}</th>
           <th class="text-end">Τιμή Λιανικής με ΦΠΑ</th>
           <th class="text-end">Τιμή Στόχου με ΦΠΑ</th>
+          <th class="text-end">Στόχος %</th>
           <th class="text-end">{{ tt(request, 'sale_unit') }}</th>
           <th class="text-end">ΦΠΑ</th>
           <th class="text-end">Περιθώριο Λιανικής</th>
@@ -407,7 +408,7 @@
   function renderRows(rows){
     tbody.innerHTML = '';
     if(!rows.length){
-      tbody.innerHTML = `<tr><td colspan="14" class="text-center text-muted py-3">{{ tt(request, 'no_data_available') }}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="15" class="text-center text-muted py-3">{{ tt(request, 'no_data_available') }}</td></tr>`;
       return;
     }
     rows.forEach(r=>{
@@ -425,6 +426,7 @@
         <td class="text-end pc-nowrap">${fmtMoney(r.acquisition_after_discount)}</td>
         <td class="text-end pc-nowrap">${fmtMoney(r.retail_unit)}</td>
         <td class="text-end pc-nowrap">${fmtMoney(r.target_sale_unit || r.predicted_sale_unit)}</td>
+        <td class="text-end pc-nowrap"><div class="fw-bold">${fmtPct(r.target_margin_pct)}</div><div class="small text-muted">${esc(r.target_margin_source || 'Default')}</div></td>
         <td class="text-end pc-nowrap">${fmtMoney(r.sale_unit)}</td>
         <td class="text-end pc-nowrap">${fmtPct(r.vat_pct)}</td>
         <td class="text-end fw-bold pc-nowrap">${fmtPct(r.margin_pct)}</td>

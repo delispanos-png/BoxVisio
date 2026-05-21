@@ -33,6 +33,12 @@
 {% endblock %}
 
 {% block content %}
+{% set _subscription_features = request.state.subscription_features if request.state.subscription_features is defined else {} %}
+{% set _purchases_locked = not _subscription_features.get('purchases', false) %}
+{% set _inventory_locked = not _subscription_features.get('inventory', inventory_enabled if inventory_enabled is defined else false) %}
+{% set _cashflow_locked = not _subscription_features.get('cashflows', cashflow_enabled if cashflow_enabled is defined else false) %}
+{% set _customer_balances_locked = not _subscription_features.get('customer_balances', false) %}
+{% set _eshop_locked = not _subscription_features.get('eshop_analysis', false) %}
 <div id="centralError" class="alert alert-danger d-none"></div>
 <style>
   #companyTrendChart {
@@ -230,6 +236,43 @@
     transform: translateY(-3px);
     box-shadow: 0 8px 24px rgba(15,23,42,.12) !important;
   }
+  .bv-feature-locked {
+    position: relative;
+    opacity: .55;
+    filter: grayscale(.55);
+  }
+  .bv-feature-locked:hover {
+    opacity: .72;
+  }
+  .bv-feature-locked .mc-value,
+  .bv-feature-locked .mc-meta,
+  .bv-feature-locked .mc-delta {
+    color: #64748b !important;
+  }
+  .bv-feature-lock-badge {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 8px;
+    border-radius: 999px;
+    border: 1px solid #cbd5e1;
+    background: rgba(248,250,252,.92);
+    color: #475569;
+    font-size: .66rem;
+    font-weight: 900;
+    letter-spacing: .03em;
+    text-transform: uppercase;
+  }
+  .bv-nav-tile.bv-feature-locked {
+    box-shadow: none !important;
+  }
+  .bv-nav-tile.bv-feature-locked:hover {
+    transform: none;
+    box-shadow: 0 8px 22px rgba(15,23,42,.08) !important;
+  }
   #tblDayByBranch,
   #tblMonthByBranch,
   #tblYearByBranch {
@@ -312,7 +355,7 @@
 
 <div class="row row-cols-1 row-cols-sm-2 row-cols-md-3 row-cols-xl-5 g-3 mb-3">
   <div class="col">
-    <div class="bv-metric-card" style="--mc-color:#06b6d4" data-intraday="true" data-kpi-what="Καθαρή αξία πωλήσεων μόνο της ημέρας που έχεις ως ημερομηνία αναφοράς." data-kpi-formula="Τζίρος Ημέρας = άθροισμα net_value όλων των παραστατικών εσόδου της ίδιας ημέρας.">
+    <div class="bv-metric-card" style="--mc-color:#06b6d4" data-intraday="true" data-kpi-what="Τζίρος πωλήσεων μόνο της ημέρας αναφοράς, χωρίς ΦΠΑ και με έξοδα παραστατικών." data-kpi-formula="Τζίρος Ημέρας = καθαρή αξία γραμμών + καθαρά έξοδα παραστατικού, μία φορά ανά παραστατικό, της ίδιας ημέρας.">
       <div class="mc-icon" title="Ενδοημερήσια ανάλυση"><i class="fe fe-sun"></i></div>
       <div class="mc-label">Τζίρος Ημέρας</div>
       <div id="kpiDay" class="mc-value">—</div>
@@ -320,7 +363,7 @@
     </div>
   </div>
   <div class="col">
-    <div class="bv-metric-card" style="--mc-color:#22c55e" data-weekly="true" data-kpi-what="Καθαρή αξία πωλήσεων από την αρχή της εβδομάδας μέχρι την ημερομηνία αναφοράς." data-kpi-formula="Τζίρος Εβδομάδας = άθροισμα net_value όλων των παραστατικών εσόδου από Δευτέρα εβδομάδας έως ημερομηνία 'Έως'.">
+    <div class="bv-metric-card" style="--mc-color:#22c55e" data-weekly="true" data-kpi-what="Τζίρος πωλήσεων από την αρχή της εβδομάδας μέχρι την ημερομηνία αναφοράς, χωρίς ΦΠΑ και με έξοδα παραστατικών." data-kpi-formula="Τζίρος Εβδομάδας = καθαρή αξία γραμμών + καθαρά έξοδα παραστατικού από Δευτέρα εβδομάδας έως ημερομηνία 'Έως'.">
       <div class="mc-icon" title="Ημερήσια ανάλυση εβδομάδας"><i class="fe fe-calendar"></i></div>
       <div class="mc-label">Τζίρος Εβδομάδας</div>
       <div id="kpiWeek" class="mc-value">—</div>
@@ -328,7 +371,7 @@
     </div>
   </div>
   <div class="col">
-    <div class="bv-metric-card" style="--mc-color:#f97316" data-monthly="true" data-kpi-what="Καθαρή αξία πωλήσεων από την 1η του μήνα μέχρι την ημερομηνία αναφοράς." data-kpi-formula="Τζίρος Μήνα = άθροισμα net_value όλων των παραστατικών εσόδου από 1η μήνα έως ημερομηνία 'Έως'.">
+    <div class="bv-metric-card" style="--mc-color:#f97316" data-monthly="true" data-kpi-what="Τζίρος πωλήσεων από την 1η του μήνα μέχρι την ημερομηνία αναφοράς, χωρίς ΦΠΑ και με έξοδα παραστατικών." data-kpi-formula="Τζίρος Μήνα = καθαρή αξία γραμμών + καθαρά έξοδα παραστατικού από 1η μήνα έως ημερομηνία 'Έως'.">
       <div class="mc-icon" title="Εβδομαδιαία ανάλυση μήνα"><i class="fe fe-bar-chart"></i></div>
       <div class="mc-label">Τζίρος Μήνα</div>
       <div id="kpiMonth" class="mc-value">—</div>
@@ -336,7 +379,7 @@
     </div>
   </div>
   <div class="col">
-    <div class="bv-metric-card" style="--mc-color:#ef4444" data-ytd="prev" data-kpi-what="Καθαρή αξία πωλήσεων του προηγούμενου έτους, μέχρι την ίδια μέρα/μήνα με τη σημερινή επιλογή." data-kpi-formula="Τζίρος Προηγ. Έτους YTD = άθροισμα net_value όλων των παραστατικών εσόδου από 01/01/{προηγ. έτος} έως ίδια cutoff ημερομηνία.">
+    <div class="bv-metric-card" style="--mc-color:#ef4444" data-ytd="prev" data-kpi-what="Τζίρος πωλήσεων του προηγούμενου έτους, μέχρι την ίδια μέρα/μήνα με τη σημερινή επιλογή." data-kpi-formula="Τζίρος Προηγ. Έτους YTD = καθαρή αξία γραμμών + καθαρά έξοδα παραστατικού από 01/01/{προηγ. έτος} έως ίδια cutoff ημερομηνία.">
       <div class="mc-icon" title="Μηνιαία ανάλυση έτους"><i class="fe fe-clock"></i></div>
       <div class="mc-label">Τζίρος <span id="kpiPrevYearLabel">{{ default_to.year - 1 }}</span> (YTD)</div>
       <div id="kpiPrevYear" class="mc-value">—</div>
@@ -344,7 +387,7 @@
     </div>
   </div>
   <div class="col">
-    <div class="bv-metric-card" style="--mc-color:#3b82f6" data-ytd="curr" data-kpi-what="Καθαρή αξία πωλήσεων του τρέχοντος έτους μέχρι την ημερομηνία αναφοράς." data-kpi-formula="Τζίρος Τρέχοντος Έτους YTD = άθροισμα net_value όλων των παραστατικών εσόδου από 01/01/{τρέχον έτος} έως ημερομηνία 'Έως'.">
+    <div class="bv-metric-card" style="--mc-color:#3b82f6" data-ytd="curr" data-kpi-what="Τζίρος πωλήσεων του τρέχοντος έτους μέχρι την ημερομηνία αναφοράς." data-kpi-formula="Τζίρος Τρέχοντος Έτους YTD = καθαρή αξία γραμμών + καθαρά έξοδα παραστατικού από 01/01/{τρέχον έτος} έως ημερομηνία 'Έως'.">
       <div class="mc-icon" title="Μηνιαία ανάλυση έτους"><i class="fe fe-trending-up"></i></div>
       <div class="mc-label">Τζίρος <span id="kpiYearLabel">{{ default_to.year }}</span> (YTD)</div>
       <div id="kpiYear" class="mc-value">—</div>
@@ -364,7 +407,7 @@
   <div id="companyOverviewBody" class="card-body">
     <div class="row g-2">
       <div class="col-6 col-sm-6 col-xl-3">
-        <div class="bv-metric-card" style="--mc-color:#3b82f6" data-executive-card="total_sales_period" data-kpi-what="Συνολική καθαρή αξία πωλήσεων για το επιλεγμένο διάστημα και τα φίλτρα." data-kpi-formula="Πωλήσεις Περιόδου = άθροισμα net_value όλων των παραστατικών που έχουν χαρακτηριστεί ως Έσοδα, στο [Από, Έως].">
+        <div class="bv-metric-card" style="--mc-color:#3b82f6" data-executive-card="total_sales_period" data-kpi-what="Συνολικός τζίρος πωλήσεων για το επιλεγμένο διάστημα και τα φίλτρα, χωρίς ΦΠΑ και με έξοδα παραστατικών." data-kpi-formula="Πωλήσεις Περιόδου = καθαρή αξία γραμμών + καθαρά έξοδα παραστατικού, μία φορά ανά παραστατικό, στο [Από, Έως].">
           <div class="mc-icon"><i class="fe fe-shopping-bag"></i></div>
           <div class="mc-label">Πωλήσεις περιόδου</div>
           <div id="kpiTotalSalesPeriod" class="mc-value">—</div>
@@ -373,7 +416,8 @@
         </div>
       </div>
       <div class="col-6 col-sm-6 col-xl-3">
-        <div class="bv-metric-card" style="--mc-color:#f97316" data-executive-card="purchases_period" data-kpi-what="Συνολική αξία αγορών/κόστους για το επιλεγμένο διάστημα και τα φίλτρα." data-kpi-formula="Αγορές Περιόδου = άθροισμα cost_amount ή net_value όλων των παραστατικών που έχουν χαρακτηριστεί ως Αγορές, στο [Από, Έως].">
+        <div class="bv-metric-card{% if _purchases_locked %} bv-feature-locked{% endif %}" style="--mc-color:#f97316" data-executive-card="purchases_period"{% if _purchases_locked %} data-locked-url="/tenant/purchases" title="Διαθέσιμο στο Pro ή μεγαλύτερο πακέτο"{% endif %} data-kpi-what="Συνολική αξία αγορών για το επιλεγμένο διάστημα και τα φίλτρα, χωρίς ΦΠΑ και με έξοδα παραστατικών." data-kpi-formula="Αγορές Περιόδου = καθαρή αξία γραμμών αγοράς + καθαρά έξοδα παραστατικού αγοράς, μία φορά ανά παραστατικό, στο [Από, Έως].">
+          {% if _purchases_locked %}<span class="bv-feature-lock-badge"><i class="fe fe-lock"></i> Pro</span>{% endif %}
           <div class="mc-icon"><i class="fe fe-shopping-cart"></i></div>
           <div class="mc-label">Αγορές περιόδου</div>
           <div id="kpiTotalPurchasesPeriod" class="mc-value">—</div>
@@ -382,7 +426,8 @@
         </div>
       </div>
       <div class="col-6 col-sm-6 col-xl-3">
-        <div class="bv-metric-card" style="--mc-color:#22c55e" data-executive-card="gross_profit_period" data-kpi-what="Το αποτέλεσμα πωλήσεων μείον αγορές για το επιλεγμένο διάστημα." data-kpi-formula="Μικτό Κέρδος Περιόδου = Πωλήσεις Περιόδου - Αγορές Περιόδου.">
+        <div class="bv-metric-card{% if _purchases_locked %} bv-feature-locked{% endif %}" style="--mc-color:#22c55e" data-executive-card="gross_profit_period"{% if _purchases_locked %} data-locked-url="/tenant/purchases" title="Απαιτεί κύκλωμα Αγορών/κόστους"{% endif %} data-kpi-what="Το αποτέλεσμα πωλήσεων μείον αγορές για το επιλεγμένο διάστημα." data-kpi-formula="Μικτό Κέρδος Περιόδου = Πωλήσεις Περιόδου - Αγορές Περιόδου.">
+          {% if _purchases_locked %}<span class="bv-feature-lock-badge"><i class="fe fe-lock"></i> Pro</span>{% endif %}
           <div class="mc-icon"><i class="fe fe-award"></i></div>
           <div class="mc-label">Μικτό Κέρδος περιόδου</div>
           <div id="kpiGrossProfitPeriod" class="mc-value">—</div>
@@ -391,7 +436,8 @@
         </div>
       </div>
       <div class="col-6 col-sm-6 col-xl-3">
-        <div class="bv-metric-card" style="--mc-color:#8b5cf6" data-executive-card="margin_pct_period" data-kpi-what="Ποσοστό κερδοφορίας σε σχέση με τις πωλήσεις της ίδιας περιόδου." data-kpi-formula="Μέσο Περιθώριο % = ((Πωλήσεις Περιόδου - Αγορές Περιόδου) / Πωλήσεις Περιόδου) * 100.">
+        <div class="bv-metric-card{% if _purchases_locked %} bv-feature-locked{% endif %}" style="--mc-color:#8b5cf6" data-executive-card="margin_pct_period"{% if _purchases_locked %} data-locked-url="/tenant/purchases" title="Απαιτεί κύκλωμα Αγορών/κόστους"{% endif %} data-kpi-what="Ποσοστό κερδοφορίας σε σχέση με τις πωλήσεις της ίδιας περιόδου." data-kpi-formula="Μέσο Περιθώριο % = ((Πωλήσεις Περιόδου - Αγορές Περιόδου) / Πωλήσεις Περιόδου) * 100.">
+          {% if _purchases_locked %}<span class="bv-feature-lock-badge"><i class="fe fe-lock"></i> Pro</span>{% endif %}
           <div class="mc-icon"><i class="fe fe-percent"></i></div>
           <div class="mc-label">Μέσο Περιθώριο %</div>
           <div id="kpiMarginPctPeriod" class="mc-value">—</div>
@@ -400,7 +446,8 @@
         </div>
       </div>
       <div class="col-6 col-sm-6 col-xl-3">
-        <div class="bv-metric-card" style="--mc-color:#06b6d4" data-executive-card="purchases_to_sales" data-kpi-what="Δείχνει πόσο βαριές είναι οι αγορές σε σχέση με τις πωλήσεις." data-kpi-formula="Ρυθμός Αγορών / Πωλήσεων = (Αγορές Περιόδου / Πωλήσεις Περιόδου) * 100.">
+        <div class="bv-metric-card{% if _purchases_locked %} bv-feature-locked{% endif %}" style="--mc-color:#06b6d4" data-executive-card="purchases_to_sales"{% if _purchases_locked %} data-locked-url="/tenant/purchases" title="Απαιτεί κύκλωμα Αγορών"{% endif %} data-kpi-what="Δείχνει πόσο βαριές είναι οι αγορές σε σχέση με τις πωλήσεις." data-kpi-formula="Ρυθμός Αγορών / Πωλήσεων = (Αγορές Περιόδου / Πωλήσεις Περιόδου) * 100.">
+          {% if _purchases_locked %}<span class="bv-feature-lock-badge"><i class="fe fe-lock"></i> Pro</span>{% endif %}
           <div class="mc-icon"><i class="fe fe-repeat"></i></div>
           <div class="mc-label">Ρυθμός αγορών/πωλ.</div>
           <div id="kpiPurchasesToSales" class="mc-value">—</div>
@@ -436,7 +483,8 @@
         </div>
       </div>
       <div class="col-6 col-sm-6 col-xl-3">
-        <div class="bv-metric-card" style="--mc-color:#ef4444" data-executive-card="gross_profit_year" data-kpi-what="Μικτό αποτέλεσμα από την αρχή του έτους μέχρι την ημερομηνία αναφοράς." data-kpi-formula="Μικτό Κέρδος Έτους = Τζίρος Τρέχοντος Έτους YTD - Αγορές Τρέχοντος Έτους YTD.">
+        <div class="bv-metric-card{% if _purchases_locked %} bv-feature-locked{% endif %}" style="--mc-color:#ef4444" data-executive-card="gross_profit_year"{% if _purchases_locked %} data-locked-url="/tenant/purchases" title="Απαιτεί κύκλωμα Αγορών/κόστους"{% endif %} data-kpi-what="Μικτό αποτέλεσμα από την αρχή του έτους μέχρι την ημερομηνία αναφοράς." data-kpi-formula="Μικτό Κέρδος Έτους = Τζίρος Τρέχοντος Έτους YTD - Αγορές Τρέχοντος Έτους YTD.">
+          {% if _purchases_locked %}<span class="bv-feature-lock-badge"><i class="fe fe-lock"></i> Pro</span>{% endif %}
           <div class="mc-icon"><i class="fe fe-dollar-sign"></i></div>
           <div class="mc-label">Μικτό Κέρδος έτους</div>
           <div id="kpiGrossProfitYear" class="mc-value">—</div>
@@ -523,27 +571,27 @@
     </a>
   </div>
   <div class="col-6 col-sm-4 col-md-2">
-    <a href="/tenant/purchases" class="bv-nav-tile text-decoration-none d-flex flex-column align-items-center justify-content-center text-center gap-2 p-3 rounded-3 border h-100" style="background:#fffbeb;border-color:#fde68a!important;">
+    <a href="/tenant/purchases" class="bv-nav-tile text-decoration-none d-flex flex-column align-items-center justify-content-center text-center gap-2 p-3 rounded-3 border h-100{% if _purchases_locked %} bv-feature-locked{% endif %}" style="background:#fffbeb;border-color:#fde68a!important;"{% if _purchases_locked %} title="Διαθέσιμο στο Pro ή μεγαλύτερο πακέτο"{% endif %}>
       <i class="fe fe-shopping-cart" style="font-size:1.6rem;color:#d97706;"></i>
-      <span style="font-weight:700;font-size:.82rem;color:#92400e;letter-spacing:.02em;text-transform:uppercase;">Αγορές</span>
+      <span style="font-weight:700;font-size:.82rem;color:#92400e;letter-spacing:.02em;text-transform:uppercase;">Αγορές{% if _purchases_locked %} <i class="fe fe-lock"></i>{% endif %}</span>
     </a>
   </div>
   <div class="col-6 col-sm-4 col-md-2">
-    <a href="/tenant/inventory" class="bv-nav-tile text-decoration-none d-flex flex-column align-items-center justify-content-center text-center gap-2 p-3 rounded-3 border h-100 {% if not inventory_enabled %}opacity-50 pe-none{% endif %}" style="background:#f0fdf4;border-color:#bbf7d0!important;">
+    <a href="/tenant/inventory" class="bv-nav-tile text-decoration-none d-flex flex-column align-items-center justify-content-center text-center gap-2 p-3 rounded-3 border h-100{% if _inventory_locked %} bv-feature-locked{% endif %}" style="background:#f0fdf4;border-color:#bbf7d0!important;"{% if _inventory_locked %} title="Διαθέσιμο στο Enterprise ή μεγαλύτερο πακέτο"{% endif %}>
       <i class="fe fe-layers" style="font-size:1.6rem;color:#16a34a;"></i>
-      <span style="font-weight:700;font-size:.82rem;color:#166534;letter-spacing:.02em;text-transform:uppercase;">Απόθεμα</span>
+      <span style="font-weight:700;font-size:.82rem;color:#166534;letter-spacing:.02em;text-transform:uppercase;">Απόθεμα{% if _inventory_locked %} <i class="fe fe-lock"></i>{% endif %}</span>
     </a>
   </div>
   <div class="col-6 col-sm-4 col-md-2">
-    <a href="/tenant/cashflow" class="bv-nav-tile text-decoration-none d-flex flex-column align-items-center justify-content-center text-center gap-2 p-3 rounded-3 border h-100 {% if not cashflow_enabled %}opacity-50 pe-none{% endif %}" style="background:#eff6ff;border-color:#bfdbfe!important;">
+    <a href="/tenant/cashflow" class="bv-nav-tile text-decoration-none d-flex flex-column align-items-center justify-content-center text-center gap-2 p-3 rounded-3 border h-100{% if _cashflow_locked %} bv-feature-locked{% endif %}" style="background:#eff6ff;border-color:#bfdbfe!important;"{% if _cashflow_locked %} title="Διαθέσιμο στο Enterprise ή μεγαλύτερο πακέτο"{% endif %}>
       <i class="fe fe-dollar-sign" style="font-size:1.6rem;color:#2563eb;"></i>
-      <span style="font-weight:700;font-size:.82rem;color:#1e40af;letter-spacing:.02em;text-transform:uppercase;">Cashflow</span>
+      <span style="font-weight:700;font-size:.82rem;color:#1e40af;letter-spacing:.02em;text-transform:uppercase;">Cashflow{% if _cashflow_locked %} <i class="fe fe-lock"></i>{% endif %}</span>
     </a>
   </div>
   <div class="col-6 col-sm-4 col-md-2">
-    <a href="/tenant/customers" class="bv-nav-tile text-decoration-none d-flex flex-column align-items-center justify-content-center text-center gap-2 p-3 rounded-3 border h-100" style="background:#fdf4ff;border-color:#e9d5ff!important;">
+    <a href="/tenant/customers" class="bv-nav-tile text-decoration-none d-flex flex-column align-items-center justify-content-center text-center gap-2 p-3 rounded-3 border h-100{% if _customer_balances_locked %} bv-feature-locked{% endif %}" style="background:#fdf4ff;border-color:#e9d5ff!important;"{% if _customer_balances_locked %} title="Διαθέσιμο στο Enterprise ή μεγαλύτερο πακέτο"{% endif %}>
       <i class="fe fe-users" style="font-size:1.6rem;color:#9333ea;"></i>
-      <span style="font-weight:700;font-size:.82rem;color:#7e22ce;letter-spacing:.02em;text-transform:uppercase;">Πελάτες</span>
+      <span style="font-weight:700;font-size:.82rem;color:#7e22ce;letter-spacing:.02em;text-transform:uppercase;">Πελάτες{% if _customer_balances_locked %} <i class="fe fe-lock"></i>{% endif %}</span>
     </a>
   </div>
   <div class="col-6 col-sm-4 col-md-2">
@@ -553,9 +601,9 @@
     </a>
   </div>
   <div class="col-6 col-sm-4 col-md-2">
-    <a href="/tenant/e-shop-analysis" class="bv-nav-tile text-decoration-none d-flex flex-column align-items-center justify-content-center text-center gap-2 p-3 rounded-3 border h-100" style="background:#ecfeff;border-color:#a5f3fc!important;">
+    <a href="/tenant/e-shop-analysis" class="bv-nav-tile text-decoration-none d-flex flex-column align-items-center justify-content-center text-center gap-2 p-3 rounded-3 border h-100{% if _eshop_locked %} bv-feature-locked{% endif %}" style="background:#ecfeff;border-color:#a5f3fc!important;"{% if _eshop_locked %} title="Διαθέσιμο στο Pro ή μεγαλύτερο πακέτο"{% endif %}>
       <i class="fe fe-truck" style="font-size:1.6rem;color:#0891b2;"></i>
-      <span style="font-weight:700;font-size:.82rem;color:#155e75;letter-spacing:.02em;text-transform:uppercase;">E-Shop</span>
+      <span style="font-weight:700;font-size:.82rem;color:#155e75;letter-spacing:.02em;text-transform:uppercase;">E-Shop{% if _eshop_locked %} <i class="fe fe-lock"></i>{% endif %}</span>
     </a>
   </div>
 </div>
@@ -769,6 +817,15 @@ const branchDonutCharts = {};
 let dashboardReloadToken = 0;
 let executiveKpiDetails = {};
 let executiveKpiViewMode = 'diagnosis';
+const lockedExecutiveKpiCards = new Set([
+  {% if _purchases_locked %}
+  'purchases_period',
+  'gross_profit_period',
+  'margin_pct_period',
+  'purchases_to_sales',
+  'gross_profit_year',
+  {% endif %}
+]);
 const centralFieldDefs = [
   {key:'branches', selectId:'centralBranches', label:'{{ tt(request, "branches") }}'},
 ];
@@ -778,6 +835,20 @@ const fmt2 = new Intl.NumberFormat('el-GR', { minimumFractionDigits: 2, maximumF
 const fmt0 = new Intl.NumberFormat('el-GR', { maximumFractionDigits: 0 });
 function money(v){return fmt2.format(toNum(v))}
 function pct(v){if(v===null||v===undefined) return '-'; return `${fmt2.format(toNum(v))}%`;}
+function maskLockedExecutiveKpis(){
+  document.querySelectorAll('.bv-metric-card.bv-feature-locked[data-executive-card]').forEach((card) => {
+    card.querySelectorAll('.mc-value').forEach((el) => {
+      el.textContent = '—';
+    });
+    card.querySelectorAll('.mc-meta').forEach((el) => {
+      el.textContent = 'Διαθέσιμο με αναβάθμιση';
+    });
+    card.querySelectorAll('.mc-delta').forEach((el) => {
+      el.textContent = 'Απαιτεί αναβάθμιση';
+      el.className = 'mc-delta mc-delta-neutral';
+    });
+  });
+}
 function dtISO(d){ return d.toISOString().slice(0,10); }
 function parseISOToDate(iso){
   if(!iso || typeof iso !== 'string') return null;
@@ -1786,6 +1857,13 @@ function bindExecutiveKpiCards(){
     card.setAttribute('tabindex', '0');
     card.setAttribute('title', 'Άνοιγμα ανάλυσης KPI');
     const open = (event) => {
+      if(card.classList.contains('bv-feature-locked')){
+        const lockedUrl = card.dataset.lockedUrl;
+        if(lockedUrl) window.location.href = lockedUrl;
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
       const key = card.dataset.executiveCard;
       if(!key) return;
       event.preventDefault();
@@ -1853,7 +1931,12 @@ function renderCentralKpiCards(executive, selectedFromDate, anchorDate){
 
   const setText = (id, value) => {
     const el = document.getElementById(id);
-    if (el) el.textContent = value;
+    if (!el) return;
+    if (el.closest('.bv-feature-locked[data-executive-card]')) {
+      if (el.classList.contains('mc-value')) el.textContent = '—';
+      return;
+    }
+    el.textContent = value;
   };
 
   setText('kpiDay', money(day.net_value || 0));
@@ -1913,6 +1996,7 @@ function renderCentralKpiCards(executive, selectedFromDate, anchorDate){
   }
   setDelta('kpiActiveBranchesDelta', executiveKpiDetails.active_branches?.delta);
   setDelta('kpiTopBranchShareDelta', executiveKpiDetails.top_branch_share?.delta);
+  maskLockedExecutiveKpis();
 }
 
 async function reloadCentralDashboard(e){
@@ -2039,6 +2123,7 @@ async function reloadCentralDashboard(e){
     document.getElementById('kpiTotalPurchasesPeriod').textContent = money(periodPurchasesVal);
     const ratio = periodSalesVal > 0 ? (periodPurchasesVal / periodSalesVal) * 100 : null;
     document.getElementById('kpiPurchasesToSales').textContent = ratio === null ? '-' : pct(ratio);
+    maskLockedExecutiveKpis();
 
     renderTrend([
       { year: prev2Year, rows: trendY2 || [] },
@@ -2067,6 +2152,13 @@ document.addEventListener('click', (event) => {
   if(card.querySelector('.mc-icon') && event.target.closest('.mc-icon')) {
     event.preventDefault();
     event.stopImmediatePropagation();
+  }
+  if(card.classList.contains('bv-feature-locked')){
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    const lockedUrl = card.dataset.lockedUrl;
+    if(lockedUrl) window.location.href = lockedUrl;
+    return;
   }
   const key = card.dataset.executiveCard;
   if(!key) return;

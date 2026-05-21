@@ -86,6 +86,8 @@ class ExternalApiIngestConnector(Connector):
             return ('supplier_balances', 'supplier_balance')
         if stream == 'customer_balances':
             return ('customer_balances', 'customer_balance')
+        if stream == 'supplier_orders':
+            return ('supplier_orders', 'supplier_order', 'purchase_orders', 'vendor_orders')
         return ('operating_expenses', 'expenses', 'expense')
 
     def _resolve_stream_endpoint(self, *, stream: OperationalIngestStream, context: ConnectorContext) -> str | None:
@@ -123,6 +125,7 @@ class ExternalApiIngestConnector(Connector):
             'supplier_balances': 'GetSupplierBalancesForBI',
             'customer_balances': 'GetCustomerBalancesForBI',
             'operating_expenses': 'GetOperatingExpensesForBI',
+            'supplier_orders': 'GetSupplierOrdersForBI',
         }.get(stream)
         if stream_suffix:
             return f"{base_url.rstrip('/')}/{stream_suffix}"
@@ -159,6 +162,7 @@ class ExternalApiIngestConnector(Connector):
             'includeSupplierBalances',
             'includeCustomerBalances',
             'includeOperatingExpenses',
+            'includeSupplierOrders',
             'salesSourceCodes',
             'purchaseSourceCodes',
             'inventorySourceCodes',
@@ -167,6 +171,7 @@ class ExternalApiIngestConnector(Connector):
             'supplierBalanceSourceCodes',
             'customerBalanceSourceCodes',
             'expenseSourceCodes',
+            'supplierOrderSourceCodes',
         )
         for key in passthrough_keys:
             if key in raw_payload:
@@ -178,6 +183,19 @@ class ExternalApiIngestConnector(Connector):
             body['toDate'] = raw_payload['to_date']
 
         self._inject_softone_auth(body=body, context=context, payload=raw_payload)
+
+        include_key_by_stream = {
+            'sales_documents': 'includeSales',
+            'purchase_documents': 'includePurchases',
+            'inventory_documents': 'includeInventory',
+            'cash_transactions': 'includeCashTransactions',
+            'supplier_balances': 'includeSupplierBalances',
+            'customer_balances': 'includeCustomerBalances',
+            'operating_expenses': 'includeOperatingExpenses',
+            'supplier_orders': 'includeSupplierOrders',
+        }
+        for include_key in include_key_by_stream.values():
+            body[include_key] = include_key == include_key_by_stream.get(stream)
 
         if stream == 'sales_documents':
             body.setdefault('includeSales', True)
@@ -228,6 +246,16 @@ class ExternalApiIngestConnector(Connector):
             body.setdefault('includeSupplierBalances', False)
             body.setdefault('includeCustomerBalances', False)
             body.setdefault('includeOperatingExpenses', True)
+            body.setdefault('includeSupplierOrders', False)
+        elif stream == 'supplier_orders':
+            body.setdefault('includeSales', False)
+            body.setdefault('includePurchases', False)
+            body.setdefault('includeInventory', False)
+            body.setdefault('includeCashTransactions', False)
+            body.setdefault('includeSupplierBalances', False)
+            body.setdefault('includeCustomerBalances', False)
+            body.setdefault('includeOperatingExpenses', False)
+            body.setdefault('includeSupplierOrders', True)
 
         return body
 

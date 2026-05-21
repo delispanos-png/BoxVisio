@@ -54,8 +54,9 @@ The script exposes these public functions:
 6. `GetSupplierBalancesForBI(obj)`
 7. `GetCustomerBalancesForBI(obj)`
 8. `GetOperatingExpensesForBI(obj)`
-9. `GetAllForBI(obj)`
-10. `HealthCheckBIBridge(obj)`
+9. `GetSupplierOrdersForBI(obj)`
+10. `GetAllForBI(obj)`
+11. `HealthCheckBIBridge(obj)`
 3. `GetInventoryDocumentsForBI(obj)`
 4. `GetAllForBI(obj)`
 5. `BuildBoxVisioIngestPayload(obj)`
@@ -69,6 +70,7 @@ The script exposes these public functions:
 - `toDate` (optional `YYYY-MM-DD`)
 - `limit` (optional, default `2000`, max `10000`)
 - `includeSales`, `includePurchases`, `includeInventory` (for `GetAllForBI`)
+- `includeSupplierOrders` (optional, default `false`) for supplier purchase-order lines
 - Optional source filters:
   - `salesSourceCodes` (default `1351`)
   - `purchaseSourceCodes` (default `1251,1253`)
@@ -108,14 +110,48 @@ Sales extraction follows SoftOne revenue-document logic:
 - `branch_ext_id`, `warehouse_ext_id`
 - `supplier_ext_id`, `supplier_name`
 - `item_code`
-- `qty`, `net_value`, `cost_amount`
+- `qty`, `net_value`, `line_value`, `cost_amount`
+- `discount1_pct`, `discount2_pct`, `discount3_pct` from `MTRLINES.DISC1PRC`, `DISC2PRC`, `DISC3PRC`
+- `nodscamnt` / `no_discount_amount` from `MTRLINES.NODSCAMNT`
 
 Purchase extraction follows SoftOne supplier-document logic:
 - only supplier-side purchase documents (`SODTYPE = 12`)
-- `SOSOURCE 1251` counts positive
-- `SOSOURCE 1253` counts negative
-- therefore purchase KPI totals follow:
-  - `Purchases = 1251 - 1253`
+- `TFPRMS 102` and `103` count positive
+- `TFPRMS 151` and `152` count negative
+- purchase analysis item value uses `MTRLINES.LINEVAL`
+- purchase YTD/PYTD discount per item is the average line discount percentage:
+
+### Supplier Orders -> `supplier_orders`
+
+Supplier order extraction is used by the BI Supplier Orders circuit and by FnR/Availability as the source of expected incoming quantities before a new supplier order proposal is created.
+
+SoftOne filters:
+- `FINDOC.SOSOURCE = 1251`
+- `FINDOC.SODTYPE = 12`
+- `FINDOC.TFPRMS = 201`
+- `FINDOC.SERIES IN (2021, 2031)`
+
+Fields:
+- `event_id` / `external_id`: `FINDOC-MTRLINES`
+- `doc_date`, `document_id`, `document_no`, `document_series`, `document_series_name`
+- `supplier_ext_id`, `supplier_name`, `supplier_afm`
+- `item_code`, `item_name`
+- `order_qty` from `MTRLINES.QTY1`
+- `covered_qty` from `MTRLINES.QTY1COV`
+- `cancelled_qty` from `MTRLINES.QTY1CANC`
+- `line_value` from `MTRLINES.LINEVAL` fallback chain
+- `order_status`: `open` or `closed`
+
+Open/closed rule:
+- an order is open when it has no transformation through `MTRLINES.FINDOCS` and `FINDOC.FULLYTRANSF` is not set
+- once any transformation exists, BI treats the order as closed, even if the delivery was partial; supplier backorders are not maintained
+
+Connector parity:
+- The SQL connector exposes the same stream through `backend/querypacks/pharmacyone/facts/supplier_orders_facts.sql`.
+- The JavaScript bridge endpoint is `GetSupplierOrdersForBI(obj)` and the combined endpoint flag is `includeSupplierOrders`.
+  `AVG(DISC1PRC + DISC2PRC + DISC3PRC)` for the selected period
+- purchase period spend uses document clean value plus document expenses:
+  `net value + FINDOC.EXPN`
 
 ### Inventory -> `inventory_documents`
 
@@ -124,13 +160,24 @@ Purchase extraction follows SoftOne supplier-document logic:
 - `document_id`, `document_series`, `document_type`
 - `movement_type` (`entry` / `exit` based on quantity sign)
 - `branch_ext_id`, `warehouse_ext_id`, `item_code`
-- `qty`, `value_amount`
+- `qty`, `qty_reserved`, `qty_expected`, `qty_available`, `value_amount`
+- Replenishment metadata repeated on stock rows for BI enrichment:
+  - `replenishment_status_1`
+  - `replenishment_status_2`
+  - `min_stock`
+  - `replenishment_moq`
+  - `vendor_moq`
+  - `current_purchase_price`
 - Only stock items are included: `MTRL.SODTYPE = 51`
 
 Note:
 
-- Current inventory extraction is document/movement-based.
-- If pure on-hand snapshot is required, add a dedicated snapshot query (for your specific SoftOne schema) and map to `qty_on_hand`.
+- Current inventory extraction includes a current `MTRBALSHEET` stock snapshot plus warehouse movements.
+- `qty_expected` is supplier-side expected stock already on the way to the business. It is read dynamically from `MTRBALSHEET` candidates (`EXPCTQTY1`, `EXPECTEDQTY`, `ONORDERQTY`, `ORDEREDQTY1`) when available; otherwise it defaults to `0`. It is used by FnR before calculating a new proposed supplier order.
+- `qty_reserved` is read dynamically when matching SoftOne columns exist; otherwise it defaults to `0`.
+- `qty_available = qty_on_hand - qty_reserved` for stock snapshots.
+- `min_stock` and `replenishment_moq` are store/branch-specific and are read from `MTRBRNLIMITS` using `COMPANY + MTRL + BRANCH`; while SoftOne is not populated, BI sends/stores `1`.
+- `vendor_moq` comes from `MTRSUPCODE.CCC88MOQ` (`Vendor MOQ`) joined by `MTRSUPCODE.MTRL`; BI uses the minimum positive MOQ per item and falls back to `1` when SoftOne is empty.
 
 ### Item master -> `item_master`
 
@@ -147,6 +194,13 @@ Note:
 - `category_2` (from `CCC88POCAT2.NAME`)
 - `category_3` (from `CCC88POCAT3.NAME`)
 - `commercial_category` (from `MTRPCATEGORY.NAME`)
+- `manual_order_category` (logical SoftOne item extra `UTBL04`; on pharmacy295 SQL this is stored in `MTREXTRA.UTBL04`)
+- `commercial_status` (logical SoftOne item extra `UTBL05`; on pharmacy295 SQL this is stored in `MTREXTRA.UTBL05`, with `UTBL05.NAME` / `UTBL05.CODE` fallback)
+- `replenishment_status_1` / `replenishment_status_2` (dynamic candidates from `MTREXTRA`/`ITEEXTRA` or `MTRL`)
+- `min_stock` (not branch-specific in the item master refresh; defaults to `1` until inventory rows provide `MTRBRNLIMITS.REMAINLIMMIN`)
+- `replenishment_moq` (not branch-specific in the item master refresh; defaults to `1` until inventory rows provide `MTRBRNLIMITS.REORDERLEVEL`)
+- `vendor_moq` (`MTRSUPCODE.CCC88MOQ`, minimum positive value per item; fallback `1`)
+- `current_purchase_price`
 - `group_ext_id` (from `MTRL.MTRGROUP`)
 - `group_name` (from `MTRGROUP.NAME`)
 - `is_active` (from `ITEM.ISACTIVE` / `MTRL.ISACTIVE`)
@@ -156,6 +210,24 @@ Use case:
 - metadata refresh of existing `dim_items`
 - classification of true stock items (`SODTYPE = 51`)
 - item barcode / brand / category enrichment from SoftOne item master
+- FnR/Replenishment and Availability calculations without depending on Excel-only fields
+
+### FnR / Availability SoftOne Field Strategy
+
+The bridge resolves replenishment fields from the confirmed SoftOne sources and leaves pending fields empty instead of inventing values.
+
+Resolved fields:
+
+- `manual_order_category`: item extra `UTBL04` with `UTBL04.NAME` / `UTBL04.CODE` fallback. In the SoftOne SQL schema of pharmacy295 this is `MTREXTRA.UTBL04`; the JS bridge can fall back between `ITEEXTRA` and `MTREXTRA` when available.
+- `commercial_status`: item extra `UTBL05` with `UTBL05.NAME` / `UTBL05.CODE` fallback. In the SoftOne SQL schema of pharmacy295 this is `MTREXTRA.UTBL05`; the JS bridge can fall back between `ITEEXTRA` and `MTREXTRA` when available.
+- `replenishment_status_1`: candidates such as `REPLSTATUS1`, `FNRSTATUS1`, `STATUS1`, `STATUS_1`, `UTBL01`.
+- `replenishment_status_2`: candidates such as `REPLSTATUS2`, `FNRSTATUS2`, `STATUS2`, `STATUS_2`, `UTBL02`.
+- `min_stock`: `MTRBRNLIMITS.REMAINLIMMIN` (`Ελάχιστο όριο ανά κατάστημα / ΑΧ`), joined by `MTRBRNLIMITS.MTRL` and branch; fallback `1`.
+- `replenishment_moq`: `MTRBRNLIMITS.REORDERLEVEL` (`Όριο αναπαραγγελίας ανά κατάστημα / ΑΧ`), joined by `MTRBRNLIMITS.MTRL` and branch; fallback `1`.
+- `vendor_moq`: `MTRSUPCODE.CCC88MOQ`, joined by `MTRSUPCODE.MTRL`; when multiple supplier records exist, BI uses the minimum positive MOQ for the item. Fallback `1`.
+- `current_purchase_price`: candidates such as `PURCHASEPRICE`, `PURCHASE_PRICE`, `LASTPURPRICE`, `FINALPURCHASEPRICE`, `NUM04`, falling back to `MTRL.PRICEW`.
+
+For a customer-specific rollout, confirm the exact SoftOne custom field names and add them to the candidate list before production sync.
 
 ## 5) Installation In SoftOne (Advanced JavaScript)
 
@@ -234,11 +306,7 @@ Important:
 
 1. Inventory is movement-oriented by default; add dedicated on-hand snapshot query if required.
 2. Source-specific document sign logic remains managed in BI Business Rules (already available in project).
-3. Extend bridge with:
-   - `cash_transactions`
-   - `supplier_balances`
-   - `customer_balances`
-   when your SoftOne schema mapping is finalized.
+3. Keep SQL querypacks and JavaScript bridge in parity for every SoftOne stream. Current standalone streams are sales, purchases, inventory, cash, supplier balances, customer balances, operating expenses, item master, and supplier orders.
 
 ## 10) Balance Sign Logic
 
@@ -263,7 +331,7 @@ Canonical source:
 
 - `integrations/softone/boxvisio_bi_bridge.js`
 
-After every SQL/querypack change that affects SoftOne sales extraction, run:
+After every SQL/querypack change that affects SoftOne sales or purchase extraction, run:
 
 ```bash
 python3 integrations/softone/generate_bridge_release.py
@@ -281,3 +349,34 @@ Validation currently guards these synchronized fields:
 - `FINDOC.PAYMENT` -> payment method
 - `FINDOC.SOTIME/INSDATE` -> `source_created_at`
 - `ITEM.MTRGROUP` -> item group
+
+## 14) Release Candidate Bridge (2026-05-21)
+
+Release candidate deployable file:
+
+- `integrations/softone/boxvisio_bi_bridge_2026-05-21.js`
+
+Canonical source:
+
+- `integrations/softone/boxvisio_bi_bridge.js`
+
+Bridge version:
+
+- `2026-05-19_15-30-00`
+
+Checksums:
+
+- canonical SHA-256: `a14d6df91565a77535f40e2c99fd0213eb90b0a5dd67e4a1e7399a96739781b6`
+- release snapshot SHA-256: `4c25f50fc070681d9119ad9662904f52aca7d0ce53224cdd6f12e4565e8b4d01`
+
+Generator validation:
+
+- ERP source timestamp: PASS
+- sales channel from document header: PASS
+- payment method from `FINDOC.PAYMENT`: PASS
+- item group from `ITEM.MTRGROUP`: PASS
+
+Release rule:
+
+- The RC file is the customer-facing JavaScript bridge for this release.
+- Any SoftOne stream change must be applied to both SQL querypacks and the JavaScript bridge before a new customer bridge file is issued.

@@ -161,8 +161,30 @@ body.bv-modal-lock {
   }
 
   .bv-modal .modal-content {
-    max-height: min(96vh, 960px);
-    height: min(96vh, 960px);
+    max-height: calc(100dvh - 1rem);
+    height: auto;
+    min-height: 0;
+  }
+
+  .bv-modal .modal-body {
+    max-height: calc(100dvh - 9rem);
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .bv-modal .modal-header,
+  .bv-modal .modal-footer {
+    position: sticky;
+    z-index: 2;
+    background: #fff;
+  }
+
+  .bv-modal .modal-header {
+    top: 0;
+  }
+
+  .bv-modal .modal-footer {
+    bottom: 0;
   }
 
   .bv-item-basic-hero {

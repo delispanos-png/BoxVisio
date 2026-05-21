@@ -172,3 +172,109 @@ with `X-API-Key`, `X-Tenant`, `X-Signature(HMAC-SHA256)`.
 
 ## Known Limitations
 See: `KNOWN_LIMITATIONS.md`
+
+---
+
+# UAT Report - Pharmacy295 Production Candidate
+
+Date: 2026-05-21
+Tenant: `pharmacy295`
+Environment: Docker production-like stack (`api`, `worker`, `postgres`, `redis`, `nginx`)
+Window:
+- Readiness / coverage: `2025-01-01` έως `2026-05-21`
+- User flows: `2026-05-01` έως `2026-05-21`
+
+## Execution Summary
+
+Overall UAT flow status: **PASS**
+Production readiness status: **WARN**
+
+Artifacts:
+- `backend/artifacts/production_readiness/production_readiness_pharmacy295_20260521_113016.json`
+- `backend/artifacts/production_readiness/production_readiness_pharmacy295_20260521_113016.md`
+- `backend/artifacts/uat/uat_real_flows_pharmacy295_20260521_113602.json`
+
+## Covered Scenarios
+
+- Public login page: `200`
+- Unauthenticated tenant dashboard: redirects to login, `302`
+- Authenticated tenant dashboards:
+  - Dashboard Tenant
+  - Πωλήσεις
+  - Αγορές
+  - Αποθήκη
+  - Είδη Αποθήκης
+  - Ταμειακές Ροές
+  - Προμηθευτές
+  - Πελάτες
+  - Παραγγελίες προμηθευτών
+  - Business Advisor / Σύμβουλος Επιχείρησης
+  - Replenishment / Availability
+  - eRA Exploration Data
+- API checks:
+  - Executive Summary
+  - Sales summary
+  - Sales documents
+  - Purchases summary
+  - Purchases documents
+  - Expenses documents
+  - Inventory snapshot
+  - Inventory items
+  - Business Advisor API
+- Drilldowns / popup data:
+  - Sales document detail
+  - Purchase document detail
+  - Expense document detail
+- Exports:
+  - Sales by branch CSV
+  - Purchases by supplier CSV
+  - Sell Out CSV
+- Permissions:
+  - Tenant token access to `/admin/tenants` redirects/blocks admin area.
+- Logs:
+  - No `500`, `Internal Server Error`, `Traceback`, `ERROR`, or `CRITICAL` found during the UAT window.
+
+## Data / Connector Readiness
+
+- Active connector: **PASS**
+- SQL connector / JavaScript bridge stream parity: **PASS**
+- Control and tenant migrations present: **PASS**
+- Fact coverage for production streams: **PASS**
+- Aggregates populated: **PASS**
+- Priority pool and stream chunk policy: **PASS**
+
+Production streams with data in the window:
+- sales_documents
+- purchase_documents
+- inventory_documents
+- cash_transactions
+- supplier_balances
+- customer_balances
+- operating_expenses
+- supplier_orders
+
+## Findings
+
+### Warnings
+
+1. Data quality still has open items:
+   - `items_missing_barcode`: 8.756
+   - `items_missing_vat`: 1.129
+   - `items_missing_abc`: 192.545
+   - `items_missing_commercial_status`: 152.214
+   - `customers_name_equals_code`: 2
+   - `sales_missing_item_link`: 1.062.098
+   - `purchases_missing_item_link`: 230.012
+
+2. Performance warnings:
+   - `executive_summary`: ~27.9s on cache miss in UAT flow.
+   - `business_advisor`: ~9.3s on cache miss.
+   - `sellout_csv`: ~4.5s.
+   - `suppliers_api`: ~4.1s in production readiness run.
+
+These are not 500/errors, but they should be treated as production polish/performance work before the big customer go-live.
+
+## Result
+
+UAT user journey is functional end-to-end with no 500 errors found.
+Release status from this run: **functionally OK, performance/data-quality warnings remain**.

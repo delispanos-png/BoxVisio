@@ -17,6 +17,24 @@ __pycache__/
 backups/
 infra/production/logs/
 migrecion files/
+artifacts/
+backend/artifacts/
+forensics/
+tools/
+celerybeat-schedule
+*.bak-security-*
+
+# Customer/source evidence files kept locally, never in release commits
+*.xlsx
+*.XLSX
+*.pdf
+Pharmacy295 old bi/
+.claude/
+.codex
+
+# SoftOne bridge snapshots: keep only explicitly staged release snapshots
+integrations/softone/boxvisio_bi_bridge_*.js
+!integrations/softone/boxvisio_bi_bridge_2026-05-21.js
 
 # IDE
 .vscode/

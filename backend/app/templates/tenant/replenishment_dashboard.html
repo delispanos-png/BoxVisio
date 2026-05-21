@@ -1,0 +1,509 @@
+{% extends "base_tenant.html" %}
+
+{% block content %}
+<style>
+  .repl-shell {
+    display: grid;
+    gap: 20px;
+  }
+  .repl-hero,
+  .repl-grid {
+    display: grid;
+    gap: 16px;
+  }
+  .repl-hero {
+    grid-template-columns: minmax(0, 1.35fr) minmax(320px, .65fr);
+  }
+  .repl-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  .repl-brief,
+  .repl-card,
+  .repl-panel {
+    background: var(--panel-bg);
+    border: 1px solid var(--panel-border);
+    border-radius: 8px;
+    box-shadow: var(--panel-shadow);
+  }
+  .repl-brief {
+    min-height: 148px;
+    padding: 22px;
+  }
+  .repl-eyebrow {
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0;
+    text-transform: uppercase;
+  }
+  .repl-title {
+    color: var(--text-main);
+    font-size: 24px;
+    font-weight: 900;
+    line-height: 1.2;
+    margin: 8px 0;
+  }
+  .repl-copy {
+    color: var(--text-muted);
+    font-size: 14px;
+    font-weight: 700;
+    line-height: 1.6;
+    margin: 0;
+  }
+  .repl-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 16px;
+  }
+  .repl-tag {
+    align-items: center;
+    background: #f7f8fc;
+    border: 1px solid var(--panel-border);
+    border-radius: 999px;
+    color: var(--text-muted);
+    display: inline-flex;
+    font-size: 12px;
+    font-weight: 800;
+    min-height: 30px;
+    padding: 0 12px;
+  }
+  .repl-card {
+    min-height: 118px;
+    padding: 18px;
+  }
+  .repl-card small {
+    display: block;
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0;
+    text-transform: uppercase;
+  }
+  .repl-card strong {
+    display: block;
+    color: var(--text-main);
+    font-size: 26px;
+    line-height: 1.1;
+    margin-top: 10px;
+  }
+  .repl-card span {
+    display: block;
+    color: var(--text-muted);
+    font-weight: 700;
+    margin-top: 8px;
+  }
+  .repl-card.is-primary {
+    border-color: rgba(99, 92, 214, .35);
+  }
+  .repl-card.is-risk {
+    border-color: rgba(239, 68, 68, .24);
+  }
+  .repl-card.is-warning {
+    border-color: rgba(245, 158, 11, .28);
+  }
+  .repl-panel-head {
+    align-items: center;
+    border-bottom: 1px solid var(--panel-border);
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 16px 18px;
+  }
+  .repl-panel-head h5 {
+    font-size: 17px;
+    margin: 0;
+  }
+  .repl-panel-subtitle {
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 800;
+    margin-top: 4px;
+  }
+  .repl-panel-body {
+    padding: 0;
+  }
+  .repl-table-wrap {
+    overflow-x: auto;
+    padding: 0 18px 18px;
+  }
+  .repl-table {
+    border-collapse: collapse;
+    table-layout: fixed;
+    width: 100%;
+  }
+  .repl-table th,
+  .repl-table td {
+    border-bottom: 1px solid var(--panel-border);
+    padding: 14px 10px;
+    text-align: right;
+    vertical-align: middle;
+    white-space: nowrap;
+  }
+  .repl-table th {
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 900;
+    letter-spacing: 0;
+    text-transform: uppercase;
+  }
+  .repl-table th:first-child,
+  .repl-table td:first-child {
+    text-align: left;
+    white-space: normal;
+  }
+  .repl-table td {
+    color: var(--text-main);
+    font-weight: 700;
+  }
+  .repl-product {
+    color: var(--text-main);
+    font-size: 14px;
+    font-weight: 900;
+    line-height: 1.35;
+  }
+  .repl-product-code {
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 800;
+    margin-top: 3px;
+  }
+  .repl-muted {
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 700;
+  }
+  .repl-pill {
+    background: #f6f7fb;
+    border: 1px solid var(--panel-border);
+    border-radius: 999px;
+    color: var(--text-muted);
+    display: inline-flex;
+    font-size: 12px;
+    font-weight: 900;
+    justify-content: center;
+    min-width: 42px;
+    padding: 4px 9px;
+  }
+  .repl-positive {
+    color: #11823b;
+  }
+  .repl-negative {
+    color: #c62828;
+  }
+  .repl-two {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 18px;
+  }
+  .repl-empty {
+    padding: 22px;
+    color: var(--text-muted);
+    font-weight: 800;
+  }
+  .repl-quality {
+    display: grid;
+    gap: 14px;
+    padding: 18px;
+  }
+  .repl-quality-summary {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+  }
+  .repl-quality-box {
+    background: #f9fafc;
+    border: 1px solid var(--panel-border);
+    border-radius: 8px;
+    padding: 14px;
+  }
+  .repl-quality-box small,
+  .repl-issue-label {
+    color: var(--text-muted);
+    display: block;
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: 0;
+    text-transform: uppercase;
+  }
+  .repl-quality-box strong {
+    color: var(--text-main);
+    display: block;
+    font-size: 22px;
+    margin-top: 6px;
+  }
+  .repl-issues {
+    display: grid;
+    gap: 10px;
+  }
+  .repl-issue {
+    align-items: start;
+    background: var(--panel-bg);
+    border: 1px solid var(--panel-border);
+    border-radius: 8px;
+    display: grid;
+    gap: 14px;
+    grid-template-columns: minmax(260px, 1.15fr) minmax(160px, .55fr) minmax(260px, 1.3fr);
+    padding: 14px;
+  }
+  .repl-issue-title {
+    color: var(--text-main);
+    font-size: 14px;
+    font-weight: 900;
+    line-height: 1.35;
+  }
+  .repl-issue-value {
+    color: var(--text-main);
+    font-size: 14px;
+    font-weight: 900;
+    line-height: 1.45;
+    margin-top: 4px;
+  }
+  .repl-issue-action {
+    color: var(--text-muted);
+    font-size: 13px;
+    font-weight: 800;
+    line-height: 1.45;
+    margin-top: 6px;
+  }
+  @media (max-width: 1200px) {
+    .repl-hero {
+      grid-template-columns: 1fr;
+    }
+    .repl-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .repl-two {
+      grid-template-columns: 1fr;
+    }
+    .repl-quality-summary,
+    .repl-issue {
+      grid-template-columns: 1fr;
+    }
+  }
+  @media (max-width: 640px) {
+    .repl-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+
+{% set summary = summary or {} %}
+{% set rows_count = summary.get('rows_count') or (latest_snapshot.rows_count if latest_snapshot else 0) %}
+{% set issue_count = summary.get('issue_count') or (latest_snapshot.issue_count if latest_snapshot else 0) %}
+{% set order_qty = summary.get('total_supplier_order_qty') or 0 %}
+{% set order_value = summary.get('total_supplier_order_value') or 0 %}
+{% set products_need = summary.get('products_with_need') or 0 %}
+{% set products_overstock = summary.get('products_with_overstock') or 0 %}
+{% set source_label = summary.get('source_label') or (latest_snapshot.source_filename if latest_snapshot else 'Δεν υπάρχει πηγή') %}
+{% set as_of = summary.get('as_of') or '' %}
+
+<div class="repl-shell">
+  {% if feature_locked %}
+  <div class="alert alert-warning mb-0">
+    <i class="fe fe-lock me-1"></i> Το Replenishment / Availability είναι διαθέσιμο στο Enterprise πακέτο.
+  </div>
+  {% endif %}
+
+  <div class="repl-hero">
+    <div class="repl-brief">
+      <div class="repl-eyebrow">Replenishment decision center</div>
+      <div class="repl-title">Τι να παραγγείλω προς προμηθευτές, τι να μετακινήσω και τι δεσμεύει κεφάλαιο.</div>
+      <p class="repl-copy">
+        Η ενότητα συγκρίνει ζήτηση, διαθέσιμο απόθεμα, αναμενόμενα, target stock και όρια overstock.
+        Όταν δεν έχει ανέβει FnR αρχείο, χρησιμοποιεί live BI facts από πωλήσεις και αποθήκη.
+      </p>
+      <div class="repl-tags">
+        <span class="repl-tag">Πηγή: {{ source_label }}</span>
+        {% if as_of %}<span class="repl-tag">Έως: {{ as_of }}</span>{% endif %}
+        <span class="repl-tag">Target 4 εβδομ.</span>
+        <span class="repl-tag">Overstock 12 εβδομ.</span>
+      </div>
+    </div>
+    <div class="repl-brief">
+      <div class="repl-eyebrow">Ανάγνωση</div>
+      <div class="repl-title">{{ "{:,.0f}".format(products_need).replace(",", ".") }} είδη χρειάζονται ενέργεια.</div>
+      <p class="repl-copy">
+        Πρώτα ελέγχουμε την πρόταση παραγγελίας προς προμηθευτές με αξία, μετά το overstock για απελευθέρωση κεφαλαίου.
+        Γραμμές με μηδενική αξία δείχνουν ότι λείπει ή δεν έχει ενημερωθεί τιμή αγοράς.
+      </p>
+    </div>
+  </div>
+
+  <div class="repl-grid">
+    <div class="repl-card is-primary">
+      <small>Πρόταση προς προμηθευτές</small>
+      <strong>{{ "{:,.2f}".format(order_value).replace(",", "X").replace(".", ",").replace("X", ".") }} €</strong>
+      <span>{{ "{:,.0f}".format(order_qty).replace(",", ".") }} τεμάχια</span>
+    </div>
+    <div class="repl-card is-warning">
+      <small>Προϊόντα με ανάγκη</small>
+      <strong>{{ "{:,.0f}".format(products_need).replace(",", ".") }}</strong>
+      <span>κάτω από target stock</span>
+    </div>
+    <div class="repl-card is-risk">
+      <small>Προϊόντα με overstock</small>
+      <strong>{{ "{:,.0f}".format(products_overstock).replace(",", ".") }}</strong>
+      <span>πάνω από όριο εβδομάδων</span>
+    </div>
+    <div class="repl-card">
+      <small>Data Quality</small>
+      <strong>{{ "{:,.0f}".format(issue_count).replace(",", ".") }}</strong>
+      <span>{{ "{:,.0f}".format(rows_count).replace(",", ".") }} γραμμές{% if summary.get('source') == 'facts' %} από BI facts{% else %} στο τελευταίο snapshot{% endif %}</span>
+    </div>
+  </div>
+
+  {% if latest_snapshot or summary.get('source') == 'facts' %}
+  <div class="repl-two">
+    <div class="repl-panel">
+      <div class="repl-panel-head">
+        <div>
+          <h5>Άμεσες προτάσεις προς προμηθευτές</h5>
+          <div class="repl-panel-subtitle">Είδη κάτω από target stock, ταξινομημένα ανά προτεινόμενη ποσότητα αγοράς</div>
+        </div>
+      </div>
+      <div class="repl-panel-body">
+        <div class="repl-table-wrap">
+        <table class="repl-table">
+          <thead>
+            <tr>
+              <th style="width: 38%;">Είδος</th>
+              <th>Stock</th>
+              <th>Target</th>
+              <th>Αναμ.</th>
+              <th>Ανάγκη</th>
+              <th>Προς προμ.</th>
+              <th>Αξία</th>
+            </tr>
+          </thead>
+          <tbody>
+          {% for row in top_need_rows %}
+            <tr>
+              <td>
+                <div class="repl-product">{{ row.item_name }}</div>
+                <div class="repl-product-code">{{ row.item_code }}</div>
+              </td>
+              <td>{{ "{:,.0f}".format(row.available_qty or 0).replace(",", ".") }}</td>
+              <td>{{ "{:,.0f}".format(row.target_stock or 0).replace(",", ".") }}</td>
+              <td>{{ "{:,.0f}".format(row.expected_qty or 0).replace(",", ".") }}</td>
+              <td class="repl-negative">{{ "{:,.0f}".format(row.total_need_qty or 0).replace(",", ".") }}</td>
+              <td>{{ "{:,.0f}".format(row.supplier_order_qty or 0).replace(",", ".") }}</td>
+              <td>{{ "{:,.2f}".format(row.supplier_order_value or 0).replace(",", "X").replace(".", ",").replace("X", ".") }} €</td>
+            </tr>
+          {% else %}
+            <tr><td colspan="7" class="repl-empty">Δεν υπάρχουν προτάσεις παραγγελίας προς προμηθευτές.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="repl-panel">
+      <div class="repl-panel-head">
+        <div>
+          <h5>Υπεραπόθεμα και δεσμευμένο κεφάλαιο</h5>
+          <div class="repl-panel-subtitle">Είδη πάνω από το όριο εβδομάδων ή με status που θέλει καθάρισμα</div>
+        </div>
+      </div>
+      <div class="repl-panel-body">
+        <div class="repl-table-wrap">
+        <table class="repl-table">
+          <thead>
+            <tr>
+              <th style="width: 42%;">Είδος</th>
+              <th>Stock</th>
+              <th>Εβδ.</th>
+              <th>Overstock</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+          {% for row in top_overstock_rows %}
+            <tr>
+              <td>
+                <div class="repl-product">{{ row.item_name }}</div>
+                <div class="repl-product-code">{{ row.item_code }}</div>
+              </td>
+              <td>{{ "{:,.0f}".format(row.available_qty or 0).replace(",", ".") }}</td>
+              <td>{{ "{:,.1f}".format(row.weeks_of_stock_total or 0).replace(",", "X").replace(".", ",").replace("X", ".") }}</td>
+              <td class="repl-negative">{{ "{:,.0f}".format(row.total_overstock_qty or 0).replace(",", ".") }}</td>
+              <td><span class="repl-pill">{{ row.status_1 or '-' }} / {{ row.status_2 or '-' }}</span></td>
+            </tr>
+          {% else %}
+            <tr><td colspan="5" class="repl-empty">Δεν υπάρχουν γραμμές overstock.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="repl-panel">
+    <div class="repl-panel-head">
+      <div>
+        <h5>Εκκρεμότητες δεδομένων</h5>
+        <div class="repl-panel-subtitle">Τι πρέπει να διορθωθεί για να γίνουν οι προτάσεις παραγγελίας πλήρως αξιόπιστες</div>
+      </div>
+    </div>
+    <div class="repl-panel-body">
+      <div class="repl-quality">
+        <div class="repl-quality-summary">
+          <div class="repl-quality-box">
+            <small>Εκκρεμότητες</small>
+            <strong>{{ "{:,.0f}".format(issue_count).replace(",", ".") }}</strong>
+          </div>
+          <div class="repl-quality-box">
+            <small>Κύρια επίπτωση</small>
+            <strong>Αξία παραγγελίας</strong>
+          </div>
+          <div class="repl-quality-box">
+            <small>Προτεραιότητα</small>
+            <strong>Τιμές αγοράς</strong>
+          </div>
+        </div>
+
+        <div class="repl-issues">
+        {% for issue in issue_rows %}
+          <div class="repl-issue">
+            <div>
+              <span class="repl-issue-label">Είδος</span>
+              <div class="repl-issue-title">{{ issue.item_name or 'Χωρίς περιγραφή' }}</div>
+              <div class="repl-product-code">{{ issue.item_code or '-' }}</div>
+            </div>
+            <div>
+              <span class="repl-issue-label">Λείπει</span>
+              <div class="repl-issue-value">
+                {% if issue.issue_code == 'missing_purchase_price' %}
+                  Τιμή αγοράς
+                {% else %}
+                  {{ issue.source_cell or issue.field_name or issue.issue_code or '-' }}
+                {% endif %}
+              </div>
+              <div class="repl-muted">{{ issue.issue_code }}</div>
+            </div>
+            <div>
+              <span class="repl-issue-label">Τι σημαίνει</span>
+              <div class="repl-issue-value">
+                {% if issue.issue_code == 'missing_purchase_price' %}
+                  Υπάρχει ανάγκη παραγγελίας, αλλά η αξία βγαίνει μηδενική γιατί λείπει τελική τιμή αγοράς.
+                {% else %}
+                  {{ issue.message }}
+                {% endif %}
+              </div>
+              <div class="repl-issue-action">
+                Ενέργεια: ενημέρωσε την τιμή αγοράς στο SoftOne ή στο αντίστοιχο πεδίο είδους και τρέξε νέο sync.
+              </div>
+            </div>
+          </div>
+        {% else %}
+          <div class="repl-empty">Δεν υπάρχουν εκκρεμότητες δεδομένων.</div>
+        {% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

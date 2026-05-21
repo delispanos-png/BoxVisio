@@ -98,6 +98,24 @@
 {% endblock %}
 
 {% block content %}
+<style>
+  .items-abc-analysis {
+    display: grid;
+    gap: 14px;
+  }
+  .items-abc-analysis__head {
+    align-items: center;
+    display: flex;
+    justify-content: space-between;
+    min-height: 24px;
+  }
+  .items-abc-analysis__title {
+    color: var(--text-main);
+    font-size: 17px;
+    font-weight: 800;
+    margin: 0;
+  }
+</style>
 <div id="itemsError" class="alert alert-danger d-none mb-3"></div>
 <div id="itemsScopeInfo" class="alert alert-warning d-none mb-3"></div>
 
@@ -122,6 +140,20 @@
   </div>
 </div>
 
+<section class="items-abc-analysis mb-3" aria-labelledby="itemsAbcAnalysisTitle">
+  <div class="items-abc-analysis__head">
+    <h5 class="items-abc-analysis__title" id="itemsAbcAnalysisTitle">KPI ABC Analysis</h5>
+  </div>
+  <div class="row g-3" id="itemsAbcCards"></div>
+</section>
+
+<section class="items-abc-analysis mb-3" aria-labelledby="itemsCommercialStatusTitle">
+  <div class="items-abc-analysis__head">
+    <h5 class="items-abc-analysis__title" id="itemsCommercialStatusTitle">KPI Εμπορικό Status</h5>
+  </div>
+  <div class="row g-3" id="itemsCommercialStatusCards"></div>
+</section>
+
 <div class="row g-3 mb-3">
   <div class="col-lg-12">
     <div class="card border-0 shadow-sm content-card">
@@ -142,6 +174,8 @@
           <th>{{ tt(request, 'brands') }}</th>
           <th>{{ tt(request, 'categories') }}</th>
           <th>{{ tt(request, 'groups') }}</th>
+          <th>ABC</th>
+          <th>Εμπορικό Status</th>
           <th class="text-end">{{ tt(request, 'stock_qty') }}</th>
           <th class="text-end">{{ tt(request, 'stock_value') }}</th>
           <th class="text-end">{{ tt(request, 'sales_30d') }}</th>
@@ -180,6 +214,52 @@
         <button type="button" class="bv-page-icon" id="itLastPage" title="Τελευταία σελίδα" aria-label="Τελευταία σελίδα">&raquo;</button>
       </div>
       <small id="itPageInfo" class="bv-pager-info">1 / 1</small>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade bv-modal bv-modal--responsive bv-modal--lg" id="abcItemsModal" tabindex="-1" aria-hidden="true" aria-labelledby="abcItemsModalTitle" data-bv-modal="true" data-bv-close-on-backdrop="false">
+  <div class="modal-dialog modal-xl">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title" id="abcItemsModalTitle">Είδη κατηγορίας ABC</h5>
+          <div class="text-muted small" id="abcItemsModalSubtitle">-</div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="table-responsive items-table-scroll">
+          <table class="table table-sm table-hover bv-unified-table mb-0" id="abcItemsTable">
+            <thead>
+              <tr>
+                <th>{{ tt(request, 'item') }}</th>
+                <th>{{ tt(request, 'barcode') }}</th>
+                <th>{{ tt(request, 'brands') }}</th>
+                <th>{{ tt(request, 'categories') }}</th>
+                <th>{{ tt(request, 'groups') }}</th>
+                <th>Εμπορικό Status</th>
+                <th class="text-end">{{ tt(request, 'stock_qty') }}</th>
+                <th class="text-end">{{ tt(request, 'stock_value') }}</th>
+                <th class="text-end">{{ tt(request, 'sales_30d') }}</th>
+                <th class="text-end">{{ tt(request, 'purchases_30d') }}</th>
+                <th>{{ tt(request, 'status') }}</th>
+                <th>{{ tt(request, 'movement') }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td colspan="12" class="text-muted text-center py-3">Επιλέξτε κατηγορία ABC.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="modal-footer justify-content-between">
+        <small class="text-muted" id="abcItemsPageInfo">1 / 1</small>
+        <div class="btn-group" role="group" aria-label="Πλοήγηση ABC ειδών">
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="abcItemsPrev">&lsaquo;</button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="abcItemsNext">&rsaquo;</button>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -374,6 +454,10 @@
                       <label class="form-label mb-1">Κατηγορία ABC (Αγορά)</label>
                       <input type="text" class="form-control form-control-sm" id="itdFAbcCategory" readonly>
                     </div>
+                    <div class="col-md-6">
+                      <label class="form-label mb-1">Εμπορικό Status</label>
+                      <input type="text" class="form-control form-control-sm" id="itdFCommercialStatus" readonly>
+                    </div>
                   </div>
 
                   <div class="fw-semibold text-warning border-bottom pb-1 mb-2">Τιμές</div>
@@ -466,6 +550,11 @@
   let itemsLimit = 250;
   let itemsOffset = 0;
   let itemsTotal = 0;
+  let abcItemsCategory = null;
+  let abcItemsMode = 'abc';
+  let abcItemsOffset = 0;
+  const abcItemsLimit = 500;
+  let abcItemsTotal = 0;
   const itemDetailModalEl = document.getElementById('itemDetailModal');
   const itemDetailModal = itemDetailModalEl
     ? (
@@ -475,10 +564,33 @@
         : null)
     )
     : null;
+  const abcItemsModalEl = document.getElementById('abcItemsModal');
+  const abcItemsModal = abcItemsModalEl
+    ? (
+      window.BVModalSystem?.create(abcItemsModalEl, { closeOnBackdrop: false, keyboard: true, focusTrap: true, restoreFocus: true })
+      || (window.bootstrap?.Modal
+        ? window.bootstrap.Modal.getOrCreateInstance(abcItemsModalEl, { backdrop: 'static', keyboard: true, focus: true })
+        : null)
+    )
+    : null;
 
   function showItemDetailModal(triggerEl){
     if(!itemDetailModalEl) return;
     itemDetailModal?.show?.(triggerEl);
+  }
+
+  function showAbcItemsModal(triggerEl){
+    if(!abcItemsModalEl) return;
+    abcItemsModal?.show?.(triggerEl);
+  }
+
+  function escapeHtml(value){
+    return String(value ?? '')
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#039;');
   }
 
   const fieldDefs = [
@@ -692,6 +804,135 @@
     }catch(_e){}
   }
 
+  function abcBadge(category){
+    const text = cleanSoftoneText(category) || 'Χωρίς ABC';
+    const normalized = text.toUpperCase();
+    const cls = normalized.startsWith('A') || normalized === 'S' || normalized.startsWith('FIRST')
+      ? 'bg-success'
+      : (normalized.startsWith('B') ? 'bg-primary' : (normalized.startsWith('C') ? 'bg-warning text-dark' : 'bg-secondary'));
+    return `<span class="badge ${cls}">${escapeHtml(text)}</span>`;
+  }
+
+  function abcSortKey(category){
+    const text = cleanSoftoneText(category) || 'Χωρίς ABC';
+    const upper = text.toUpperCase();
+    if(!upper || upper.includes('ΧΩΡΙΣ') || upper.includes('WITHOUT')){
+      return [999, 999, upper];
+    }
+    if(upper.includes('FIRST-A')){
+      return [0, 50, upper];
+    }
+    if(upper === 'CONS'){
+      return [998, 0, upper];
+    }
+    const firstLetter = upper.match(/[A-ZΑ-Ω]/)?.[0] || '';
+    const letterRank = firstLetter >= 'A' && firstLetter <= 'Z'
+      ? firstLetter.charCodeAt(0) - 65
+      : 900;
+    const suffix = upper.match(/\d+/);
+    const numberRank = suffix ? Number(suffix[0]) : 0;
+    const secondaryRank = upper.startsWith(firstLetter) ? 0 : 1;
+    return [letterRank, numberRank, secondaryRank, upper];
+  }
+
+  function renderAbcCards(items){
+    const wrap = document.getElementById('itemsAbcCards');
+    if(!wrap) return;
+    const rows = (Array.isArray(items) ? items : [])
+      .filter(item => (Number(item?.count || 0) > 0))
+      .sort((a, b)=>{
+        const ak = abcSortKey(a?.category);
+        const bk = abcSortKey(b?.category);
+        for(let i=0; i<Math.max(ak.length, bk.length); i++){
+          if(ak[i] < bk[i]) return -1;
+          if(ak[i] > bk[i]) return 1;
+        }
+        return 0;
+      });
+    if(!rows.length){
+      wrap.innerHTML = '';
+      return;
+    }
+    wrap.innerHTML = rows.map((item, idx)=>{
+      const category = cleanSoftoneText(item?.category) || 'Χωρίς ABC';
+      const count = Number(item?.count || 0);
+      const stockValue = Number(item?.stock_value || 0);
+      const color = ['#2563eb', '#16a34a', '#f97316', '#8b5cf6', '#06b6d4', '#64748b'][idx % 6];
+      return `
+        <div class="col-xl-2 col-md-4">
+          <button type="button" class="bv-metric-card w-100 text-start border-0" style="--mc-color:${color}" data-abc-category="${escapeHtml(category)}" data-kpi-what="Πόσα είδη ανήκουν στη συγκεκριμένη ABC/παραγγελτική κατηγορία." data-kpi-formula="ABC = manual_order_category από SoftOne, με fallback στο abc_category.">
+            <div class="mc-icon"><i class="fe fe-layers"></i></div>
+            <div class="mc-label">${escapeHtml(category)}</div>
+            <div class="mc-value">${fmtQty(count)}</div>
+            <div class="mc-caption">Αξία αποθ. ${fmtMoney(stockValue)}</div>
+          </button>
+        </div>
+      `;
+    }).join('');
+    wrap.querySelectorAll('[data-abc-category]').forEach((el)=>{
+      el.addEventListener('click', ()=>openAbcItems(el.getAttribute('data-abc-category'), el));
+    });
+  }
+
+  function commercialStatusSortKey(status){
+    const text = cleanSoftoneText(status) || 'Χωρίς Εμπορικό Status';
+    if(text === 'Χωρίς Εμπορικό Status') return [999, text];
+    const preferred = [
+      'Τρέχον',
+      'New Launch',
+      'Seasonal status',
+      'Αναμενόμενο',
+      'Check',
+      'Μέχρι εξαντλήσεως',
+      'Χωρίς Απόθεμα',
+      'Επιστροφή',
+      'Πιστωτικά',
+      'Καταργημένο',
+      'Ληγμένο',
+    ];
+    const idx = preferred.findIndex(x => x.toLocaleLowerCase('el-GR') === text.toLocaleLowerCase('el-GR'));
+    return [idx >= 0 ? idx : 500, text.toLocaleLowerCase('el-GR')];
+  }
+
+  function renderCommercialStatusCards(items){
+    const wrap = document.getElementById('itemsCommercialStatusCards');
+    if(!wrap) return;
+    const rows = (Array.isArray(items) ? items : [])
+      .filter(item => Number(item?.count || 0) > 0)
+      .sort((a, b)=>{
+        const ak = commercialStatusSortKey(a?.status);
+        const bk = commercialStatusSortKey(b?.status);
+        for(let i=0; i<Math.max(ak.length, bk.length); i++){
+          if(ak[i] < bk[i]) return -1;
+          if(ak[i] > bk[i]) return 1;
+        }
+        return 0;
+      });
+    if(!rows.length){
+      wrap.innerHTML = '';
+      return;
+    }
+    wrap.innerHTML = rows.map((item, idx)=>{
+      const status = cleanSoftoneText(item?.status) || 'Χωρίς Εμπορικό Status';
+      const count = Number(item?.count || 0);
+      const stockValue = Number(item?.stock_value || 0);
+      const color = ['#16a34a', '#2563eb', '#0ea5e9', '#8b5cf6', '#f97316', '#64748b', '#ef4444'][idx % 7];
+      return `
+        <div class="col-xl-2 col-md-4">
+          <button type="button" class="bv-metric-card w-100 text-start border-0" style="--mc-color:${color}" data-commercial-status="${escapeHtml(status)}" data-kpi-what="Πόσα είδη ανήκουν στο συγκεκριμένο εμπορικό status." data-kpi-formula="Εμπορικό Status = UTBL05 από SoftOne item extra.">
+            <div class="mc-icon"><i class="fe fe-tag"></i></div>
+            <div class="mc-label">${escapeHtml(status)}</div>
+            <div class="mc-value">${fmtQty(count)}</div>
+            <div class="mc-caption">Αξία αποθ. ${fmtMoney(stockValue)}</div>
+          </button>
+        </div>
+      `;
+    }).join('');
+    wrap.querySelectorAll('[data-commercial-status]').forEach((el)=>{
+      el.addEventListener('click', ()=>openCommercialStatusItems(el.getAttribute('data-commercial-status'), el));
+    });
+  }
+
   function renderSummary(s){
     document.getElementById('itTotalItems').textContent = String(s.total_items || 0);
     document.getElementById('itActiveItems').textContent = String(s.active_items || 0);
@@ -699,6 +940,8 @@
     document.getElementById('itFastItems').textContent = String(s.fast_items || 0);
     document.getElementById('itSlowItems').textContent = String(s.slow_items || 0);
     document.getElementById('itStockValue').textContent = fmtMoney(s.stock_value || 0);
+    renderAbcCards(s.abc_counts || []);
+    renderCommercialStatusCards(s.commercial_status_counts || []);
   }
 
   function renderScopeInfo(scope){
@@ -719,7 +962,7 @@
     const tbody = document.querySelector('#itemsTable tbody');
     tbody.innerHTML='';
     if(!rows.length){
-      tbody.innerHTML = `<tr><td colspan="13" class="text-center text-muted py-3">{{ tt(request, "no_data_available") }}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="15" class="text-center text-muted py-3">{{ tt(request, "no_data_available") }}</td></tr>`;
       return;
     }
     rows.forEach(r=>{
@@ -742,6 +985,8 @@
         <td>${cleanSoftoneText(r.brand) || '-'}</td>
         <td>${cleanSoftoneText(r.category) || '-'}</td>
         <td>${cleanSoftoneText(r.group) || '-'}</td>
+        <td>${abcBadge(r.abc_category)}</td>
+        <td>${escapeHtml(cleanSoftoneText(r.commercial_status) || '-')}</td>
         <td class="text-end">${fmtQty(r.qty_on_hand)}</td>
         <td class="text-end">${fmtMoney(r.stock_value)}</td>
         <td class="text-end">${fmtQty(r.sales_qty_30)}</td>
@@ -967,6 +1212,10 @@
     const businessUnit = cleanSoftoneText(rawValue(rawMap, 'dim_items.business_unit', 'dim_items.business_unit_name'));
     const abcCategory = rawValue(
       rawMap,
+      'dim_items.manual_order_category',
+      'dim_items.manual_abc_category',
+      'dim_items.order_category',
+      'dim_items.softone_utbl04',
       'dim_items.abc_category',
       'dim_items.abc_class',
       'dim_items.abc_movement',
@@ -976,6 +1225,9 @@
       'dim_items.market_abc',
       'dim_items.market_speed_abc',
       'dim_items.new_item_abc',
+    );
+    const commercialStatus = cleanSoftoneText(
+      rawValue(rawMap, 'dim_items.commercial_status', 'dim_items.softone_utbl05', 'inventory.commercial_status') || r?.commercial_status
     );
 
     const wholesalePrice =
@@ -1028,6 +1280,7 @@
     setFormInputValue('itdFModel', modelName || '-');
     setFormInputValue('itdFBusinessUnit', businessUnit || '-');
     setFormInputValue('itdFAbcCategory', abcCategory || '-');
+    setFormInputValue('itdFCommercialStatus', commercialStatus || '-');
 
     setFormInputValue('itdFWholesalePrice', formatPrice(wholesalePrice));
     setFormInputValue('itdFRetailPrice', formatPrice(retailPrice));
@@ -1074,6 +1327,8 @@
       strict_purchase_rel: 'Αυστηρή σχέση αγορών',
       strict_sale_rel: 'Αυστηρή σχέση πωλήσεων',
       abc_category: 'Κατηγορία ABC (Αγοράς)',
+      manual_order_category: 'Κατηγορία ABC / Παραγγελίας',
+      commercial_status: 'Εμπορικό Status',
       image_url: 'URL Φωτογραφίας',
       photo_url: 'URL Φωτογραφίας',
       item_image_url: 'URL Φωτογραφίας',
@@ -1250,6 +1505,131 @@
     setRawFields(r?.raw_fields || []);
   }
 
+  function renderAbcItemsRows(rows){
+    const tbody = document.querySelector('#abcItemsTable tbody');
+    if(!tbody) return;
+    tbody.innerHTML = '';
+    if(!rows.length){
+      tbody.innerHTML = '<tr><td colspan="12" class="text-muted text-center py-3">Δεν υπάρχουν είδη για αυτή την ABC κατηγορία.</td></tr>';
+      return;
+    }
+    rows.forEach((r)=>{
+      const statusBadge = r.status === 'active'
+        ? '<span class="badge bg-success">{{ tt(request, "active") }}</span>'
+        : '<span class="badge bg-secondary">{{ tt(request, "inactive") }}</span>';
+      let movementBadge = '<span class="badge bg-info">Κανονική Κίνηση</span>';
+      if(r.movement === 'fast') movementBadge = '<span class="badge bg-primary">{{ tt(request, "fast_items") }}</span>';
+      if(r.movement === 'slow') movementBadge = '<span class="badge bg-warning text-dark">{{ tt(request, "slow_items") }}</span>';
+      const codeText = cleanSoftoneText(r.item_code) || '-';
+      const descRaw = cleanSoftoneText(r.item_name);
+      const descText = descRaw && descRaw.toLowerCase() !== String(codeText).toLowerCase() ? descRaw : '';
+      const tr = document.createElement('tr');
+      tr.style.cursor = 'pointer';
+      tr.title = 'Διπλό κλικ για καρτέλα είδους';
+      tr.innerHTML = `
+        <td><div class="fw-semibold">${escapeHtml(codeText)}</div>${descText ? `<div class="text-muted small">${escapeHtml(descText)}</div>` : ''}</td>
+        <td>${escapeHtml(cleanSoftoneText(r.barcode) || '-')}</td>
+        <td>${escapeHtml(cleanSoftoneText(r.brand) || '-')}</td>
+        <td>${escapeHtml(cleanSoftoneText(r.category) || '-')}</td>
+        <td>${escapeHtml(cleanSoftoneText(r.group) || '-')}</td>
+        <td>${escapeHtml(cleanSoftoneText(r.commercial_status) || '-')}</td>
+        <td class="text-end">${fmtQty(r.qty_on_hand)}</td>
+        <td class="text-end">${fmtMoney(r.stock_value)}</td>
+        <td class="text-end">${fmtQty(r.sales_qty_30)}</td>
+        <td class="text-end">${fmtQty(r.purchases_qty_30)}</td>
+        <td>${statusBadge}</td>
+        <td>${movementBadge}</td>
+      `;
+      tr.addEventListener('dblclick', ()=> openItemDetail(r, tr));
+      tbody.appendChild(tr);
+    });
+  }
+
+  function updateAbcItemsPager(){
+    const pageInfo = document.getElementById('abcItemsPageInfo');
+    const prev = document.getElementById('abcItemsPrev');
+    const next = document.getElementById('abcItemsNext');
+    const totalPages = Math.max(1, Math.ceil(Number(abcItemsTotal || 0) / abcItemsLimit));
+    const current = Math.min(totalPages, Math.floor(Number(abcItemsOffset || 0) / abcItemsLimit) + 1);
+    if(pageInfo) pageInfo.textContent = `${fmtInt(current)} / ${fmtInt(totalPages)}`;
+    if(prev) prev.disabled = abcItemsOffset <= 0;
+    if(next) next.disabled = abcItemsOffset + abcItemsLimit >= abcItemsTotal;
+  }
+
+  async function openAbcItems(category, triggerEl, offset=0){
+    const cleanCategory = cleanSoftoneText(category) || 'Χωρίς ABC';
+    abcItemsCategory = cleanCategory;
+    abcItemsMode = 'abc';
+    abcItemsOffset = Math.max(0, Number(offset || 0));
+    const title = document.getElementById('abcItemsModalTitle');
+    const subtitle = document.getElementById('abcItemsModalSubtitle');
+    if(title) title.textContent = `ABC ${cleanCategory}`;
+    if(subtitle) subtitle.textContent = 'Φόρτωση ειδών...';
+    renderAbcItemsRows([]);
+    updateAbcItemsPager();
+    showAbcItemsModal(triggerEl);
+    try{
+      const p = params();
+      p.set('limit', String(abcItemsLimit));
+      p.set('offset', String(abcItemsOffset));
+      p.append('abc_categories', cleanCategory);
+      const res = await fetch(`/v1/kpi/inventory/items?${p.toString()}`);
+      const data = await res.json();
+      if(!res.ok) throw new Error(data?.detail || 'Αποτυχία φόρτωσης ABC ειδών');
+      const rows = Array.isArray(data.rows) ? data.rows : [];
+      abcItemsTotal = Number(data.total || rows.length);
+      if(subtitle){
+        const start = abcItemsTotal ? abcItemsOffset + 1 : 0;
+        const end = Math.min(abcItemsOffset + rows.length, abcItemsTotal);
+        subtitle.textContent = `Εμφάνιση ${fmtInt(start)}-${fmtInt(end)} από ${fmtInt(abcItemsTotal)} είδη. Διπλό κλικ για καρτέλα είδους.`;
+      }
+      renderAbcItemsRows(rows);
+      updateAbcItemsPager();
+    }catch(e){
+      if(subtitle) subtitle.textContent = e?.message || 'Αποτυχία φόρτωσης.';
+      const tbody = document.querySelector('#abcItemsTable tbody');
+      if(tbody) tbody.innerHTML = `<tr><td colspan="11" class="text-danger text-center py-3">${escapeHtml(e?.message || 'Αποτυχία φόρτωσης.')}</td></tr>`;
+      updateAbcItemsPager();
+    }
+  }
+
+  async function openCommercialStatusItems(status, triggerEl, offset=0){
+    const cleanStatus = cleanSoftoneText(status) || 'Χωρίς Εμπορικό Status';
+    abcItemsCategory = cleanStatus;
+    abcItemsMode = 'commercial_status';
+    abcItemsOffset = Math.max(0, Number(offset || 0));
+    const title = document.getElementById('abcItemsModalTitle');
+    const subtitle = document.getElementById('abcItemsModalSubtitle');
+    if(title) title.textContent = `Εμπορικό Status: ${cleanStatus}`;
+    if(subtitle) subtitle.textContent = 'Φόρτωση ειδών...';
+    renderAbcItemsRows([]);
+    updateAbcItemsPager();
+    showAbcItemsModal(triggerEl);
+    try{
+      const p = params();
+      p.set('limit', String(abcItemsLimit));
+      p.set('offset', String(abcItemsOffset));
+      p.append('commercial_statuses', cleanStatus);
+      const res = await fetch(`/v1/kpi/inventory/items?${p.toString()}`);
+      const data = await res.json();
+      if(!res.ok) throw new Error(data?.detail || 'Αποτυχία φόρτωσης ειδών εμπορικού status');
+      const rows = Array.isArray(data.rows) ? data.rows : [];
+      abcItemsTotal = Number(data.total || rows.length);
+      if(subtitle){
+        const start = abcItemsTotal ? abcItemsOffset + 1 : 0;
+        const end = Math.min(abcItemsOffset + rows.length, abcItemsTotal);
+        subtitle.textContent = `Εμφάνιση ${fmtInt(start)}-${fmtInt(end)} από ${fmtInt(abcItemsTotal)} είδη. Διπλό κλικ για καρτέλα είδους.`;
+      }
+      renderAbcItemsRows(rows);
+      updateAbcItemsPager();
+    }catch(e){
+      if(subtitle) subtitle.textContent = e?.message || 'Αποτυχία φόρτωσης.';
+      const tbody = document.querySelector('#abcItemsTable tbody');
+      if(tbody) tbody.innerHTML = `<tr><td colspan="12" class="text-danger text-center py-3">${escapeHtml(e?.message || 'Αποτυχία φόρτωσης.')}</td></tr>`;
+      updateAbcItemsPager();
+    }
+  }
+
   async function openItemDetail(r, triggerEl){
     if(!r || !r.item_code || !itemDetailModalEl) return;
     setItemDetailData(r);
@@ -1368,6 +1748,25 @@
   document.getElementById('itPrevPage')?.addEventListener('click', ()=> goToPage(currentPage() - 1));
   document.getElementById('itNextPage')?.addEventListener('click', ()=> goToPage(currentPage() + 1));
   document.getElementById('itLastPage')?.addEventListener('click', ()=> goToPage(totalPages()));
+  document.getElementById('abcItemsPrev')?.addEventListener('click', ()=>{
+    if(!abcItemsCategory) return;
+    const nextOffset = Math.max(0, abcItemsOffset - abcItemsLimit);
+    if(abcItemsMode === 'commercial_status'){
+      openCommercialStatusItems(abcItemsCategory, document.getElementById('abcItemsPrev'), nextOffset);
+    }else{
+      openAbcItems(abcItemsCategory, document.getElementById('abcItemsPrev'), nextOffset);
+    }
+  });
+  document.getElementById('abcItemsNext')?.addEventListener('click', ()=>{
+    if(!abcItemsCategory) return;
+    if(abcItemsOffset + abcItemsLimit >= abcItemsTotal) return;
+    const nextOffset = abcItemsOffset + abcItemsLimit;
+    if(abcItemsMode === 'commercial_status'){
+      openCommercialStatusItems(abcItemsCategory, document.getElementById('abcItemsNext'), nextOffset);
+    }else{
+      openAbcItems(abcItemsCategory, document.getElementById('abcItemsNext'), nextOffset);
+    }
+  });
 
   loadFilterOptions().then(load);
 })();
