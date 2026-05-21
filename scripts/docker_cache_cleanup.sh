@@ -7,6 +7,7 @@ set -euo pipefail
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LOG_DIR="${DOCKER_CLEANUP_LOG_DIR:-$PROJECT_DIR/artifacts/ops}"
 METRICS_FILE="${DOCKER_CLEANUP_METRICS_FILE:-}"
+STATUS_FILE="${DOCKER_CLEANUP_STATUS_FILE:-$PROJECT_DIR/artifacts/ops/docker_cleanup_df.jsonl}"
 UNTIL_HOURS="${DOCKER_CLEANUP_UNTIL_HOURS:-168}"
 DRY_RUN="${DOCKER_CLEANUP_DRY_RUN:-0}"
 
@@ -71,4 +72,6 @@ fi
 
 log "disk_after"
 docker system df || true
+docker system df --format json > "${STATUS_FILE}.tmp" 2>/dev/null && mv "${STATUS_FILE}.tmp" "$STATUS_FILE" || true
+rm -f "$PROJECT_DIR/artifacts/ops/docker_cleanup.request" 2>/dev/null || true
 log "docker_cleanup_completed"

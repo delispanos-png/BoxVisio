@@ -2,11 +2,14 @@ import secrets
 import asyncio
 import json
 import logging
+import os
 import re
 import shutil
+import subprocess
 import time
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlencode
 from uuid import UUID
 
@@ -773,6 +776,106 @@ def _disk_usage() -> dict[str, float]:
         }
     except Exception:
         return {'total_gb': 0.0, 'used_gb': 0.0, 'free_gb': 0.0, 'percent': 0.0}
+
+
+def _apply_docker_df_row(result: dict[str, Any], row: dict[str, Any]) -> None:
+    typ = str(row.get('Type') or row.get('type') or '').lower()
+    size = str(row.get('Size') or row.get('size') or '')
+    reclaimable = str(row.get('Reclaimable') or row.get('reclaimable') or '')
+    if typ == 'images':
+        result['images_size'] = size
+        result['images_reclaimable'] = reclaimable
+    elif typ == 'local volumes':
+        result['volumes_size'] = size
+    elif typ == 'build cache':
+        result['build_cache_size'] = size
+
+
+def _docker_cache_status() -> dict[str, Any]:
+    result: dict[str, Any] = {
+        'available': False,
+        'images_size': '',
+        'images_reclaimable': '',
+        'volumes_size': '',
+        'build_cache_size': '',
+        'next_run': 'Κυριακή 03:30 UTC (+ έως 30λ.)',
+        'timer_active': False,
+        'last_log': '',
+        'error': '',
+    }
+    docker_bin = shutil.which('docker')
+    if not docker_bin:
+        result['error'] = 'docker_not_found'
+    else:
+        try:
+            proc = subprocess.run(
+                [docker_bin, 'system', 'df', '--format', 'json'],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=8,
+            )
+            if proc.returncode == 0:
+                result['available'] = True
+                for line in proc.stdout.splitlines():
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        row = json.loads(line)
+                    except Exception:
+                        continue
+                    _apply_docker_df_row(result, row)
+            else:
+                result['error'] = (proc.stderr or proc.stdout or 'docker_system_df_failed').strip()[:240]
+        except Exception as exc:
+            result['error'] = str(exc)[:240]
+
+    if not result['available']:
+        df_snapshot = Path('/opt/cloudon-bi/artifacts/ops/docker_cleanup_df.jsonl')
+        if df_snapshot.exists():
+            try:
+                for line in df_snapshot.read_text(encoding='utf-8', errors='ignore').splitlines():
+                    if not line.strip():
+                        continue
+                    _apply_docker_df_row(result, json.loads(line))
+                result['available'] = bool(result['images_size'] or result['volumes_size'] or result['build_cache_size'])
+                result['error'] = ''
+            except Exception:
+                pass
+
+    systemctl_bin = shutil.which('systemctl')
+    if systemctl_bin:
+        try:
+            timer = subprocess.run(
+                [systemctl_bin, 'show', 'cloudon-docker-cleanup.timer', '--property=ActiveState,NextElapseUSecRealtime', '--no-pager'],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if timer.returncode == 0:
+                for line in timer.stdout.splitlines():
+                    key, _, value = line.partition('=')
+                    if key == 'ActiveState':
+                        result['timer_active'] = value.strip() == 'active'
+                    elif key == 'NextElapseUSecRealtime':
+                        result['next_run'] = value.strip()
+            if not result['timer_active'] and Path('/opt/cloudon-bi/infra/systemd/cloudon-docker-cleanup.timer').exists():
+                result['timer_active'] = True
+        except Exception:
+            if Path('/opt/cloudon-bi/infra/systemd/cloudon-docker-cleanup.timer').exists():
+                result['timer_active'] = True
+    elif Path('/opt/cloudon-bi/infra/systemd/cloudon-docker-cleanup.timer').exists():
+        result['timer_active'] = True
+
+    log_path = Path('/opt/cloudon-bi/artifacts/ops/docker_cleanup.prom')
+    if log_path.exists():
+        try:
+            result['last_log'] = log_path.read_text(encoding='utf-8', errors='ignore')[-1000:]
+        except Exception:
+            result['last_log'] = ''
+    return result
 
 
 def _normalize_slug(raw: str) -> str:
@@ -2907,6 +3010,7 @@ async def admin_dashboard(
         'cpu': {'percent': _cpu_usage_percent()},
         'ram': _memory_usage(),
         'disk': _disk_usage(),
+        'docker': _docker_cache_status(),
     }
 
     return templates.TemplateResponse(
@@ -2934,8 +3038,62 @@ async def admin_server_info_json(
             'cpu': {'percent': _cpu_usage_percent()},
             'ram': _memory_usage(),
             'disk': _disk_usage(),
+            'docker': _docker_cache_status(),
         }
     )
+
+
+@router.post('/admin/docker-cleanup/run')
+async def admin_docker_cleanup_run(
+    _user=Depends(require_roles(RoleName.cloudon_admin)),
+):
+    script_path = Path('/opt/cloudon-bi/scripts/docker_cache_cleanup.sh')
+    if not script_path.exists():
+        return JSONResponse(status_code=404, content={'ok': False, 'error': 'cleanup_script_not_found'})
+    if not shutil.which('docker'):
+        trigger_path = Path('/opt/cloudon-bi/artifacts/ops/docker_cleanup.request')
+        trigger_path.parent.mkdir(parents=True, exist_ok=True)
+        trigger_path.write_text(datetime.now(timezone.utc).isoformat(), encoding='utf-8')
+        return JSONResponse(
+            content={
+                'ok': True,
+                'queued': True,
+                'message': 'Manual cleanup requested. Host systemd path will run cloudon-docker-cleanup.service.',
+                'docker': _docker_cache_status(),
+            }
+        )
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            str(script_path),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env={
+                **os.environ,
+                'PATH': '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+                'DOCKER_CLEANUP_METRICS_FILE': '/opt/cloudon-bi/artifacts/ops/docker_cleanup.prom',
+            },
+        )
+        try:
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.communicate()
+            return JSONResponse(status_code=504, content={'ok': False, 'error': 'cleanup_timeout'})
+        output = (stdout or b'').decode('utf-8', errors='ignore')
+        err = (stderr or b'').decode('utf-8', errors='ignore')
+        return JSONResponse(
+            status_code=200 if proc.returncode == 0 else 500,
+            content={
+                'ok': proc.returncode == 0,
+                'returncode': proc.returncode,
+                'output': output[-5000:],
+                'error': err[-2000:],
+                'docker': _docker_cache_status(),
+            },
+        )
+    except Exception as exc:
+        logger.exception('admin_docker_cleanup_run_failed')
+        return JSONResponse(status_code=500, content={'ok': False, 'error': str(exc)})
 
 
 @router.get('/admin/tenants', response_class=HTMLResponse)

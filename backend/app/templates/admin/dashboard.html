@@ -107,7 +107,7 @@
       </div>
     </div>
     <div class="bv-admin-panel-body">
-      <div class="bv-admin-kpi-grid is-three">
+      <div class="bv-admin-kpi-grid">
         <div class="bv-admin-kpi-card">
           <div class="bv-admin-kpi-card-head">
             <p class="bv-admin-kpi-label">{{ tt(request, 'cpu_usage') }}</p>
@@ -138,6 +138,51 @@
             <p class="bv-admin-kpi-meta" id="srvDiskMeta">{{ tt(request, 'used') }} {{ '%.2f'|format(server_info.disk.used_gb) }} GB / {{ '%.2f'|format(server_info.disk.total_gb) }} GB</p>
           </div>
         </div>
+        <div class="bv-admin-kpi-card">
+          <div class="bv-admin-kpi-card-head">
+            <p class="bv-admin-kpi-label">Docker cache</p>
+            <span class="bv-admin-kpi-icon"><i class="fe fe-archive"></i></span>
+          </div>
+          <div>
+            <div class="bv-admin-kpi-value" id="dockerReclaimable">{{ server_info.docker.images_reclaimable or '-' }}</div>
+            <p class="bv-admin-kpi-meta" id="dockerMeta">
+              Timer: {{ 'ενεργός' if server_info.docker.timer_active else 'ανενεργός' }}
+              {% if server_info.docker.next_run %} · {{ server_info.docker.next_run }}{% endif %}
+            </p>
+          </div>
+        </div>
+      </div>
+      <div class="mt-3 p-3 border rounded bg-light">
+        <div class="d-flex flex-column flex-lg-row justify-content-between gap-2 align-items-lg-center">
+          <div>
+            <h6 class="mb-1">Καθαρισμός Docker cache</h6>
+            <p class="mb-0 text-muted">
+              Συντηρητικός καθαρισμός stopped containers, unused images και build cache. Δεν πειράζει volumes ή running containers.
+            </p>
+          </div>
+          <button class="btn btn-outline-primary" id="dockerCleanupRunBtn" type="button">
+            <i class="fe fe-play me-1"></i> Εκτέλεση τώρα
+          </button>
+        </div>
+        <div class="row g-2 mt-3">
+          <div class="col-md-3">
+            <div class="small text-muted">Images</div>
+            <strong id="dockerImagesSize">{{ server_info.docker.images_size or '-' }}</strong>
+          </div>
+          <div class="col-md-3">
+            <div class="small text-muted">Reclaimable</div>
+            <strong id="dockerImagesReclaimable">{{ server_info.docker.images_reclaimable or '-' }}</strong>
+          </div>
+          <div class="col-md-3">
+            <div class="small text-muted">Volumes</div>
+            <strong id="dockerVolumesSize">{{ server_info.docker.volumes_size or '-' }}</strong>
+          </div>
+          <div class="col-md-3">
+            <div class="small text-muted">Build cache</div>
+            <strong id="dockerBuildCacheSize">{{ server_info.docker.build_cache_size or '-' }}</strong>
+          </div>
+        </div>
+        <pre class="mt-3 mb-0 small bg-white border rounded p-2 d-none" id="dockerCleanupOutput" style="max-height: 220px; overflow:auto;"></pre>
       </div>
     </div>
   </div>
@@ -177,7 +222,28 @@ window.addEventListener('load', () => {
   const ramMetaEl = document.getElementById('srvRamMeta');
   const diskPctEl = document.getElementById('srvDiskPct');
   const diskMetaEl = document.getElementById('srvDiskMeta');
+  const dockerReclaimableEl = document.getElementById('dockerReclaimable');
+  const dockerMetaEl = document.getElementById('dockerMeta');
+  const dockerImagesSizeEl = document.getElementById('dockerImagesSize');
+  const dockerImagesReclaimableEl = document.getElementById('dockerImagesReclaimable');
+  const dockerVolumesSizeEl = document.getElementById('dockerVolumesSize');
+  const dockerBuildCacheSizeEl = document.getElementById('dockerBuildCacheSize');
+  const dockerCleanupRunBtn = document.getElementById('dockerCleanupRunBtn');
+  const dockerCleanupOutput = document.getElementById('dockerCleanupOutput');
   const usedLabel = `{{ tt(request, 'used') }}`;
+  function cookieValue(name) {
+    return document.cookie.split(';').map(v => v.trim()).find(v => v.startsWith(`${name}=`))?.split('=').slice(1).join('=') || '';
+  }
+  function updateDockerInfo(docker) {
+    if (!docker) return;
+    dockerReclaimableEl.textContent = docker.images_reclaimable || '-';
+    const timerLabel = docker.timer_active ? 'ενεργός' : 'ανενεργός';
+    dockerMetaEl.textContent = `Timer: ${timerLabel}${docker.next_run ? ' · ' + docker.next_run : ''}`;
+    dockerImagesSizeEl.textContent = docker.images_size || '-';
+    dockerImagesReclaimableEl.textContent = docker.images_reclaimable || '-';
+    dockerVolumesSizeEl.textContent = docker.volumes_size || '-';
+    dockerBuildCacheSizeEl.textContent = docker.build_cache_size || '-';
+  }
   async function refreshServerInfo() {
     try {
       const res = await fetch('/admin/server-info.json', { cache: 'no-store' });
@@ -189,11 +255,37 @@ window.addEventListener('load', () => {
       ramMetaEl.textContent = `${usedLabel} ${fmt2.format(Number(data?.ram?.used_gb || 0))} GB / ${fmt2.format(Number(data?.ram?.total_gb || 0))} GB`;
       diskPctEl.textContent = `${fmt2.format(Number(data?.disk?.percent || 0))}%`;
       diskMetaEl.textContent = `${usedLabel} ${fmt2.format(Number(data?.disk?.used_gb || 0))} GB / ${fmt2.format(Number(data?.disk?.total_gb || 0))} GB`;
+      updateDockerInfo(data?.docker);
     } catch (_e) {}
+  }
+
+  async function runDockerCleanup() {
+    if (!confirm('Να εκτελεστεί τώρα ο συντηρητικός καθαρισμός Docker cache; Δεν θα πειραχτούν volumes ή running containers.')) return;
+    dockerCleanupRunBtn.disabled = true;
+    dockerCleanupRunBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Εκτελείται';
+    dockerCleanupOutput.classList.remove('d-none');
+    dockerCleanupOutput.textContent = 'Ξεκίνησε ο καθαρισμός...';
+    try {
+      const res = await fetch('/admin/docker-cleanup/run', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'X-CSRF-Token': decodeURIComponent(cookieValue('csrf_token')) }
+      });
+      const data = await res.json().catch(() => ({}));
+      updateDockerInfo(data?.docker);
+      dockerCleanupOutput.textContent = `${data?.ok ? 'OK' : 'FAILED'}\n\n${data?.output || ''}${data?.error ? '\n\nERROR:\n' + data.error : ''}`;
+    } catch (err) {
+      dockerCleanupOutput.textContent = `FAILED\n\n${err?.message || err}`;
+    } finally {
+      dockerCleanupRunBtn.disabled = false;
+      dockerCleanupRunBtn.innerHTML = '<i class="fe fe-play me-1"></i> Εκτέλεση τώρα';
+      refreshServerInfo();
+    }
   }
 
   refreshServerInfo();
   setInterval(refreshServerInfo, 5000);
+  dockerCleanupRunBtn.addEventListener('click', runDockerCleanup);
 });
 </script>
 {% endblock %}

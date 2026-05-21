@@ -183,6 +183,7 @@ Docker cache cleanup:
 
 ```bash
 systemctl status cloudon-docker-cleanup.timer --no-pager
+systemctl status cloudon-docker-cleanup.path --no-pager
 systemctl list-timers --all --no-pager | grep cloudon-docker-cleanup
 DOCKER_CLEANUP_DRY_RUN=1 /opt/cloudon-bi/scripts/docker_cache_cleanup.sh
 ```
@@ -195,10 +196,17 @@ The cleanup is intentionally conservative:
 - it never prunes Docker volumes
 - it never removes running containers
 
+The admin dashboard also shows Docker cache status and can request a manual cleanup run. The web app does not get direct Docker daemon access. Instead, it writes:
+
+- `/opt/cloudon-bi/artifacts/ops/docker_cleanup.request`
+
+The host `cloudon-docker-cleanup.path` unit watches that file and starts `cloudon-docker-cleanup.service`.
+
 The timer definition lives in:
 
 - `infra/systemd/cloudon-docker-cleanup.service`
 - `infra/systemd/cloudon-docker-cleanup.timer`
+- `infra/systemd/cloudon-docker-cleanup.path`
 
 Check DNS:
 
