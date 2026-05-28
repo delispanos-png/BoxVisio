@@ -40,7 +40,7 @@ def _upgrade_required_response(request: Request, tenant: Tenant, feature: str) -
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Αναβάθμιση πακέτου</title>
     <link rel="stylesheet" href="/static/vendor/bootstrap/css/bootstrap.min.css">
-    <link rel="stylesheet" href="/static/css/boxvisio-unified.css?v=20260528premium1">
+    <link rel="stylesheet" href="/static/css/boxvisio-unified.css?v=20260528logo1">
   <style>
     body {{ background:#f4f6fb; color:#111827; }}
     .upgrade-wrap {{ min-height:100vh; display:flex; align-items:center; justify-content:center; padding:32px; }}

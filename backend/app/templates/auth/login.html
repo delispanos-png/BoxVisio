@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ tt(request, 'app_login_title') }}</title>
-  <link rel="icon" href="/static/docs/streams/sales-documents.svg" type="image/svg+xml">
+  <link rel="icon" href="/static/brand/boxvisio-mark.svg?v=20260528logo1" type="image/svg+xml">
   <link href="/static/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
   <style>
     :root {
@@ -127,22 +127,11 @@
       color: var(--muted);
       font-size: 0.86rem;
     }
-    .auth-logo-wordmark {
-      display: inline-flex;
-      align-items: center;
+    .auth-logo-img {
+      display: block;
+      width: min(330px, 100%);
+      height: auto;
       margin-bottom: 24px;
-      color: var(--text);
-      font-size: 2rem;
-      font-weight: 800;
-      letter-spacing: 0;
-    }
-    .auth-logo-wordmark::before {
-      content: '';
-      width: 42px;
-      height: 42px;
-      margin-right: 12px;
-      border-radius: 10px;
-      background: linear-gradient(135deg, #2563eb 0%, #22c55e 100%);
     }
     .hero-visual {
       width: min(100%, 420px);
@@ -311,7 +300,7 @@
         </div>
       </div>
       <div class="form-pane">
-        <div class="auth-logo-wordmark" aria-label="BoxVisio BI">BoxVisio</div>
+        <img class="auth-logo-img" src="/static/brand/boxvisio-logo.svg?v=20260528logo1" alt="BoxVisio">
         <h2>{{ tt(request, 'sign_in') }}</h2>
         {% if error %}
         <div class="alert alert-danger">{{ error }}</div>

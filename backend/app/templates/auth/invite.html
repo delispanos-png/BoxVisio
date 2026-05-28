@@ -4,18 +4,19 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>CloudOn BI - Ορισμός κωδικού</title>
-  <link rel="icon" href="/static/docs/streams/sales-documents.svg" type="image/svg+xml">
+  <link rel="icon" href="/static/brand/boxvisio-mark.svg?v=20260528logo1" type="image/svg+xml">
   <link href="/static/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
-  <link href="/static/css/boxvisio-unified.css?v=20260528premium1" rel="stylesheet">
+  <link href="/static/css/boxvisio-unified.css?v=20260528logo1" rel="stylesheet">
   <style>
     body { min-height:100vh; display:grid; place-items:center; background:#f3f5fb; color:#111827; }
     .invite-card { width:min(440px, calc(100vw - 28px)); background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:24px; box-shadow:0 12px 32px rgba(15,23,42,.08); }
     .brand-logo { margin:0 auto 18px; }
+    .bv-logo-asset { display:block; width:min(300px, 82vw); height:auto; }
   </style>
 </head>
 <body>
   <main class="invite-card">
-    <div class="brand-logo bv-logo-wordmark" aria-label="BoxVisio BI">BoxVisio</div>
+    <img class="brand-logo bv-logo-asset" src="/static/brand/boxvisio-logo.svg?v=20260528logo1" alt="BoxVisio">
     <h5 class="fw-bold mb-1">Ορισμός κωδικού πρόσβασης</h5>
     <p class="text-muted small mb-3">Συμπλήρωσε νέο κωδικό για να ενεργοποιηθεί η πρόσβαση.</p>
     {% if error %}<div class="alert alert-danger py-2">{{ error }}</div>{% endif %}

@@ -79,39 +79,26 @@ body.tenant-shell .left-sidebar {
 }
 
 body.tenant-shell .sidebar .admin-image {
-  padding: 22px 20px 16px;
+  padding: 18px 16px 14px;
 }
 
-body.tenant-shell .sidebar .admin-image .brand-logo.bv-logo-wordmark {
-  justify-content: flex-start;
+body.tenant-shell .sidebar .admin-image .brand-logo.bv-logo-asset {
   width: 100% !important;
-  max-width: none !important;
-  min-height: 54px;
-  margin: 0 !important;
-  color: #f8fafc;
-  font-size: 24px;
-  font-weight: 900;
+  max-width: 236px !important;
+  margin: 0 auto !important;
+  border-radius: 18px !important;
+  filter: drop-shadow(0 18px 34px rgba(0, 0, 0, .22));
 }
 
 body.tenant-shell .bv-brand-meta {
   display: block;
-  margin: -6px 0 0 54px;
+  margin: 10px 4px 0;
   color: rgba(203, 213, 225, .72);
   font-size: 11px;
   font-weight: 800;
-  letter-spacing: .08em;
+  letter-spacing: .12em;
+  text-align: center;
   text-transform: uppercase;
-}
-
-body.tenant-shell .bv-logo-wordmark::before {
-  width: 42px;
-  height: 42px;
-  border-radius: 14px;
-  background:
-    linear-gradient(135deg, var(--bv-2026-blue) 0%, var(--bv-2026-cyan) 48%, var(--bv-2026-green) 100%);
-  box-shadow:
-    inset 0 0 0 1px rgba(255,255,255,.34),
-    0 14px 28px rgba(14, 165, 183, .24);
 }
 
 body.tenant-shell .left-sidebar .menu.main-sidebar {
@@ -501,6 +488,19 @@ body.tenant-shell .popover {
   background: rgba(255, 255, 255, .94) !important;
   box-shadow: 0 24px 70px rgba(16, 24, 40, .18) !important;
   backdrop-filter: blur(18px) saturate(145%);
+}
+
+body.tenant-shell.admin-sidebar-collapsed .sidebar .admin-image .brand-logo.bv-logo-asset,
+body.tenant-shell.sidebar-icon-only .sidebar .admin-image .brand-logo.bv-logo-asset {
+  width: 46px !important;
+  max-width: 46px !important;
+  content: url('/static/brand/boxvisio-mark.svg?v=20260528logo1');
+  border-radius: 14px !important;
+}
+
+body.tenant-shell.admin-sidebar-collapsed .bv-brand-meta,
+body.tenant-shell.sidebar-icon-only .bv-brand-meta {
+  display: none;
 }
 
 body.tenant-shell[data-theme='dark'] .topbar,

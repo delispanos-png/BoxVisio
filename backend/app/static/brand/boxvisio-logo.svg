@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 940 236" role="img" aria-labelledby="title desc">
+  <title id="title">BoxVisio</title>
+  <desc id="desc">BoxVisio operational intelligence platform for business</desc>
+  <defs>
+    <linearGradient id="bv-cyan" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#19c8ee"/>
+      <stop offset="1" stop-color="#0062ff"/>
+    </linearGradient>
+    <linearGradient id="bv-blue" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#09b6ff"/>
+      <stop offset="1" stop-color="#0b54f6"/>
+    </linearGradient>
+    <linearGradient id="bv-violet" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#7a42ff"/>
+      <stop offset="1" stop-color="#5b00f5"/>
+    </linearGradient>
+    <linearGradient id="bv-magenta" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#cf4cff"/>
+      <stop offset="1" stop-color="#8b00d8"/>
+    </linearGradient>
+    <clipPath id="tile">
+      <rect x="5" y="5" width="226" height="226" rx="56"/>
+    </clipPath>
+  </defs>
+  <rect width="940" height="236" rx="28" fill="#fff"/>
+  <g>
+    <rect x="5" y="5" width="226" height="226" rx="56" fill="#fff"/>
+    <rect x="5" y="5" width="226" height="226" rx="56" fill="none" stroke="#edf1f7" stroke-width="2"/>
+    <g clip-path="url(#tile)" opacity=".18">
+      <path d="M18 158c49-41 82-50 125-20 33 23 60 7 83-19v112H18z" fill="#7b2cff"/>
+      <path d="M9 174c40-29 80-33 118-8 38 25 68 9 93-17v82H9z" fill="#00a8ff"/>
+    </g>
+    <rect x="61" y="47" width="27" height="145" rx="10" fill="url(#bv-cyan)"/>
+    <rect x="98" y="103" width="27" height="89" rx="10" fill="url(#bv-blue)"/>
+    <rect x="135" y="75" width="27" height="117" rx="10" fill="url(#bv-violet)"/>
+    <rect x="172" y="47" width="27" height="145" rx="10" fill="url(#bv-magenta)"/>
+  </g>
+  <text x="295" y="124" fill="#4b006f" font-family="Arial Black, Arial, Helvetica, sans-serif" font-size="92" font-weight="900" letter-spacing="-2">BoxVisio</text>
+  <text x="299" y="166" fill="#4b006f" font-family="Arial, Helvetica, sans-serif" font-size="22" font-weight="900" letter-spacing=".8">OPERATIONAL INTELLIGENCE</text>
+  <text x="635" y="166" fill="#4b006f" font-family="Arial, Helvetica, sans-serif" font-size="22" font-weight="500" letter-spacing=".2">PLATFORM FOR BUSINESS</text>
+</svg>

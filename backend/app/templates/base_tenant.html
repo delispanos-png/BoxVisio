@@ -4,9 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ tt(request, title) if title else tt(request, 'app_tenant_title') }}</title>
-  <link rel="icon" href="/static/docs/streams/sales-documents.svg" type="image/svg+xml">
+  <link rel="icon" href="/static/brand/boxvisio-mark.svg?v=20260528logo1" type="image/svg+xml">
   <link href="/static/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
-  <link href="/static/css/boxvisio-unified.css?v=20260528premium1" rel="stylesheet">
+  <link href="/static/css/boxvisio-unified.css?v=20260528logo1" rel="stylesheet">
   <script src="/static/js/bv-unified-ui.js?v=20260513multi"></script>
 </head>
 <body class="bv-shell tenant-shell" data-theme="{{ request.cookies.get('theme', 'light') }}">
@@ -87,7 +87,7 @@
   <section>
     <aside id="leftsidebar" class="sidebar left-sidebar">
       <div class="admin-image">
-        <span class="brand-logo bv-logo-wordmark" aria-label="BoxVisio BI">BoxVisio</span>
+        <img class="brand-logo bv-logo-asset" src="/static/brand/boxvisio-logo.svg?v=20260528logo1" alt="BoxVisio">
         <span class="bv-brand-meta">Command Center · 2026</span>
       </div>
       <div class="text-center">
