@@ -1,6 +1,7 @@
 from fastapi import Request
 from fastapi.responses import RedirectResponse
 
+from app.core.config import settings
 from app.core.security import expected_audience_for_host, safe_decode
 
 
@@ -10,6 +11,13 @@ def _protected_ui_path(path: str) -> bool:
 
 async def ui_auth_redirect_middleware(request: Request, call_next):
     path = request.url.path
+    host = (request.headers.get('host') or '').split(':')[0].lower()
+    if request.method.upper() in {'GET', 'HEAD'} and host == settings.admin_portal_host.lower() and path.startswith('/tenant/'):
+        target = f'https://{settings.tenant_portal_host}{path}'
+        if request.url.query:
+            target = f'{target}?{request.url.query}'
+        return RedirectResponse(url=target, status_code=307)
+
     if request.method.upper() == 'GET' and _protected_ui_path(path):
         token = request.cookies.get('access_token')
         if not token:

@@ -91,6 +91,12 @@ class Settings(BaseSettings):
     incremental_sync_limit: int = 500
     incremental_sync_max_tenants_per_run: int = 100
     incremental_sync_overlap_minutes: int = 5
+    incremental_sync_scheduler_round_robin_enabled: bool = True
+    incremental_sync_scheduler_candidate_multiplier: int = 3
+    auto_sync_max_queue_depth_per_tenant: int = 100
+    auto_sync_live_dimension_streams_enabled: bool = False
+    auto_sync_live_dimension_streams_csv: str = 'item_master'
+    auto_sync_live_max_jobs_per_tenant: int = 4
     auto_sync_heavy_stream_min_interval_minutes: int = 1440
     ingest_recovery_enabled: bool = True
     ingest_recovery_on_incremental: bool = False

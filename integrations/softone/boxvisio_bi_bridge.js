@@ -1,6 +1,6 @@
 /*
   BoxVisio BI Bridge for SoftOne Advanced JavaScript
-  Version: 2026-05-19_15-30-00
+  Version: 2026-05-25_connector-parity
 
   Purpose
   - Extract Sales, Purchases, Inventory, Cash, Balances, Expenses data directly from SoftOne tables.
@@ -24,7 +24,7 @@
       /s1services/JS/myWS/GetAllForBI
 */
 
-var BVBI_VERSION = "2026-05-19_15-30-00";
+var BVBI_VERSION = "2026-05-25_connector-parity";
 var _BVBI_COL_CACHE = {};
 
 function _bv_is_array(v) {
@@ -147,6 +147,9 @@ function _bv_sqlserver_read_hints(sql) {
     ["LEFT JOIN CCC88POCAT3 PC3 ON", "LEFT JOIN CCC88POCAT3 PC3 WITH (NOLOCK) ON"],
     ["LEFT JOIN MTRPCATEGORY CG ON", "LEFT JOIN MTRPCATEGORY CG WITH (NOLOCK) ON"],
     ["LEFT JOIN ACCOUNT AC ON", "LEFT JOIN ACCOUNT AC WITH (NOLOCK) ON"],
+    ["FROM TRDFLINES TL ", "FROM TRDFLINES TL WITH (NOLOCK) "],
+    ["INNER JOIN TRDFLINES TL ON", "INNER JOIN TRDFLINES TL WITH (NOLOCK) ON"],
+    ["LEFT JOIN TRDFLINES TL ON", "LEFT JOIN TRDFLINES TL WITH (NOLOCK) ON"],
     ["FROM CCC88ECHANNEL E ", "FROM CCC88ECHANNEL E WITH (NOLOCK) "],
     ["FROM PAYMENT OP ", "FROM PAYMENT OP WITH (NOLOCK) "],
     ["FROM PAYMENT P ", "FROM PAYMENT P WITH (NOLOCK) "]
@@ -451,6 +454,7 @@ function _bv_resolve_request(obj) {
   r.includeSales = _bv_bool(obj && obj.includeSales, true);
   r.includePurchases = _bv_bool(obj && obj.includePurchases, true);
   r.includeInventory = _bv_bool(obj && obj.includeInventory, true);
+  r.includeItemMaster = _bv_bool(obj && obj.includeItemMaster, true);
   r.includeCashTransactions = _bv_bool(obj && (obj.includeCashTransactions !== undefined ? obj.includeCashTransactions : obj.includeCash), true);
   r.includeSupplierBalances = _bv_bool(obj && obj.includeSupplierBalances, false);
   r.includeCustomerBalances = _bv_bool(obj && obj.includeCustomerBalances, false);
@@ -554,6 +558,12 @@ function _bv_sales_sql(cfg) {
   var originPaymentCode = _bv_col_expr("OPM", "PAYMENT", ["CODE"], "''");
   var originPaymentName = _bv_col_expr("OPM", "PAYMENT", ["NAME"], "''");
   var saldocOrderNo = _bv_col_expr("SD", "SALDOC", ["CCC88EORDERNO"], "''");
+  var docPayment = _bv_col_expr("F", "FINDOC", ["PAYMENT"], "0");
+  var originPayment = _bv_col_expr("ORIG", "FINDOC", ["PAYMENT"], "0");
+  var originSodtype = _bv_col_expr("ORIG", "FINDOC", ["SODTYPE"], c.sodtype);
+  var docCustomerBranchId = _bv_col_expr("F", "FINDOC", ["TRDBRANCH"], "0");
+  var originCustomerBranchId = _bv_col_expr("ORIG", "FINDOC", ["TRDBRANCH"], "0");
+  var docCarrierTrdr = _bv_col_expr("F", "FINDOC", ["TRNTRDR", "TRDRSHIP", "CARRIER"], "0");
   var docChannelResolved =
     "COALESCE(NULLIF(CAST(ISNULL(" +
     docChannel +
@@ -586,8 +596,8 @@ function _bv_sales_sql(cfg) {
   var transportMedium = "COALESCE(NULLIF(" + _bv_col_expr("ORIG", "FINDOC", ["SHIPMENTMODE", "TRANSPORTMEANS", "VEHICLETYPE", "CCCVEHICLETYPE"], "''") + ",''), NULLIF(" + _bv_col_expr("F", "FINDOC", ["SHIPMENTMODE", "TRANSPORTMEANS", "VEHICLETYPE", "CCCVEHICLETYPE"], "''") + ",''), '')";
   var transportNo = "COALESCE(NULLIF(" + _bv_col_expr("ORIG", "FINDOC", ["VEHICLENO", "TRANSPORTNO", "PLATENO", "CARNO"], "''") + ",''), NULLIF(" + _bv_col_expr("F", "FINDOC", ["VEHICLENO", "TRANSPORTNO", "PLATENO", "CARNO"], "''") + ",''), '')";
   var routeName = "COALESCE(NULLIF(" + _bv_col_expr("ORIG", "FINDOC", ["ROUTENAME", "ITINERARY", "ROUTE"], "''") + ",''), NULLIF(" + _bv_col_expr("F", "FINDOC", ["ROUTENAME", "ITINERARY", "ROUTE"], "''") + ",''), '')";
-  var loadingDate = "COALESCE(" + _bv_col_expr("ORIG", "FINDOC", ["LOADINGDATE", "LOADDATE"], "NULL") + ", " + _bv_col_expr("SD", "SALDOC", ["BGDOCDATE1"], "NULL") + ", " + _bv_col_expr("F", "FINDOC", ["LOADINGDATE", "LOADDATE"], "NULL") + ")";
-  var deliveryDate = "COALESCE(" + _bv_col_expr("ORIG", "FINDOC", ["DELIVERYDATE", "SHIPDATE"], "NULL") + ", " + _bv_col_expr("F", "FINDOC", ["DELIVERYDATE", "SHIPDATE"], "NULL") + ")";
+  var loadingDate = "COALESCE(" + _bv_col_expr("ORIG", "FINDOC", ["LOADINGDATE", "LOADDATE"], "NULL") + ", " + _bv_col_expr("SD", "SALDOC", ["BGDOCDATE1"], "NULL") + ", " + _bv_col_expr("F", "FINDOC", ["LOADINGDATE", "LOADDATE"], "NULL") + ", " + c.trnDate + ")";
+  var deliveryDate = "COALESCE(" + _bv_col_expr("ORIG", "FINDOC", ["DELIVERYDATE", "SHIPDATE"], "NULL") + ", " + _bv_col_expr("F", "FINDOC", ["DELIVERYDATE", "SHIPDATE"], "NULL") + ", " + c.trnDate + ")";
   var originVoucher = _bv_col_expr("ORIG", "FINDOC", ["CCC88EVOUCHER"], "''");
   var docVoucher = _bv_col_expr("F", "FINDOC", ["CCC88EVOUCHER"], "''");
   var voucherNo = "COALESCE(NULLIF(" + originVoucher + ",''), NULLIF(" + docVoucher + ",''), '')";
@@ -645,11 +655,15 @@ function _bv_sales_sql(cfg) {
     originPaymentName +
     ",''), NULLIF(" +
     originPaymentCode +
-    ",''), NULLIF(CAST(ISNULL(ORIG.PAYMENT,0) AS VARCHAR(128)),'0'), NULLIF(" +
+    ",''), NULLIF(CAST(ISNULL(" +
+    originPayment +
+    ",0) AS VARCHAR(128)),'0'), NULLIF(" +
     paymentName +
     ",''), NULLIF(" +
     paymentCode +
-    ",''), NULLIF(CAST(ISNULL(F.PAYMENT,0) AS VARCHAR(128)),'0'), '')";
+    ",''), NULLIF(CAST(ISNULL(" +
+    docPayment +
+    ",0) AS VARCHAR(128)),'0'), '')";
   var documentStatusExpr =
     "(CASE " +
     "WHEN ISNULL(" + isCancel + ",0)=1 THEN N'Cancelled' " +
@@ -870,6 +884,8 @@ function _bv_sales_sql(cfg) {
     "CAST(ISNULL(" +
     commercialStatusExpr +
     ", '') AS VARCHAR(128)) AS COMMERCIAL_STATUS," +
+    "CAST(0 AS FLOAT) AS DISCOUNT_PCT," +
+    "CAST(0 AS FLOAT) AS DISCOUNT_AMOUNT," +
     "CAST(" +
     docChannelResolved +
     " AS VARCHAR(64)) AS CHANNEL_EXT_ID," +
@@ -1099,15 +1115,29 @@ function _bv_sales_sql(cfg) {
     "LEFT JOIN MTRMARK MK ON MK.MTRMARK=I.MTRMARK AND MK.COMPANY=I.COMPANY " +
     "LEFT JOIN MTRGROUP MG ON MG.MTRGROUP=I.MTRGROUP AND MG.COMPANY=I.COMPANY " +
     (_bv_table_exists("SALDOC") ? ("LEFT JOIN SALDOC SD ON SD.FINDOC=" + c.findoc + " AND SD.COMPANY=F.COMPANY ") : "") +
-    "LEFT JOIN TRDBRANCH CB ON CB.TRDBRANCH=F.TRDBRANCH AND (CB.COMPANY=F.COMPANY OR CB.COMPANY=0) " +
-    "LEFT JOIN TRDBRANCH OCB ON OCB.TRDBRANCH=ORIG.TRDBRANCH AND (OCB.COMPANY=F.COMPANY OR OCB.COMPANY=0) " +
-    "LEFT JOIN TRDR CA ON CA.TRDR=ISNULL(F.TRNTRDR,0) AND (CA.COMPANY=F.COMPANY OR CA.COMPANY=0) " +
+    "LEFT JOIN TRDBRANCH CB ON CB.TRDBRANCH=" +
+    docCustomerBranchId +
+    " AND (CB.COMPANY=F.COMPANY OR CB.COMPANY=0) " +
+    "LEFT JOIN TRDBRANCH OCB ON OCB.TRDBRANCH=" +
+    originCustomerBranchId +
+    " AND (OCB.COMPANY=F.COMPANY OR OCB.COMPANY=0) " +
+    "LEFT JOIN TRDR CA ON CA.TRDR=ISNULL(" +
+    docCarrierTrdr +
+    ",0) AND (CA.COMPANY=F.COMPANY OR CA.COMPANY=0) " +
     expenseApplySql +
     "OUTER APPLY (SELECT TOP 1 E.CCC88ECHANNEL, E.NAME FROM CCC88ECHANNEL E WHERE E.CCC88ECHANNEL=" +
     docChannelResolved +
     " AND (E.COMPANY=F.COMPANY OR E.COMPANY=1001) ORDER BY CASE WHEN E.COMPANY=F.COMPANY THEN 0 ELSE 1 END) EC " +
-    "OUTER APPLY (SELECT TOP 1 OP.CODE, OP.NAME FROM PAYMENT OP WHERE OP.PAYMENT=ORIG.PAYMENT AND OP.SODTYPE=ORIG.SODTYPE AND (OP.COMPANY=F.COMPANY OR OP.COMPANY=1000) ORDER BY CASE WHEN OP.COMPANY=F.COMPANY THEN 0 ELSE 1 END) OPM " +
-    "OUTER APPLY (SELECT TOP 1 P.CODE, P.NAME FROM PAYMENT P WHERE P.PAYMENT=F.PAYMENT AND P.SODTYPE=F.SODTYPE AND (P.COMPANY=F.COMPANY OR P.COMPANY=1000) ORDER BY CASE WHEN P.COMPANY=F.COMPANY THEN 0 ELSE 1 END) PM " +
+    "OUTER APPLY (SELECT TOP 1 OP.CODE, OP.NAME FROM PAYMENT OP WHERE OP.PAYMENT=" +
+    originPayment +
+    " AND OP.SODTYPE=" +
+    originSodtype +
+    " AND (OP.COMPANY=F.COMPANY OR OP.COMPANY=1000) ORDER BY CASE WHEN OP.COMPANY=F.COMPANY THEN 0 ELSE 1 END) OPM " +
+    "OUTER APPLY (SELECT TOP 1 P.CODE, P.NAME FROM PAYMENT P WHERE P.PAYMENT=" +
+    docPayment +
+    " AND P.SODTYPE=" +
+    c.sodtype +
+    " AND (P.COMPANY=F.COMPANY OR P.COMPANY=1000) ORDER BY CASE WHEN P.COMPANY=F.COMPANY THEN 0 ELSE 1 END) PM " +
     branchInfo.joinSql +
     seriesInfo.joinSql +
     whereSql +
@@ -1141,15 +1171,21 @@ function _bv_purchases_sql(cfg) {
   var disc1Pct = _bv_col_expr("L", "MTRLINES", ["DISC1PRC", "DISC1", "DISCOUNT1"], "NULL");
   var disc2Pct = _bv_col_expr("L", "MTRLINES", ["DISC2PRC", "DISC2", "DISCOUNT2"], "NULL");
   var disc3Pct = _bv_col_expr("L", "MTRLINES", ["DISC3PRC", "DISC3", "DISCOUNT3"], "NULL");
+  var disc1Val = _bv_col_expr("L", "MTRLINES", ["DISC1VAL", "DISCOUNT1VAL", "DISCVAL1"], "0");
+  var disc2Val = _bv_col_expr("L", "MTRLINES", ["DISC2VAL", "DISCOUNT2VAL", "DISCVAL2"], "0");
+  var disc3Val = _bv_col_expr("L", "MTRLINES", ["DISC3VAL", "DISCOUNT3VAL", "DISCVAL3"], "0");
   var paymentCode = _bv_col_expr("PM", "PAYMENT", ["CODE"], "''");
   var paymentName = _bv_col_expr("PM", "PAYMENT", ["NAME"], "''");
+  var docPayment = _bv_col_expr("F", "FINDOC", ["PAYMENT"], "0");
   var sourceCreatedAt = "COALESCE(" + _bv_col_expr("F", "FINDOC", ["SOTIME", "INSDATE", "CREATED", "CREATEDAT", "INSERTDATE"], "NULL") + ", " + c.updDate + ")";
   var paymentExpr =
     "COALESCE(NULLIF(" +
     paymentName +
     ",''), NULLIF(" +
     paymentCode +
-    ",''), NULLIF(CAST(ISNULL(F.PAYMENT,0) AS VARCHAR(128)),'0'), '')";
+    ",''), NULLIF(CAST(ISNULL(" +
+    docPayment +
+    ",0) AS VARCHAR(128)),'0'), '')";
   var manualOrderInfo = _bv_item_manual_order_info("I");
   var manualOrderCategoryExpr = manualOrderInfo.expr;
   var commercialStatusExpr = manualOrderInfo.commercialStatusExpr;
@@ -1348,6 +1384,10 @@ function _bv_purchases_sql(cfg) {
     "CAST(" +
     purchaseSign +
     " * (" + discAmtExpr + ") AS FLOAT) AS DISCOUNT_AMOUNT," +
+    "CAST(ABS(ISNULL(" + disc1Val + ",0)) AS FLOAT) AS DISCOUNT1_AMOUNT," +
+    "CAST(ABS(ISNULL(" + disc2Val + ",0)) AS FLOAT) AS DISCOUNT2_AMOUNT," +
+    "CAST(ABS(ISNULL(" + disc3Val + ",0)) AS FLOAT) AS DISCOUNT3_AMOUNT," +
+    "CAST(ABS(ISNULL(" + disc1Pct + ",0) + ISNULL(" + disc2Pct + ",0) + ISNULL(" + disc3Pct + ",0)) AS FLOAT) AS DISCOUNT_PCT," +
     "CAST(ISNULL(" + disc1Pct + ",NULL) AS FLOAT) AS DISCOUNT1_PCT," +
     "CAST(ISNULL(" + disc2Pct + ",NULL) AS FLOAT) AS DISCOUNT2_PCT," +
     "CAST(ISNULL(" + disc3Pct + ",NULL) AS FLOAT) AS DISCOUNT3_PCT," +
@@ -1391,7 +1431,11 @@ function _bv_purchases_sql(cfg) {
     "LEFT JOIN TRDR S ON S.TRDR=" +
     c.trdr +
     " AND S.COMPANY=F.COMPANY " +
-    "OUTER APPLY (SELECT TOP 1 P.CODE, P.NAME FROM PAYMENT P WHERE P.PAYMENT=F.PAYMENT AND P.SODTYPE=F.SODTYPE AND (P.COMPANY=F.COMPANY OR P.COMPANY=1000) ORDER BY CASE WHEN P.COMPANY=F.COMPANY THEN 0 ELSE 1 END) PM " +
+    "OUTER APPLY (SELECT TOP 1 P.CODE, P.NAME FROM PAYMENT P WHERE P.PAYMENT=" +
+    docPayment +
+    " AND P.SODTYPE=" +
+    c.sodtype +
+    " AND (P.COMPANY=F.COMPANY OR P.COMPANY=1000) ORDER BY CASE WHEN P.COMPANY=F.COMPANY THEN 0 ELSE 1 END) PM " +
     "LEFT JOIN MTRL I ON I.MTRL=" +
     lMtrl +
     " AND I.COMPANY=F.COMPANY " +
@@ -1555,6 +1599,7 @@ function _bv_inventory_sql(cfg) {
 
   var snapshotSql =
     "SELECT " +
+    _bv_top_clause(cfg.limit) +
     "CAST('IS|' + CAST(ISNULL(S.COMPANY,0) AS VARCHAR(32)) + '|' + CAST(ISNULL(S.FISCPRD,0) AS VARCHAR(16)) + '|' + CAST(ISNULL(S.WHOUSE,0) AS VARCHAR(32)) + '|' + CAST(ISNULL(S.MTRL,0) AS VARCHAR(40)) AS VARCHAR(128)) AS EVENT_ID," +
     "CAST('INVSNAP-' + CAST(ISNULL(S.FISCPRD,0) AS VARCHAR(16)) AS VARCHAR(128)) AS DOCUMENT_ID," +
     "CAST('Inventory Snapshot ' + CAST(ISNULL(S.FISCPRD,0) AS VARCHAR(16)) AS VARCHAR(128)) AS DOCUMENT_NO," +
@@ -1771,21 +1816,15 @@ function _bv_inventory_sql(cfg) {
     "LEFT JOIN CCC88POCAT3 PC3 ON PC3.CCC88POCAT3 = I.CCC88POCAT3 " +
     branchInfo.joinSql +
     seriesInfo.joinSql +
-    adjustmentWhereSql +
-    " ORDER BY " +
-    c.trnDate +
-    " ASC, " +
-    c.findoc +
-    " ASC, " +
-    lLineId +
-    " ASC";
+    adjustmentWhereSql;
 
-  return snapshotSql + " UNION ALL " + adjustmentSql;
+  return "SELECT * FROM (" + snapshotSql + " UNION ALL " + adjustmentSql + ") INV ORDER BY DOC_DATE ASC, DOCUMENT_ID ASC, EVENT_ID ASC";
 }
 
 function _bv_item_master_sql(cfg) {
   var codeExpr = _bv_col_expr("I", "MTRL", ["CODE"], "CAST(I.MTRL AS VARCHAR(128))");
   var nameExpr = _bv_col_expr("I", "MTRL", ["NAME", "DESCR", "TITLE"], "''");
+  var updatedAtExpr = _bv_col_expr("I", "MTRL", ["UPDDATE", "INSDATE"], "GETDATE()");
   var barcodeExpr = _bv_col_expr("I", "MTRL", ["CODE1"], "''");
   var altBarcodeExpr =
     "NULLIF(STUFF((SELECT ',' + CAST(MS.CODE AS VARCHAR(128)) " +
@@ -1808,6 +1847,7 @@ function _bv_item_master_sql(cfg) {
   var itemExtraJoinSql = manualOrderInfo.joinSql;
   var replInfo = _bv_item_replenishment_info("I");
   var itemReplJoinSql = replInfo.joinSql;
+  var snapshotAsOf = cfg.toDate !== "" ? _bv_sql_quote(cfg.toDate) : "GETDATE()";
 
   var sql =
     "SELECT " +
@@ -1815,6 +1855,17 @@ function _bv_item_master_sql(cfg) {
     "CAST(ISNULL(" +
     codeExpr +
     ", I.MTRL) AS VARCHAR(128)) AS ITEM_CODE," +
+    "CAST(ISNULL(" +
+    codeExpr +
+    ", I.MTRL) AS VARCHAR(128)) AS ITEM_EXTERNAL_ID," +
+    "CAST('ITEM|' + CAST(ISNULL(I.COMPANY,0) AS VARCHAR(32)) + '|' + CAST(ISNULL(I.MTRL,0) AS VARCHAR(40)) AS VARCHAR(128)) AS EXTERNAL_ID," +
+    "CAST('ITEM|' + CAST(ISNULL(I.COMPANY,0) AS VARCHAR(32)) + '|' + CAST(ISNULL(I.MTRL,0) AS VARCHAR(40)) AS VARCHAR(128)) AS EVENT_ID," +
+    "CONVERT(VARCHAR(10), CAST(" +
+    snapshotAsOf +
+    " AS DATE), 23) AS DOC_DATE," +
+    "CONVERT(VARCHAR(19), ISNULL(" +
+    updatedAtExpr +
+    ", GETDATE()), 126) AS UPDATED_AT," +
     "CAST(ISNULL(" +
     nameExpr +
     ", '') AS VARCHAR(255)) AS ITEM_NAME," +
@@ -1849,6 +1900,9 @@ function _bv_item_master_sql(cfg) {
     "CAST(NULLIF(CAST(ISNULL(" +
     groupExpr +
     ", 0) AS VARCHAR(64)), '0') AS VARCHAR(64)) AS GROUP_EXT_ID," +
+    "CAST(NULLIF(CAST(ISNULL(" +
+    groupExpr +
+    ", 0) AS VARCHAR(64)), '0') AS VARCHAR(64)) AS GROUP_EXTERNAL_ID," +
     "CAST(ISNULL(MG.NAME, '') AS VARCHAR(255)) AS GROUP_NAME," +
     "CAST(ISNULL(CG.NAME, '') AS VARCHAR(255)) AS COMMERCIAL_CATEGORY," +
     "CAST(ISNULL(" +
@@ -1865,7 +1919,8 @@ function _bv_item_master_sql(cfg) {
     "CAST(" + replInfo.purchasePriceExpr + " AS FLOAT) AS CURRENT_PURCHASE_PRICE," +
     "CAST(ISNULL(" +
     activeExpr +
-    ", 1) AS INT) AS IS_ACTIVE_SOURCE " +
+    ", 1) AS INT) AS IS_ACTIVE_SOURCE," +
+    "CAST(ISNULL(I.COMPANY,0) AS VARCHAR(64)) AS COMPANY_ID " +
     "FROM MTRL I " +
     "LEFT JOIN MTRMARK MK ON MK.MTRMARK = I.MTRMARK AND MK.COMPANY = I.COMPANY " +
     "LEFT JOIN MTRMANFCTR MF ON MF.MTRMANFCTR = I.MTRMANFCTR AND MF.COMPANY = I.COMPANY " +
@@ -1893,28 +1948,39 @@ function _bv_cash_sql(cfg) {
   var branchInfo = _bv_branch_info_expr(c);
   var accountJoinSql = "";
   var accountIdExpr = "CAST(ISNULL(" + c.account + ",0) AS VARCHAR(128))";
-  var accountNatureExpr = "CAST('' AS VARCHAR(255))";
+  var hasTrdflines = _bv_table_exists("TRDFLINES");
+  var cashSubcategoryExpr =
+    "CASE " +
+    "WHEN F.SOSOURCE=1381 THEN 'customer_collections' " +
+    "WHEN F.SOSOURCE=1413 THEN 'customer_transfers' " +
+    "WHEN F.SOSOURCE=1281 THEN 'supplier_payments' " +
+    "WHEN F.SOSOURCE IN (1412,1416) THEN 'supplier_transfers' " +
+    "WHEN F.SOSOURCE IN (1414,1481) THEN 'financial_accounts' " +
+    "WHEN F.SOSOURCE=1261 THEN 'supplier_payments' " +
+    "WHEN ISNULL(" + c.sodtype + ",0)=13 THEN 'customer_collections' " +
+    "WHEN ISNULL(" + c.sodtype + ",0)=12 THEN 'supplier_payments' " +
+    "WHEN ISNULL(" + c.sodtype + ",0)=14 THEN 'financial_accounts' " +
+    "ELSE 'financial_accounts' END";
+  var counterpartyTypeExpr =
+    "CASE " +
+    "WHEN ISNULL(" + c.sodtype + ",0)=13 THEN 'customer' " +
+    "WHEN ISNULL(" + c.sodtype + ",0)=12 THEN 'supplier' " +
+    "WHEN ISNULL(" + c.sodtype + ",0)=14 THEN 'internal' " +
+    "ELSE 'internal' END";
   if (_bv_table_exists("ACCOUNT")) {
     var accId = _bv_col_expr("AC", "ACCOUNT", ["ACCOUNT", "ACNT"], "0");
     var accCompany = _bv_col_expr("AC", "ACCOUNT", ["COMPANY"], c.company);
     var accCode = _bv_col_expr("AC", "ACCOUNT", ["CODE", "ACCCODE"], "''");
-    var accNature = _bv_col_expr("AC", "ACCOUNT", ["NATURE", "ACNATURE", "ACCNATURE", "NATURENAME"], "''");
     accountJoinSql =
       " LEFT JOIN ACCOUNT AC ON " + accId + "=" + c.account + " AND " + accCompany + "=" + c.company;
     accountIdExpr = "CAST(ISNULL(" + accCode + ", " + c.account + ") AS VARCHAR(128))";
-    accountNatureExpr = "CAST(ISNULL(" + accNature + ", '') AS VARCHAR(255))";
   }
 
   var whereSql = " WHERE F.COMPANY=" + cfg.company + " AND F.SOSOURCE IN (" + cfg.cashSourceCodes + ")";
-  whereSql +=
-    " AND (CASE " +
-    "WHEN (ISNULL(F.SOSOURCE,0) IN (1414,1481) OR ISNULL(" + c.sodtype + ",0)=14) " +
-    "THEN (CASE WHEN LOWER(" + accountNatureExpr + ") IN (N'αδιάφορο', N'αδιαφορο') THEN 0 ELSE 1 END) " +
-    "ELSE 1 END)=1";
   if (cfg.fromDate !== "") whereSql += " AND " + c.trnDate + " >= " + _bv_sql_quote(cfg.fromDate);
   if (cfg.toDate !== "") whereSql += " AND " + c.trnDate + " < DATEADD(day,1," + _bv_sql_quote(cfg.toDate) + ")";
 
-  var sql =
+  var headerSql =
     "SELECT " +
     _bv_top_clause(cfg.limit) +
     "CAST(" +
@@ -1960,42 +2026,9 @@ function _bv_cash_sql(cfg) {
     "CAST(ISNULL(" +
     c.comments +
     ",'') AS VARCHAR(1024)) AS NOTES," +
-    "CASE " +
-    "WHEN ISNULL(F.TFPRMS,0)=101 AND ISNULL(" + c.sumAmount + ",0) < 0 THEN '102' " +
-    "WHEN ISNULL(F.TFPRMS,0) IN (2,102,181) THEN '102' " +
-    "WHEN ISNULL(F.TFPRMS,0)=101 THEN '101' " +
-    "WHEN ISNULL(" +
-    c.sumAmount +
-    ",0) < 0 THEN '102' " +
-    "ELSE '101' END AS TRANSACTION_TYPE," +
-    "CASE " +
-    "WHEN F.SOSOURCE=1381 THEN 'customer_collections' " +
-    "WHEN F.SOSOURCE=1413 THEN 'customer_transfers' " +
-    "WHEN F.SOSOURCE=1281 THEN 'supplier_payments' " +
-    "WHEN F.SOSOURCE IN (1412,1416) THEN 'supplier_transfers' " +
-    "WHEN F.SOSOURCE IN (1414,1481) THEN 'financial_accounts' " +
-    "WHEN F.SOSOURCE=1261 THEN 'supplier_payments' " +
-    "WHEN ISNULL(" +
-    c.sodtype +
-    ",0)=13 THEN 'customer_collections' " +
-    "WHEN ISNULL(" +
-    c.sodtype +
-    ",0)=12 THEN 'supplier_payments' " +
-    "WHEN ISNULL(" +
-    c.sodtype +
-    ",0)=14 THEN 'financial_accounts' " +
-    "ELSE 'unknown' END AS SUBCATEGORY," +
-    "CASE " +
-    "WHEN ISNULL(" +
-    c.sodtype +
-    ",0)=13 THEN 'customer' " +
-    "WHEN ISNULL(" +
-    c.sodtype +
-    ",0)=12 THEN 'supplier' " +
-    "WHEN ISNULL(" +
-    c.sodtype +
-    ",0)=14 THEN 'internal' " +
-    "ELSE 'internal' END AS COUNTERPARTY_TYPE," +
+    "CASE WHEN ISNULL(F.TFPRMS,0)=101 AND ISNULL(" + c.sumAmount + ",0) < 0 THEN '102' WHEN ISNULL(F.TFPRMS,0) IN (2,102,181) THEN '102' WHEN ISNULL(F.TFPRMS,0)=101 THEN '101' WHEN ISNULL(" + c.sumAmount + ",0) < 0 THEN '102' ELSE '101' END AS TRANSACTION_TYPE," +
+    cashSubcategoryExpr + " AS SUBCATEGORY," +
+    counterpartyTypeExpr + " AS COUNTERPARTY_TYPE," +
     "CAST(ISNULL(" +
     c.sosource +
     ",0) AS INT) AS SOURCE_MODULE_ID," +
@@ -2017,14 +2050,58 @@ function _bv_cash_sql(cfg) {
     " AND T.COMPANY=F.COMPANY " +
     accountJoinSql +
     branchInfo.joinSql +
-    whereSql +
-    " ORDER BY " +
-    c.trnDate +
-    " ASC, " +
-    c.findoc +
-    " ASC";
+    whereSql;
 
-  return sql;
+  if (!hasTrdflines) {
+    return headerSql + " ORDER BY " + c.trnDate + " ASC, " + c.findoc + " ASC";
+  }
+
+  var tlLineNo = _bv_col_expr("TL", "TRDFLINES", ["LINENUM", "TRDFLINES"], "0");
+  var tlValue = _bv_col_expr("TL", "TRDFLINES", ["LINEVAL", "AMOUNT", "TRNVAL", "VAL"], "0");
+  var lineWhereSql = " WHERE F.COMPANY=" + cfg.company + " AND F.SOSOURCE IN (1261,1281,1381,1412,1413,1416)";
+  if (cfg.fromDate !== "") lineWhereSql += " AND " + c.trnDate + " >= " + _bv_sql_quote(cfg.fromDate);
+  if (cfg.toDate !== "") lineWhereSql += " AND " + c.trnDate + " < DATEADD(day,1," + _bv_sql_quote(cfg.toDate) + ")";
+  var headerWithoutLinesWhereSql =
+    whereSql +
+    " AND (F.SOSOURCE NOT IN (1261,1281,1381,1412,1413,1416) OR NOT EXISTS (SELECT 1 FROM TRDFLINES TL WHERE TL.FINDOC=" +
+    c.findoc +
+    " AND TL.COMPANY=F.COMPANY))";
+
+  var lineSql =
+    "SELECT " +
+    _bv_top_clause(cfg.limit) +
+    "CAST(" + c.findoc + " AS VARCHAR(40)) + '-' + CAST(ISNULL(" + tlLineNo + ",0) AS VARCHAR(40)) AS EVENT_ID," +
+    "CAST(" + c.findoc + " AS VARCHAR(40)) AS DOCUMENT_ID," +
+    "CAST(" + c.finCode + " AS VARCHAR(128)) AS TRANSACTION_ID," +
+    "CAST(" + c.finCode + " AS VARCHAR(128)) AS REFERENCE_NO," +
+    "CONVERT(VARCHAR(10), " + c.trnDate + ", 23) AS DOC_DATE," +
+    "CONVERT(VARCHAR(19), ISNULL(" + c.updDate + ", " + c.trnDate + "), 126) AS UPDATED_AT," +
+    "CAST(ISNULL(" + c.branch + ",0) AS VARCHAR(64)) AS BRANCH_EXT_ID," +
+    branchInfo.branchNameExpr + " AS BRANCH_NAME," +
+    "CAST(ISNULL(" + c.company + ",0) AS VARCHAR(64)) AS COMPANY_ID," +
+    "CAST(NULL AS VARCHAR(128)) AS ACCOUNT_ID," +
+    "CAST(ISNULL(T.CODE, " + c.trdr + ") AS VARCHAR(128)) AS COUNTERPARTY_ID," +
+    "CAST(ISNULL(T.NAME, '') AS VARCHAR(255)) AS COUNTERPARTY_NAME," +
+    "CAST(ABS(ISNULL(" + tlValue + ",0)) AS FLOAT) AS AMOUNT_ABS," +
+    "CAST(ISNULL(" + tlValue + ",0) AS FLOAT) AS AMOUNT_RAW," +
+    "CAST(ISNULL(" + c.comments + ",'') AS VARCHAR(1024)) AS NOTES," +
+    "CASE WHEN ISNULL(F.TFPRMS,0)=101 AND ISNULL(" + tlValue + ",0) < 0 THEN '102' WHEN ISNULL(F.TFPRMS,0) IN (2,102,181) THEN '102' WHEN ISNULL(F.TFPRMS,0)=101 THEN '101' WHEN ISNULL(" + tlValue + ",0) < 0 THEN '102' ELSE '101' END AS TRANSACTION_TYPE," +
+    cashSubcategoryExpr + " AS SUBCATEGORY," +
+    counterpartyTypeExpr + " AS COUNTERPARTY_TYPE," +
+    "CAST(ISNULL(" + c.sosource + ",0) AS INT) AS SOURCE_MODULE_ID," +
+    "CAST(ISNULL(" + c.soredir + ",0) AS INT) AS REDIRECT_MODULE_ID," +
+    "CAST(ISNULL(" + c.sodtype + ",0) AS INT) AS SOURCE_ENTITY_ID," +
+    "CAST(ISNULL(F.TFPRMS,0) AS INT) AS SOURCE_TRANSACTION_TYPE_ID," +
+    "CAST(ISNULL(" + c.sosource + ",0) + ISNULL(" + c.soredir + ",0) AS INT) AS OBJECT_ID " +
+    "FROM FINDOC F " +
+    "INNER JOIN TRDFLINES TL ON TL.FINDOC=" + c.findoc + " AND TL.COMPANY=F.COMPANY " +
+    "LEFT JOIN TRDR T ON T.TRDR=" + c.trdr + " AND T.COMPANY=F.COMPANY " +
+    branchInfo.joinSql +
+    lineWhereSql;
+
+  headerSql = headerSql.split(whereSql).join(headerWithoutLinesWhereSql);
+
+  return "SELECT * FROM (" + lineSql + " UNION ALL " + headerSql + ") C ORDER BY DOC_DATE ASC, DOCUMENT_ID ASC, EVENT_ID ASC";
 }
 
 function _bv_supplier_balances_sql(cfg) {
@@ -2444,6 +2521,8 @@ function _bv_sales_record(ds) {
     group_name: _bv_text(_bv_field(ds, "GROUP_NAME", ""), ""),
     manual_order_category: _bv_text(_bv_field(ds, "MANUAL_ORDER_CATEGORY", ""), ""),
     commercial_status: _bv_text(_bv_field(ds, "COMMERCIAL_STATUS", ""), ""),
+    discount_pct: _bv_num(_bv_field(ds, "DISCOUNT_PCT", 0), 0),
+    discount_amount: _bv_num(_bv_field(ds, "DISCOUNT_AMOUNT", 0), 0),
     channel_ext_id: _bv_text(_bv_field(ds, "CHANNEL_EXT_ID", ""), ""),
     channel_name: _bv_text(_bv_field(ds, "CHANNEL_NAME", ""), ""),
     eshop_code: _bv_text(_bv_field(ds, "ESHOP_CODE", ""), ""),
@@ -2541,6 +2620,14 @@ function _bv_purchase_record(ds) {
     vat_amount: _bv_num(_bv_field(ds, "VAT_AMOUNT", 0), 0),
     no_discount_amount: _bv_num(_bv_field(ds, "NO_DISCOUNT_AMOUNT", _bv_field(ds, "NODSCAMNT", 0)), 0),
     nodscamnt: _bv_num(_bv_field(ds, "NODSCAMNT", _bv_field(ds, "NO_DISCOUNT_AMOUNT", 0)), 0),
+    discount_amount: _bv_num(_bv_field(ds, "DISCOUNT_AMOUNT", 0), 0),
+    discount_pct: _bv_num(_bv_field(ds, "DISCOUNT_PCT", null), null),
+    discount1_pct: _bv_num(_bv_field(ds, "DISCOUNT1_PCT", null), null),
+    discount2_pct: _bv_num(_bv_field(ds, "DISCOUNT2_PCT", null), null),
+    discount3_pct: _bv_num(_bv_field(ds, "DISCOUNT3_PCT", null), null),
+    discount1_amount: _bv_num(_bv_field(ds, "DISCOUNT1_AMOUNT", null), null),
+    discount2_amount: _bv_num(_bv_field(ds, "DISCOUNT2_AMOUNT", null), null),
+    discount3_amount: _bv_num(_bv_field(ds, "DISCOUNT3_AMOUNT", null), null),
     cost_amount: _bv_num(_bv_field(ds, "COST_AMOUNT", 0), 0)
   };
   return _bv_attach_org_fields(_bv_attach_common_doc_fields(rec, ds), ds);
@@ -2636,6 +2723,11 @@ function _bv_inventory_record(ds) {
 function _bv_item_master_record(ds) {
   return {
     item_code: _bv_text(_bv_field(ds, "ITEM_CODE", ""), ""),
+    item_external_id: _bv_text(_bv_field(ds, "ITEM_EXTERNAL_ID", ""), ""),
+    external_id: _bv_text(_bv_field(ds, "EXTERNAL_ID", ""), ""),
+    event_id: _bv_text(_bv_field(ds, "EVENT_ID", ""), ""),
+    doc_date: _bv_text(_bv_field(ds, "DOC_DATE", ""), ""),
+    updated_at: _bv_text(_bv_field(ds, "UPDATED_AT", ""), ""),
     item_name: _bv_text(_bv_field(ds, "ITEM_NAME", ""), ""),
     barcode: _bv_text(_bv_field(ds, "BARCODE", ""), ""),
     alternate_barcodes: _bv_text(_bv_field(ds, "ALTERNATE_BARCODES", ""), ""),
@@ -2644,10 +2736,13 @@ function _bv_item_master_record(ds) {
     brand_name: _bv_text(_bv_field(ds, "BRAND_NAME", ""), ""),
     manufacturer_code: _bv_text(_bv_field(ds, "MANUFACTURER_CODE", ""), ""),
     manufacturer_name: _bv_text(_bv_field(ds, "MANUFACTURER_NAME", ""), ""),
+    vat_rate: _bv_num(_bv_field(ds, "VAT_RATE", null), null),
+    vat_label: _bv_text(_bv_field(ds, "VAT_LABEL", ""), ""),
     category_1: _bv_text(_bv_field(ds, "CATEGORY_1", ""), ""),
     category_2: _bv_text(_bv_field(ds, "CATEGORY_2", ""), ""),
     category_3: _bv_text(_bv_field(ds, "CATEGORY_3", ""), ""),
     group_ext_id: _bv_text(_bv_field(ds, "GROUP_EXT_ID", ""), ""),
+    group_external_id: _bv_text(_bv_field(ds, "GROUP_EXTERNAL_ID", ""), ""),
     group_name: _bv_text(_bv_field(ds, "GROUP_NAME", ""), ""),
     commercial_category: _bv_text(_bv_field(ds, "COMMERCIAL_CATEGORY", ""), ""),
     manual_order_category: _bv_text(_bv_field(ds, "MANUAL_ORDER_CATEGORY", ""), ""),
@@ -2658,7 +2753,9 @@ function _bv_item_master_record(ds) {
     replenishment_moq: _bv_num(_bv_field(ds, "REPLENISHMENT_MOQ", null), null),
     vendor_moq: _bv_num(_bv_field(ds, "VENDOR_MOQ", null), null),
     current_purchase_price: _bv_num(_bv_field(ds, "CURRENT_PURCHASE_PRICE", null), null),
-    is_active: _bv_bool(_bv_field(ds, "IS_ACTIVE_SOURCE", 1), true)
+    is_active: _bv_bool(_bv_field(ds, "IS_ACTIVE_SOURCE", 1), true),
+    is_active_source: _bv_bool(_bv_field(ds, "IS_ACTIVE_SOURCE", 1), true),
+    company_id: _bv_text(_bv_field(ds, "COMPANY_ID", ""), "")
   };
 }
 
@@ -2953,6 +3050,10 @@ function GetAllForBI(obj) {
       out.streams.inventory_documents = GetInventoryDocumentsForBI(obj || {});
       if (!out.streams.inventory_documents.success) out.success = false;
     }
+    if (cfg.includeItemMaster) {
+      out.streams.item_master = GetItemMasterForBI(obj || {});
+      if (!out.streams.item_master.success) out.success = false;
+    }
     if (cfg.includeCashTransactions) {
       out.streams.cash_transactions = GetCashTransactionsForBI(obj || {});
       if (!out.streams.cash_transactions.success) out.success = false;
@@ -2978,6 +3079,7 @@ function GetAllForBI(obj) {
       !cfg.includeSales &&
       !cfg.includePurchases &&
       !cfg.includeInventory &&
+      !cfg.includeItemMaster &&
       !cfg.includeCashTransactions &&
       !cfg.includeSupplierBalances &&
       !cfg.includeCustomerBalances &&
@@ -3015,6 +3117,12 @@ function BuildBoxVisioIngestPayload(obj) {
     payloads.inventory_documents = {
       stream_code: "inventory_documents",
       records: base.streams.inventory_documents.records
+    };
+  }
+  if (base.streams.item_master && base.streams.item_master.success) {
+    payloads.item_master = {
+      stream_code: "item_master",
+      records: base.streams.item_master.records
     };
   }
   if (base.streams.cash_transactions && base.streams.cash_transactions.success) {

@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 from celery import current_app, shared_task
 from redis import Redis
 from sqlalchemy import create_engine, select, text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.orm import Session
 
@@ -79,6 +80,109 @@ from app.services.kpi_cache import invalidate_tenant_cache
 
 logger = logging.getLogger(__name__)
 _TASK_LOOP: asyncio.AbstractEventLoop | None = None
+_INFRASTRUCTURE_TENANT_SLUGS = {'startdb', 'rddb'}
+_INFRASTRUCTURE_TENANT_SOURCES = {'system', 'template', 'infrastructure', 'internal'}
+_LIVE_DIMENSION_STREAM_MIN_INTERVAL_MINUTES = {
+    # Item master is full dimension data and the SQL connector intentionally
+    # reads it without paging/cursoring. Running it every live tick keeps busy
+    # tenants permanently "running" while business facts are already current.
+    'item_master': 240,
+}
+_SCHEDULER_CURSOR_TTL_SECONDS = 60 * 60 * 24 * 30
+
+
+def _scheduler_cursor_key(name: str) -> str:
+    return f'ingest:scheduler:{name}:cursor'
+
+
+def _tenant_ingest_queue_depth(redis: Redis, tenant_slug: str) -> int:
+    return int(redis.llen(tenant_queue_name(tenant_slug)) + redis.llen(tenant_live_queue_name(tenant_slug)))
+
+
+def _auto_sync_queue_limit() -> int:
+    return max(1, int(getattr(settings, 'auto_sync_max_queue_depth_per_tenant', 100) or 100))
+
+
+def _scheduler_tenant_candidates(
+    redis: Redis,
+    tenants: list[Tenant],
+    *,
+    cursor_name: str,
+    cap: int,
+) -> tuple[list[Tenant], int | None]:
+    if not tenants:
+        return [], None
+    ordered = sorted(tenants, key=lambda item: int(getattr(item, 'id', 0) or 0))
+    if not bool(getattr(settings, 'incremental_sync_scheduler_round_robin_enabled', True)):
+        return ordered[:cap], int(getattr(ordered[min(len(ordered), cap) - 1], 'id', 0) or 0)
+
+    cursor_key = _scheduler_cursor_key(cursor_name)
+    try:
+        last_id = int(str(redis.get(cursor_key) or '0'))
+    except Exception:
+        last_id = 0
+    start_idx = 0
+    if last_id > 0:
+        for idx, tenant in enumerate(ordered):
+            if int(getattr(tenant, 'id', 0) or 0) > last_id:
+                start_idx = idx
+                break
+        else:
+            start_idx = 0
+
+    multiplier = max(1, int(getattr(settings, 'incremental_sync_scheduler_candidate_multiplier', 3) or 3))
+    candidate_count = min(len(ordered), max(cap, cap * multiplier))
+    candidates = (ordered[start_idx:] + ordered[:start_idx])[:candidate_count]
+    next_cursor = int(getattr(candidates[-1], 'id', 0) or 0) if candidates else last_id
+    if next_cursor:
+        redis.set(cursor_key, str(next_cursor), ex=_SCHEDULER_CURSOR_TTL_SECONDS)
+    return candidates, next_cursor
+
+
+def _configured_stream_set(raw: object, default: str = '') -> set[str]:
+    source = str(raw or default or '').strip()
+    streams: set[str] = set()
+    for token in source.split(','):
+        normalized = normalize_stream_name(token)
+        if normalized:
+            streams.add(normalized)
+    return streams
+
+
+def _live_dimension_streams() -> set[str]:
+    return _configured_stream_set(
+        getattr(settings, 'auto_sync_live_dimension_streams_csv', ''),
+        default='item_master',
+    )
+
+
+def _schedule_tenant_drain(tenant_slug: str, *, max_jobs: int | None = None) -> None:
+    if max_jobs is None:
+        drain_tenant_ingest_queue.delay(tenant_slug=tenant_slug)
+        return
+    drain_tenant_ingest_queue.apply_async(
+        kwargs={'tenant_slug': tenant_slug, 'max_jobs': max(1, int(max_jobs))},
+        queue='ingest',
+    )
+
+
+def _is_background_operational_tenant(tenant: Tenant) -> bool:
+    """Return True only for real customer tenants that scheduled jobs may touch."""
+    slug = str(getattr(tenant, 'slug', '') or '').strip().lower()
+    source = str(getattr(tenant, 'source', '') or '').strip().lower()
+    db_name = str(getattr(tenant, 'db_name', '') or '').strip()
+
+    if not slug or slug in _INFRASTRUCTURE_TENANT_SLUGS:
+        return False
+    if source in _INFRASTRUCTURE_TENANT_SOURCES:
+        return False
+    if tenant.status != TenantStatus.active:
+        return False
+    if tenant.subscription_status not in {SubscriptionStatus.active, SubscriptionStatus.trial, SubscriptionStatus.past_due}:
+        return False
+    if db_name and not db_name.startswith('bi_tenant_'):
+        return False
+    return True
 
 
 def _run_coro(coro):
@@ -502,13 +606,6 @@ def auto_recover_stuck_ingest() -> dict:
         heartbeat_age_seconds = _age_seconds(now, updated_at)
 
         active = list(active_drain_tasks.get(tenant_slug, []))
-        # Pool drains are scheduled with tenant_slug="__pool__" and choose the
-        # concrete tenant inside the task. Celery inspect still reports the
-        # original "__pool__" kwargs, so recovery must treat an active pool
-        # drain as a possible active drain for the tenant owning the lock.
-        # Otherwise auto-recover can clear a healthy tenant lock and start a
-        # second drain for the same tenant, causing concurrent upserts/deadlocks.
-        active.extend(active_drain_tasks.get('__pool__', []))
         active_ages = [int(t.get('age_seconds')) for t in active if isinstance(t.get('age_seconds'), int)]
         max_active_age_seconds = max(active_ages) if active_ages else None
         processed_jobs = int(raw.get('processed_jobs') or 0)
@@ -541,6 +638,17 @@ def auto_recover_stuck_ingest() -> dict:
         # executing in run_in_executor (a thread) and will eventually be cancelled by
         # asyncio.wait_for or by pyodbc conn.timeout. Treat it as alive up to force_after_seconds.
         heartbeat_fresh = heartbeat_age_seconds < stale_after_seconds
+
+        # Pool drains are scheduled with tenant_slug="__pool__" and choose the
+        # concrete tenant inside the task. Celery inspect still reports the
+        # original "__pool__" kwargs, so it cannot be assigned blindly to every
+        # tenant with a progress row. Treat an active pool drain as protecting
+        # this tenant only when this tenant is genuinely fresh/running.
+        pool_active = list(active_drain_tasks.get('__pool__', []))
+        if pool_active and has_lock and status == 'running' and heartbeat_fresh:
+            active.extend(pool_active)
+            active_ages = [int(t.get('age_seconds')) for t in active if isinstance(t.get('age_seconds'), int)]
+            max_active_age_seconds = max(active_ages) if active_ages else None
 
         # Fast-recover: job was picked up but the event loop appears stuck (heartbeat stale).
         # If the heartbeat is fresh, the loop is alive — the SQL runs in a thread and may
@@ -686,12 +794,36 @@ def auto_recover_stuck_ingest() -> dict:
     # sync forever. Recover those orphan locks directly from the lock keys.
     if len(recovered) < max_recoveries:
         for lock_key in [str(k) for k in redis.scan_iter(match='lock:ingest:*', count=500)]:
-            tenant_slug = lock_key.rsplit(':', 1)[-1].strip()
+            lock_suffix = lock_key.removeprefix('lock:ingest:').strip()
+            if ':' in lock_suffix:
+                skipped.append(
+                    {
+                        'tenant': lock_suffix,
+                        'reason': 'auxiliary_lock',
+                    }
+                )
+                continue
+            tenant_slug = lock_suffix
             if not tenant_slug or bool(redis.get(tenant_delete_active_key(tenant_slug))):
                 continue
-            if tenant_slug in active_drain_tasks or active_drain_tasks.get('__pool__'):
+            if tenant_slug in active_drain_tasks:
                 continue
             queue_left = int(redis.llen(tenant_queue_name(tenant_slug)))
+            progress_raw = redis.hgetall(f'ingest:progress:{tenant_slug}')
+            progress_updated_at = _parse_iso_datetime(progress_raw.get('updated_at'))
+            progress_heartbeat_age = _age_seconds(now, progress_updated_at, default=stale_after_seconds + 1)
+            progress_status = str(progress_raw.get('status') or '').strip().lower()
+            if active_drain_tasks.get('__pool__') and progress_status == 'running' and progress_heartbeat_age < stale_after_seconds:
+                continue
+            if progress_heartbeat_age < stale_after_seconds:
+                skipped.append(
+                    {
+                        'tenant': tenant_slug,
+                        'reason': 'orphan_lock_recent_progress',
+                        'heartbeat_age_seconds': progress_heartbeat_age,
+                    }
+                )
+                continue
             if queue_left <= 0:
                 cleared_lock = int(redis.delete(lock_key))
                 if cleared_lock:
@@ -761,12 +893,16 @@ def audit_sync_completeness() -> dict:
     try:
         with Session(control_engine) as control_session:
             tenants = control_session.execute(
-                select(Tenant).where(Tenant.status != TenantStatus.terminated)
+                select(Tenant).where(Tenant.status == TenantStatus.active)
             ).scalars().all()
     finally:
         control_engine.dispose()
 
+    skipped: list[dict[str, object]] = []
     for tenant in tenants:
+        if not _is_background_operational_tenant(tenant):
+            skipped.append({'tenant': tenant.slug, 'reason': 'infrastructure_or_inactive'})
+            continue
         tenant_engine = create_engine(
             settings.tenant_database_url_template_sync.format(
                 user=tenant.db_user,
@@ -777,6 +913,16 @@ def audit_sync_completeness() -> dict:
         )
         try:
             audit = collect_tenant_sync_completeness(tenant_engine)
+        except SQLAlchemyError as exc:
+            warnings.append(
+                {
+                    'tenant': tenant.slug,
+                    'issue': 'tenant_audit_unavailable',
+                    'error': str(exc)[:300],
+                }
+            )
+            logger.warning('sync_completeness_tenant_unavailable tenant=%s error=%s', tenant.slug, str(exc)[:300])
+            continue
         finally:
             tenant_engine.dispose()
 
@@ -814,7 +960,7 @@ def audit_sync_completeness() -> dict:
 
     if warnings:
         logger.warning('sync_completeness_warnings=%s', json.dumps(warnings, ensure_ascii=False))
-    return {'status': 'ok', 'checked': checked, 'warnings': warnings}
+    return {'status': 'ok', 'checked': checked, 'skipped': skipped, 'warnings': warnings}
 
 
 def _build_tenant_sync_engine(tenant: Tenant):
@@ -1242,6 +1388,7 @@ async def _enqueue_incremental_sync(
     *,
     stream_payloads: dict[str, dict[str, Any]] | None = None,
     stream_intervals: dict[str, int] | None = None,
+    drain_max_jobs: int | None = None,
 ) -> dict:
     redis = Redis.from_url(settings.redis_url, decode_responses=True)
     if bool(redis.get(tenant_delete_active_key(tenant_slug))):
@@ -1331,7 +1478,7 @@ async def _enqueue_incremental_sync(
                 for job in queued_jobs:
                     enqueue_tenant_job(tenant_slug, job)
                 if not lock_active:
-                    drain_tenant_ingest_queue.delay(tenant_slug=tenant_slug)
+                    _schedule_tenant_drain(tenant_slug, max_jobs=drain_max_jobs)
                 return {
                     'status': 'queued_priority',
                     'tenant': tenant_slug,
@@ -1348,7 +1495,7 @@ async def _enqueue_incremental_sync(
             }
         if lock_active and progress_status in {'completed', 'failed', 'stopped', 'idle'}:
             redis.delete(f'lock:ingest:{tenant_slug}', f'throttle:ingest:{tenant_slug}')
-            drain_tenant_ingest_queue.delay(tenant_slug=tenant_slug)
+            _schedule_tenant_drain(tenant_slug, max_jobs=drain_max_jobs)
             begin_ingest_progress(
                 tenant_slug=tenant_slug,
                 operation='incremental_sync_recovery',
@@ -1373,7 +1520,7 @@ async def _enqueue_incremental_sync(
                     start_queue_depth=queue_depth,
                     target_queue_depth=0,
                 )
-            drain_tenant_ingest_queue.delay(tenant_slug=tenant_slug)
+            _schedule_tenant_drain(tenant_slug, max_jobs=drain_max_jobs)
             return {
                 'status': 'resumed',
                 'tenant': tenant_slug,
@@ -1443,7 +1590,7 @@ async def _enqueue_incremental_sync(
         start_queue_depth=int(redis.llen(tenant_queue_name(tenant_slug))),
         target_queue_depth=0,
     )
-    drain_tenant_ingest_queue.delay(tenant_slug=tenant_slug)
+    _schedule_tenant_drain(tenant_slug, max_jobs=drain_max_jobs)
     return {'status': 'queued', 'tenant': tenant_slug, 'jobs': queued}
 
 
@@ -1657,9 +1804,17 @@ async def _enqueue_incremental_sync_all_tenants(
     effective_limit = max(100, int(limit or settings.incremental_sync_limit or 500))
     cap = max(1, int(max_tenants or settings.incremental_sync_max_tenants_per_run or 100))
     global_interval_minutes = max(1, int(getattr(settings, 'incremental_sync_interval_minutes', 5) or 5))
+    live_drain_max_jobs = max(
+        1,
+        int(getattr(settings, 'auto_sync_live_max_jobs_per_tenant', 4) or 4),
+    )
+    redis = Redis.from_url(settings.redis_url, decode_responses=True)
+    queue_limit = _auto_sync_queue_limit()
     queued = 0
     skipped = 0
     tenants_checked = 0
+    scheduler_cursor: int | None = None
+    candidates_seen = 0
     now = datetime.utcnow()
 
     async with ControlSessionLocal() as control_db:
@@ -1670,13 +1825,23 @@ async def _enqueue_incremental_sync_all_tenants(
                     Tenant.subscription_status.in_(
                         [SubscriptionStatus.active, SubscriptionStatus.trial, SubscriptionStatus.past_due]
                     ),
-                )
+                ).order_by(Tenant.id.asc())
             )
         ).scalars().all()
+        tenant_candidates, scheduler_cursor = _scheduler_tenant_candidates(
+            redis,
+            list(tenants),
+            cursor_name='incremental',
+            cap=cap,
+        )
 
-        for tenant in tenants:
+        for tenant in tenant_candidates:
+            candidates_seen += 1
             if tenants_checked >= cap:
                 break
+            if not _is_background_operational_tenant(tenant):
+                skipped += 1
+                continue
             tenants_checked += 1
 
             tenant_auto_sync = _tenant_auto_sync_settings(tenant)
@@ -1689,15 +1854,18 @@ async def _enqueue_incremental_sync_all_tenants(
             if get_ingest_circuit_reason(tenant.slug):
                 skipped += 1
                 continue
+            if _tenant_ingest_queue_depth(redis, tenant.slug) >= queue_limit:
+                skipped += 1
+                continue
 
-            # Queue only for tenants with at least one active connector.
+            # Queue only for tenants with at least one active connector. The planner
+            # below decides which connector types can serve operational streams.
             active_conn = (
                 await control_db.execute(
                     select(TenantConnection).where(
                         TenantConnection.tenant_id == tenant.id,
                         TenantConnection.is_active.is_(True),
-                        TenantConnection.connector_type.in_(list(SQL_CONNECTOR_ALIASES)),
-                    ).limit(1)
+                    ).order_by(TenantConnection.id.asc()).limit(1)
                 )
             ).scalar_one_or_none()
             if not active_conn:
@@ -1712,6 +1880,18 @@ async def _enqueue_incremental_sync_all_tenants(
             profile = str(tenant_auto_sync.get('profile') or params.get('auto_sync_profile') or 'live').strip().lower()
             if profile not in {'live', 'daily', 'previous_day', 'weekly', 'monthly', 'custom'}:
                 profile = 'live'
+            live_dimension_streams = _live_dimension_streams()
+            live_dimensions_enabled = bool(getattr(settings, 'auto_sync_live_dimension_streams_enabled', False))
+            live_dimensions_enabled = live_dimensions_enabled or _param_bool_enabled(
+                tenant_auto_sync,
+                'include_live_dimensions',
+                False,
+            )
+            live_dimensions_enabled = live_dimensions_enabled or _param_bool_enabled(
+                params,
+                'auto_sync_live_dimension_streams_enabled',
+                False,
+            )
 
             stream_payloads: dict[str, dict[str, Any]] = {}
             stream_intervals: dict[str, int] = {}
@@ -1723,6 +1903,8 @@ async def _enqueue_incremental_sync_all_tenants(
             for stream in ALL_OPERATIONAL_STREAMS:
                 stream_cfg = _auto_sync_stream_settings(tenant_auto_sync, stream, global_interval_minutes)
                 if not bool(stream_cfg.get('enabled', True)):
+                    continue
+                if profile == 'live' and stream in live_dimension_streams and not live_dimensions_enabled:
                     continue
                 # Balance snapshots can scan a large part of the SoftOne ledger.
                 # Keep them out of the high-frequency/live cycle unless a tenant
@@ -1737,7 +1919,29 @@ async def _enqueue_incremental_sync_all_tenants(
                 if profile == 'live' and stream in heavy_streams:
                     interval_minutes = max(interval_minutes, heavy_min_interval)
                     stream_cfg['interval_minutes'] = interval_minutes
+                if profile == 'live' and stream in _LIVE_DIMENSION_STREAM_MIN_INTERVAL_MINUTES:
+                    interval_minutes = max(interval_minutes, _LIVE_DIMENSION_STREAM_MIN_INTERVAL_MINUTES[stream])
+                    stream_cfg['interval_minutes'] = interval_minutes
                 stream_payloads[stream] = _auto_sync_payload_for_profile(profile, stream_cfg, effective_limit)
+                active_source_type = str(getattr(active_conn, 'source_type', '') or '').strip().lower()
+                active_connector_type = str(getattr(active_conn, 'connector_type', '') or '').strip().lower()
+                if (
+                    profile == 'live'
+                    and (active_source_type == 'api' or active_connector_type == 'external_api')
+                    and stream in {'sales_documents', 'purchase_documents', 'inventory_documents'}
+                ):
+                    days = max(1, int(stream_cfg.get('recovery_days') or 1))
+                    to_date = date.today()
+                    from_date = to_date - timedelta(days=days - 1)
+                    stream_payloads[stream].update(
+                        {
+                            'from_date': from_date.isoformat(),
+                            'to_date': to_date.isoformat(),
+                            'ignore_sync_state': True,
+                            'ensure_complete': True,
+                            'bulk_upsert': True,
+                        }
+                    )
                 if profile == 'live' and stream in heavy_streams:
                     stream_payloads[stream]['safe_heavy_stream'] = True
                     stream_payloads[stream]['limit'] = min(int(stream_payloads[stream]['limit']), 250)
@@ -1754,8 +1958,9 @@ async def _enqueue_incremental_sync_all_tenants(
                 limit=effective_limit,
                 stream_payloads=stream_payloads,
                 stream_intervals=stream_intervals,
+                drain_max_jobs=live_drain_max_jobs if profile == 'live' else None,
             )
-            if str(result.get('status')) in {'queued', 'resumed'}:
+            if str(result.get('status')) in {'queued', 'queued_priority', 'resumed'}:
                 queued += 1
             else:
                 skipped += 1
@@ -1764,6 +1969,9 @@ async def _enqueue_incremental_sync_all_tenants(
         'status': 'ok',
         'limit': effective_limit,
         'max_tenants': cap,
+        'scheduler_cursor': scheduler_cursor,
+        'candidates_seen': candidates_seen,
+        'queue_limit': queue_limit,
         'tenants_checked': tenants_checked,
         'queued': queued,
         'skipped': skipped,
@@ -1800,10 +2008,13 @@ async def _enqueue_daily_recovery_sync_all_tenants(
     to_date = date.today()
     from_date = to_date - timedelta(days=recovery_days - 1)
     redis = Redis.from_url(settings.redis_url, decode_responses=True)
+    queue_limit = _auto_sync_queue_limit()
     tenants_checked = 0
     tenants_queued = 0
     jobs_queued = 0
     skipped = 0
+    scheduler_cursor: int | None = None
+    candidates_seen = 0
 
     async with ControlSessionLocal() as control_db:
         tenants = (
@@ -1813,13 +2024,23 @@ async def _enqueue_daily_recovery_sync_all_tenants(
                     Tenant.subscription_status.in_(
                         [SubscriptionStatus.active, SubscriptionStatus.trial, SubscriptionStatus.past_due]
                     ),
-                )
+                ).order_by(Tenant.id.asc())
             )
         ).scalars().all()
+        tenant_candidates, scheduler_cursor = _scheduler_tenant_candidates(
+            redis,
+            list(tenants),
+            cursor_name='daily_recovery',
+            cap=cap,
+        )
 
-        for tenant in tenants:
+        for tenant in tenant_candidates:
+            candidates_seen += 1
             if tenants_checked >= cap:
                 break
+            if not _is_background_operational_tenant(tenant):
+                skipped += 1
+                continue
             tenants_checked += 1
 
             tenant_auto_sync = _tenant_auto_sync_settings(tenant)
@@ -1829,7 +2050,10 @@ async def _enqueue_daily_recovery_sync_all_tenants(
             if get_ingest_circuit_reason(tenant.slug):
                 skipped += 1
                 continue
-            if int(redis.llen(tenant_queue_name(tenant.slug))) > 0 or bool(redis.get(f'lock:ingest:{tenant.slug}')):
+            if _tenant_ingest_queue_depth(redis, tenant.slug) > 0 or bool(redis.get(f'lock:ingest:{tenant.slug}')):
+                skipped += 1
+                continue
+            if _tenant_ingest_queue_depth(redis, tenant.slug) >= queue_limit:
                 skipped += 1
                 continue
 
@@ -1880,6 +2104,9 @@ async def _enqueue_daily_recovery_sync_all_tenants(
 
     return {
         'status': 'ok',
+        'scheduler_cursor': scheduler_cursor,
+        'candidates_seen': candidates_seen,
+        'queue_limit': queue_limit,
         'tenants_checked': tenants_checked,
         'tenants_queued': tenants_queued,
         'jobs_queued': jobs_queued,
@@ -2791,6 +3018,10 @@ async def _drain_tenant_ingest_queue(tenant_slug: str, max_jobs: int) -> dict:
                         int(getattr(settings, 'ingest_backfill_job_timeout_seconds', 7200) or 7200),
                     )
                     job_timeout_seconds = max(job_timeout_seconds, backfill_timeout)
+                elif stream == 'item_master':
+                    # Large catalogs can take longer than movement chunks,
+                    # especially while item dimensions are being enriched.
+                    job_timeout_seconds = max(job_timeout_seconds, 3600)
                 elif stream in {'sales_documents', 'purchase_documents', 'inventory_documents'}:
                     # Incremental line-level streams can still be heavy; avoid premature timeouts.
                     job_timeout_seconds = max(job_timeout_seconds, 900)
@@ -2929,7 +3160,12 @@ async def _drain_tenant_ingest_queue(tenant_slug: str, max_jobs: int) -> dict:
                 'next_drain_scheduled': False,
             }
         if remaining_jobs > 0 and not next_drain_scheduled:
-            if _try_schedule_pool_drain(redis, 1, max_jobs):
+            # Give the current tenant lock a moment to be released before the
+            # next pool drain picks a tenant. With a 1s countdown the follow-up
+            # task can start while the finishing drain still owns the lock and
+            # exit as empty/contended, leaving queued work idle until the next
+            # scheduler tick.
+            if _try_schedule_pool_drain(redis, 5, max_jobs):
                 next_drain_scheduled = True
         elif remaining_jobs == 0 and not processed_recovery_jobs and permanent_failures == 0:
             progress_snapshot = redis.hgetall(f'ingest:progress:{tenant_slug}')
@@ -2969,7 +3205,7 @@ async def _drain_tenant_ingest_queue(tenant_slug: str, max_jobs: int) -> dict:
                             from_date=recovery_meta.get('from_date'),
                             to_date=recovery_meta.get('to_date'),
                         )
-                        if _try_schedule_pool_drain(redis, 1, max_jobs):
+                        if _try_schedule_pool_drain(redis, 5, max_jobs):
                             next_drain_scheduled = True
         elif remaining_jobs == 0:
             remove_tenant_from_priority_pool(tenant_slug)
@@ -4616,6 +4852,8 @@ async def _enqueue_daily_reconciliation_checks(max_tenants: int | None = None) -
     checked = 0
     queued = 0
     skipped = 0
+    scheduler_cursor: int | None = None
+    candidates_seen = 0
 
     async with ControlSessionLocal() as control_db:
         tenants = (
@@ -4623,12 +4861,22 @@ async def _enqueue_daily_reconciliation_checks(max_tenants: int | None = None) -
                 select(Tenant).where(
                     Tenant.status == TenantStatus.active,
                     Tenant.subscription_status.in_([SubscriptionStatus.active, SubscriptionStatus.trial, SubscriptionStatus.past_due]),
-                )
+                ).order_by(Tenant.id.asc())
             )
         ).scalars().all()
-        for tenant in tenants:
+        tenant_candidates, scheduler_cursor = _scheduler_tenant_candidates(
+            redis,
+            list(tenants),
+            cursor_name='daily_reconciliation',
+            cap=cap,
+        )
+        for tenant in tenant_candidates:
+            candidates_seen += 1
             if checked >= cap:
                 break
+            if not _is_background_operational_tenant(tenant):
+                skipped += 1
+                continue
             checked += 1
             cfg = _tenant_reconciliation_settings(tenant)
             if not bool(cfg.get('enabled')):
@@ -4645,7 +4893,7 @@ async def _enqueue_daily_reconciliation_checks(max_tenants: int | None = None) -
             if redis.get(tenant_delete_active_key(tenant.slug)) or redis.get(tenant_stop_key(tenant.slug)):
                 skipped += 1
                 continue
-            if int(redis.llen(tenant_queue_name(tenant.slug))) > 0 or bool(redis.get(f'lock:ingest:{tenant.slug}')):
+            if _tenant_ingest_queue_depth(redis, tenant.slug) > 0 or bool(redis.get(f'lock:ingest:{tenant.slug}')):
                 skipped += 1
                 continue
             run_daily_reconciliation_for_tenant.delay(
@@ -4655,7 +4903,14 @@ async def _enqueue_daily_reconciliation_checks(max_tenants: int | None = None) -
             redis.set(last_key, local_date.isoformat(), ex=60 * 60 * 48)
             queued += 1
 
-    return {'status': 'ok', 'checked': checked, 'queued': queued, 'skipped': skipped}
+    return {
+        'status': 'ok',
+        'scheduler_cursor': scheduler_cursor,
+        'candidates_seen': candidates_seen,
+        'checked': checked,
+        'queued': queued,
+        'skipped': skipped,
+    }
 
 
 @shared_task(name='worker.tasks.run_daily_reconciliation_for_tenant', autoretry_for=(Exception,), retry_backoff=True, retry_kwargs={'max_retries': 2})
@@ -4828,6 +5083,8 @@ async def _generate_daily_insights_all_tenants(as_of_date_str: str | None = None
             )
         ).scalars().all()
         for tenant in tenants:
+            if not _is_background_operational_tenant(tenant):
+                continue
             if Redis.from_url(settings.redis_url, decode_responses=True).get(tenant_delete_active_key(tenant.slug)):
                 continue
             generate_insights_for_tenant.delay(tenant_slug=tenant.slug, as_of_date_str=as_of_date.isoformat())

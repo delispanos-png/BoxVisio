@@ -1,6 +1,98 @@
 {% extends "base_admin.html" %}
 {% block content %}
 <div class="bv-admin-page">
+<style>
+  .bv-wizard-shell {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 280px;
+    gap: 16px;
+  }
+  .bv-wizard-steps {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+  .bv-wizard-step {
+    border: 1px solid #d7e0ee;
+    background: #f8fafc;
+    color: #64748b;
+    border-radius: 8px;
+    padding: 10px 12px;
+    text-align: left;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .bv-wizard-step span {
+    width: 24px;
+    height: 24px;
+    border-radius: 999px;
+    background: #e8eefb;
+    color: #2f55d4;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+  }
+  .bv-wizard-step.is-active {
+    border-color: #2f55d4;
+    background: #eef3ff;
+    color: #1f2a44;
+  }
+  .bv-wizard-step.is-done span {
+    background: #15803d;
+    color: white;
+  }
+  .bv-wizard-pane { display: none; }
+  .bv-wizard-pane.is-active { display: block; }
+  .bv-wizard-actions {
+    border-top: 1px solid #e2e8f0;
+    margin-top: 16px;
+    padding-top: 16px;
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+  .bv-wizard-summary {
+    border: 1px solid #d7e0ee;
+    border-radius: 8px;
+    padding: 16px;
+    background: #f8fafc;
+    align-self: start;
+    position: sticky;
+    top: 90px;
+  }
+  .bv-wizard-summary h6 { font-weight: 800; margin-bottom: 12px; }
+  .bv-wizard-summary dl { margin: 0; }
+  .bv-wizard-summary dt {
+    color: #64748b;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .02em;
+    margin-top: 10px;
+  }
+  .bv-wizard-summary dd {
+    margin: 2px 0 0;
+    font-weight: 700;
+    color: #1f2a44;
+    overflow-wrap: anywhere;
+  }
+  .bv-wizard-duplicate {
+    display: none;
+    margin-top: 8px;
+    color: #b45309;
+    font-size: 12px;
+    font-weight: 700;
+  }
+  .bv-wizard-duplicate.is-visible { display: block; }
+  @media (max-width: 992px) {
+    .bv-wizard-shell { grid-template-columns: 1fr; }
+    .bv-wizard-steps { grid-template-columns: 1fr 1fr; }
+    .bv-wizard-summary { position: static; }
+  }
+</style>
 {% if request.query_params.get('updated') == '1' %}
 <div class="alert alert-success mt-3">Ο πελάτης ενημερώθηκε επιτυχώς.</div>
 {% elif request.query_params.get('updated') == '0' %}
@@ -21,6 +113,11 @@
 {% elif request.query_params.get('deleted') == '0' %}
 <div class="alert alert-danger mt-3">Αποτυχία διαγραφής πελάτη.</div>
 {% endif %}
+{% if request.query_params.get('credentials_sent') == '1' %}
+<div class="alert alert-success mt-3">Στάλθηκαν ξανά στοιχεία πρόσβασης στο {{ request.query_params.get('email') }}.</div>
+{% elif request.query_params.get('credentials_sent') == '0' %}
+<div class="alert alert-danger mt-3">Αποτυχία αποστολής στοιχείων πρόσβασης: {{ request.query_params.get('reason') or 'unknown' }}</div>
+{% endif %}
 {% if error %}
 <div class="alert alert-danger mt-3">{{ error }}</div>
 {% endif %}
@@ -30,9 +127,19 @@
   <div>{{ tt(request, 'tenant') }}: <code>{{ provisioning_result.slug }}</code> | {{ tt(request, 'plan') }}: <code>{{ provisioning_result.plan }}</code> | {{ tt(request, 'subscriptions') }}: <code>{{ provisioning_result.subscription_status }}</code></div>
   {% if provisioning_result.tenant_hostname %}<div>Subdomain: <code>{{ provisioning_result.tenant_hostname }}</code> ({{ provisioning_result.dns_status }})</div>{% endif %}
   {% if provisioning_result.email_status %}<div>Email πρόσκλησης: <code>{{ provisioning_result.email_status }}</code>{% if provisioning_result.invite_url %} | URL: <code>{{ provisioning_result.invite_url }}</code>{% endif %}</div>{% endif %}
-  <div>Invite token: <code>{{ provisioning_result.invite_token }}</code></div>
-  <div>API Key ID: <code>{{ provisioning_result.api_key_id }}</code></div>
-  <div>API Key Secret: <code>{{ provisioning_result.api_key_secret }}</code></div>
+  {% if provisioning_result.api_key_id %}<div>API Key ID: <code>{{ provisioning_result.api_key_id }}</code> | Secret: <code>stored securely</code></div>{% endif %}
+</div>
+{% elif provisioning_result and provisioning_result.status == 'exists' %}
+<div class="alert alert-warning mt-3">
+  <div class="fw-bold">Ο πελάτης υπάρχει ήδη.</div>
+  <div>
+    Το slug <code>{{ provisioning_result.slug }}</code> ανήκει ήδη στον πελάτη
+    <strong>{{ provisioning_result.tenant_name }}</strong>.
+    Δεν ξεκίνησε provisioning και δεν έγινε rollback.
+  </div>
+  <a class="btn btn-sm btn-outline-primary mt-2" href="/admin/tenants/{{ provisioning_result.tenant_id }}/edit?next=/admin/tenants">
+    Άνοιγμα υπάρχοντος πελάτη
+  </a>
 </div>
 {% elif provisioning_result and provisioning_result.status == 'error' and provisioning_result.steps %}
 <div class="alert alert-warning mt-3">
@@ -62,51 +169,146 @@
       <span class="bv-admin-chip"><i class="fe fe-layers"></i> provisioning flow</span>
   </div>
   <div class="bv-admin-panel-body">
-    <form id="tenantCreateForm" method="post" action="/admin/tenants/create" class="bv-admin-form-grid">
-      <div class="bv-admin-field"><label class="form-label">Πελάτης</label><input class="form-control" name="name" placeholder="{{ tt(request, 'tenant_name') }}" required></div>
-      <div class="bv-admin-field-sm"><label class="form-label">Slug</label><input class="form-control" name="slug" placeholder="tenant-slug" required></div>
-      <div class="bv-admin-field"><label class="form-label">Admin email</label><input class="form-control" name="admin_email" placeholder="admin@tenant.com" required></div>
-      <div class="bv-admin-field-sm">
-        <label class="form-label">{{ tt(request, 'plan') }}</label>
-        <select class="form-select" name="plan">
-          <option value="standard">Standard</option>
-          <option value="pro">Pro</option>
-          <option value="enterprise">Enterprise</option>
-        </select>
+    <form id="tenantCreateForm" method="post" action="/admin/tenants/create" class="bv-tenant-wizard">
+      <div class="bv-wizard-shell">
+        <div class="bv-wizard-main">
+          <div class="bv-wizard-steps" role="tablist" aria-label="Άνοιγμα νέου πελάτη">
+            <button type="button" class="bv-wizard-step is-active" data-step="0"><span>1</span>Στοιχεία πελάτη</button>
+            <button type="button" class="bv-wizard-step" data-step="1"><span>2</span>Πακέτο</button>
+            <button type="button" class="bv-wizard-step" data-step="2"><span>3</span>Σύνδεση</button>
+            <button type="button" class="bv-wizard-step" data-step="3"><span>4</span>Ολοκλήρωση</button>
+          </div>
+
+          <section class="bv-wizard-pane is-active" data-pane="0">
+            <div class="bv-admin-form-grid">
+              <div class="bv-admin-field"><label class="form-label">Επωνυμία πελάτη</label><input class="form-control" name="name" data-summary="tenantName" placeholder="{{ tt(request, 'tenant_name') }}" required></div>
+              <div class="bv-admin-field-sm">
+                <label class="form-label">Slug</label>
+                <input class="form-control" name="slug" data-summary="tenantSlug" placeholder="tenant-slug" pattern="[a-z0-9-]+" required>
+                <div class="form-text">Μόνο πεζά λατινικά, αριθμοί και παύλα.</div>
+                <div class="bv-wizard-duplicate" id="tenantSlugDuplicate"></div>
+              </div>
+              <div class="bv-admin-field"><label class="form-label">Tenant admin email</label><input class="form-control" type="email" name="admin_email" data-summary="adminEmail" placeholder="admin@tenant.com" required></div>
+              <div class="bv-admin-field-wide">
+                <label class="form-check mb-0 small">
+                  <input class="form-check-input" type="checkbox" name="create_subdomain" value="true">
+                  <span class="form-check-label">Δημιουργία subdomain στο Cloudflare</span>
+                </label>
+              </div>
+              <div class="bv-admin-field-full"><div class="bv-admin-note"><i class="fe fe-info"></i><span>Το wizard δημιουργεί tenant DB, migrations, admin user, subscription και API keys.</span></div></div>
+            </div>
+          </section>
+
+          <section class="bv-wizard-pane" data-pane="1">
+            <div class="bv-admin-form-grid">
+              <div class="bv-admin-field-sm">
+                <label class="form-label">{{ tt(request, 'plan') }}</label>
+                <select class="form-select" name="plan" data-summary="plan">
+                  <option value="standard">Standard</option>
+                  <option value="pro">Pro</option>
+                  <option value="enterprise">Enterprise</option>
+                  <option value="custom">Custom</option>
+                </select>
+              </div>
+              <div class="bv-admin-field-sm">
+                <label class="form-label">{{ tt(request, 'status') }}</label>
+                <select class="form-select" name="subscription_status" data-summary="subscription">
+                  <option value="trial">trial</option>
+                  <option value="active">active</option>
+                  <option value="past_due">past_due</option>
+                  <option value="suspended">suspended</option>
+                  <option value="canceled">canceled</option>
+                </select>
+              </div>
+              <div class="bv-admin-field-sm"><label class="form-label">{{ tt(request, 'trial_days') }}</label><input class="form-control" type="number" min="0" name="trial_days" value="14" placeholder="{{ tt(request, 'trial_days') }}"></div>
+              <div class="bv-admin-field-sm">
+                <label class="form-label">Ταυτόχρονες συνδέσεις</label>
+                <input class="form-control" type="number" min="1" max="9999" step="1" name="max_users" value="5" data-summary="maxUsers" title="Αγορασμένες ταυτόχρονες θέσεις χρήσης">
+                <div class="form-text">Πόσες άδειες/θέσεις χρήσης έχει ο πελάτης.</div>
+              </div>
+              <div class="bv-admin-field-wide">
+                <label class="form-check mb-0 small">
+                  <input class="form-check-input" type="checkbox" name="send_welcome_email" value="true" checked>
+                  <span class="form-check-label">Αποστολή welcome email με BI URL, username και προσωρινό κωδικό</span>
+                </label>
+              </div>
+              <div class="bv-admin-field-full"><div class="bv-admin-note"><i class="fe fe-credit-card"></i><span>Το πλάνο ορίζει dashboards και λειτουργίες. Το όριο συνδέσεων αποθηκεύεται στη συνδρομή του πελάτη. Για live πελάτη συνήθως επίλεξε active.</span></div></div>
+            </div>
+          </section>
+
+          <section class="bv-wizard-pane" data-pane="2">
+            <div class="bv-admin-form-grid">
+              <div class="bv-admin-field-sm">
+                <label class="form-label">{{ tt(request, 'source') }}</label>
+                <select class="form-select" name="source" data-summary="source">
+                  <option value="external">API</option>
+                  <option value="sql">SQL</option>
+                  <option value="files">Αρχεία</option>
+                </select>
+              </div>
+              <div class="bv-admin-field-sm">
+                <label class="form-label">Αρχική σύνδεση</label>
+                <select class="form-select" name="connection_type" id="wizardConnectionType" data-summary="connection">
+                  <option value="softone_api">SoftOne API</option>
+                  <option value="sql_server">SQL Server Direct</option>
+                  <option value="none">Θα ρυθμιστεί αργότερα</option>
+                </select>
+              </div>
+              <div class="bv-admin-field">
+                <label class="form-label">SoftOne Service URL</label>
+                <input class="form-control" name="softone_base_url" data-summary="baseUrl" placeholder="https://customer.oncloud.gr/s1services">
+                <div class="form-text">Το root URL του SoftOne service που δέχεται login/authenticate.</div>
+              </div>
+              <div class="bv-admin-field-sm">
+                <label class="form-label">JS package path</label>
+                <input class="form-control" name="softone_bridge_path" value="JS/myWS" placeholder="JS/myWS">
+                <div class="form-text">Θα γίνει endpoint: /s1services/JS/myWS/GetAllForBI.</div>
+              </div>
+              <div class="bv-admin-field-sm"><label class="form-label">Username</label><input class="form-control" name="softone_username" placeholder="CloudOnWS"></div>
+              <div class="bv-admin-field-sm"><label class="form-label">Password</label><input class="form-control" type="password" name="softone_password" autocomplete="new-password"></div>
+              <div class="bv-admin-field"><label class="form-label">SQL IP / Host</label><input class="form-control" name="sql_host" placeholder="159.69.130.78"></div>
+              <div class="bv-admin-field-sm"><label class="form-label">SQL Port</label><input class="form-control" type="number" name="sql_port" value="1433" min="1" max="65535"></div>
+              <div class="bv-admin-field-sm"><label class="form-label">SQL Database</label><input class="form-control" name="sql_database" placeholder="SoftOneDB"></div>
+              <div class="bv-admin-field-sm"><label class="form-label">SQL Username</label><input class="form-control" name="sql_username" placeholder="sqluser"></div>
+              <div class="bv-admin-field-sm"><label class="form-label">SQL Password</label><input class="form-control" type="password" name="sql_password" autocomplete="new-password"></div>
+              <div class="bv-admin-field"><label class="form-label">SQL Options</label><input class="form-control" name="sql_options" value="Encrypt=yes;TrustServerCertificate=yes"></div>
+              <div class="bv-admin-field-sm"><label class="form-label">App ID</label><input class="form-control" name="softone_app_id" placeholder="1004"></div>
+              <div class="bv-admin-field-sm"><label class="form-label">COMPANY</label><input class="form-control" name="softone_company" placeholder="1001"></div>
+              <div class="bv-admin-field-sm"><label class="form-label">BRANCH</label><input class="form-control" name="softone_branch" placeholder="1002"></div>
+              <div class="bv-admin-field-sm"><label class="form-label">MODULE</label><input class="form-control" name="softone_module" value="0"></div>
+              <div class="bv-admin-field-sm"><label class="form-label">REFID</label><input class="form-control" name="softone_refid" placeholder="1"></div>
+              <div class="bv-admin-field-full"><div class="bv-admin-note"><i class="fe fe-link"></i><span>Αν δεν έχεις ακόμα credentials, άφησε “Θα ρυθμιστεί αργότερα”. Ο tenant θα ανοίξει χωρίς ενεργή πηγή.</span></div></div>
+            </div>
+          </section>
+
+          <section class="bv-wizard-pane" data-pane="3">
+            <div class="bv-admin-note mb-3"><i class="fe fe-check-circle"></i><span>Έτοιμο για δημιουργία. Έλεγξε τη σύνοψη και πάτησε “Δημιουργία πελάτη”.</span></div>
+            <div class="bv-admin-form-grid">
+              <div class="bv-admin-field-full"><label class="form-label">Τι θα δημιουργηθεί</label><div class="bv-admin-note"><span>Tenant DB + migrations, tenant admin με προσωρινό BI κωδικό, subscription limits, API key, welcome email και προαιρετικά SoftOne API connection.</span></div></div>
+              <div class="bv-admin-field-sm bv-admin-field-actions"><button id="tenantCreateBtn" class="btn btn-primary w-100" type="submit"><i class="fe fe-plus-circle me-1"></i>{{ tt(request, 'create_tenant') }}</button></div>
+            </div>
+          </section>
+
+          <div class="bv-wizard-actions">
+            <button class="btn btn-outline-secondary" type="button" id="tenantWizardPrev">Πίσω</button>
+            <button class="btn btn-primary" type="button" id="tenantWizardNext">Επόμενο</button>
+          </div>
+        </div>
+        <aside class="bv-wizard-summary">
+          <h6>Σύνοψη</h6>
+          <dl>
+            <dt>Πελάτης</dt><dd id="tenantName">-</dd>
+            <dt>Slug</dt><dd id="tenantSlug">-</dd>
+            <dt>Admin</dt><dd id="adminEmail">-</dd>
+            <dt>Πακέτο</dt><dd id="plan">standard</dd>
+            <dt>Συνδέσεις</dt><dd id="maxUsers">5</dd>
+            <dt>Συνδρομή</dt><dd id="subscription">trial</dd>
+            <dt>Πηγή</dt><dd id="source">external</dd>
+            <dt>Σύνδεση</dt><dd id="connection">softone_api</dd>
+            <dt>Base URL</dt><dd id="baseUrl">-</dd>
+          </dl>
+        </aside>
       </div>
-      <div class="bv-admin-field-sm">
-        <label class="form-label">{{ tt(request, 'source') }}</label>
-        <select class="form-select" name="source">
-          <option value="sql">SQL</option>
-          <option value="external">API</option>
-          <option value="files">Αρχεία</option>
-        </select>
-      </div>
-      <div class="bv-admin-field-sm">
-        <label class="form-label">{{ tt(request, 'status') }}</label>
-        <select class="form-select" name="subscription_status">
-          <option value="trial">trial</option>
-          <option value="active">active</option>
-          <option value="past_due">past_due</option>
-          <option value="suspended">suspended</option>
-          <option value="canceled">canceled</option>
-        </select>
-      </div>
-      <div class="bv-admin-field-sm"><label class="form-label">{{ tt(request, 'trial_days') }}</label><input class="form-control" type="number" min="0" name="trial_days" value="14" placeholder="{{ tt(request, 'trial_days') }}"></div>
-      <div class="bv-admin-field-wide">
-        <label class="form-check mb-0 small">
-          <input class="form-check-input" type="checkbox" name="send_welcome_email" value="true" checked>
-          <span class="form-check-label">Αποστολή email πρόσκλησης</span>
-        </label>
-      </div>
-      <div class="bv-admin-field-wide">
-        <label class="form-check mb-0 small">
-          <input class="form-check-input" type="checkbox" name="create_subdomain" value="true">
-          <span class="form-check-label">Δημιουργία subdomain στο Cloudflare</span>
-        </label>
-      </div>
-      <div class="bv-admin-field-sm bv-admin-field-actions"><button id="tenantCreateBtn" class="btn btn-primary w-100" type="submit"><i class="fe fe-plus-circle me-1"></i>{{ tt(request, 'create_tenant') }}</button></div>
-      <div class="bv-admin-field-full"><div class="bv-admin-note"><i class="fe fe-info"></i><span>Βήματα: στοιχεία πελάτη -> πλάνο -> πηγή -> DB/migrations -> admin user -> API keys -> subdomain -> email πρόσκλησης.</span></div></div>
     </form>
   </div>
 </div>
@@ -181,7 +383,9 @@
               </span>
             </td>
             <td>
-              {% if t.source in ['sql', 'pharmacyone', 'pharmacyone_sql'] %}SQL{% elif t.source == 'external' %}API{% elif t.source == 'files' %}Αρχεία{% else %}{{ t.source }}{% endif %}
+              {% set tenant_flags = t.feature_flags if t.feature_flags is mapping else {} %}
+              {% set is_infra_tenant = tenant_flags.get('system_infrastructure') or t.source in ['system', 'template', 'infrastructure', 'internal'] or t.slug in ['startdb', 'rddb'] or (t.db_name and not t.db_name.startswith('bi_tenant_')) %}
+              {% if is_infra_tenant %}System{% elif t.source in ['sql', 'pharmacyone', 'pharmacyone_sql'] %}SQL{% elif t.source == 'external' %}API{% elif t.source == 'files' %}Αρχεία{% else %}{{ t.source }}{% endif %}
             </td>
             <td>{{ t.created_at }}</td>
             <td class="text-end">
@@ -189,10 +393,18 @@
                 <a class="btn btn-sm bv-action-btn bv-action-edit" href="/admin/tenants/{{ t.id }}/edit?next=/admin/tenants" title="Επεξεργασία" aria-label="Επεξεργασία {{ t.name }}">
                   <i class="fe fe-edit-2"></i>
                 </a>
-                <form method="post" action="/admin/tenants/{{ t.id }}/delete" onsubmit="return confirm('Οριστική διαγραφή πελάτη {{ t.name }}; Θα διαγραφούν οι χρήστες, οι συνδέσεις και η βάση δεδομένων του tenant. Δεν αναιρείται.');">
+                {% if not is_infra_tenant %}
+                <form method="post" action="/admin/tenants/{{ t.id }}/resend-welcome" onsubmit="return confirm('Να σταλούν νέα στοιχεία πρόσβασης στον tenant admin του {{ t.name }}; Θα δημιουργηθεί νέος προσωρινός κωδικός.');">
                   <input type="hidden" name="next_url" value="/admin/tenants">
-                  <button class="btn btn-sm bv-action-btn bv-action-delete" type="submit" title="Διαγραφή" aria-label="Διαγραφή {{ t.name }}"><i class="fe fe-trash-2"></i></button>
+                  <button class="btn btn-sm bv-action-btn" type="submit" title="Αποστολή πρόσβασης" aria-label="Αποστολή πρόσβασης {{ t.name }}"><i class="fe fe-mail"></i></button>
                 </form>
+                {% endif %}
+                {% if not is_infra_tenant %}
+                  <form method="post" action="/admin/tenants/{{ t.id }}/delete" onsubmit="return confirm('Οριστική διαγραφή πελάτη {{ t.name }}; Θα διαγραφούν οι χρήστες, οι συνδέσεις και η βάση δεδομένων του tenant. Δεν αναιρείται.');">
+                    <input type="hidden" name="next_url" value="/admin/tenants">
+                    <button class="btn btn-sm bv-action-btn bv-action-delete" type="submit" title="Διαγραφή" aria-label="Διαγραφή {{ t.name }}"><i class="fe fe-trash-2"></i></button>
+                  </form>
+                {% endif %}
               </div>
             </td>
           </tr>
@@ -208,10 +420,137 @@
 
 {% block scripts %}
 <script>
-document.getElementById('tenantCreateForm').addEventListener('submit', function () {
-  const btn = document.getElementById('tenantCreateBtn');
+const existingTenantSlugs = {
+  {% for t in tenants %}
+  {{ t.slug|tojson }}: {
+    id: {{ t.id }},
+    name: {{ t.name|tojson }}
+  }{% if not loop.last %},{% endif %}
+  {% endfor %}
+};
+const tenantWizard = {
+  step: 0,
+  max: 3,
+  form: document.getElementById('tenantCreateForm'),
+  panes: Array.from(document.querySelectorAll('[data-pane]')),
+  steps: Array.from(document.querySelectorAll('[data-step]')),
+  prev: document.getElementById('tenantWizardPrev'),
+  next: document.getElementById('tenantWizardNext'),
+  createBtn: document.getElementById('tenantCreateBtn')
+};
+tenantWizard.slugField = tenantWizard.form?.querySelector('[name="slug"]');
+tenantWizard.slugDuplicate = document.getElementById('tenantSlugDuplicate');
+
+function tenantWizardCheckDuplicateSlug() {
+  const field = tenantWizard.slugField;
+  if (!field) return true;
+  const slug = String(field.value || '').trim().toLowerCase();
+  const existing = existingTenantSlugs[slug];
+  if (existing) {
+    const message = 'Υπάρχει ήδη πελάτης με αυτό το slug: ' + existing.name + ' (ID ' + existing.id + '). Άνοιξε τον υπάρχοντα πελάτη από τη λίστα.';
+    field.setCustomValidity(message);
+    if (tenantWizard.slugDuplicate) {
+      tenantWizard.slugDuplicate.textContent = message + ' ';
+      const link = document.createElement('a');
+      link.href = '/admin/tenants/' + existing.id + '/edit?next=/admin/tenants';
+      link.textContent = 'Επεξεργασία';
+      tenantWizard.slugDuplicate.appendChild(link);
+      tenantWizard.slugDuplicate.classList.add('is-visible');
+    }
+    return false;
+  }
+  field.setCustomValidity('');
+  if (tenantWizard.slugDuplicate) {
+    tenantWizard.slugDuplicate.textContent = '';
+    tenantWizard.slugDuplicate.classList.remove('is-visible');
+  }
+  return true;
+}
+
+function tenantWizardShow(step) {
+  tenantWizard.step = Math.max(0, Math.min(tenantWizard.max, step));
+  tenantWizard.panes.forEach((pane) => pane.classList.toggle('is-active', Number(pane.dataset.pane) === tenantWizard.step));
+  tenantWizard.steps.forEach((btn) => {
+    const n = Number(btn.dataset.step);
+    btn.classList.toggle('is-active', n === tenantWizard.step);
+    btn.classList.toggle('is-done', n < tenantWizard.step);
+  });
+  tenantWizard.prev.style.display = tenantWizard.step > 0 ? '' : 'none';
+  tenantWizard.next.style.display = tenantWizard.step < tenantWizard.max ? '' : 'none';
+}
+
+function tenantWizardValidateCurrent() {
+  tenantWizardCheckDuplicateSlug();
+  const pane = document.querySelector('[data-pane="' + tenantWizard.step + '"]');
+  if (!pane) return true;
+  const fields = Array.from(pane.querySelectorAll('input,select,textarea'));
+  for (const field of fields) {
+    if (!field.checkValidity()) {
+      field.reportValidity();
+      return false;
+    }
+  }
+  return true;
+}
+
+function tenantWizardSyncSummary() {
+  document.querySelectorAll('[data-summary]').forEach((field) => {
+    const target = document.getElementById(field.dataset.summary);
+    if (!target) return;
+    target.textContent = field.value || '-';
+  });
+}
+
+function tenantWizardSyncConnectionMode() {
+  const mode = document.getElementById('wizardConnectionType')?.value || 'none';
+  const setFieldMuted = (field, muted) => {
+    field.closest('.bv-admin-field, .bv-admin-field-sm, .bv-admin-field-wide, .bv-admin-field-full')?.classList.toggle('opacity-50', muted);
+  };
+  ['softone_base_url', 'softone_bridge_path', 'softone_username', 'softone_password'].forEach((name) => {
+    const field = tenantWizard.form.querySelector('[name="' + name + '"]');
+    if (field) setFieldMuted(field, mode !== 'softone_api');
+  });
+  tenantWizard.form.querySelectorAll('[name^="sql_"]').forEach((field) => setFieldMuted(field, mode !== 'sql_server'));
+  ['softone_app_id', 'softone_company', 'softone_branch', 'softone_module', 'softone_refid'].forEach((name) => {
+    const field = tenantWizard.form.querySelector('[name="' + name + '"]');
+    if (field) setFieldMuted(field, !['softone_api', 'sql_server'].includes(mode));
+  });
+}
+
+tenantWizard.steps.forEach((btn) => btn.addEventListener('click', () => {
+  const target = Number(btn.dataset.step);
+  if (target > tenantWizard.step && !tenantWizardValidateCurrent()) return;
+  tenantWizardShow(target);
+}));
+tenantWizard.prev.addEventListener('click', () => tenantWizardShow(tenantWizard.step - 1));
+tenantWizard.next.addEventListener('click', () => {
+  if (!tenantWizardValidateCurrent()) return;
+  tenantWizardShow(tenantWizard.step + 1);
+});
+tenantWizard.form.addEventListener('input', () => {
+  tenantWizardCheckDuplicateSlug();
+  tenantWizardSyncSummary();
+  tenantWizardSyncConnectionMode();
+});
+tenantWizard.form.addEventListener('change', () => {
+  tenantWizardCheckDuplicateSlug();
+  tenantWizardSyncSummary();
+  tenantWizardSyncConnectionMode();
+});
+tenantWizard.form.addEventListener('submit', function (event) {
+  if (!tenantWizardCheckDuplicateSlug() || !tenantWizard.form.checkValidity()) {
+    event.preventDefault();
+    tenantWizard.slugField?.reportValidity();
+    return;
+  }
+  const btn = tenantWizard.createBtn;
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> {{ tt(request, "loading") }}';
 });
+
+tenantWizardShow(0);
+tenantWizardCheckDuplicateSlug();
+tenantWizardSyncSummary();
+tenantWizardSyncConnectionMode();
 </script>
 {% endblock %}

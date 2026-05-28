@@ -1,0 +1,190 @@
+{% extends "base_admin.html" %}
+
+{% block content %}
+<style>
+  .bv-mail-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 320px;
+    gap: 16px;
+    align-items: start;
+  }
+  .bv-mail-card {
+    background: #fff;
+    border: 1px solid #dbe3ef;
+    border-radius: 8px;
+    box-shadow: 0 12px 30px rgba(15, 23, 42, 0.04);
+  }
+  .bv-mail-card-header {
+    padding: 18px 20px;
+    border-bottom: 1px solid #e6edf7;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .bv-mail-card-body { padding: 20px; }
+  .bv-mail-title {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+  }
+  .bv-mail-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: #eef2ff;
+    color: #3151d3;
+    flex: 0 0 auto;
+  }
+  .bv-mail-help {
+    color: #64748b;
+    font-size: 13px;
+    line-height: 1.45;
+  }
+  .bv-mail-status {
+    display: grid;
+    gap: 10px;
+  }
+  .bv-mail-status-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    border-bottom: 1px solid #e6edf7;
+    padding-bottom: 10px;
+    font-size: 14px;
+  }
+  .bv-mail-status-row:last-child { border-bottom: 0; padding-bottom: 0; }
+  .bv-mail-status-row span { color: #64748b; }
+  .bv-mail-status-row strong { color: #111827; text-align: right; overflow-wrap: anywhere; }
+  @media (max-width: 991.98px) {
+    .bv-mail-grid { grid-template-columns: 1fr; }
+  }
+</style>
+
+{% if saved %}
+<div class="alert alert-success d-flex align-items-center gap-2" role="alert">
+  <i class="fe fe-check-circle"></i>
+  <span>Οι ρυθμίσεις mail αποθηκεύτηκαν στο κεντρικό .env.</span>
+</div>
+{% endif %}
+{% if test_status == '1' %}
+<div class="alert alert-success d-flex align-items-center gap-2" role="alert">
+  <i class="fe fe-send"></i>
+  <span>{{ message or 'Το test email στάλθηκε επιτυχώς.' }}</span>
+</div>
+{% elif test_status == '0' %}
+<div class="alert alert-danger d-flex align-items-center gap-2" role="alert">
+  <i class="fe fe-alert-triangle"></i>
+  <span>{{ error_message or 'Το test email απέτυχε.' }}</span>
+</div>
+{% elif error_message %}
+<div class="alert alert-danger d-flex align-items-center gap-2" role="alert">
+  <i class="fe fe-alert-triangle"></i>
+  <span>{{ error_message }}</span>
+</div>
+{% endif %}
+
+<div class="bv-mail-grid">
+  <form class="bv-mail-card" method="post" action="/admin/settings/mail-server">
+    <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
+    <div class="bv-mail-card-header">
+      <div class="bv-mail-title">
+        <span class="bv-mail-icon"><i class="fe fe-mail"></i></span>
+        <div>
+          <h5 class="mb-1">Mail Server</h5>
+          <div class="bv-mail-help">Κεντρικό SMTP για προσκλήσεις, reset passwords και ειδοποιήσεις πελατών.</div>
+        </div>
+      </div>
+      <button type="submit" class="btn btn-primary">
+        <i class="fe fe-save me-1"></i>Αποθήκευση
+      </button>
+    </div>
+    <div class="bv-mail-card-body">
+      <div class="row g-3">
+        <div class="col-md-8">
+          <label class="form-label small text-uppercase text-muted fw-semibold">SMTP Host</label>
+          <input class="form-control" name="smtp_host" value="{{ mail_settings.smtp_host }}" placeholder="smtp.yourdomain.gr" autocomplete="off">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label small text-uppercase text-muted fw-semibold">Port</label>
+          <input class="form-control" name="smtp_port" type="number" min="1" max="65535" value="{{ mail_settings.smtp_port or 587 }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label small text-uppercase text-muted fw-semibold">Username</label>
+          <input class="form-control" name="smtp_username" value="{{ mail_settings.smtp_username }}" placeholder="admin@yourdomain.gr" autocomplete="off">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label small text-uppercase text-muted fw-semibold">Password</label>
+          <input class="form-control" name="smtp_password" type="password" placeholder="{% if mail_settings.has_password %}Αποθηκευμένο - άστο κενό για να μείνει ίδιο{% else %}SMTP password{% endif %}" autocomplete="new-password">
+          <div class="form-text">Δεν εμφανίζεται ο αποθηκευμένος κωδικός. Κενό σημαίνει “κράτα τον υπάρχοντα”.</div>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label small text-uppercase text-muted fw-semibold">From Email</label>
+          <input class="form-control" name="smtp_from_email" value="{{ mail_settings.smtp_from_email }}" placeholder="noreply@boxvisio.com" autocomplete="off">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label small text-uppercase text-muted fw-semibold">From Name</label>
+          <input class="form-control" name="smtp_from_name" value="{{ mail_settings.smtp_from_name or 'CloudOn BI' }}" placeholder="BoxVisio BI" autocomplete="off">
+        </div>
+        <div class="col-md-8">
+          <label class="form-label small text-uppercase text-muted fw-semibold">Public Base URL</label>
+          <input class="form-control" name="app_public_base_url" value="{{ mail_settings.app_public_base_url }}" placeholder="https://bi.boxvisio.com" autocomplete="off">
+          <div class="form-text">Χρησιμοποιείται σε links προσκλήσεων και reset password.</div>
+        </div>
+        <div class="col-md-4 d-flex align-items-end">
+          <div class="form-check form-switch mb-2">
+            <input class="form-check-input" type="checkbox" role="switch" id="smtpUseTls" name="smtp_use_tls" value="true" {% if mail_settings.smtp_use_tls %}checked{% endif %}>
+            <label class="form-check-label" for="smtpUseTls">STARTTLS ενεργό</label>
+          </div>
+        </div>
+      </div>
+    </div>
+  </form>
+
+  <aside class="bv-mail-card">
+    <div class="bv-mail-card-header">
+      <div class="bv-mail-title">
+        <span class="bv-mail-icon"><i class="fe fe-activity"></i></span>
+        <div>
+          <h6 class="mb-1">Κατάσταση</h6>
+          <div class="bv-mail-help">Γρήγορος έλεγχος και αποστολή δοκιμής.</div>
+        </div>
+      </div>
+    </div>
+    <div class="bv-mail-card-body">
+      <div class="bv-mail-status mb-4">
+        <div class="bv-mail-status-row">
+          <span>Configured</span>
+          <strong>{% if mail_settings.configured %}Ναι{% else %}Όχι{% endif %}</strong>
+        </div>
+        <div class="bv-mail-status-row">
+          <span>Password</span>
+          <strong>{% if mail_settings.has_password %}Αποθηκευμένο{% else %}Λείπει{% endif %}</strong>
+        </div>
+        <div class="bv-mail-status-row">
+          <span>Env file</span>
+          <strong>{{ mail_settings.env_path }}</strong>
+        </div>
+      </div>
+
+      <form method="post" action="/admin/settings/mail-server/test" class="mb-4">
+        <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
+        <label class="form-label small text-uppercase text-muted fw-semibold">Test Email</label>
+        <input class="form-control mb-2" name="test_email" value="{{ user.email }}" autocomplete="off">
+        <button type="submit" class="btn btn-outline-primary w-100">
+          <i class="fe fe-send me-1"></i>Αποστολή Test
+        </button>
+      </form>
+
+      <div class="alert alert-info mb-0">
+        <div class="fw-semibold mb-1">Σημείωση restart</div>
+        <div class="small">Το admin API χρησιμοποιεί αμέσως τις νέες τιμές. Για workers και μόνιμο reload κάνε recreate/restart των services όταν τελειώσεις τις αλλαγές.</div>
+      </div>
+    </div>
+  </aside>
+</div>
+{% endblock %}

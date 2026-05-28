@@ -164,6 +164,42 @@
     color: #fff;
     box-shadow: 0 6px 16px rgba(79,70,229,.18);
   }
+  .central-nav-grid {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+  .central-nav-grid .bv-nav-tile {
+    min-height: 76px;
+    padding: 12px 10px !important;
+    gap: 7px !important;
+    border-radius: 8px !important;
+  }
+  .central-nav-grid .bv-nav-tile i {
+    font-size: 1.35rem !important;
+    line-height: 1;
+  }
+  .central-nav-grid .bv-nav-tile span {
+    font-size: .74rem !important;
+    line-height: 1.1;
+    white-space: nowrap;
+  }
+  @media (max-width: 1399.98px) {
+    .central-nav-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  }
+  @media (max-width: 991.98px) {
+    .central-nav-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  }
+  @media (max-width: 575.98px) {
+    .central-nav-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .central-nav-grid .bv-nav-tile {
+      min-height: 70px;
+    }
+  }
   .executive-kpi-diagnosis-title {
     font-size: .78rem;
     font-weight: 800;
@@ -563,44 +599,44 @@
   </div>
 </div>
 
-<div class="row g-3 mb-3">
-  <div class="col-6 col-sm-4 col-md-2">
+<div class="central-nav-grid">
+  <div>
     <a href="/tenant/sales" class="bv-nav-tile text-decoration-none d-flex flex-column align-items-center justify-content-center text-center gap-2 p-3 rounded-3 border h-100" style="background:#eef2ff;border-color:#c7d2fe!important;">
       <i class="fe fe-bar-chart-2" style="font-size:1.6rem;color:#4f46e5;"></i>
       <span style="font-weight:700;font-size:.82rem;color:#3730a3;letter-spacing:.02em;text-transform:uppercase;">Πωλήσεις</span>
     </a>
   </div>
-  <div class="col-6 col-sm-4 col-md-2">
+  <div>
     <a href="/tenant/purchases" class="bv-nav-tile text-decoration-none d-flex flex-column align-items-center justify-content-center text-center gap-2 p-3 rounded-3 border h-100{% if _purchases_locked %} bv-feature-locked{% endif %}" style="background:#fffbeb;border-color:#fde68a!important;"{% if _purchases_locked %} title="Διαθέσιμο στο Pro ή μεγαλύτερο πακέτο"{% endif %}>
       <i class="fe fe-shopping-cart" style="font-size:1.6rem;color:#d97706;"></i>
       <span style="font-weight:700;font-size:.82rem;color:#92400e;letter-spacing:.02em;text-transform:uppercase;">Αγορές{% if _purchases_locked %} <i class="fe fe-lock"></i>{% endif %}</span>
     </a>
   </div>
-  <div class="col-6 col-sm-4 col-md-2">
+  <div>
     <a href="/tenant/inventory" class="bv-nav-tile text-decoration-none d-flex flex-column align-items-center justify-content-center text-center gap-2 p-3 rounded-3 border h-100{% if _inventory_locked %} bv-feature-locked{% endif %}" style="background:#f0fdf4;border-color:#bbf7d0!important;"{% if _inventory_locked %} title="Διαθέσιμο στο Enterprise ή μεγαλύτερο πακέτο"{% endif %}>
       <i class="fe fe-layers" style="font-size:1.6rem;color:#16a34a;"></i>
       <span style="font-weight:700;font-size:.82rem;color:#166534;letter-spacing:.02em;text-transform:uppercase;">Απόθεμα{% if _inventory_locked %} <i class="fe fe-lock"></i>{% endif %}</span>
     </a>
   </div>
-  <div class="col-6 col-sm-4 col-md-2">
+  <div>
     <a href="/tenant/cashflow" class="bv-nav-tile text-decoration-none d-flex flex-column align-items-center justify-content-center text-center gap-2 p-3 rounded-3 border h-100{% if _cashflow_locked %} bv-feature-locked{% endif %}" style="background:#eff6ff;border-color:#bfdbfe!important;"{% if _cashflow_locked %} title="Διαθέσιμο στο Enterprise ή μεγαλύτερο πακέτο"{% endif %}>
       <i class="fe fe-dollar-sign" style="font-size:1.6rem;color:#2563eb;"></i>
       <span style="font-weight:700;font-size:.82rem;color:#1e40af;letter-spacing:.02em;text-transform:uppercase;">Cashflow{% if _cashflow_locked %} <i class="fe fe-lock"></i>{% endif %}</span>
     </a>
   </div>
-  <div class="col-6 col-sm-4 col-md-2">
+  <div>
     <a href="/tenant/customers" class="bv-nav-tile text-decoration-none d-flex flex-column align-items-center justify-content-center text-center gap-2 p-3 rounded-3 border h-100{% if _customer_balances_locked %} bv-feature-locked{% endif %}" style="background:#fdf4ff;border-color:#e9d5ff!important;"{% if _customer_balances_locked %} title="Διαθέσιμο στο Enterprise ή μεγαλύτερο πακέτο"{% endif %}>
       <i class="fe fe-users" style="font-size:1.6rem;color:#9333ea;"></i>
       <span style="font-weight:700;font-size:.82rem;color:#7e22ce;letter-spacing:.02em;text-transform:uppercase;">Πελάτες{% if _customer_balances_locked %} <i class="fe fe-lock"></i>{% endif %}</span>
     </a>
   </div>
-  <div class="col-6 col-sm-4 col-md-2">
+  <div>
     <a href="/tenant/insights" class="bv-nav-tile text-decoration-none d-flex flex-column align-items-center justify-content-center text-center gap-2 p-3 rounded-3 border h-100" style="background:#fff1f2;border-color:#fecdd3!important;">
       <i class="fe fe-zap" style="font-size:1.6rem;color:#e11d48;"></i>
       <span style="font-weight:700;font-size:.82rem;color:#9f1239;letter-spacing:.02em;text-transform:uppercase;">Insights</span>
     </a>
   </div>
-  <div class="col-6 col-sm-4 col-md-2">
+  <div>
     <a href="/tenant/e-shop-analysis" class="bv-nav-tile text-decoration-none d-flex flex-column align-items-center justify-content-center text-center gap-2 p-3 rounded-3 border h-100{% if _eshop_locked %} bv-feature-locked{% endif %}" style="background:#ecfeff;border-color:#a5f3fc!important;"{% if _eshop_locked %} title="Διαθέσιμο στο Pro ή μεγαλύτερο πακέτο"{% endif %}>
       <i class="fe fe-truck" style="font-size:1.6rem;color:#0891b2;"></i>
       <span style="font-weight:700;font-size:.82rem;color:#155e75;letter-spacing:.02em;text-transform:uppercase;">E-Shop{% if _eshop_locked %} <i class="fe fe-lock"></i>{% endif %}</span>

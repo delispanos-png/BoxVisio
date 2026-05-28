@@ -11,7 +11,7 @@
   <link href="/static/azea/css/themes/all-themes.css" rel="stylesheet">
   <link href="/static/css/boxvisio-ui.css?v=20260407a" rel="stylesheet">
   <link href="/static/css/bv-unified-ui.css?v=20260308a" rel="stylesheet">
-  <link href="/static/css/admin-redesign.css?v=20260520qa1" rel="stylesheet">
+  <link href="/static/css/admin-redesign.css?v=20260522menu1" rel="stylesheet">
   <style>
     :root {
       --shell-bg: #f3f5fb;
@@ -349,9 +349,9 @@
         {% set _business_rules_pages = ['business_rules', 'business_rules_document_types', 'business_rules_stream_mapping', 'business_rules_kpi_participation', 'business_rules_intelligence', 'business_rules_query_mapping'] %}
         {% set _overview_pages = ['dashboard', 'tenant_health', 'sync'] %}
         {% set _data_source_pages = ['data_sources', 'connections'] %}
-        {% set _settings_pages = ['plans', 'settings_system_defaults'] %}
+        {% set _settings_pages = ['plans', 'settings_system_defaults', 'settings_mail_server'] %}
         {% set _overview_open = active_page in _overview_pages %}
-        {% set _tenants_open = active_page in ['tenants', 'subscriptions', 'users'] %}
+        {% set _tenants_open = active_page in ['tenants', 'subscriptions', 'users', 'user_sessions'] %}
         {% set _sources_open = active_page in _data_source_pages %}
         {% set _rules_open = active_page in _business_rules_pages %}
         {% set _settings_open = active_page in _settings_pages %}
@@ -376,6 +376,7 @@
               <li class="{% if active_page == 'tenants' %}is-active{% endif %}"><a class="bv-submenu-link" href="/admin/tenants"><i class="fe fe-users"></i><span>{{ tt(request, 'sidebar_tenants_short') }}</span></a></li>
               <li class="{% if active_page == 'subscriptions' %}is-active{% endif %}"><a class="bv-submenu-link" href="/admin/subscriptions"><i class="fe fe-credit-card"></i><span>{{ tt(request, 'sidebar_subscriptions_short') }}</span></a></li>
               <li class="{% if active_page == 'users' %}is-active{% endif %}"><a class="bv-submenu-link" href="/admin/users"><i class="fe fe-user-check"></i><span>{{ tt(request, 'sidebar_users_short') }}</span></a></li>
+              <li class="{% if active_page == 'user_sessions' %}is-active{% endif %}"><a class="bv-submenu-link" href="/admin/user-sessions"><i class="fe fe-monitor"></i><span>{{ tt(request, 'sidebar_user_sessions_short') }}</span></a></li>
             </ul>
           </li>
 
@@ -408,6 +409,7 @@
             <ul class="bv-submenu" data-menu-group="admin-settings">
               <li class="{% if active_page == 'plans' %}is-active{% endif %}"><a class="bv-submenu-link" href="/admin/plans"><i class="fe fe-grid"></i><span>{{ tt(request, 'sidebar_plans_short') }}</span></a></li>
               <li class="{% if active_page == 'settings_system_defaults' %}is-active{% endif %}"><a class="bv-submenu-link" href="/admin/settings/system-defaults"><i class="fe fe-settings"></i><span>{{ tt(request, 'sidebar_defaults_short') }}</span></a></li>
+              <li class="{% if active_page == 'settings_mail_server' %}is-active{% endif %}"><a class="bv-submenu-link" href="/admin/settings/mail-server"><i class="fe fe-mail"></i><span>Mail Server</span></a></li>
             </ul>
           </li>
           {% endif %}
@@ -470,12 +472,16 @@
             <h3>{{ tt(request, title) if title else tt(request, 'admin_panel') }}</h3>
             {% if active_page == 'dashboard' %}
             <p class="bv-page-subtitle">Κεντρική παρακολούθηση tenants, subscriptions και server κατάστασης.</p>
+            {% elif active_page == 'tenant_health' %}
+            <p class="bv-page-subtitle">Operational health ανά tenant: συνδρομή, connector, sync ηλικία, queue και ανοιχτές ενέργειες.</p>
             {% elif active_page == 'tenants' %}
             <p class="bv-page-subtitle">Διαχείριση πελατών, πλάνων και lifecycle πρόσβασης.</p>
             {% elif active_page == 'subscriptions' %}
             <p class="bv-page-subtitle">Ενημέρωση συνδρομών και χρέωσης ανά tenant.</p>
             {% elif active_page == 'users' %}
             <p class="bv-page-subtitle">Διαχείριση χρηστών, ρόλων και χρονικών ορίων πρόσβασης.</p>
+            {% elif active_page == 'user_sessions' %}
+            <p class="bv-page-subtitle">Παρακολούθηση ενεργών sessions, τελευταίας δραστηριότητας και ασφαλής τερματισμός συνδέσεων.</p>
             {% elif active_page in _data_source_pages %}
             <p class="bv-page-subtitle">Καθορισμός connectors, credentials, query templates και συγχρονισμού ανά tenant.</p>
             {% elif active_page == 'insights' or active_page == 'insight_rules' %}
@@ -483,7 +489,7 @@
             {% elif active_page in _business_rules_pages %}
             <p class="bv-page-subtitle">Κεντρική διαχείριση κανόνων επιχειρησιακής λογικής με tenant overrides.</p>
             {% elif active_page in _settings_pages %}
-            <p class="bv-page-subtitle">Κεντρικές ρυθμίσεις πλατφόρμας: plans και system defaults.</p>
+            <p class="bv-page-subtitle">Κεντρικές ρυθμίσεις πλατφόρμας: plans, defaults και υπηρεσίες συστήματος.</p>
             {% endif %}
           </div>
           <div class="bv-page-meta d-none d-lg-flex align-items-center gap-2">
@@ -511,9 +517,11 @@
       }
       return '';
     }
-    const csrfToken = getCookie('csrf_token');
-    if (csrfToken) {
-      document.querySelectorAll('form').forEach((form) => {
+    document.querySelectorAll('form').forEach((form) => {
+      const method = String(form.getAttribute('method') || 'get').toLowerCase();
+      if (!['post', 'put', 'patch', 'delete'].includes(method)) return;
+      const csrfToken = getCookie('csrf_token');
+      if (csrfToken) {
         if (!form.querySelector('input[name="csrf_token"]')) {
           const input = document.createElement('input');
           input.type = 'hidden';
@@ -521,8 +529,26 @@
           input.value = csrfToken;
           form.appendChild(input);
         }
+      }
+      form.addEventListener('submit', () => {
+        const freshCsrfToken = getCookie('csrf_token') || csrfToken;
+        if (!freshCsrfToken) return;
+        let hiddenToken = form.querySelector('input[name="csrf_token"]');
+        if (!hiddenToken) {
+          hiddenToken = document.createElement('input');
+          hiddenToken.type = 'hidden';
+          hiddenToken.name = 'csrf_token';
+          form.appendChild(hiddenToken);
+        }
+        hiddenToken.value = freshCsrfToken;
+        if ((form.enctype || '').toLowerCase() === 'multipart/form-data') {
+            const action = form.getAttribute('action') || window.location.pathname;
+            const url = new URL(action, window.location.origin);
+            url.searchParams.set('csrf_token', freshCsrfToken);
+            form.setAttribute('action', url.pathname + url.search + url.hash);
+        }
       });
-    }
+    });
 
     function formatDateToDMY(raw) {
       if (!raw) return raw;

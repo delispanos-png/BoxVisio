@@ -1,0 +1,249 @@
+{% extends "base_admin.html" %}
+{% block content %}
+<div class="bv-admin-page tenant-health-page">
+  <div class="bv-admin-hero tenant-health-hero">
+    <div>
+      <h4>Κέντρο Υγείας Πελατών</h4>
+      <p>Πρακτική εικόνα για tenants, συνδρομές, connectors και συγχρονισμούς. Η οθόνη δείχνει τι είναι ΟΚ, τι θέλει παρακολούθηση και τι πρέπει να λυθεί άμεσα.</p>
+    </div>
+    <div class="tenant-health-score {% if health_score < 60 %}is-critical{% elif health_score < 85 %}is-warning{% else %}is-healthy{% endif %}">
+      <span>Health score</span>
+      <strong>{{ health_score }}%</strong>
+    </div>
+  </div>
+
+  <div class="bv-admin-kpi-grid tenant-health-kpis">
+    <div class="bv-admin-kpi-card">
+      <div class="bv-admin-kpi-card-head">
+        <p class="bv-admin-kpi-label">Υγιείς tenants</p>
+        <span class="bv-admin-kpi-icon"><i class="fe fe-check-circle"></i></span>
+      </div>
+      <div>
+        <div class="bv-admin-kpi-value">{{ severity_counts.healthy }}</div>
+        <p class="bv-admin-kpi-meta">Χωρίς ανοιχτό operational θέμα.</p>
+      </div>
+    </div>
+    <div class="bv-admin-kpi-card">
+      <div class="bv-admin-kpi-card-head">
+        <p class="bv-admin-kpi-label">Θέλουν προσοχή</p>
+        <span class="bv-admin-kpi-icon"><i class="fe fe-alert-circle"></i></span>
+      </div>
+      <div>
+        <div class="bv-admin-kpi-value">{{ severity_counts.warning }}</div>
+        <p class="bv-admin-kpi-meta">Θέματα που δεν είναι ακόμα κρίσιμα.</p>
+      </div>
+    </div>
+    <div class="bv-admin-kpi-card">
+      <div class="bv-admin-kpi-card-head">
+        <p class="bv-admin-kpi-label">Κρίσιμοι</p>
+        <span class="bv-admin-kpi-icon"><i class="fe fe-x-octagon"></i></span>
+      </div>
+      <div>
+        <div class="bv-admin-kpi-value">{{ severity_counts.critical }}</div>
+        <p class="bv-admin-kpi-meta">Απαιτούν άμεσο έλεγχο πριν την παραγωγή.</p>
+      </div>
+    </div>
+    <div class="bv-admin-kpi-card">
+      <div class="bv-admin-kpi-card-head">
+        <p class="bv-admin-kpi-label">Sync κίνδυνοι</p>
+        <span class="bv-admin-kpi-icon"><i class="fe fe-refresh-cw"></i></span>
+      </div>
+      <div>
+        <div class="bv-admin-kpi-value">{{ stale_sync_count + failed_sync_count + no_connection_count }}</div>
+        <p class="bv-admin-kpi-meta">{{ failed_sync_count }} failed/error · {{ stale_sync_count }} stale · {{ no_connection_count }} χωρίς connector</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="tenant-health-grid">
+    <div class="bv-admin-panel">
+      <div class="bv-admin-panel-head">
+        <div>
+          <h5>Άμεσες ενέργειες</h5>
+          <p>Τα σημαντικότερα θέματα ταξινομημένα με βάση κρισιμότητα.</p>
+        </div>
+        <span class="bv-admin-chip">{{ action_items|length }} ανοιχτά</span>
+      </div>
+      <div class="bv-admin-panel-body">
+        <div class="tenant-health-actions">
+          {% for item in action_items %}
+          <a class="tenant-health-action is-{{ item.severity }}" href="{{ item.href }}">
+            <span class="tenant-health-dot"></span>
+            <div>
+              <strong>{{ item.tenant.name }}</strong>
+              <p>{{ item.detail }}</p>
+            </div>
+            <i class="fe fe-arrow-right"></i>
+          </a>
+          {% else %}
+          <div class="tenant-health-empty">
+            <i class="fe fe-check-circle"></i>
+            <strong>Δεν υπάρχει άμεση ενέργεια.</strong>
+            <span>Οι tenants δεν εμφανίζουν κρίσιμη ένδειξη αυτή τη στιγμή.</span>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <div class="bv-admin-panel">
+      <div class="bv-admin-panel-head">
+        <div>
+          <h5>Σύνοψη λειτουργίας</h5>
+          <p>Γρήγορος έλεγχος παραγωγικής ετοιμότητας.</p>
+        </div>
+      </div>
+      <div class="bv-admin-panel-body">
+        <div class="tenant-health-mini-grid">
+          <div>
+            <span>Tenants</span>
+            <strong>{{ total_tenants }}</strong>
+          </div>
+          <div>
+            <span>Ενεργοί connectors</span>
+            <strong>{{ total_active_connections }}</strong>
+          </div>
+          <div>
+            <span>Sync risks</span>
+            <strong>{{ sync_risks|length }}</strong>
+          </div>
+          <div>
+            <span>Subscription risks</span>
+            <strong>{{ subscription_risks|length }}</strong>
+          </div>
+        </div>
+        <div class="tenant-health-readout mt-3">
+          <strong>Κανόνας υγείας</strong>
+          <span>Κρίσιμο θεωρείται tenant με αποτυχία sync, χωρίς connector, μη ενεργή συνδρομή ή sync παλιότερο από 48 ώρες. Προσοχή σημαίνει stale sync, trial που λήγει ή connector warning.</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="bv-admin-panel">
+    <div class="bv-admin-panel-head">
+      <div>
+        <h5>Υγεία ανά tenant</h5>
+        <p>Ενιαίος πίνακας για subscription, connector, sync ηλικία και queue κατάσταση.</p>
+      </div>
+      <span class="bv-admin-chip">Generated {{ generated_at.strftime('%d/%m/%Y %H:%M') }}</span>
+    </div>
+    <div class="bv-admin-panel-body p-0">
+      <div class="table-responsive tenant-health-table-wrap">
+        <table class="table table-hover bv-unified-table tenant-health-table mb-0" data-bv-admin-table="1">
+          <thead>
+            <tr>
+              <th>Tenant</th>
+              <th>Health</th>
+              <th>Συνδρομή</th>
+              <th>Connector</th>
+              <th>Sync</th>
+              <th>Progress</th>
+              <th>Χρήστες</th>
+              <th>Ένδειξη</th>
+              <th>Ενέργεια</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in health_rows %}
+            <tr>
+              <td>
+                <strong>{{ row.tenant.name }}</strong>
+                <div class="text-muted small">{{ row.tenant.slug }}</div>
+              </td>
+              <td>
+                <span class="tenant-health-badge is-{{ row.severity }}">{{ row.score }}%</span>
+              </td>
+              <td>
+                <span class="bv-admin-chip is-plan">{{ row.plan }}</span>
+                <div class="text-muted small mt-1">{{ row.subscription_status }} · {{ row.tenant_status }}</div>
+              </td>
+              <td>
+                <strong>{{ row.connector_type }}</strong>
+                <div class="text-muted small">{{ row.sync_status }}</div>
+              </td>
+              <td>
+                <strong>{{ row.sync_age_label }}</strong>
+                <div class="text-muted small">{{ row.last_sync_at.strftime('%d/%m/%Y %H:%M') if row.last_sync_at else '-' }}</div>
+              </td>
+              <td>
+                <div class="bv-sync-progress">
+                  <div class="bv-sync-progress-meta">
+                    <span>{{ row.progress_status }}</span>
+                    <span>ουρά {{ row.queue_left }}</span>
+                  </div>
+                  <div class="progress">
+                    <div class="progress-bar" role="progressbar" style="width: {{ row.progress_pct }}%;" aria-valuenow="{{ row.progress_pct }}" aria-valuemin="0" aria-valuemax="100"></div>
+                  </div>
+                </div>
+              </td>
+              <td>{{ row.user_count }}</td>
+              <td>
+                <div class="tenant-health-issue">{{ row.issues[0] }}</div>
+                {% if row.issues|length > 1 %}
+                <div class="text-muted small">+{{ row.issues|length - 1 }} ακόμα</div>
+                {% endif %}
+              </td>
+              <td>
+                <div class="tenant-health-row-actions">
+                  <a class="btn btn-sm bv-action-btn bv-action-edit" href="/admin/connections?tenant_id={{ row.tenant.id }}"><i class="fe fe-link"></i> Συνδέσεις</a>
+                  <a class="btn btn-sm btn-outline-secondary" href="/admin/sync-status"><i class="fe fe-activity"></i> Sync</a>
+                </div>
+              </td>
+            </tr>
+            {% else %}
+            <tr>
+              <td colspan="9" class="text-center text-muted py-4">Δεν υπάρχουν tenants για έλεγχο υγείας.</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="tenant-health-grid">
+    <div class="bv-admin-panel">
+      <div class="bv-admin-panel-head">
+        <div>
+          <h5>Sync κίνδυνοι</h5>
+          <p>Tenants με failed, never, stale ή ανύπαρκτο connector.</p>
+        </div>
+      </div>
+      <div class="bv-admin-panel-body">
+        <div class="tenant-health-list">
+          {% for row in sync_risks %}
+          <a href="/admin/connections?tenant_id={{ row.tenant.id }}">
+            <strong>{{ row.tenant.name }}</strong>
+            <span>{{ row.sync_status }} · {{ row.sync_age_label }}</span>
+          </a>
+          {% else %}
+          <div class="tenant-health-empty compact">Δεν υπάρχουν sync κίνδυνοι.</div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <div class="bv-admin-panel">
+      <div class="bv-admin-panel-head">
+        <div>
+          <h5>Subscription κίνδυνοι</h5>
+          <p>Tenants που δεν είναι σε active συνδρομή.</p>
+        </div>
+      </div>
+      <div class="bv-admin-panel-body">
+        <div class="tenant-health-list">
+          {% for row in subscription_risks %}
+          <a href="/admin/subscriptions">
+            <strong>{{ row.tenant.name }}</strong>
+            <span>{{ row.subscription_status }} · {{ row.plan }}</span>
+          </a>
+          {% else %}
+          <div class="tenant-health-empty compact">Δεν υπάρχουν subscription κίνδυνοι.</div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

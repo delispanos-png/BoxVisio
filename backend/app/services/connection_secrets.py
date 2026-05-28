@@ -58,6 +58,35 @@ def encrypt_sqlserver_secret(*, host: str, port: int, database: str, username: s
     return base64.urlsafe_b64encode(json.dumps(envelope, separators=(',', ':')).encode('utf-8')).decode('utf-8')
 
 
+def encrypt_json_secret(payload: dict[str, Any]) -> str:
+    plaintext = json.dumps(payload or {}, ensure_ascii=True, separators=(',', ':')).encode('utf-8')
+
+    dek = Fernet.generate_key()
+    ciphertext = Fernet(dek).encrypt(plaintext).decode('utf-8')
+    wrapped_dek = _master_fernet().encrypt(dek).decode('utf-8')
+    envelope = {
+        'v': 1,
+        'alg': 'fernet-envelope-v1',
+        'wrapped_dek': wrapped_dek,
+        'ciphertext': ciphertext,
+    }
+    return base64.urlsafe_b64encode(json.dumps(envelope, separators=(',', ':')).encode('utf-8')).decode('utf-8')
+
+
+def decrypt_json_secret(enc_payload: str) -> dict[str, Any]:
+    raw = base64.urlsafe_b64decode(enc_payload.encode('utf-8'))
+    envelope = json.loads(raw.decode('utf-8'))
+    if envelope.get('v') != 1:
+        raise ValueError('Unsupported encrypted payload version')
+
+    wrapped_dek = str(envelope['wrapped_dek'])
+    ciphertext = str(envelope['ciphertext'])
+    dek = _master_fernet().decrypt(wrapped_dek.encode('utf-8'))
+    plaintext = Fernet(dek).decrypt(ciphertext.encode('utf-8'))
+    payload = json.loads(plaintext.decode('utf-8'))
+    return payload if isinstance(payload, dict) else {}
+
+
 def decrypt_sqlserver_secret(enc_payload: str) -> SqlServerSecret:
     raw = base64.urlsafe_b64decode(enc_payload.encode('utf-8'))
     envelope = json.loads(raw.decode('utf-8'))

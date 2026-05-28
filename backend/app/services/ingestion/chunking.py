@@ -9,6 +9,7 @@ DEFAULT_STREAM_CHUNK_DAYS: dict[str, int] = {
     'sales_documents': 1,
     'purchase_documents': 1,
     'inventory_documents': 1,
+    'item_master': 31,
     # Operational streams are lighter and can move in wider windows.
     'supplier_orders': 7,
     'cash_transactions': 14,

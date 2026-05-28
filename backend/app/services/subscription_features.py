@@ -15,7 +15,9 @@ class SubscriptionFeature:
     default_standard: bool
     default_pro: bool
     default_enterprise: bool
+    default_custom: bool
     minimum_plan: str
+    addon: bool = False
 
 
 SUBSCRIPTION_FEATURES: tuple[SubscriptionFeature, ...] = (
@@ -32,6 +34,7 @@ SUBSCRIPTION_FEATURES: tuple[SubscriptionFeature, ...] = (
         default_standard=True,
         default_pro=True,
         default_enterprise=True,
+        default_custom=True,
         minimum_plan='Standard',
     ),
     SubscriptionFeature(
@@ -43,6 +46,7 @@ SUBSCRIPTION_FEATURES: tuple[SubscriptionFeature, ...] = (
         default_standard=True,
         default_pro=True,
         default_enterprise=True,
+        default_custom=True,
         minimum_plan='Standard',
     ),
     SubscriptionFeature(
@@ -54,6 +58,7 @@ SUBSCRIPTION_FEATURES: tuple[SubscriptionFeature, ...] = (
         default_standard=True,
         default_pro=True,
         default_enterprise=True,
+        default_custom=True,
         minimum_plan='Standard',
     ),
     SubscriptionFeature(
@@ -72,6 +77,7 @@ SUBSCRIPTION_FEATURES: tuple[SubscriptionFeature, ...] = (
         default_standard=False,
         default_pro=True,
         default_enterprise=True,
+        default_custom=True,
         minimum_plan='Pro',
     ),
     SubscriptionFeature(
@@ -83,6 +89,7 @@ SUBSCRIPTION_FEATURES: tuple[SubscriptionFeature, ...] = (
         default_standard=False,
         default_pro=True,
         default_enterprise=True,
+        default_custom=True,
         minimum_plan='Pro',
     ),
     SubscriptionFeature(
@@ -92,9 +99,10 @@ SUBSCRIPTION_FEATURES: tuple[SubscriptionFeature, ...] = (
         menu_keys=('stream_supplier_orders',),
         path_prefixes=('/tenant/supplier-orders', '/v1/kpi/supplier-orders'),
         default_standard=False,
-        default_pro=True,
+        default_pro=False,
         default_enterprise=True,
-        minimum_plan='Pro',
+        default_custom=True,
+        minimum_plan='Enterprise',
     ),
     SubscriptionFeature(
         key='eshop_analysis',
@@ -105,6 +113,7 @@ SUBSCRIPTION_FEATURES: tuple[SubscriptionFeature, ...] = (
         default_standard=False,
         default_pro=True,
         default_enterprise=True,
+        default_custom=True,
         minimum_plan='Pro',
     ),
     SubscriptionFeature(
@@ -116,6 +125,7 @@ SUBSCRIPTION_FEATURES: tuple[SubscriptionFeature, ...] = (
         default_standard=False,
         default_pro=True,
         default_enterprise=True,
+        default_custom=True,
         minimum_plan='Pro',
     ),
     SubscriptionFeature(
@@ -126,8 +136,23 @@ SUBSCRIPTION_FEATURES: tuple[SubscriptionFeature, ...] = (
         path_prefixes=('/tenant/era-exploration-data', '/v1/kpi/era-exploration'),
         default_standard=False,
         default_pro=False,
-        default_enterprise=True,
-        minimum_plan='Enterprise',
+        default_enterprise=False,
+        default_custom=True,
+        minimum_plan='Pro / Enterprise add-on ή Custom',
+        addon=True,
+    ),
+    SubscriptionFeature(
+        key='iqvia',
+        label='IQVIA Market Data',
+        group='Analytics',
+        menu_keys=('analytics_iqvia',),
+        path_prefixes=('/tenant/iqvia', '/v1/kpi/iqvia'),
+        default_standard=False,
+        default_pro=False,
+        default_enterprise=False,
+        default_custom=True,
+        minimum_plan='Pro / Enterprise add-on ή Custom',
+        addon=True,
     ),
     SubscriptionFeature(
         key='replenishment',
@@ -137,8 +162,10 @@ SUBSCRIPTION_FEATURES: tuple[SubscriptionFeature, ...] = (
         path_prefixes=('/tenant/replenishment', '/v1/kpi/replenishment'),
         default_standard=False,
         default_pro=False,
-        default_enterprise=True,
-        minimum_plan='Enterprise',
+        default_enterprise=False,
+        default_custom=True,
+        minimum_plan='Pro / Enterprise add-on ή Custom',
+        addon=True,
     ),
     SubscriptionFeature(
         key='price_control',
@@ -149,6 +176,7 @@ SUBSCRIPTION_FEATURES: tuple[SubscriptionFeature, ...] = (
         default_standard=False,
         default_pro=True,
         default_enterprise=True,
+        default_custom=True,
         minimum_plan='Pro',
     ),
     SubscriptionFeature(
@@ -159,8 +187,10 @@ SUBSCRIPTION_FEATURES: tuple[SubscriptionFeature, ...] = (
         path_prefixes=('/tenant/business-advisor', '/v1/kpi/business-advisor'),
         default_standard=False,
         default_pro=False,
-        default_enterprise=True,
-        minimum_plan='Enterprise / Business Advisor',
+        default_enterprise=False,
+        default_custom=True,
+        minimum_plan='Pro / Enterprise add-on ή Custom',
+        addon=True,
     ),
     SubscriptionFeature(
         key='inventory',
@@ -177,6 +207,7 @@ SUBSCRIPTION_FEATURES: tuple[SubscriptionFeature, ...] = (
         default_standard=False,
         default_pro=False,
         default_enterprise=True,
+        default_custom=True,
         minimum_plan='Enterprise',
     ),
     SubscriptionFeature(
@@ -188,6 +219,7 @@ SUBSCRIPTION_FEATURES: tuple[SubscriptionFeature, ...] = (
         default_standard=False,
         default_pro=False,
         default_enterprise=True,
+        default_custom=True,
         minimum_plan='Enterprise',
     ),
     SubscriptionFeature(
@@ -199,6 +231,7 @@ SUBSCRIPTION_FEATURES: tuple[SubscriptionFeature, ...] = (
         default_standard=False,
         default_pro=False,
         default_enterprise=True,
+        default_custom=True,
         minimum_plan='Enterprise',
     ),
     SubscriptionFeature(
@@ -218,6 +251,7 @@ SUBSCRIPTION_FEATURES: tuple[SubscriptionFeature, ...] = (
         default_standard=False,
         default_pro=False,
         default_enterprise=True,
+        default_custom=True,
         minimum_plan='Enterprise',
     ),
     SubscriptionFeature(
@@ -234,6 +268,7 @@ SUBSCRIPTION_FEATURES: tuple[SubscriptionFeature, ...] = (
         default_standard=False,
         default_pro=False,
         default_enterprise=True,
+        default_custom=True,
         minimum_plan='Enterprise',
     ),
     SubscriptionFeature(
@@ -245,6 +280,7 @@ SUBSCRIPTION_FEATURES: tuple[SubscriptionFeature, ...] = (
         default_standard=False,
         default_pro=False,
         default_enterprise=True,
+        default_custom=True,
         minimum_plan='Enterprise',
     ),
     SubscriptionFeature(
@@ -256,6 +292,7 @@ SUBSCRIPTION_FEATURES: tuple[SubscriptionFeature, ...] = (
         default_standard=False,
         default_pro=False,
         default_enterprise=True,
+        default_custom=True,
         minimum_plan='Enterprise',
     ),
     SubscriptionFeature(
@@ -267,7 +304,85 @@ SUBSCRIPTION_FEATURES: tuple[SubscriptionFeature, ...] = (
         default_standard=False,
         default_pro=False,
         default_enterprise=True,
+        default_custom=True,
         minimum_plan='Enterprise',
+    ),
+    SubscriptionFeature(
+        key='inventory_item_classification',
+        label='Inventory Item Classification',
+        group='Advanced',
+        menu_keys=(),
+        path_prefixes=(),
+        default_standard=False,
+        default_pro=False,
+        default_enterprise=True,
+        default_custom=True,
+        minimum_plan='Enterprise',
+    ),
+    SubscriptionFeature(
+        key='eshop_fulfillment',
+        label='E-Shop Fulfillment',
+        group='Advanced',
+        menu_keys=(),
+        path_prefixes=(),
+        default_standard=False,
+        default_pro=False,
+        default_enterprise=True,
+        default_custom=True,
+        minimum_plan='Pro add-on ή Enterprise',
+        addon=True,
+    ),
+    SubscriptionFeature(
+        key='call_center_3cx',
+        label='3CX Call Center KPIs',
+        group='Add-ons',
+        menu_keys=('analytics_call_center',),
+        path_prefixes=('/tenant/call-center', '/v1/kpi/call-center'),
+        default_standard=False,
+        default_pro=False,
+        default_enterprise=False,
+        default_custom=True,
+        minimum_plan='Pro / Enterprise add-on ή Custom',
+        addon=True,
+    ),
+    SubscriptionFeature(
+        key='custom_integrations',
+        label='Custom Integrations',
+        group='Add-ons',
+        menu_keys=(),
+        path_prefixes=(),
+        default_standard=False,
+        default_pro=False,
+        default_enterprise=False,
+        default_custom=True,
+        minimum_plan='Enterprise add-on ή Custom',
+        addon=True,
+    ),
+    SubscriptionFeature(
+        key='dedicated_infrastructure',
+        label='Dedicated Infrastructure',
+        group='Add-ons',
+        menu_keys=(),
+        path_prefixes=(),
+        default_standard=False,
+        default_pro=False,
+        default_enterprise=False,
+        default_custom=True,
+        minimum_plan='Custom',
+        addon=True,
+    ),
+    SubscriptionFeature(
+        key='advanced_automations',
+        label='Advanced Automations',
+        group='Add-ons',
+        menu_keys=(),
+        path_prefixes=(),
+        default_standard=False,
+        default_pro=False,
+        default_enterprise=False,
+        default_custom=True,
+        minimum_plan='Pro / Enterprise add-on ή Custom',
+        addon=True,
     ),
     SubscriptionFeature(
         key='insights',
@@ -278,6 +393,7 @@ SUBSCRIPTION_FEATURES: tuple[SubscriptionFeature, ...] = (
         default_standard=True,
         default_pro=True,
         default_enterprise=True,
+        default_custom=True,
         minimum_plan='Standard',
     ),
     SubscriptionFeature(
@@ -289,6 +405,7 @@ SUBSCRIPTION_FEATURES: tuple[SubscriptionFeature, ...] = (
         default_standard=True,
         default_pro=True,
         default_enterprise=True,
+        default_custom=True,
         minimum_plan='Standard',
     ),
     SubscriptionFeature(
@@ -300,6 +417,7 @@ SUBSCRIPTION_FEATURES: tuple[SubscriptionFeature, ...] = (
         default_standard=True,
         default_pro=True,
         default_enterprise=True,
+        default_custom=True,
         minimum_plan='Standard',
     ),
 )
@@ -307,6 +425,9 @@ SUBSCRIPTION_FEATURES: tuple[SubscriptionFeature, ...] = (
 FEATURE_BY_KEY = {item.key: item for item in SUBSCRIPTION_FEATURES}
 FEATURE_KEYS = tuple(FEATURE_BY_KEY.keys())
 FEATURE_PATH_PREFIXES = {item.key: item.path_prefixes for item in SUBSCRIPTION_FEATURES}
+ADD_ON_FEATURE_KEYS = tuple(item.key for item in SUBSCRIPTION_FEATURES if item.addon)
+STANDARD_LOCKED_ADD_ON_KEYS = frozenset(ADD_ON_FEATURE_KEYS)
+DEDICATED_INFRASTRUCTURE_KEY = 'dedicated_infrastructure'
 
 
 def infer_subscription_feature_defaults(plan: PlanName) -> dict[str, bool]:
@@ -316,18 +437,34 @@ def infer_subscription_feature_defaults(plan: PlanName) -> dict[str, bool]:
             defaults[item.key] = item.default_standard
         elif plan == PlanName.pro:
             defaults[item.key] = item.default_pro
-        else:
+        elif plan == PlanName.enterprise:
             defaults[item.key] = item.default_enterprise
+        else:
+            defaults[item.key] = item.default_custom
     return defaults
 
 
 def normalize_subscription_feature_flags(plan: PlanName, raw: dict | None) -> dict[str, bool]:
     values = infer_subscription_feature_defaults(plan)
-    if isinstance(raw, dict) and plan == PlanName.custom:
+    if isinstance(raw, dict):
         for key in FEATURE_KEYS:
-            if key in raw:
+            if key not in raw:
+                continue
+            if isinstance(raw.get(key), bool):
                 values[key] = bool(raw.get(key))
     return values
+
+
+def addon_allowed_for_plan(plan: PlanName, feature_key: str) -> bool:
+    if feature_key not in ADD_ON_FEATURE_KEYS:
+        return False
+    if plan == PlanName.standard:
+        return False
+    if feature_key == DEDICATED_INFRASTRUCTURE_KEY:
+        return plan == PlanName.custom
+    if feature_key == 'custom_integrations':
+        return plan in {PlanName.enterprise, PlanName.custom}
+    return plan in {PlanName.pro, PlanName.enterprise, PlanName.custom}
 
 
 def menu_visibility_from_features(feature_flags: dict[str, bool]) -> dict[str, bool]:

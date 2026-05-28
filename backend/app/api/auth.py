@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
@@ -32,6 +32,7 @@ async def login(payload: LoginRequest, db: AsyncSession = Depends(get_control_db
             token_jti=refresh_jti,
             expires_at=refresh_exp.astimezone(timezone.utc).replace(tzinfo=None),
             revoked_at=None,
+            last_seen_at=datetime.utcnow(),
         )
     )
     await db.commit()
@@ -59,6 +60,10 @@ async def refresh_access_token(payload: RefreshTokenRequest, db: AsyncSession = 
     ).scalar_one_or_none()
     if not db_token or db_token.revoked_at is not None or db_token.expires_at < datetime.utcnow():
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Refresh token revoked/expired')
+    if (db_token.last_seen_at or db_token.created_at) < datetime.utcnow().replace(tzinfo=None) - timedelta(minutes=30):
+        db_token.revoked_at = datetime.utcnow()
+        await db.commit()
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Refresh token idle/expired')
 
     user = (await db.execute(select(User).where(User.id == int(user_id), User.is_active.is_(True)))).scalar_one_or_none()
     if not user:
@@ -80,6 +85,7 @@ async def refresh_access_token(payload: RefreshTokenRequest, db: AsyncSession = 
             token_jti=new_jti,
             expires_at=new_exp.astimezone(timezone.utc).replace(tzinfo=None),
             revoked_at=None,
+            last_seen_at=datetime.utcnow(),
         )
     )
     await db.commit()

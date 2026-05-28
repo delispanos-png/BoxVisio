@@ -13,7 +13,7 @@ from app.models.control import (
     Tenant,
     TenantStatus,
 )
-from app.services.subscription_features import infer_subscription_feature_defaults, normalize_subscription_feature_flags
+from app.services.subscription_features import ADD_ON_FEATURE_KEYS, addon_allowed_for_plan, infer_subscription_feature_defaults, normalize_subscription_feature_flags
 from app.services.subscription_features import FEATURE_KEYS
 
 
@@ -57,7 +57,16 @@ async def sync_tenant_from_subscription(db: AsyncSession, tenant: Tenant, sub: S
         if key == '_temporary_upgrade' and isinstance(enabled, dict):
             tenant_flags[key] = enabled
             cleaned_sub_flags[key] = enabled
-        elif sub.plan == PlanName.custom and isinstance(enabled, bool):
+        elif key == 'custom_agreement_notes' and isinstance(enabled, str):
+            tenant_flags[key] = enabled
+            cleaned_sub_flags[key] = enabled
+        elif key == 'custom_exclusive_implementations' and isinstance(enabled, str):
+            tenant_flags[key] = enabled
+            cleaned_sub_flags[key] = enabled
+        elif key not in FEATURE_KEYS and isinstance(enabled, bool):
+            tenant_flags[key] = enabled
+            cleaned_sub_flags[key] = enabled
+        elif sub.plan == PlanName.custom and key not in FEATURE_KEYS and isinstance(enabled, bool):
             tenant_flags[key] = enabled
             cleaned_sub_flags[key] = enabled
     sub.feature_flags = cleaned_sub_flags
@@ -189,7 +198,10 @@ async def is_feature_enabled(
         plan_default = bool(row.enabled)
 
     override = (sub.feature_flags or {}).get(feature)
-    if sub.plan == PlanName.custom and override is not None:
+    if override is not None and (
+        sub.plan == PlanName.custom
+        or (feature in ADD_ON_FEATURE_KEYS and addon_allowed_for_plan(sub.plan, feature))
+    ):
         return bool(override)
     return plan_default
 

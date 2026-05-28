@@ -4,6 +4,7 @@
 !.env.example
 
 # Python
+.venv/
 __pycache__/
 *.pyc
 *.pyo
@@ -25,6 +26,7 @@ celerybeat-schedule
 *.bak-security-*
 
 # Customer/source evidence files kept locally, never in release commits
+3cx/
 *.xlsx
 *.XLSX
 *.pdf

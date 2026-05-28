@@ -1,16 +1,17 @@
 from __future__ import annotations
 
 from functools import lru_cache
+import hashlib
 from pathlib import Path
 import re
 import xml.etree.ElementTree as ET
 import zipfile
 
-from sqlalchemy import select
+from sqlalchemy import desc, insert, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.control import Tenant
-from app.models.tenant import DimItem
+from app.models.tenant import DimItem, EraExplorationLine, EraExplorationSnapshot
 
 
 _DEFAULT_PHARMACY295_FILE = Path('/opt/cloudon-bi/eRA_Exploration_data_April26.xlsx')
@@ -35,7 +36,7 @@ _REQUIRED_HEADERS = (
     'your_units',
     'your_units_ms',
 )
-_MONTH_TOKEN_RE = re.compile(r'([A-Za-z]+[0-9]{2,4})$', re.IGNORECASE)
+_MONTH_TOKEN_RE = re.compile(r'([A-Za-z]+)[\s._-]*([0-9]{2,4})$', re.IGNORECASE)
 _DEFAULT_RECOMMENDED_ADD_VALUE_SHARE_PCT = 0.05
 _MONTHS = {
     'jan': 1, 'january': 1,
@@ -51,6 +52,20 @@ _MONTHS = {
     'nov': 11, 'november': 11,
     'dec': 12, 'december': 12,
 }
+
+
+class DuplicateMarketImportError(ValueError):
+    def __init__(self, message: str, *, existing_snapshot_id: str | None = None) -> None:
+        super().__init__(message)
+        self.existing_snapshot_id = existing_snapshot_id
+
+
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open('rb') as file:
+        for chunk in iter(lambda: file.read(1024 * 1024), b''):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _tenant_file_path(tenant: Tenant) -> Path | None:
@@ -113,17 +128,34 @@ def _barcode_parts(value: object) -> list[str]:
 
 
 def era_period_from_filename(filename: str | Path | None) -> str:
+    """Return the canonical reporting period as YYYYMM from the last filename token.
+
+    eRA files arrive with names like ``eRA Exploration data_Feb 26.xlsx`` or
+    ``eRA_Exploration_data_April26.xlsx``. The final segment is the business
+    period, so we normalize it before storing the snapshot in the tenant DB.
+    """
     stem = Path(str(filename or '')).stem
     if not stem:
         return ''
-    token = stem.split('_')[-1].strip()
-    if _MONTH_TOKEN_RE.fullmatch(token):
-        return token
-    match = _MONTH_TOKEN_RE.search(stem)
-    return match.group(1) if match else ''
+    token = re.split(r'[_]+', stem)[-1].strip()
+    match = _MONTH_TOKEN_RE.fullmatch(token) or _MONTH_TOKEN_RE.search(stem)
+    if not match:
+        return ''
+    month_token = match.group(1).lower()
+    month = _MONTHS.get(month_token) or _MONTHS.get(month_token[:3])
+    if not month:
+        return ''
+    year_token = match.group(2)
+    year = int(year_token)
+    if year < 100:
+        year += 2000
+    return f'{year:04d}{month:02d}'
 
 
 def _period_month(period: str) -> int | None:
+    canonical = str(period or '').strip()
+    if re.fullmatch(r'20\d{4}', canonical):
+        return int(canonical[4:6])
     match = re.match(r'([A-Za-z]+)', str(period or '').strip())
     if not match:
         return None
@@ -212,14 +244,116 @@ def validate_era_exploration_file(path: Path) -> dict[str, object]:
     }
 
 
-def _load_rows_for_tenant(tenant: Tenant) -> tuple[dict[str, object], ...]:
-    path = _tenant_file_path(tenant)
-    if path is None:
-        raise FileNotFoundError('Δεν έχει δηλωθεί αρχείο eRA Exploration Data για αυτόν τον tenant.')
-    if not path.exists():
-        raise FileNotFoundError(f'Δεν βρέθηκε το αρχείο eRA Exploration Data: {path}')
-    stat = path.stat()
-    return _load_xlsx_rows(str(path), stat.st_mtime_ns)
+async def import_era_exploration_file(
+    db: AsyncSession,
+    path: Path,
+    *,
+    source_filename: str | None = None,
+    source_sha256: str | None = None,
+    imported_by: str | None = None,
+) -> dict[str, object]:
+    validation = validate_era_exploration_file(path)
+    rows = _load_xlsx_rows(str(path), path.stat().st_mtime_ns)
+    period = str(validation.get('period') or era_period_from_filename(source_filename or path))
+    checksum = (source_sha256 or file_sha256(path)).strip()
+    filename = source_filename or path.name
+    duplicate = (
+        await db.execute(
+            select(EraExplorationSnapshot)
+            .where(EraExplorationSnapshot.source_sha256 == checksum)
+            .order_by(desc(EraExplorationSnapshot.imported_at))
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if duplicate is not None:
+        raise DuplicateMarketImportError(
+            'Το ίδιο eRA αρχείο έχει ήδη γίνει import.',
+            existing_snapshot_id=str(duplicate.id),
+        )
+    snapshot = EraExplorationSnapshot(
+        source_filename=filename,
+        source_sha256=checksum,
+        period_label=period,
+        rows_count=len(rows),
+        summary_json={
+            'brands': validation.get('brands', 0),
+            'categories': validation.get('categories', 0),
+        },
+        imported_by=imported_by,
+    )
+    db.add(snapshot)
+    await db.flush()
+    await db.execute(
+        insert(EraExplorationLine),
+        [
+            {
+                'snapshot_id': snapshot.id,
+                'source_row': idx,
+                'brand': str(row.get('brand') or '')[:255] or None,
+                'product_name': str(row.get('product_name') or '')[:500] or None,
+                'barcode': str(row.get('barcode') or '') or None,
+                'primary_barcode': str(row.get('primary_barcode') or '')[:64] or None,
+                'barcodes_json': list(row.get('barcodes') or []),
+                'category': str(row.get('category') or '')[:255] or None,
+                'market_sales': _number(row.get('market_sales')),
+                'your_sales': _number(row.get('your_sales')),
+                'your_sales_value_ms': _number(row.get('your_sales_value_ms')),
+                'market_units': _number(row.get('market_units')),
+                'your_units': _number(row.get('your_units')),
+                'your_units_ms': _number(row.get('your_units_ms')),
+                'gap_sales': _number(row.get('gap_sales')),
+                'gap_units': _number(row.get('gap_units')),
+                'raw_json': dict(row),
+            }
+            for idx, row in enumerate(rows, start=2)
+        ],
+    )
+    await db.commit()
+    return {
+        **validation,
+        'snapshot_id': str(snapshot.id),
+        'source': 'db',
+        'filename': filename,
+        'source_sha256': checksum,
+    }
+
+
+async def _latest_era_snapshot(db: AsyncSession) -> EraExplorationSnapshot:
+    snapshot = (
+        await db.execute(
+            select(EraExplorationSnapshot).order_by(desc(EraExplorationSnapshot.imported_at)).limit(1)
+        )
+    ).scalar_one_or_none()
+    if snapshot is None:
+        raise FileNotFoundError('Δεν έχει γίνει import eRA Exploration Data στη βάση του tenant.')
+    return snapshot
+
+
+async def _load_rows_from_db(db: AsyncSession, snapshot_id) -> list[dict[str, object]]:
+    result = await db.execute(select(EraExplorationLine).where(EraExplorationLine.snapshot_id == snapshot_id))
+    rows: list[dict[str, object]] = []
+    for line in result.scalars():
+        row = dict(line.raw_json or {})
+        row.update(
+            {
+                'brand': line.brand or '',
+                'product_name': line.product_name or '',
+                'barcode': line.barcode or '',
+                'primary_barcode': line.primary_barcode or '',
+                'barcodes': list(line.barcodes_json or []),
+                'category': line.category or '',
+                'market_sales': _number(line.market_sales),
+                'your_sales': _number(line.your_sales),
+                'your_sales_value_ms': _number(line.your_sales_value_ms),
+                'market_units': _number(line.market_units),
+                'your_units': _number(line.your_units),
+                'your_units_ms': _number(line.your_units_ms),
+                'gap_sales': _number(line.gap_sales),
+                'gap_units': _number(line.gap_units),
+            }
+        )
+        rows.append(row)
+    return rows
 
 
 def _recommended_add_thresholds(tenant: Tenant) -> dict[str, float]:
@@ -374,8 +508,8 @@ async def era_exploration_report(
     page: int = 1,
     page_size: int = 50,
 ) -> dict[str, object]:
-    path = _tenant_file_path(tenant)
-    rows = list(_load_rows_for_tenant(tenant))
+    snapshot = await _latest_era_snapshot(db)
+    rows = await _load_rows_from_db(db, snapshot.id)
     all_rows = rows
     q_norm = (q or '').strip().lower()
     brand_norm = (brand or '').strip()
@@ -400,7 +534,7 @@ async def era_exploration_report(
     categories = sorted({str(row.get('category') or '').strip() for row in all_rows if str(row.get('category') or '').strip()})
     flags = tenant.feature_flags if isinstance(tenant.feature_flags, dict) else {}
     cfg = flags.get('era_exploration_data_config') if isinstance(flags.get('era_exploration_data_config'), dict) else {}
-    period = str(cfg.get('period') or era_period_from_filename(cfg.get('filename')) or era_period_from_filename(path) or '')
+    period = str(snapshot.period_label or cfg.get('period') or era_period_from_filename(cfg.get('filename')) or '')
     season = _period_season(period)
     recommendation_thresholds = _recommended_add_thresholds(tenant)
     item_by_barcode = await _tenant_items_by_barcode(db)
@@ -482,7 +616,9 @@ async def era_exploration_report(
     end = start + page_size
 
     return {
-        'file': str(path or ''),
+        'file': str(snapshot.source_filename or ''),
+        'snapshot_id': str(snapshot.id),
+        'source': 'db',
         'period': period,
         'season': season,
         'summary': {

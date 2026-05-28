@@ -70,6 +70,7 @@ class TenantWizardRequest(BaseModel):
     source: str = 'sql'
     subscription_status: SubscriptionStatus = SubscriptionStatus.trial
     trial_days: int = 14
+    max_users: int | None = None
 
 
 class ConnectionCreateRequest(BaseModel):
@@ -278,6 +279,7 @@ def _coerce_stream_query_mapping(
         'sales_documents': sales_query_template,
         'purchase_documents': purchases_query_template,
         'inventory_documents': inventory_query_template,
+        'item_master': out.get('item_master', ''),
         'cash_transactions': cashflow_query_template,
         'supplier_balances': supplier_balances_query_template,
         'customer_balances': customer_balances_query_template,
@@ -383,6 +385,7 @@ async def tenant_wizard_create(
         source=payload.source,
         subscription_status=payload.subscription_status,
         trial_days=payload.trial_days,
+        max_users=payload.max_users,
     )
     if result['status'] != 'ok':
         raise HTTPException(status_code=400, detail=result)

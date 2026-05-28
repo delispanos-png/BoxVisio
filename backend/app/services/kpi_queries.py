@@ -201,6 +201,7 @@ def normalize_inventory_item_classification_config(raw: dict | None) -> dict[str
 
 def normalize_eshop_fulfillment_config(raw: dict | None) -> dict[str, object]:
     source = raw if isinstance(raw, dict) else {}
+    use_defaults = source.get('use_defaults', True) is not False
     raw_pickup = source.get('pickup_warehouses')
     pickup_source = raw_pickup if isinstance(raw_pickup, dict) else {}
     pickup_clean: dict[str, str] = {}
@@ -209,7 +210,7 @@ def normalize_eshop_fulfillment_config(raw: dict | None) -> dict[str, object]:
         label_clean = str(label or '').strip()
         if code_clean and label_clean:
             pickup_clean[code_clean] = label_clean
-    if not pickup_clean:
+    if not pickup_clean and use_defaults:
         pickup_clean = dict(_DEFAULT_ESHOP_FULFILLMENT_RULES['pickup_warehouses'])
 
     raw_store_warehouses = source.get('store_warehouses')
@@ -243,7 +244,7 @@ def normalize_eshop_fulfillment_config(raw: dict | None) -> dict[str, object]:
         if isinstance(value, list):
             raw_items = value
         else:
-            raw_items = default
+            raw_items = default if use_defaults else []
         clean: list[str] = []
         seen: set[str] = set()
         for item in raw_items:
@@ -251,9 +252,10 @@ def normalize_eshop_fulfillment_config(raw: dict | None) -> dict[str, object]:
             if item_clean and item_clean not in seen:
                 clean.append(item_clean)
                 seen.add(item_clean)
-        return clean or list(default)
+        return clean or (list(default) if use_defaults else [])
 
     return {
+        'use_defaults': use_defaults,
         'pickup_warehouses': pickup_clean,
         'store_warehouses': store_clean,
         'pure_eshop_warehouses': _list_clean(
@@ -824,7 +826,7 @@ def _fact_purchases_payload_line_value_expr():
             _json_numeric_text_expr(payload, 'LINE_VALUE'),
             _json_numeric_text_expr(payload, 'lineval'),
             _json_numeric_text_expr(payload, 'LINEVAL'),
-            FactPurchases.net_value,
+            cast(FactPurchases.net_value, String),
             literal('0'),
         ),
         Numeric,
@@ -2485,7 +2487,11 @@ async def _purchases_summaries_by_windows(
     if not windows:
         return {}
 
-    if not any([branches, warehouses, brands, categories, groups]) and _effective_branch_filter(None) is None:
+    # The purchase summary cards need document-level fields that are not fully
+    # represented in the daily company aggregate: NODSCAMNT for before-discount
+    # purchases and document expenses for after-discount cost.
+    use_company_aggregate = False
+    if use_company_aggregate and not any([branches, warehouses, brands, categories, groups]) and _effective_branch_filter(None) is None:
         global_from, global_to = _window_bounds(windows)
         cols = []
         for key, (window_from, window_to) in windows.items():
@@ -3300,7 +3306,7 @@ async def purchases_summary(
         'current',
         {'records': 0, 'qty': 0.0, 'net_value': 0.0, 'cost_amount': 0.0, 'gross_value': 0.0, 'discount_amount': 0.0},
     )
-    current['before_discount_value'] = current.get('gross_value', 0.0)
+    current['before_discount_value'] = current.get('cost_amount', current.get('gross_value', 0.0))
     current['after_discount_value'] = current.get('net_value', 0.0)
     return current
 
@@ -6163,9 +6169,12 @@ async def purchases_documents_overview(
     payload_expenses_doc_expr = func.coalesce(func.max(_fact_purchases_payload_expenses_expr()), 0)
     payload_vat_doc_expr = func.coalesce(func.max(_fact_purchases_payload_vat_expr()), 0)
     payload_gross_doc_expr = func.coalesce(func.max(_fact_purchases_payload_gross_expr()), 0)
+    # Purchase documents must keep item net value and document expenses split.
+    # Some SoftOne purchase headers expose NETAMNT with EXPN already included,
+    # so the document list trusts MTRLINES for net value whenever lines exist.
     doc_net_expr = case(
-        (func.abs(payload_net_doc_expr) > 0.0001, payload_net_doc_expr),
-        else_=line_net_doc_expr,
+        (func.abs(line_net_doc_expr) > 0.0001, line_net_doc_expr),
+        else_=payload_net_doc_expr,
     )
     doc_expenses_expr = payload_expenses_doc_expr
     doc_vat_expr = case(
@@ -6173,10 +6182,7 @@ async def purchases_documents_overview(
         (func.abs(payload_gross_doc_expr) > 0.0001, payload_gross_doc_expr - doc_net_expr - doc_expenses_expr),
         else_=line_vat_doc_expr,
     )
-    doc_gross_expr = case(
-        (func.abs(payload_gross_doc_expr) > 0.0001, payload_gross_doc_expr),
-        else_=doc_net_expr + doc_expenses_expr + doc_vat_expr,
-    )
+    doc_gross_expr = doc_net_expr + doc_expenses_expr + doc_vat_expr
     base = (
         select(
             doc_key.label('document_id'),
@@ -6722,7 +6728,7 @@ async def purchase_document_detail(
         'gross_value',
         'GROSS_VALUE',
     )
-    if header_net is not None and abs(header_net) > 0.0001:
+    if abs(total_net) <= 0.0001 and header_net is not None and abs(header_net) > 0.0001:
         total_net = _normalize_purchase_credit_sign(header_net, is_credit_header)
     if header_vat is not None:
         total_vat = _normalize_purchase_credit_sign(header_vat, is_credit_header)
@@ -6731,10 +6737,7 @@ async def purchase_document_detail(
         if header_expenses is not None
         else total_gross - total_net - total_vat
     )
-    if header_gross is not None and abs(header_gross) > 0.0001:
-        total_gross = _normalize_purchase_credit_sign(header_gross, is_credit_header)
-    else:
-        total_gross = total_net + expenses_value + total_vat
+    total_gross = total_net + expenses_value + total_vat
     if abs(expenses_value) <= 0.0001:
         expenses_value = 0.0
 

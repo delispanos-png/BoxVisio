@@ -131,13 +131,15 @@ def _querypack_streams() -> set[str]:
         'sales_facts.sql': 'sales_documents',
         'purchases_facts.sql': 'purchase_documents',
         'inventory_facts.sql': 'inventory_documents',
+        'item_master.sql': 'item_master',
+        'item_master_facts.sql': 'item_master',
         'cashflow_facts.sql': 'cash_transactions',
         'supplier_balances_facts.sql': 'supplier_balances',
         'customer_balances_facts.sql': 'customer_balances',
         'expenses_facts.sql': 'operating_expenses',
         'supplier_orders_facts.sql': 'supplier_orders',
     }
-    for file_path in facts_dir.glob('*_facts.sql'):
+    for file_path in facts_dir.glob('*.sql'):
         if file_path.name in file_map:
             streams.add(file_map[file_path.name])
     required_cols = set((mapping.get('required_output_columns') or {}).keys())
@@ -381,6 +383,8 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
     missing_enabled = sorted(expected_streams - enabled_streams)
     missing_supported = sorted(expected_streams - supported_streams)
     mapping = active_connection.stream_query_mapping if active_connection and isinstance(active_connection.stream_query_mapping, dict) else {}
+    if active_connection and str(active_connection.connector_type or '').strip().lower() == 'external_api':
+        mapping = active_connection.stream_api_endpoint if isinstance(active_connection.stream_api_endpoint, dict) else {}
     missing_mapping = sorted(stream for stream in expected_streams if not str(mapping.get(stream) or '').strip())
     checks.append(
         _make_check(
@@ -452,40 +456,67 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
     )
 
     dq = await _data_quality(tenant)
-    dq_warn_keys = [
+    hard_dq_warn_keys = [
         key
         for key in (
             'items_missing_name',
-            'items_missing_barcode',
-            'items_missing_vat',
-            'items_missing_abc',
-            'items_missing_commercial_status',
-            'customers_name_equals_code',
             'suppliers_name_equals_code',
             'sales_missing_item_link',
             'purchases_missing_item_link',
         )
         if int(dq.get(key) or 0) > 0
     ]
+    enrichment_gap_keys = [
+        key
+        for key in (
+            'items_missing_barcode',
+            'items_missing_vat',
+            'items_missing_abc',
+            'items_missing_commercial_status',
+            'customers_name_equals_code',
+        )
+        if int(dq.get(key) or 0) > 0
+    ]
     checks.append(
         _make_check(
             'data_quality',
-            'WARN' if dq_warn_keys else 'PASS',
-            'Core dimensions/facts pass data quality checks' if not dq_warn_keys else 'Data quality issues detected',
-            {'warn_keys': dq_warn_keys, 'metrics': dq},
+            'WARN' if hard_dq_warn_keys else 'PASS',
+            'Core dimensions/facts pass data quality checks'
+            if not hard_dq_warn_keys
+            else 'Hard data quality issues detected',
+            {'warn_keys': hard_dq_warn_keys, 'enrichment_gap_keys': enrichment_gap_keys, 'metrics': dq},
         )
     )
 
     token = await _tenant_user_token(tenant)
     smoke = await _smoke_endpoints(tenant, token, args.base_url, from_date, to_date)
     failed_smoke = [row for row in smoke if not row.get('ok')]
-    slow_smoke = [row for row in smoke if row.get('ok') and float(row.get('elapsed_ms') or 0) > float(args.slow_ms)]
+    cold_slow_smoke = [row for row in smoke if row.get('ok') and float(row.get('elapsed_ms') or 0) > float(args.slow_ms)]
+    slow_smoke = list(cold_slow_smoke)
+    warm_smoke: list[dict[str, Any]] = []
+    if slow_smoke and not failed_smoke:
+        warm_smoke = await _smoke_endpoints(tenant, token, args.base_url, from_date, to_date)
+        warm_by_name = {str(row.get('name')): row for row in warm_smoke}
+        slow_smoke = [
+            warm_by_name.get(str(row.get('name')), row)
+            for row in slow_smoke
+            if float((warm_by_name.get(str(row.get('name')), row)).get('elapsed_ms') or 0) > float(args.slow_ms)
+        ]
     checks.append(
         _make_check(
             'dashboard_smoke_and_performance',
-            'FAIL' if failed_smoke else ('WARN' if slow_smoke else 'PASS'),
-            'Dashboards/API endpoints respond within threshold' if not failed_smoke and not slow_smoke else 'Dashboard smoke/performance issues detected',
-            {'failed': failed_smoke, 'slow': slow_smoke, 'results': smoke, 'slow_ms': args.slow_ms},
+            'FAIL' if failed_smoke else ('WARN' if slow_smoke or cold_slow_smoke else 'PASS'),
+            'Dashboards/API endpoints respond within threshold'
+            if not failed_smoke and not slow_smoke and not cold_slow_smoke
+            else 'Dashboard smoke/performance issues detected',
+            {
+                'failed': failed_smoke,
+                'slow': slow_smoke,
+                'cold_slow': cold_slow_smoke,
+                'results': smoke,
+                'warm_results': warm_smoke,
+                'slow_ms': args.slow_ms,
+            },
         )
     )
 

@@ -490,6 +490,7 @@ async def build_replenishment_from_facts(
     as_of = as_of or date.today()
     period_1_start = as_of - timedelta(weeks=max(sales_avg_period_1_weeks, 1))
     period_2_start = as_of - timedelta(weeks=max(sales_avg_period_2_weeks, 1))
+    purchase_avg_start = as_of - timedelta(days=365)
     sql = text(
         """
         WITH latest_snapshot AS (
@@ -535,6 +536,37 @@ async def build_replenishment_from_facts(
               AND (fso.item_id IS NOT NULL OR COALESCE(fso.item_code, '') <> '')
             GROUP BY COALESCE(di.external_id, fso.item_code)
         ),
+        latest_purchase_price AS (
+            SELECT item_code, purchase_price
+            FROM (
+                SELECT
+                    COALESCE(di.external_id, fp.item_code) AS item_code,
+                    COALESCE(fp.net_value, 0) / NULLIF(COALESCE(fp.qty, 0), 0) AS purchase_price,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY COALESCE(di.external_id, fp.item_code)
+                        ORDER BY fp.doc_date DESC, fp.updated_at DESC
+                    ) AS rn
+                FROM fact_purchases fp
+                LEFT JOIN dim_items di ON di.id = fp.item_id
+                WHERE COALESCE(fp.item_code, di.external_id, '') <> ''
+                  AND COALESCE(fp.qty, 0) > 0
+                  AND COALESCE(fp.net_value, 0) > 0
+            ) ranked_price
+            WHERE rn = 1
+        ),
+        weighted_purchase_price AS (
+            SELECT
+                COALESCE(di.external_id, fp.item_code) AS item_code,
+                SUM(COALESCE(fp.net_value, 0)) / NULLIF(SUM(COALESCE(fp.qty, 0)), 0) AS avg_purchase_price
+            FROM fact_purchases fp
+            LEFT JOIN dim_items di ON di.id = fp.item_id
+            WHERE fp.doc_date >= :purchase_avg_start
+              AND fp.doc_date <= :as_of
+              AND COALESCE(fp.item_code, di.external_id, '') <> ''
+              AND COALESCE(fp.qty, 0) > 0
+              AND COALESCE(fp.net_value, 0) > 0
+            GROUP BY COALESCE(di.external_id, fp.item_code)
+        ),
         sales AS (
             SELECT
                 asi.item_external_id AS item_code,
@@ -564,7 +596,20 @@ async def build_replenishment_from_facts(
             COALESCE(inventory.min_stock, dim_items.min_stock, 1) AS min_stock,
             COALESCE(inventory.repl_moq, dim_items.replenishment_moq, 1) AS repl_moq,
             COALESCE(inventory.vendor_moq, dim_items.vendor_moq, 1) AS vendor_moq,
-            COALESCE(NULLIF(inventory.purchase_price, 0), dim_items.current_purchase_price, 0) AS purchase_price,
+            COALESCE(
+                NULLIF(latest_purchase_price.purchase_price, 0),
+                NULLIF(dim_items.current_purchase_price, 0),
+                NULLIF(inventory.purchase_price, 0),
+                NULLIF(weighted_purchase_price.avg_purchase_price, 0),
+                0
+            ) AS purchase_price,
+            COALESCE(
+                NULLIF(weighted_purchase_price.avg_purchase_price, 0),
+                NULLIF(latest_purchase_price.purchase_price, 0),
+                NULLIF(dim_items.current_purchase_price, 0),
+                NULLIF(inventory.purchase_price, 0),
+                0
+            ) AS avg_purchase_price,
             COALESCE(inventory.available_qty, 0) AS available_qty,
             COALESCE(expected_orders.expected_qty, 0) AS expected_qty,
             COALESCE(inventory.stock_value, 0) AS stock_value,
@@ -575,6 +620,10 @@ async def build_replenishment_from_facts(
         LEFT JOIN expected_orders ON expected_orders.item_code = scope.item_code
         LEFT JOIN sales ON sales.item_code = scope.item_code
         LEFT JOIN dim_items ON dim_items.external_id = scope.item_code
+        LEFT JOIN latest_purchase_price ON latest_purchase_price.item_code = scope.item_code
+        LEFT JOIN weighted_purchase_price ON weighted_purchase_price.item_code = scope.item_code
+        WHERE COALESCE(dim_items.softone_sotype, 51) = 51
+          AND COALESCE(dim_items.is_active_source, true) = true
         """
     )
     result = await db.execute(
@@ -583,6 +632,7 @@ async def build_replenishment_from_facts(
             'as_of': as_of,
             'period_1_start': period_1_start,
             'period_2_start': period_2_start,
+            'purchase_avg_start': purchase_avg_start,
             'period_1_weeks': max(sales_avg_period_1_weeks, 1),
             'period_2_weeks': max(sales_avg_period_2_weeks, 1),
         },
@@ -599,9 +649,12 @@ async def build_replenishment_from_facts(
         repl_moq = max(_as_float(row.get('repl_moq'), 1.0), 1.0)
         vendor_moq = max(_as_float(row.get('vendor_moq'), 1.0), 1.0)
         purchase_price = _as_float(row.get('purchase_price'))
+        avg_purchase_price = _as_float(row.get('avg_purchase_price'))
         stock_value = _as_float(row.get('stock_value'))
         if purchase_price <= 0 and available_qty > 0 and stock_value > 0:
             purchase_price = stock_value / available_qty
+        if avg_purchase_price <= 0 and available_qty > 0 and stock_value > 0:
+            avg_purchase_price = stock_value / available_qty
         target_stock = max(target_stock_weeks * weekly_sales, min_stock)
         raw_need = target_stock - available_qty - expected_qty
         need_qty = max(raw_need, repl_moq) if raw_need > 0 else 0.0
@@ -650,6 +703,7 @@ async def build_replenishment_from_facts(
                 repl_moq=repl_moq,
                 vendor_moq=vendor_moq,
                 purchase_price=purchase_price,
+                avg_purchase_price=avg_purchase_price,
                 total_need_qty=need_qty,
                 total_overstock_qty=overstock_qty,
                 supplier_order_qty=supplier_order_qty,
@@ -687,6 +741,456 @@ async def build_replenishment_from_facts(
         'top_need_rows': top_need_rows,
         'top_overstock_rows': top_overstock_rows,
         'issue_rows': issues[:20],
+    }
+
+
+async def build_availability_foundation(
+    db: AsyncSession,
+    *,
+    as_of: date | None = None,
+    target_stock_weeks: float = 4.0,
+    overstock_weeks: float = 12.0,
+    sales_window_days: int = 30,
+    branch: str | None = None,
+    status: str | None = None,
+    category: str | None = None,
+    vendor: str | None = None,
+    abc: str | None = None,
+    search: str | None = None,
+    include_detail_rows: bool = False,
+    detail_kind: str = 'all',
+    detail_dimension: str | None = None,
+    detail_value: str | None = None,
+    detail_limit: int = 120,
+) -> dict[str, object]:
+    """Availability view from BI facts, used as the base for FnR/Destocking."""
+    as_of = as_of or date.today()
+    window_days = max(int(sales_window_days or 30), 1)
+    current_start = as_of - timedelta(days=window_days - 1)
+    previous_start = current_start - timedelta(days=window_days)
+    purchase_start = as_of - timedelta(days=180)
+    purchase_avg_start = as_of - timedelta(days=365)
+    sql = text(
+        """
+        WITH latest_stock AS (
+            SELECT MAX(snapshot_date) AS snapshot_date
+            FROM agg_stock_aging
+            WHERE snapshot_date <= :as_of
+        ),
+        stock AS (
+            SELECT
+                asa.item_external_id AS item_code,
+                COALESCE(asa.branch_ext_id, '') AS branch_ext_id,
+                MAX(COALESCE(db.name, asa.branch_ext_id, 'Χωρίς σημείο')) AS branch_name,
+                SUM(COALESCE(asa.qty_on_hand, 0)) AS stock_qty,
+                SUM(COALESCE(asa.stock_value, 0)) AS stock_value
+            FROM agg_stock_aging asa
+            JOIN latest_stock ls ON ls.snapshot_date = asa.snapshot_date
+            LEFT JOIN dim_branches db ON db.external_id = asa.branch_ext_id
+            GROUP BY asa.item_external_id, COALESCE(asa.branch_ext_id, '')
+        ),
+        sales AS (
+            SELECT
+                fs.item_code AS item_code,
+                COALESCE(fs.branch_ext_id, '') AS branch_ext_id,
+                SUM(CASE WHEN fs.doc_date >= :current_start THEN COALESCE(fs.qty, 0) ELSE 0 END) AS sales_qty_current,
+                SUM(CASE WHEN fs.doc_date >= :current_start THEN COALESCE(fs.net_value, 0) ELSE 0 END) AS sales_value_current,
+                SUM(CASE WHEN fs.doc_date >= :previous_start AND fs.doc_date < :current_start THEN COALESCE(fs.qty, 0) ELSE 0 END) AS sales_qty_previous,
+                SUM(CASE WHEN fs.doc_date >= :previous_start AND fs.doc_date < :current_start THEN COALESCE(fs.net_value, 0) ELSE 0 END) AS sales_value_previous
+            FROM fact_sales fs
+            WHERE fs.doc_date >= :previous_start
+              AND fs.doc_date <= :as_of
+              AND COALESCE(fs.item_code, '') <> ''
+            GROUP BY fs.item_code, COALESCE(fs.branch_ext_id, '')
+        ),
+        expected AS (
+            SELECT
+                fso.item_code AS item_code,
+                SUM(
+                    GREATEST(
+                        COALESCE(fso.order_qty, 0) - COALESCE(fso.covered_qty, 0) - COALESCE(fso.cancelled_qty, 0),
+                        0
+                    )
+                ) AS expected_qty,
+                MAX(COALESCE(fso.supplier_name, ds.name, ds_ext.name, fso.supplier_ext_id, 'Χωρίς προμηθευτή')) AS expected_supplier
+            FROM fact_supplier_orders fso
+            LEFT JOIN dim_suppliers ds ON ds.id = fso.supplier_id
+            LEFT JOIN dim_suppliers ds_ext ON ds_ext.external_id = fso.supplier_ext_id
+            WHERE COALESCE(fso.order_status, 'open') = 'open'
+              AND COALESCE(fso.has_transformation, false) = false
+              AND COALESCE(fso.item_code, '') <> ''
+            GROUP BY fso.item_code
+        ),
+        supplier_rank AS (
+            SELECT *
+            FROM (
+                SELECT
+                    fp.item_code AS item_code,
+                    COALESCE(ds.name, ds_ext.name, fp.supplier_ext_id, 'Χωρίς προμηθευτή') AS supplier_name,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY fp.item_code
+                        ORDER BY ABS(SUM(COALESCE(fp.net_value, 0))) DESC
+                    ) AS rn
+                FROM fact_purchases fp
+                LEFT JOIN dim_suppliers ds ON ds.id = fp.supplier_id
+                LEFT JOIN dim_suppliers ds_ext ON ds_ext.external_id = fp.supplier_ext_id
+                WHERE fp.doc_date >= :purchase_start
+                  AND fp.doc_date <= :as_of
+                  AND COALESCE(fp.item_code, '') <> ''
+                GROUP BY fp.item_code, COALESCE(ds.name, ds_ext.name, fp.supplier_ext_id, 'Χωρίς προμηθευτή')
+            ) ranked
+            WHERE rn = 1
+        ),
+        latest_purchase_price AS (
+            SELECT item_code, purchase_price
+            FROM (
+                SELECT
+                    COALESCE(di.external_id, fp.item_code) AS item_code,
+                    COALESCE(fp.net_value, 0) / NULLIF(COALESCE(fp.qty, 0), 0) AS purchase_price,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY COALESCE(di.external_id, fp.item_code)
+                        ORDER BY fp.doc_date DESC, fp.updated_at DESC
+                    ) AS rn
+                FROM fact_purchases fp
+                LEFT JOIN dim_items di ON di.id = fp.item_id
+                WHERE COALESCE(fp.item_code, di.external_id, '') <> ''
+                  AND COALESCE(fp.qty, 0) > 0
+                  AND COALESCE(fp.net_value, 0) > 0
+            ) ranked_price
+            WHERE rn = 1
+        ),
+        weighted_purchase_price AS (
+            SELECT
+                COALESCE(di.external_id, fp.item_code) AS item_code,
+                SUM(COALESCE(fp.net_value, 0)) / NULLIF(SUM(COALESCE(fp.qty, 0)), 0) AS avg_purchase_price
+            FROM fact_purchases fp
+            LEFT JOIN dim_items di ON di.id = fp.item_id
+            WHERE fp.doc_date >= :purchase_avg_start
+              AND fp.doc_date <= :as_of
+              AND COALESCE(fp.item_code, di.external_id, '') <> ''
+              AND COALESCE(fp.qty, 0) > 0
+              AND COALESCE(fp.net_value, 0) > 0
+            GROUP BY COALESCE(di.external_id, fp.item_code)
+        ),
+        scope AS (
+            SELECT item_code, branch_ext_id FROM stock WHERE COALESCE(item_code, '') <> ''
+            UNION
+            SELECT item_code, branch_ext_id FROM sales WHERE COALESCE(item_code, '') <> ''
+        )
+        SELECT
+            scope.item_code,
+            COALESCE(scope.branch_ext_id, '') AS branch_ext_id,
+            COALESCE(stock.branch_name, db.name, scope.branch_ext_id, 'Χωρίς σημείο') AS branch_name,
+            COALESCE(di.name, scope.item_code) AS item_name,
+            COALESCE(
+                NULLIF(di.replenishment_status_1, ''),
+                NULLIF(di.commercial_status, ''),
+                'Χωρίς FnR status'
+            ) AS status_1,
+            COALESCE(NULLIF(di.replenishment_status_2, ''), 'Χωρίς status') AS status_2,
+            COALESCE(NULLIF(di.category_1, ''), 'Χωρίς κατηγορία') AS category_1,
+            COALESCE(NULLIF(di.category_2, ''), '') AS category_2,
+            COALESCE(NULLIF(di.category_3, ''), '') AS category_3,
+            COALESCE(NULLIF(di.manual_order_category, ''), NULLIF(di.abc_category, ''), 'Χωρίς ABC') AS abc_category,
+            COALESCE(NULLIF(di.commercial_status, ''), '-') AS commercial_status,
+            COALESCE(NULLIF(supplier_rank.supplier_name, ''), NULLIF(expected.expected_supplier, ''), 'Χωρίς προμηθευτή') AS supplier_name,
+            COALESCE(stock.stock_qty, 0) AS stock_qty,
+            COALESCE(stock.stock_value, 0) AS stock_value,
+            COALESCE(sales.sales_qty_current, 0) AS sales_qty_current,
+            COALESCE(sales.sales_value_current, 0) AS sales_value_current,
+            COALESCE(sales.sales_qty_previous, 0) AS sales_qty_previous,
+            COALESCE(sales.sales_value_previous, 0) AS sales_value_previous,
+            COALESCE(expected.expected_qty, 0) AS expected_qty,
+            COALESCE(di.min_stock, 1) AS min_stock,
+            COALESCE(
+                NULLIF(latest_purchase_price.purchase_price, 0),
+                NULLIF(di.current_purchase_price, 0),
+                NULLIF(weighted_purchase_price.avg_purchase_price, 0),
+                0
+            ) AS purchase_price,
+            COALESCE(
+                NULLIF(weighted_purchase_price.avg_purchase_price, 0),
+                NULLIF(latest_purchase_price.purchase_price, 0),
+                NULLIF(di.current_purchase_price, 0),
+                0
+            ) AS avg_purchase_price
+        FROM scope
+        LEFT JOIN stock ON stock.item_code = scope.item_code AND stock.branch_ext_id = scope.branch_ext_id
+        LEFT JOIN sales ON sales.item_code = scope.item_code AND sales.branch_ext_id = scope.branch_ext_id
+        LEFT JOIN dim_items di ON di.external_id = scope.item_code
+        LEFT JOIN dim_branches db ON db.external_id = scope.branch_ext_id
+        LEFT JOIN expected ON expected.item_code = scope.item_code
+        LEFT JOIN supplier_rank ON supplier_rank.item_code = scope.item_code
+        LEFT JOIN latest_purchase_price ON latest_purchase_price.item_code = scope.item_code
+        LEFT JOIN weighted_purchase_price ON weighted_purchase_price.item_code = scope.item_code
+        WHERE COALESCE(di.softone_sotype, 51) = 51
+          AND COALESCE(di.is_active_source, true) = true
+        """
+    )
+    result = await db.execute(
+        sql,
+        {
+            'as_of': as_of,
+            'current_start': current_start,
+            'previous_start': previous_start,
+            'purchase_start': purchase_start,
+            'purchase_avg_start': purchase_avg_start,
+        },
+    )
+
+    summary = {
+        'as_of': as_of.isoformat(),
+        'items': 0,
+        'stock_value': 0.0,
+        'stock_qty': 0.0,
+        'expected_qty': 0.0,
+        'shortage_items': 0,
+        'shortage_value': 0.0,
+        'overstock_items': 0,
+        'stockout_items': 0,
+    }
+    by_store: dict[str, dict[str, object]] = {}
+    by_status: dict[str, dict[str, object]] = {}
+    by_category: dict[str, dict[str, object]] = {}
+    by_vendor: dict[str, dict[str, object]] = {}
+    seen_items: set[str] = set()
+    seen_expected_items: set[str] = set()
+    options = {
+        'branches': set(),
+        'statuses': set(),
+        'categories': set(),
+        'vendors': set(),
+        'abcs': set(),
+    }
+    detail_rows: list[dict[str, object]] = []
+    branch_value = (branch or '').strip()
+    status_value = (status or '').strip()
+    category_value = (category or '').strip()
+    vendor_value = (vendor or '').strip()
+    abc_value = (abc or '').strip()
+    search_value = (search or '').strip()
+    branch_filter = branch_value.casefold()
+    status_filter = status_value.casefold()
+    category_filter = category_value.casefold()
+    vendor_filter = vendor_value.casefold()
+    abc_filter = abc_value.casefold()
+    search_filter = search_value.casefold()
+    detail_dimension = (detail_dimension or '').strip()
+    detail_value_fold = (detail_value or '').strip().casefold()
+    detail_kind = (detail_kind or 'all').strip()
+
+    for row in result.mappings().all():
+        item_code = str(row.get('item_code') or '').strip()
+        branch = str(row.get('branch_name') or row.get('branch_ext_id') or 'Χωρίς σημείο').strip() or 'Χωρίς σημείο'
+        status = str(row.get('status_1') or 'Χωρίς status').strip() or 'Χωρίς status'
+        category = str(row.get('category_1') or 'Χωρίς κατηγορία').strip() or 'Χωρίς κατηγορία'
+        vendor = str(row.get('supplier_name') or 'Χωρίς προμηθευτή').strip() or 'Χωρίς προμηθευτή'
+        abc_category = str(row.get('abc_category') or 'Χωρίς ABC').strip() or 'Χωρίς ABC'
+        commercial_status = str(row.get('commercial_status') or '-').strip() or '-'
+        stock_qty = _as_float(row.get('stock_qty'))
+        stock_value = _as_float(row.get('stock_value'))
+        expected_qty = max(_as_float(row.get('expected_qty')), 0.0)
+        current_qty = max(_as_float(row.get('sales_qty_current')), 0.0)
+        previous_qty = max(_as_float(row.get('sales_qty_previous')), 0.0)
+        current_value = max(_as_float(row.get('sales_value_current')), 0.0)
+        previous_value = max(_as_float(row.get('sales_value_previous')), 0.0)
+        purchase_price = _as_float(row.get('purchase_price'))
+        avg_purchase_price = _as_float(row.get('avg_purchase_price'))
+        if purchase_price <= 0 and stock_qty > 0 and stock_value > 0:
+            purchase_price = stock_value / stock_qty
+        if avg_purchase_price <= 0:
+            avg_purchase_price = purchase_price
+        if avg_purchase_price <= 0 and stock_qty > 0 and stock_value > 0:
+            avg_purchase_price = stock_value / stock_qty
+        purchase_price_variance_pct = (
+            ((purchase_price - avg_purchase_price) / avg_purchase_price * 100.0)
+            if avg_purchase_price > 0 and purchase_price > 0
+            else 0.0
+        )
+        valuation_purchase_price = avg_purchase_price if avg_purchase_price > 0 else purchase_price
+        weekly_sales = current_qty / max(window_days / 7.0, 1.0)
+        target_stock = max(target_stock_weeks * weekly_sales, _as_float(row.get('min_stock'), 1.0))
+        # Expected supplier quantities are item-level in BI, not store-level. Keep them visible,
+        # but do not subtract them from every store row and hide real availability pressure.
+        shortage_qty = max(target_stock - stock_qty, 0.0)
+        shortage_value = shortage_qty * max(valuation_purchase_price, 0.0)
+        weeks_of_stock = 999.0 if weekly_sales <= 0 and stock_qty > 0 else (stock_qty / weekly_sales if weekly_sales > 0 else 0.0)
+        is_stockout = current_qty > 0 and stock_qty <= 0
+        is_overstock = stock_qty > 0 and weekly_sales > 0 and weeks_of_stock > overstock_weeks and shortage_qty <= 0
+
+        options['branches'].add(branch)
+        options['statuses'].add(status)
+        options['categories'].add(category)
+        options['vendors'].add(vendor)
+        options['abcs'].add(abc_category)
+        if branch_filter and branch.casefold() != branch_filter:
+            continue
+        if status_filter and status.casefold() != status_filter:
+            continue
+        if category_filter and category.casefold() != category_filter:
+            continue
+        if vendor_filter and vendor.casefold() != vendor_filter:
+            continue
+        if abc_filter and abc_category.casefold() != abc_filter:
+            continue
+        if search_filter:
+            haystack = ' '.join(
+                [
+                    item_code,
+                    str(row.get('item_name') or ''),
+                    str(row.get('category_1') or ''),
+                    str(row.get('category_2') or ''),
+                    str(row.get('category_3') or ''),
+                    abc_category,
+                    commercial_status,
+                    vendor,
+                ]
+            ).casefold()
+            if search_filter not in haystack:
+                continue
+
+        dimension_match = True
+        if detail_dimension and detail_value_fold:
+            dimension_value = {
+                'store': branch,
+                'status': status,
+                'category': category,
+                'vendor': vendor,
+            }.get(detail_dimension, '')
+            dimension_match = dimension_value.casefold() == detail_value_fold
+        kind_match = (
+            detail_kind == 'all'
+            or (detail_kind == 'shortage' and shortage_qty > 0)
+            or (detail_kind == 'stockout' and is_stockout)
+            or (detail_kind == 'overstock' and is_overstock)
+        )
+        if include_detail_rows and dimension_match and kind_match:
+            detail_rows.append(
+                {
+                    'item_code': item_code,
+                    'item_name': str(row.get('item_name') or item_code),
+                    'store': branch,
+                    'status': status,
+                    'abc_category': abc_category,
+                    'commercial_status': commercial_status,
+                    'category': category,
+                    'vendor': vendor,
+                    'stock_qty': stock_qty,
+                    'stock_value': stock_value,
+                    'expected_qty': expected_qty,
+                    'sales_qty_current': current_qty,
+                    'sales_value_current': current_value,
+                    'sales_growth_pct': ((current_value - previous_value) / previous_value * 100.0)
+                    if previous_value > 0 else (100.0 if current_value > 0 else 0.0),
+                    'weekly_sales': weekly_sales,
+                    'target_stock': target_stock,
+                    'shortage_qty': shortage_qty,
+                    'shortage_value': shortage_value,
+                    'latest_purchase_price': purchase_price,
+                    'avg_purchase_price': avg_purchase_price,
+                    'valuation_purchase_price': valuation_purchase_price,
+                    'purchase_price_variance_pct': purchase_price_variance_pct,
+                    'weeks_of_stock': weeks_of_stock,
+                    'stockout': is_stockout,
+                    'overstock': is_overstock,
+                }
+            )
+
+        if item_code and item_code not in seen_items:
+            seen_items.add(item_code)
+            summary['items'] += 1
+        summary['stock_value'] += stock_value
+        summary['stock_qty'] += stock_qty
+        if item_code and item_code not in seen_expected_items:
+            seen_expected_items.add(item_code)
+            summary['expected_qty'] += expected_qty
+        if shortage_qty > 0:
+            summary['shortage_items'] += 1
+            summary['shortage_value'] += shortage_value
+        if is_overstock:
+            summary['overstock_items'] += 1
+        if is_stockout:
+            summary['stockout_items'] += 1
+
+        def bucket(target: dict[str, dict[str, object]], key: str, label_key: str) -> dict[str, object]:
+            entry = target.setdefault(
+                key,
+                {
+                    label_key: key,
+                    'items': 0,
+                    'stock_qty': 0.0,
+                    'stock_value': 0.0,
+                    'expected_qty': 0.0,
+                    'shortage_items': 0,
+                    'shortage_value': 0.0,
+                    'overstock_items': 0,
+                    'stockout_items': 0,
+                    'sales_qty_current': 0.0,
+                    'sales_qty_previous': 0.0,
+                    'sales_value_current': 0.0,
+                    'sales_value_previous': 0.0,
+                    '_expected_items': set(),
+                },
+            )
+            entry['items'] = int(entry['items']) + 1
+            entry['stock_qty'] = float(entry['stock_qty']) + stock_qty
+            entry['stock_value'] = float(entry['stock_value']) + stock_value
+            expected_items = entry.get('_expected_items')
+            if isinstance(expected_items, set) and item_code and item_code not in expected_items:
+                expected_items.add(item_code)
+                entry['expected_qty'] = float(entry['expected_qty']) + expected_qty
+            entry['sales_qty_current'] = float(entry['sales_qty_current']) + current_qty
+            entry['sales_qty_previous'] = float(entry['sales_qty_previous']) + previous_qty
+            entry['sales_value_current'] = float(entry['sales_value_current']) + current_value
+            entry['sales_value_previous'] = float(entry['sales_value_previous']) + previous_value
+            if shortage_qty > 0:
+                entry['shortage_items'] = int(entry['shortage_items']) + 1
+                entry['shortage_value'] = float(entry['shortage_value']) + shortage_value
+            if is_overstock:
+                entry['overstock_items'] = int(entry['overstock_items']) + 1
+            if is_stockout:
+                entry['stockout_items'] = int(entry['stockout_items']) + 1
+            return entry
+
+        bucket(by_store, branch, 'store')
+        bucket(by_status, status, 'status')
+        bucket(by_category, category, 'category')
+        bucket(by_vendor, vendor, 'vendor')
+
+    def finalize(rows: list[dict[str, object]], sort_key: str, limit: int) -> list[dict[str, object]]:
+        out = []
+        for row in rows:
+            current = float(row.get('sales_value_current') or 0)
+            previous = float(row.get('sales_value_previous') or 0)
+            row['sales_growth_pct'] = ((current - previous) / previous * 100.0) if previous > 0 else (100.0 if current > 0 else 0.0)
+            row['availability_pressure'] = float(row.get('shortage_value') or 0) + (float(row.get('stockout_items') or 0) * 100.0)
+            row.pop('_expected_items', None)
+            out.append(row)
+        return sorted(out, key=lambda r: float(r.get(sort_key) or 0), reverse=True)[:limit]
+
+    return {
+        'summary': summary,
+        'stores': finalize(list(by_store.values()), 'availability_pressure', 8),
+        'statuses': finalize(list(by_status.values()), 'availability_pressure', 8),
+        'categories': finalize(list(by_category.values()), 'availability_pressure', 8),
+        'priority_vendors': finalize(list(by_vendor.values()), 'availability_pressure', 10),
+        'options': {key: sorted(value) for key, value in options.items()},
+        'filters': {
+            'branch': branch_value,
+            'status': status_value,
+            'category': category_value,
+            'vendor': vendor_value,
+            'abc': abc_value,
+            'search': search_value,
+        },
+        'detail_rows': sorted(
+            detail_rows,
+            key=lambda item: (
+                -float(item.get('shortage_value') or 0),
+                -float(item.get('sales_value_current') or 0),
+                str(item.get('item_name') or ''),
+            ),
+        )[: max(detail_limit, 1)],
     }
 
 

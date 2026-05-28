@@ -96,6 +96,7 @@ from app.services.kpi_queries import (
 from app.services.kpi_cache import get_or_set_cache
 from app.services.business_advisor import business_advisor_report
 from app.services.era_exploration import era_exploration_report
+from app.services.iqvia import iqvia_report
 from app.services.intelligence_service import acknowledge_insight, list_insights
 from app.core.config import settings
 from app.core.celery_sender import make_celery_sender
@@ -165,7 +166,7 @@ def _tenant_inventory_item_classification_from_request(request: Request) -> dict
 def _tenant_eshop_fulfillment_from_request(request: Request) -> dict[str, object]:
     tenant = getattr(request.state, 'tenant', None)
     flags = getattr(tenant, 'feature_flags', None)
-    raw = {}
+    raw = {'use_defaults': False}
     if isinstance(flags, dict):
         cfg = flags.get('eshop_fulfillment')
         if isinstance(cfg, dict):
@@ -3263,6 +3264,42 @@ async def get_era_exploration_report(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+@router.get('/v1/kpi/iqvia')
+async def get_iqvia_report(
+    tenant: Tenant = Depends(get_request_tenant),
+    tenant_db: AsyncSession = Depends(get_tenant_db),
+    q: str | None = Query(default=None),
+    category: str | None = Query(default=None),
+    manufacturer: str | None = Query(default=None),
+    territory: str | None = Query(default=None),
+    atc3: str | None = Query(default=None),
+    otc3: str | None = Query(default=None),
+    period: str | None = Query(default=None),
+    sort: str = Query(default='values'),
+    direction: str = Query(default='desc', pattern='^(asc|desc)$'),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=10, le=500),
+):
+    try:
+        return await iqvia_report(
+            tenant,
+            tenant_db,
+            q=q,
+            category=category,
+            manufacturer=manufacturer,
+            territory=territory,
+            atc3=atc3,
+            otc3=otc3,
+            period=period,
+            sort=sort,
+            direction=direction,
+            page=page,
+            page_size=page_size,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @router.get('/v1/kpi/business-advisor')
 async def get_business_advisor_report(
     request: Request,
@@ -3295,7 +3332,7 @@ async def get_business_advisor_report(
         response=response,
         namespace='dashboard:business_advisor',
         params=params,
-        ttl_seconds=300,
+        ttl_seconds=1800,
         producer=lambda: business_advisor_report(
             tenant_db,
             date_from=date_from,

@@ -40,7 +40,7 @@ class ExternalApiIngestConnector(Connector):
         del entity
         del state
 
-        records = self._records_from_direct_payload(payload)
+        records = self._records_from_direct_payload(payload, stream=stream)
         if records is not None:
             return self._normalize_records(records)
 
@@ -54,7 +54,11 @@ class ExternalApiIngestConnector(Connector):
         return self._normalize_records(extracted)
 
     @staticmethod
-    def _records_from_direct_payload(payload: dict | None) -> list[dict[str, Any]] | None:
+    def _records_from_direct_payload(
+        payload: dict | None,
+        *,
+        stream: OperationalIngestStream,
+    ) -> list[dict[str, Any]] | None:
         if not payload:
             return None
 
@@ -64,7 +68,8 @@ class ExternalApiIngestConnector(Connector):
 
         payloads = payload.get('payloads')
         if isinstance(payloads, dict):
-            for stream_payload in payloads.values():
+            for token in ExternalApiIngestConnector._stream_tokens(stream):
+                stream_payload = payloads.get(token)
                 if not isinstance(stream_payload, dict):
                     continue
                 nested = stream_payload.get('records')
@@ -80,6 +85,8 @@ class ExternalApiIngestConnector(Connector):
             return ('purchase_documents', 'purchases', 'purchase_docs')
         if stream == 'inventory_documents':
             return ('inventory_documents', 'inventory', 'warehouse_documents')
+        if stream == 'item_master':
+            return ('item_master', 'items', 'item', 'products', 'product_master')
         if stream == 'cash_transactions':
             return ('cash_transactions', 'cashflows', 'cashflow')
         if stream == 'supplier_balances':
@@ -121,6 +128,7 @@ class ExternalApiIngestConnector(Connector):
             'sales_documents': 'GetSalesDocumentsForBI',
             'purchase_documents': 'GetPurchaseDocumentsForBI',
             'inventory_documents': 'GetInventoryDocumentsForBI',
+            'item_master': 'GetItemMasterForBI',
             'cash_transactions': 'GetCashTransactionsForBI',
             'supplier_balances': 'GetSupplierBalancesForBI',
             'customer_balances': 'GetCustomerBalancesForBI',
@@ -152,12 +160,15 @@ class ExternalApiIngestConnector(Connector):
         passthrough_keys = (
             'company',
             'limit',
+            'balanceLimit',
+            'allowFullBalanceSync',
             'debug',
             'fromDate',
             'toDate',
             'includeSales',
             'includePurchases',
             'includeInventory',
+            'includeItemMaster',
             'includeCashTransactions',
             'includeSupplierBalances',
             'includeCustomerBalances',
@@ -188,6 +199,7 @@ class ExternalApiIngestConnector(Connector):
             'sales_documents': 'includeSales',
             'purchase_documents': 'includePurchases',
             'inventory_documents': 'includeInventory',
+            'item_master': 'includeItemMaster',
             'cash_transactions': 'includeCashTransactions',
             'supplier_balances': 'includeSupplierBalances',
             'customer_balances': 'includeCustomerBalances',
@@ -379,6 +391,8 @@ class ExternalApiIngestConnector(Connector):
         auth_type = str(params.get('auth_type') or '').strip().lower()
         auth_cfg = params.get('auth_config')
         auth_cfg = auth_cfg if isinstance(auth_cfg, dict) else {}
+        auth_secret = params.get('auth_secret')
+        auth_secret = auth_secret if isinstance(auth_secret, dict) else {}
         client_key = str(auth_cfg.get('client_id_param') or params.get('client_id_param') or 'clientID')
 
         explicit_client = (
@@ -398,7 +412,7 @@ class ExternalApiIngestConnector(Connector):
             return
 
         username = str(auth_cfg.get('username') or params.get('username') or '').strip()
-        password = str(auth_cfg.get('password') or params.get('password') or '').strip()
+        password = str(auth_secret.get('password') or auth_cfg.get('password') or params.get('password') or '').strip()
         app_id = str(auth_cfg.get('app_id') or auth_cfg.get('appId') or params.get('app_id') or params.get('appId') or '').strip()
         if not username or not password or not app_id:
             return

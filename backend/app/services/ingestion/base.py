@@ -9,6 +9,7 @@ IngestEntity = Literal[
     'sales',
     'purchases',
     'inventory',
+    'items',
     'cashflows',
     'supplier_balances',
     'customer_balances',
@@ -19,6 +20,7 @@ OperationalIngestStream = Literal[
     'sales_documents',
     'purchase_documents',
     'inventory_documents',
+    'item_master',
     'cash_transactions',
     'supplier_balances',
     'customer_balances',
@@ -31,6 +33,7 @@ ALL_OPERATIONAL_STREAMS: tuple[OperationalIngestStream, ...] = (
     'sales_documents',
     'purchase_documents',
     'inventory_documents',
+    'item_master',
     'cash_transactions',
     'supplier_balances',
     'customer_balances',
@@ -42,6 +45,7 @@ STREAM_TO_ENTITY: dict[OperationalIngestStream, IngestEntity] = {
     'sales_documents': 'sales',
     'purchase_documents': 'purchases',
     'inventory_documents': 'inventory',
+    'item_master': 'items',
     'cash_transactions': 'cashflows',
     'supplier_balances': 'supplier_balances',
     'customer_balances': 'customer_balances',
@@ -63,6 +67,11 @@ def normalize_stream_name(value: str | None) -> OperationalIngestStream | None:
         'purchases': 'purchase_documents',
         'purchase_docs': 'purchase_documents',
         'inventory': 'inventory_documents',
+        'item_master': 'item_master',
+        'items': 'item_master',
+        'item': 'item_master',
+        'products': 'item_master',
+        'product_master': 'item_master',
         'warehouse_documents': 'inventory_documents',
         'warehouse_docs': 'inventory_documents',
         'cashflows': 'cash_transactions',
@@ -135,6 +144,7 @@ class ConnectorContext:
     customer_balances_query: str | None = None
     expenses_query: str | None = None
     supplier_orders_query: str | None = None
+    item_master_query: str | None = None
 
     def stream_enabled(self, stream: OperationalIngestStream) -> bool:
         if self.enabled_streams:
@@ -153,6 +163,8 @@ class ConnectorContext:
             return self.purchases_query
         if stream == 'inventory_documents':
             return self.inventory_query
+        if stream == 'item_master':
+            return self.item_master_query
         if stream == 'cash_transactions':
             return self.cashflow_query
         if stream == 'supplier_balances':

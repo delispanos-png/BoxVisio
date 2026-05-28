@@ -75,7 +75,9 @@
         <tbody>
           {% for row in rows %}
           {% set sync_status = row[0].sync_status or 'never' %}
-          {% set progress = progress_by_tenant.get(row[1].id, {}) %}
+          {% set connector_type = (row[0].connector_type or '')|lower %}
+          {% set shows_ingest_progress = connector_type in ['sql_connector', 'pharmacyone_sql', 'external_api'] %}
+          {% set progress = progress_by_tenant.get(row[1].id, {}) if shows_ingest_progress else {} %}
           {% set progress_status = progress.get('status', 'idle') %}
           {% set progress_pct = progress.get('progress_pct', 0) %}
           {% set queue_left = progress.get('current_queue_depth', 0) %}
@@ -88,6 +90,7 @@
               </span>
             </td>
             <td>
+              {% if shows_ingest_progress %}
               <div class="bv-sync-progress">
                 <div class="bv-sync-progress-meta">
                   <span>{{ progress_status }}</span>
@@ -97,6 +100,9 @@
                   <div class="progress-bar" role="progressbar" style="width: {{ progress_pct }}%;" aria-valuenow="{{ progress_pct }}" aria-valuemin="0" aria-valuemax="100"></div>
                 </div>
               </div>
+              {% else %}
+              <span class="text-muted small">Δεν συμμετέχει στο ERP sync queue</span>
+              {% endif %}
             </td>
             <td>{{ row[0].last_sync_at or '-' }}</td>
             <td>

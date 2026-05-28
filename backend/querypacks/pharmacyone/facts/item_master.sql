@@ -1,0 +1,82 @@
+SELECT
+  CAST(ISNULL(I.CODE, I.MTRL) AS nvarchar(128)) AS item_code,
+  CAST(ISNULL(I.CODE, I.MTRL) AS nvarchar(128)) AS item_external_id,
+  CAST('ITEM|' + CAST(ISNULL(I.COMPANY, 0) AS nvarchar(32)) + '|' + CAST(ISNULL(I.MTRL, 0) AS nvarchar(40)) AS nvarchar(128)) AS external_id,
+  CAST('ITEM|' + CAST(ISNULL(I.COMPANY, 0) AS nvarchar(32)) + '|' + CAST(ISNULL(I.MTRL, 0) AS nvarchar(40)) AS nvarchar(128)) AS event_id,
+  CAST(COALESCE(@to_date, GETDATE()) AS date) AS doc_date,
+  CAST(ISNULL(I.UPDDATE, GETDATE()) AS datetime2) AS updated_at,
+  CAST(ISNULL(I.NAME, '') AS nvarchar(255)) AS item_name,
+  CAST(NULLIF(ISNULL(I.CODE1, ''), '') AS nvarchar(128)) AS barcode,
+  CAST(NULLIF(STUFF((
+    SELECT ',' + CAST(MS.CODE AS nvarchar(128))
+    FROM MTRSUBSTITUTE MS WITH (NOLOCK)
+    WHERE MS.COMPANY = I.COMPANY
+      AND MS.MTRL = I.MTRL
+      AND NULLIF(ISNULL(MS.CODE, ''), '') IS NOT NULL
+    FOR XML PATH(''), TYPE
+  ).value('.', 'nvarchar(max)'), 1, 1, ''), '') AS nvarchar(1024)) AS alternate_barcodes,
+  CAST(ISNULL(I.SODTYPE, 0) AS int) AS softone_sotype,
+  CAST(NULLIF(CAST(ISNULL(I.MTRMARK, 0) AS nvarchar(64)), '0') AS nvarchar(64)) AS brand_external_id,
+  CAST(ISNULL(MK.NAME, '') AS nvarchar(255)) AS brand_name,
+  CAST(NULLIF(CAST(ISNULL(I.MTRMANFCTR, 0) AS nvarchar(128)), '0') AS nvarchar(128)) AS manufacturer_code,
+  CAST(ISNULL(MF.NAME, '') AS nvarchar(255)) AS manufacturer_name,
+  TRY_CAST(I.VAT AS decimal(18,4)) AS vat_rate,
+  CAST(ISNULL(VT.NAME, '') AS nvarchar(255)) AS vat_label,
+  CAST(ISNULL(CG.NAME, '') AS nvarchar(255)) AS commercial_category,
+  CAST(ISNULL(PC1.NAME, '') AS nvarchar(255)) AS category_1,
+  CAST(ISNULL(PC2.NAME, '') AS nvarchar(255)) AS category_2,
+  CAST(ISNULL(PC3.NAME, '') AS nvarchar(255)) AS category_3,
+  CAST(NULLIF(CAST(ISNULL(I.MTRGROUP, 0) AS nvarchar(64)), '0') AS nvarchar(64)) AS group_external_id,
+  CAST(ISNULL(MG.NAME, '') AS nvarchar(255)) AS group_name,
+  CAST(COALESCE(NULLIF(UT4.NAME, ''), NULLIF(UT4.CODE, ''), NULLIF(CAST(IX.UTBL04 AS nvarchar(128)), '0'), '') AS nvarchar(128)) AS manual_order_category,
+  CAST(COALESCE(NULLIF(UT5.NAME, ''), NULLIF(UT5.CODE, ''), NULLIF(CAST(IX.UTBL05 AS nvarchar(128)), '0'), '') AS nvarchar(128)) AS commercial_status,
+  CAST('' AS nvarchar(64)) AS replenishment_status_1,
+  CAST('' AS nvarchar(128)) AS replenishment_status_2,
+  CAST(1 AS decimal(18,4)) AS min_stock,
+  CAST(1 AS decimal(18,4)) AS replenishment_moq,
+  COALESCE(TRY_CAST(VMQ.vendor_moq AS decimal(18,4)), CAST(1 AS decimal(18,4))) AS vendor_moq,
+  TRY_CAST(I.PRICEW AS decimal(18,4)) AS current_purchase_price,
+  CAST(ISNULL(I.ISACTIVE, 1) AS bit) AS is_active_source,
+  CAST(ISNULL(I.COMPANY, 0) AS nvarchar(64)) AS company_id
+FROM MTRL I WITH (NOLOCK)
+OUTER APPLY (
+  SELECT MIN(NULLIF(TRY_CAST(MSC.CCC88MOQ AS decimal(18,4)), 0)) AS vendor_moq
+  FROM MTRSUPCODE MSC WITH (NOLOCK)
+  WHERE MSC.MTRL = I.MTRL
+    AND MSC.COMPANY = I.COMPANY
+) VMQ
+LEFT JOIN MTREXTRA IX WITH (NOLOCK)
+  ON IX.MTRL = I.MTRL
+ AND IX.COMPANY = I.COMPANY
+LEFT JOIN UTBL04 UT4 WITH (NOLOCK)
+  ON UT4.UTBL04 = IX.UTBL04
+ AND UT4.COMPANY = IX.COMPANY
+ AND UT4.SODTYPE = I.SODTYPE
+LEFT JOIN UTBL05 UT5 WITH (NOLOCK)
+  ON UT5.UTBL05 = IX.UTBL05
+ AND UT5.COMPANY = IX.COMPANY
+ AND UT5.SODTYPE = I.SODTYPE
+LEFT JOIN MTRMANFCTR MF WITH (NOLOCK)
+  ON MF.MTRMANFCTR = I.MTRMANFCTR
+ AND MF.COMPANY = I.COMPANY
+LEFT JOIN MTRMARK MK WITH (NOLOCK)
+  ON MK.MTRMARK = I.MTRMARK
+ AND MK.COMPANY = I.COMPANY
+LEFT JOIN MTRGROUP MG WITH (NOLOCK)
+  ON MG.MTRGROUP = I.MTRGROUP
+ AND MG.COMPANY = I.COMPANY
+LEFT JOIN VAT VT WITH (NOLOCK)
+  ON VT.VAT = I.VAT
+LEFT JOIN CCC88POCAT1 PC1 WITH (NOLOCK)
+  ON PC1.CCC88POCAT1 = I.CCC88POCAT1
+LEFT JOIN CCC88POCAT2 PC2 WITH (NOLOCK)
+  ON PC2.CCC88POCAT2 = I.CCC88POCAT2
+LEFT JOIN CCC88POCAT3 PC3 WITH (NOLOCK)
+  ON PC3.CCC88POCAT3 = I.CCC88POCAT3
+LEFT JOIN MTRPCATEGORY CG WITH (NOLOCK)
+  ON CG.MTRPCATEGORY = I.MTRPCATEGORY
+ AND CG.COMPANY = I.COMPANY
+WHERE
+  (@company_id IS NULL OR I.COMPANY = @company_id)
+  AND ISNULL(I.SODTYPE, 0) = 51
+  AND NULLIF(ISNULL(I.CODE, ''), '') IS NOT NULL

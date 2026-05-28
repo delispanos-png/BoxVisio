@@ -38,6 +38,8 @@
     {% for t in tenants %}
     {% set sub = subscriptions_by_tenant.get(t.id) %}
     {% set feature_values = subscription_features_by_tenant.get(t.id, {}) %}
+    {% set feature_allowed_values = subscription_feature_allowed_by_tenant.get(t.id, {}) %}
+    {% set tenant_customer_feature_keys = subscription_customer_feature_keys_by_tenant.get(t.id, []) %}
     {% set limit_values = subscription_limits_by_tenant.get(t.id, {}) %}
     {% set temporary_upgrade = sub.feature_flags.get('_temporary_upgrade') if sub and sub.feature_flags and sub.feature_flags.get('_temporary_upgrade') else none %}
     <section class="subs-tenant-card">
@@ -86,6 +88,14 @@
                   </select>
                 </div>
                 <div>
+                  <label class="form-label">Πλάνο</label>
+                  <select class="form-select form-select-sm subs-plan-select" name="plan" data-plan-select>
+                    {% for plan_choice in plan_choices %}
+                    <option value="{{ plan_choice.value }}" {% if (sub.plan.value if sub else t.plan.value) == plan_choice.value %}selected{% endif %}>{{ plan_choice.label }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+                <div>
                   <label class="form-label">Ταυτόχρονοι χρήστες</label>
                   <div class="input-group input-group-sm">
                     <input class="form-control" type="number" min="{{ limit_values.active_users or 1 }}" max="9999" step="1" name="max_users" value="{{ limit_values.max_users or 1 }}" title="Αγορασμένες ταυτόχρονες θέσεις χρήσης">
@@ -93,8 +103,21 @@
                   </div>
                 </div>
                 <div>
+                  <label class="form-label">Υποκαταστήματα</label>
+                  <input class="form-control form-control-sm" type="number" min="1" max="9999" step="1" name="max_branches" value="{{ limit_values.max_branches or 1 }}">
+                </div>
+                <div>
                   <label class="form-label">Σημείωση</label>
                   <input class="form-control form-control-sm" name="note" placeholder="{{ tt(request, 'note') }}">
+                </div>
+                <div class="subs-custom-only" data-custom-only>
+                  <label class="form-label">Σημειώσεις custom συμφωνίας</label>
+                  <input class="form-control form-control-sm" name="custom_agreement_notes" value="{{ sub.feature_flags.get('custom_agreement_notes', '') if sub and sub.feature_flags else '' }}" placeholder="Όροι, ειδικά κυκλώματα, custom SLA">
+                </div>
+                <div class="subs-custom-only" data-custom-only>
+                  <label class="form-label">Αποκλειστικές υλοποιήσεις πελάτη</label>
+                  <textarea class="form-control form-control-sm" name="custom_exclusive_implementations" rows="3" placeholder="Νέες απαιτήσεις που υλοποιούνται αποκλειστικά για αυτόν τον πελάτη και δεν μεταφέρονται σε άλλα πακέτα/tenants.">{{ sub.feature_flags.get('custom_exclusive_implementations', '') if sub and sub.feature_flags else '' }}</textarea>
+                  <small class="text-muted">Οι υλοποιήσεις αυτές χαρακτηρίζονται custom-only για τον συγκεκριμένο tenant.</small>
                 </div>
               </div>
               <div class="subs-save-row">
@@ -105,15 +128,29 @@
               <p class="subs-panel-title">Πρόσβαση σε κυκλώματα</p>
               <div class="subs-features-grid">
                 {% for group, features in subscription_features|groupby('group') %}
+                {% if group != 'Add-ons' %}
                 <div>
                   <div class="subs-feature-group-title">{{ group }}</div>
-                  {% for feature in features %}
+                  {% for feature in features if feature.key not in addon_feature_keys %}
                   <label class="subs-feature" title="{{ feature.minimum_plan }}">
                     <input class="form-check-input" type="checkbox" name="enabled_features" value="{{ feature.key }}" {% if feature_values.get(feature.key) %}checked{% endif %}>
                     <span>{{ feature.label }}</span>
                   </label>
                   {% endfor %}
                 </div>
+                {% endif %}
+                {% endfor %}
+              </div>
+              <div class="subs-feature-group-title mt-3">Πρόσθετα κυκλώματα / Add-ons</div>
+              <div class="subs-features-grid">
+                {% for feature in subscription_features if feature.key in addon_feature_keys %}
+                {% set current_plan = sub.plan.value if sub else t.plan.value %}
+                {% set addon_allowed = feature_allowed_values.get(feature.key, addon_allowed_by_plan.get(current_plan, {}).get(feature.key, false)) %}
+                <label class="subs-feature {% if not addon_allowed %}is-locked{% endif %}" title="{{ feature.minimum_plan }}" data-addon-feature="{{ feature.key }}" data-tenant-owned-addon="{% if feature.key in tenant_customer_feature_keys %}1{% else %}0{% endif %}">
+                  <input class="form-check-input" type="checkbox" name="enabled_features" value="{{ feature.key }}" {% if feature_values.get(feature.key) %}checked{% endif %} {% if not addon_allowed %}disabled{% endif %}>
+                  <span>{{ feature.label }}</span>
+                  <small class="ms-auto text-muted" data-addon-lock-text>{% if addon_allowed %}Extra{% else %}Απαιτεί Pro, Enterprise ή Custom{% endif %}</small>
+                </label>
                 {% endfor %}
               </div>
             </div>
@@ -151,4 +188,30 @@
     {% endfor %}
   </div>
 </div>
+<script>
+  window.BV_ADDON_ALLOWED_BY_PLAN = {{ addon_allowed_by_plan|tojson }};
+  document.querySelectorAll('form[action^="/admin/subscriptions/"][action$="/update"]').forEach((form) => {
+    const select = form.querySelector('[data-plan-select]');
+    const customOnly = form.querySelectorAll('[data-custom-only]');
+    const syncPlanState = () => {
+      const plan = select ? select.value : 'standard';
+      customOnly.forEach((el) => { el.style.display = plan === 'custom' ? '' : 'none'; });
+      form.querySelectorAll('[data-addon-feature]').forEach((row) => {
+        const key = row.dataset.addonFeature;
+        const tenantOwned = row.dataset.tenantOwnedAddon === '1';
+        const allowed = Boolean(window.BV_ADDON_ALLOWED_BY_PLAN?.[plan]?.[key]) || (tenantOwned && plan === 'custom');
+        const input = row.querySelector('input[type="checkbox"]');
+        const note = row.querySelector('[data-addon-lock-text]');
+        row.classList.toggle('is-locked', !allowed);
+        if (input) {
+          input.disabled = !allowed;
+          if (plan === 'custom' && allowed) input.checked = true;
+        }
+        if (note) note.textContent = allowed ? (plan === 'custom' ? 'Custom' : 'Extra') : 'Απαιτεί Pro, Enterprise ή Custom';
+      });
+    };
+    if (select) select.addEventListener('change', syncPlanState);
+    syncPlanState();
+  });
+</script>
 {% endblock %}

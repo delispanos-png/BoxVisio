@@ -218,6 +218,10 @@ class PharmacyOneSqlConnector(Connector):
             query_template = mapped_query or DEFAULT_GENERIC_PURCHASES_QUERY
         elif stream == 'inventory_documents':
             query_template = mapped_query or DEFAULT_GENERIC_INVENTORY_QUERY
+        elif stream == 'item_master':
+            query_template = mapped_query
+            if not query_template:
+                return []
         elif stream == 'cash_transactions':
             query_template = mapped_query or DEFAULT_GENERIC_CASHFLOW_QUERY
         elif stream == 'supplier_balances':
@@ -263,6 +267,11 @@ class PharmacyOneSqlConnector(Connector):
             # template. Adding TOP/paged cursoring turns a full stock snapshot
             # into a partial sample, so complete snapshot runs must execute as
             # one unbounded read.
+            effective_limit = None
+            exhaustive_mode = False
+        if stream == 'item_master':
+            # Full item master is dimension data. Do not page by date cursor,
+            # otherwise unmoving items keep missing barcode/VAT/status.
             effective_limit = None
             exhaustive_mode = False
         if stream in {'supplier_balances', 'customer_balances'} and (

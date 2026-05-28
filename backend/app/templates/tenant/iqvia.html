@@ -1,0 +1,213 @@
+{% extends "base_tenant.html" %}
+
+{% block filters %}
+<form id="iqviaFilters" class="row g-3 align-items-end">
+  <div class="col-xl-3 col-md-6">
+    <label class="form-label">Αναζήτηση</label>
+    <input id="iqviaSearch" type="search" class="form-control" placeholder="Προϊόν, εταιρεία ή κατηγορία">
+  </div>
+  <div class="col-xl-2 col-md-6">
+    <label class="form-label">Κατηγορία</label>
+    <select id="iqviaCategory" class="form-select"><option value="">Όλες</option></select>
+  </div>
+  <div class="col-xl-2 col-md-6">
+    <label class="form-label">Κατασκευαστής</label>
+    <select id="iqviaManufacturer" class="form-select"><option value="">Όλοι</option></select>
+  </div>
+  <div class="col-xl-2 col-md-6">
+    <label class="form-label">Περιοχή</label>
+    <select id="iqviaTerritory" class="form-select"><option value="">Όλες</option></select>
+  </div>
+  <div class="col-xl-2 col-md-6">
+    <label class="form-label">Μήνας</label>
+    <select id="iqviaPeriod" class="form-select"><option value="">Τελευταίος</option></select>
+  </div>
+  <div class="col-xl-1 col-md-6 d-flex gap-2">
+    <button class="btn btn-primary flex-fill" type="submit"><i class="fe fe-filter me-1"></i>Εφαρμογή</button>
+  </div>
+  <div class="col-xl-12 col-md-6">
+    <button id="iqviaReset" class="btn btn-outline-secondary" type="button">Καθαρισμός</button>
+  </div>
+</form>
+{% endblock %}
+
+{% block content %}
+<style>
+  .iqvia-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:16px; margin-bottom:18px; }
+  .iqvia-card,.iqvia-panel { background:var(--panel-bg); border:1px solid var(--panel-border); border-radius:8px; box-shadow:var(--panel-shadow); }
+  .iqvia-card { padding:18px; min-height:112px; }
+  .iqvia-card small,.iqvia-table th,.iqvia-breakdown small { color:var(--text-muted); font-weight:850; text-transform:uppercase; font-size:12px; letter-spacing:0; }
+  .iqvia-card strong { display:block; font-size:25px; line-height:1.1; margin-top:8px; color:var(--text-main); }
+  .iqvia-card span { display:block; margin-top:8px; color:var(--text-muted); font-weight:750; }
+  .iqvia-panel-head { padding:18px 20px; border-bottom:1px solid var(--panel-border); display:flex; align-items:center; justify-content:space-between; gap:12px; }
+  .iqvia-breakdowns { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:16px; margin-bottom:18px; }
+  .iqvia-breakdown { padding:16px; }
+  .iqvia-breakdown-row { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:12px; align-items:center; padding:10px 0; border-bottom:1px solid var(--panel-border); }
+  .iqvia-breakdown-row:last-child { border-bottom:0; }
+  .iqvia-breakdown strong { color:var(--text-main); }
+  .iqvia-table-wrap { overflow:auto; max-height:calc(100vh - 390px); }
+  .iqvia-table { min-width:1420px; margin:0; }
+  .iqvia-table thead th { position:sticky; top:0; z-index:2; background:var(--panel-bg); border-bottom:2px solid var(--panel-border); padding:14px 16px; white-space:nowrap; }
+  .iqvia-table td { padding:14px 16px; border-bottom:1px solid var(--panel-border); vertical-align:top; }
+  .iqvia-product { min-width:330px; white-space:normal; font-weight:800; line-height:1.35; }
+  .iqvia-muted { color:var(--text-muted); font-size:12px; font-weight:750; }
+  @media (max-width: 1100px) { .iqvia-grid,.iqvia-breakdowns { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+  @media (max-width: 680px) { .iqvia-grid,.iqvia-breakdowns { grid-template-columns:1fr; } }
+</style>
+
+<div id="iqviaError" class="alert alert-warning d-none"></div>
+
+<section class="iqvia-grid" aria-label="IQVIA KPIs">
+  <div class="iqvia-card"><small>Προϊόντα</small><strong id="kpiProducts">-</strong><span>γραμμές στο δείγμα</span></div>
+  <div class="iqvia-card"><small>Αξία αγοράς</small><strong id="kpiValues">-</strong><span>σύνολο IQVIA</span></div>
+  <div class="iqvia-card"><small>Μονάδες</small><strong id="kpiUnits">-</strong><span>τεμάχια αγοράς</span></div>
+  <div class="iqvia-card"><small>Μέση τιμή</small><strong id="kpiAvg">-</strong><span>αξία / μονάδες</span></div>
+  <div class="iqvia-card"><small>Κατηγορίες</small><strong id="kpiCategories">-</strong><span>ενεργές στο δείγμα</span></div>
+  <div class="iqvia-card"><small>Κατασκευαστές</small><strong id="kpiManufacturers">-</strong><span>εταιρείες αγοράς</span></div>
+  <div class="iqvia-card"><small>Περιοχές</small><strong id="kpiTerritories">-</strong><span>territories IQVIA</span></div>
+  <div class="iqvia-card"><small>Περίοδος</small><strong id="kpiPeriod">-</strong><span>τελευταίο imported snapshot</span></div>
+</section>
+
+<section class="iqvia-breakdowns">
+  <div class="iqvia-panel iqvia-breakdown">
+    <small>Top κατηγορίες</small>
+    <div id="topCategories"></div>
+  </div>
+  <div class="iqvia-panel iqvia-breakdown">
+    <small>Top κατασκευαστές</small>
+    <div id="topManufacturers"></div>
+  </div>
+  <div class="iqvia-panel iqvia-breakdown">
+    <small>Top περιοχές</small>
+    <div id="topTerritories"></div>
+  </div>
+</section>
+
+<section class="iqvia-panel">
+  <div class="iqvia-panel-head">
+    <div>
+      <h5 class="mb-1">IQVIA Market Data</h5>
+      <div class="iqvia-muted">Ανά προϊόν, pack, κατασκευαστή, περιοχή και κατηγορία. Η αναφορά διαβάζει από BI tables.</div>
+    </div>
+    <span id="iqviaCount" class="badge bg-light text-dark border">-</span>
+  </div>
+  <div class="iqvia-table-wrap">
+    <table class="table iqvia-table">
+      <thead>
+        <tr>
+          <th>Προϊόν</th>
+          <th>Κατηγορία</th>
+          <th>ATC3</th>
+          <th>OTC3</th>
+          <th>Corporation</th>
+          <th>Κατασκευαστής</th>
+          <th>Περιοχή</th>
+          <th class="text-end">Μονάδες</th>
+          <th class="text-end">Αξία</th>
+          <th class="text-end">Μέση τιμή</th>
+          <th class="text-end">Μερίδιο αξίας</th>
+        </tr>
+      </thead>
+      <tbody id="iqviaRows">
+        <tr><td colspan="11" class="text-muted">Φόρτωση...</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<script>
+(() => {
+  const euro = new Intl.NumberFormat('el-GR', { style:'currency', currency:'EUR', minimumFractionDigits:2 });
+  const num = new Intl.NumberFormat('el-GR', { maximumFractionDigits:0 });
+  const pct = new Intl.NumberFormat('el-GR', { minimumFractionDigits:2, maximumFractionDigits:2 });
+  const state = { loadedOptions:false };
+  const el = (id) => document.getElementById(id);
+  const value = (id) => el(id)?.value || '';
+  const setText = (id, text) => { const node = el(id); if (node) node.textContent = text; };
+  const fillSelect = (id, values, emptyLabel) => {
+    const node = el(id);
+    if (!node || state.loadedOptions) return;
+    node.innerHTML = `<option value="">${emptyLabel}</option>` + (values || []).map(v => `<option value="${String(v).replace(/"/g, '&quot;')}">${v}</option>`).join('');
+  };
+  const params = () => {
+    const qs = new URLSearchParams();
+    if (value('iqviaSearch')) qs.set('q', value('iqviaSearch'));
+    if (value('iqviaCategory')) qs.set('category', value('iqviaCategory'));
+    if (value('iqviaManufacturer')) qs.set('manufacturer', value('iqviaManufacturer'));
+    if (value('iqviaTerritory')) qs.set('territory', value('iqviaTerritory'));
+    if (value('iqviaPeriod')) qs.set('period', value('iqviaPeriod'));
+    qs.set('page_size', '100');
+    return qs;
+  };
+  const breakdown = (id, rows) => {
+    const node = el(id);
+    if (!node) return;
+    node.innerHTML = (rows || []).slice(0, 8).map(row => `
+      <div class="iqvia-breakdown-row">
+        <span>${row.label || 'N/A'}<br><span class="iqvia-muted">${num.format(row.units || 0)} μον.</span></span>
+        <strong>${euro.format(row.values || 0)}</strong>
+      </div>
+    `).join('') || '<div class="text-muted py-3">Δεν υπάρχουν δεδομένα.</div>';
+  };
+  const load = async () => {
+    const error = el('iqviaError');
+    if (error) error.classList.add('d-none');
+    const res = await fetch(`/v1/kpi/iqvia?${params().toString()}`);
+    const data = await res.json();
+    if (!res.ok) {
+      if (error) {
+        error.textContent = data.detail || 'Δεν βρέθηκε IQVIA import στη βάση.';
+        error.classList.remove('d-none');
+      }
+      setText('iqviaRows', '');
+      return;
+    }
+    const s = data.summary || {};
+    setText('kpiProducts', num.format(s.products || 0));
+    setText('kpiValues', euro.format(s.values || 0));
+    setText('kpiUnits', num.format(s.units || 0));
+    setText('kpiAvg', euro.format(s.avg_price || 0));
+    setText('kpiCategories', num.format(s.categories || 0));
+    setText('kpiManufacturers', num.format(s.manufacturers || 0));
+    setText('kpiTerritories', num.format(s.territories || 0));
+    setText('kpiPeriod', data.period_label || data.period || '-');
+    fillSelect('iqviaCategory', data.filters?.categories, 'Όλες');
+    fillSelect('iqviaManufacturer', data.filters?.manufacturers, 'Όλοι');
+    fillSelect('iqviaTerritory', data.filters?.territories, 'Όλες');
+    if (!state.loadedOptions) {
+      const periodSelect = el('iqviaPeriod');
+      if (periodSelect) {
+        periodSelect.innerHTML = '<option value="">Τελευταίος</option>' + (data.filters?.periods || []).map(row => `<option value="${row.value}">${row.label || row.value}</option>`).join('');
+      }
+    }
+    state.loadedOptions = true;
+    breakdown('topCategories', data.breakdowns?.categories);
+    breakdown('topManufacturers', data.breakdowns?.manufacturers);
+    breakdown('topTerritories', data.breakdowns?.territories);
+    setText('iqviaCount', `Εμφάνιση ${(data.rows || []).length} από ${data.pagination?.total || 0}`);
+    const rows = el('iqviaRows');
+    rows.innerHTML = (data.rows || []).map(row => `
+      <tr>
+        <td class="iqvia-product">${row.product_label || row.product || '-'}<div class="iqvia-muted">${row.pack || ''}</div></td>
+        <td>${row.category || '-'}</td>
+        <td>${row.atc3 || '-'}</td>
+        <td>${row.otc3 || '-'}</td>
+        <td>${row.corporation || '-'}</td>
+        <td>${row.manufacturer || '-'}</td>
+        <td>${row.territory_name || '-'}</td>
+        <td class="text-end">${num.format(row.units || 0)}</td>
+        <td class="text-end">${euro.format(row.values || 0)}</td>
+        <td class="text-end">${euro.format(row.avg_price || 0)}</td>
+        <td class="text-end">${pct.format(row.market_value_share_pct || 0)}%</td>
+      </tr>
+    `).join('') || '<tr><td colspan="11" class="text-muted">Δεν υπάρχουν δεδομένα με αυτά τα φίλτρα.</td></tr>';
+  };
+  el('iqviaFilters')?.addEventListener('submit', (event) => { event.preventDefault(); load(); });
+  el('iqviaReset')?.addEventListener('click', () => {
+    ['iqviaSearch', 'iqviaCategory', 'iqviaManufacturer', 'iqviaTerritory', 'iqviaPeriod'].forEach(id => { const node = el(id); if (node) node.value = ''; });
+    load();
+  });
+  load();
+})();
+</script>
+{% endblock %}

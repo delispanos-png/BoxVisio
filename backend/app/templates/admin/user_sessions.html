@@ -1,0 +1,201 @@
+{% extends "base_admin.html" %}
+{% block content %}
+<div class="bv-admin-page user-sessions-page">
+  {% if request.query_params.get('revoked') == '1' %}
+  <div class="alert alert-success mt-3 mb-3">Το session τερματίστηκε επιτυχώς.</div>
+  {% elif request.query_params.get('revoked') == '0' %}
+  <div class="alert alert-danger mt-3 mb-3">Δεν βρέθηκε το session για τερματισμό.</div>
+  {% endif %}
+
+  <div class="bv-admin-hero sessions-hero">
+    <div>
+      <h4>Κέντρο Συνδεδεμένων Χρηστών</h4>
+      <p>Ποιοι είναι συνδεδεμένοι, πόση ώρα κρατάει το session, πότε είχαν τελευταία δραστηριότητα και ποια sessions χρειάζονται παρέμβαση.</p>
+    </div>
+    <div class="sessions-live-pill">
+      <i class="fe fe-radio"></i>
+      <span>Live sessions</span>
+      <strong>{{ active_sessions }}</strong>
+    </div>
+  </div>
+
+  <div class="bv-admin-kpi-grid sessions-kpis">
+    <div class="bv-admin-kpi-card">
+      <div class="bv-admin-kpi-card-head">
+        <p class="bv-admin-kpi-label">Ενεργά sessions</p>
+        <span class="bv-admin-kpi-icon"><i class="fe fe-monitor"></i></span>
+      </div>
+      <div>
+        <div class="bv-admin-kpi-value">{{ active_sessions }}</div>
+        <p class="bv-admin-kpi-meta">{{ unique_users }} μοναδικοί χρήστες.</p>
+      </div>
+    </div>
+    <div class="bv-admin-kpi-card">
+      <div class="bv-admin-kpi-card-head">
+        <p class="bv-admin-kpi-label">Online τώρα</p>
+        <span class="bv-admin-kpi-icon"><i class="fe fe-wifi"></i></span>
+      </div>
+      <div>
+        <div class="bv-admin-kpi-value">{{ status_counts.online }}</div>
+        <p class="bv-admin-kpi-meta">Δραστηριότητα στα τελευταία 15 λεπτά.</p>
+      </div>
+    </div>
+    <div class="bv-admin-kpi-card">
+      <div class="bv-admin-kpi-card-head">
+        <p class="bv-admin-kpi-label">Idle</p>
+        <span class="bv-admin-kpi-icon"><i class="fe fe-clock"></i></span>
+      </div>
+      <div>
+        <div class="bv-admin-kpi-value">{{ status_counts.idle }}</div>
+        <p class="bv-admin-kpi-meta">Δραστηριότητα πριν 15-{{ idle_timeout_minutes }} λεπτά.</p>
+      </div>
+    </div>
+    <div class="bv-admin-kpi-card">
+      <div class="bv-admin-kpi-card-head">
+        <p class="bv-admin-kpi-label">Θέλουν καθαρισμό</p>
+        <span class="bv-admin-kpi-icon"><i class="fe fe-alert-circle"></i></span>
+      </div>
+      <div>
+        <div class="bv-admin-kpi-value">{{ expired_unrevoked }}</div>
+        <p class="bv-admin-kpi-meta">{{ idle_revoked_count }} idle sessions έκλεισαν αυτόματα.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="sessions-grid">
+    <div class="bv-admin-panel">
+      <div class="bv-admin-panel-head">
+        <div>
+          <h5>Sessions ανά tenant</h5>
+          <p>Πού υπάρχει αυτή τη στιγμή πραγματική χρήση.</p>
+        </div>
+        <span class="bv-admin-chip">Generated {{ generated_at.strftime('%d/%m/%Y %H:%M') }}</span>
+      </div>
+      <div class="bv-admin-panel-body">
+        <div class="sessions-tenant-list">
+          {% for row in top_tenants %}
+          <div>
+            <span>
+              <strong>{{ row.name }}</strong>
+              <small>{{ row.slug }}</small>
+            </span>
+            <b>{{ row.count }}</b>
+          </div>
+          {% else %}
+          <div class="sessions-empty-line">Δεν υπάρχουν ενεργά sessions.</div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <div class="bv-admin-panel">
+      <div class="bv-admin-panel-head">
+        <div>
+          <h5>Ενδείξεις ελέγχου</h5>
+          <p>Πολλαπλές συνδέσεις και sessions που λήγουν σύντομα.</p>
+        </div>
+      </div>
+      <div class="bv-admin-panel-body">
+        <div class="sessions-watch-list">
+          <div>
+            <strong>{{ multi_session_users|length }}</strong>
+            <span>χρήστες με περισσότερα από ένα active sessions</span>
+          </div>
+          <div>
+            <strong>{{ expiring_soon|length }}</strong>
+            <span>sessions που λήγουν μέσα στις επόμενες 24 ώρες</span>
+          </div>
+          <div>
+            <strong>{{ status_counts.stale }}</strong>
+            <span>sessions χωρίς πρόσφατη δραστηριότητα</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="bv-admin-panel">
+    <div class="bv-admin-panel-head">
+      <div>
+        <h5>Συνδεδεμένοι χρήστες</h5>
+        <p>Το session θεωρείται online όταν υπάρχει δραστηριότητα στα τελευταία 15 λεπτά. Όσα μένουν idle πάνω από {{ idle_timeout_minutes }} λεπτά τερματίζονται αυτόματα.</p>
+      </div>
+      <span class="bv-admin-chip">{{ sessions|length }} sessions</span>
+    </div>
+    <div class="bv-admin-panel-body p-0">
+      <div class="table-responsive sessions-table-wrap">
+        <table class="table table-hover bv-unified-table sessions-table mb-0" data-bv-admin-table="1">
+          <colgroup>
+            <col style="width:26%">
+            <col style="width:14%">
+            <col style="width:10%">
+            <col style="width:15%">
+            <col style="width:18%">
+            <col style="width:12%">
+            <col style="width:5%">
+          </colgroup>
+          <thead>
+            <tr>
+              <th>Χρήστης</th>
+              <th>Tenant</th>
+              <th>Status</th>
+              <th>Σύνδεση</th>
+              <th>Τελευταία δραστηριότητα</th>
+              <th>Client</th>
+              <th class="text-end">Ενέργεια</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in sessions %}
+            <tr>
+              <td data-label="Χρήστης">
+                <div class="session-user-cell">
+                  <div class="session-avatar">{{ (row.user.full_name or row.user.email or '?')[:1] | upper }}</div>
+                  <div>
+                    <strong>{{ row.user.full_name or 'Χωρίς όνομα' }}</strong>
+                    <span>{{ row.user.email }}</span>
+                    <small>{{ row.user.role.value }}{% if row.user_session_count > 1 %} · {{ row.user_session_count }} sessions{% endif %}</small>
+                  </div>
+                </div>
+              </td>
+              <td data-label="Tenant">
+                <strong>{{ row.tenant_name }}</strong>
+                <div class="text-muted small">{{ row.tenant_slug }}</div>
+              </td>
+              <td data-label="Status">
+                <span class="session-status is-{{ row.status_key }}"><span></span>{{ row.status_label }}</span>
+              </td>
+              <td data-label="Σύνδεση">
+                <strong>{{ row.connected_for }}</strong>
+                <div class="text-muted small">{{ row.token.created_at.strftime('%d/%m/%Y %H:%M') if row.token.created_at else '-' }}</div>
+                <div class="text-muted small">λήγει σε {{ row.expires_in }}</div>
+              </td>
+              <td data-label="Δραστηριότητα">
+                <strong>{{ row.last_seen_label }} πριν</strong>
+                <div class="text-muted small">{{ row.last_action }}</div>
+                <div class="text-muted small" title="{{ row.last_path }}">{{ row.last_path }}</div>
+              </td>
+              <td data-label="Client">
+                <strong>{{ row.ip }}</strong>
+                <div class="text-muted small session-agent" title="{{ row.user_agent }}">{{ row.user_agent }}</div>
+              </td>
+              <td class="text-end" data-label="Ενέργεια">
+                <form method="post" action="/admin/user-sessions/{{ row.token.id }}/revoke" onsubmit="return confirm('Τερματισμός session για {{ row.user.email }};');">
+                  <button class="btn btn-sm bv-action-btn bv-action-delete" type="submit" title="Τερματισμός session">
+                    <i class="fe fe-log-out"></i>
+                  </button>
+                </form>
+              </td>
+            </tr>
+            {% else %}
+            <tr>
+              <td colspan="7" class="text-center text-muted py-4">Δεν υπάρχουν ενεργά sessions αυτή τη στιγμή.</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

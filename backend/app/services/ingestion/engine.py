@@ -6,7 +6,7 @@ import logging
 from datetime import date as date_cls, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -48,7 +48,7 @@ from app.models.tenant import (
     StagingIngestEvent,
     SyncState,
 )
-from app.services.connection_secrets import build_odbc_connection_string, decrypt_sqlserver_secret
+from app.services.connection_secrets import build_odbc_connection_string, decrypt_json_secret, decrypt_sqlserver_secret
 from app.services.ingestion.base import (
     ALL_OPERATIONAL_STREAMS,
     ENTITY_TO_STREAM,
@@ -67,6 +67,49 @@ from app.services.ingestion.progress import update_ingest_progress
 from app.services.rule_config import resolve_source_query_template
 
 logger = logging.getLogger(__name__)
+
+
+async def _relink_fact_dimensions_after_bulk_ingest(tenant_db: AsyncSession, entity: str) -> dict[str, int]:
+    """Bulk/backfill mode skips per-row dimension lookups; relink rows after flush."""
+    statements: dict[str, str] = {
+        'sales': """
+            UPDATE fact_sales fs
+            SET item_id = di.id, updated_at = NOW()
+            FROM dim_items di
+            WHERE fs.item_id IS NULL
+              AND fs.item_code IS NOT NULL
+              AND di.external_id = fs.item_code
+        """,
+        'purchases': """
+            UPDATE fact_purchases fp
+            SET item_id = di.id, updated_at = NOW()
+            FROM dim_items di
+            WHERE fp.item_id IS NULL
+              AND fp.item_code IS NOT NULL
+              AND di.external_id = fp.item_code
+        """,
+        'inventory': """
+            UPDATE fact_inventory fi
+            SET item_id = di.id, updated_at = NOW()
+            FROM dim_items di
+            WHERE fi.item_id IS NULL
+              AND fi.item_code IS NOT NULL
+              AND di.external_id = fi.item_code
+        """,
+        'supplier_orders': """
+            UPDATE fact_supplier_orders fso
+            SET item_id = di.id, updated_at = NOW()
+            FROM dim_items di
+            WHERE fso.item_id IS NULL
+              AND fso.item_code IS NOT NULL
+              AND di.external_id = fso.item_code
+        """,
+    }
+    sql = statements.get(entity)
+    if not sql:
+        return {}
+    result = await tenant_db.execute(text(sql))
+    return {f'{entity}_item_id_relinked': int(result.rowcount or 0)}
 
 CONNECTORS = {
     'sql_connector': GenericSqlConnector(),
@@ -1674,6 +1717,7 @@ async def _upsert_dims_from_row(
     fact: dict,
     *,
     dim_seen_cache: dict[str, set[str]] | None = None,
+    dim_id_cache: dict[tuple[str, str], Any] | None = None,
 ) -> None:
     get = _row_getter(row)
 
@@ -1877,9 +1921,17 @@ async def _upsert_dims_from_row(
             ),
         }
         if group:
-            item_values['group_id'] = await tenant_db.scalar(
-                select(DimGroup.id).where(DimGroup.external_id == str(group)[:64]).limit(1)
-            )
+            group_external_id = str(group)[:64]
+            group_cache_key = ('DimGroup', group_external_id)
+            if dim_id_cache is not None and group_cache_key in dim_id_cache:
+                item_values['group_id'] = dim_id_cache[group_cache_key]
+            else:
+                group_id = await tenant_db.scalar(
+                    select(DimGroup.id).where(DimGroup.external_id == group_external_id).limit(1)
+                )
+                if dim_id_cache is not None:
+                    dim_id_cache[group_cache_key] = group_id
+                item_values['group_id'] = group_id
 
         ins = insert(DimItem).values(
             **item_values,
@@ -2077,13 +2129,21 @@ async def _build_context(
     connection: TenantConnection | None,
 ) -> ConnectorContext:
     source_connection_string = None
+    source_type = _resolve_source_type(connector_type, connection, connector)
+    connection_parameters = (
+        dict(connection.connection_parameters)
+        if connection and isinstance(connection.connection_parameters, dict)
+        else {}
+    )
     if connection and connection.enc_payload:
-        secret = decrypt_sqlserver_secret(connection.enc_payload)
-        source_connection_string = build_odbc_connection_string(secret)
+        if source_type == 'api' or connector_type == 'external_api':
+            connection_parameters['auth_secret'] = decrypt_json_secret(connection.enc_payload)
+        else:
+            secret = decrypt_sqlserver_secret(connection.enc_payload)
+            source_connection_string = build_odbc_connection_string(secret)
 
     supported_streams = _resolve_supported_streams(connection, connector, connector_type)
     enabled_streams = _resolve_enabled_streams(connection, supported_streams)
-    source_type = _resolve_source_type(connector_type, connection, connector)
     configured_query_mapping = (
         connection.stream_query_mapping if connection and isinstance(connection.stream_query_mapping, dict) else {}
     )
@@ -2105,9 +2165,7 @@ async def _build_context(
         supported_streams=supported_streams,
         enabled_streams=enabled_streams,
         source_connection_string=source_connection_string,
-        connection_parameters=(
-            connection.connection_parameters if connection and isinstance(connection.connection_parameters, dict) else {}
-        ),
+        connection_parameters=connection_parameters,
         stream_query_mapping={
             str(k): str(v)
             for k, v in configured_query_mapping.items()
@@ -2140,12 +2198,18 @@ async def _build_context(
             if isinstance(configured_query_mapping, dict)
             else None
         ) or None,
+        item_master_query=(
+            str(configured_query_mapping.get('item_master') or '').strip()
+            if isinstance(configured_query_mapping, dict)
+            else None
+        ) or None,
     )
 
     fallback_query_by_stream: dict[OperationalIngestStream, str] = {
         'sales_documents': context.stream_query_mapping.get('sales_documents') or context.sales_query or '',
         'purchase_documents': context.stream_query_mapping.get('purchase_documents') or context.purchases_query or '',
         'inventory_documents': context.stream_query_mapping.get('inventory_documents') or context.inventory_query or '',
+        'item_master': context.stream_query_mapping.get('item_master') or context.item_master_query or '',
         'cash_transactions': context.stream_query_mapping.get('cash_transactions') or context.cashflow_query or '',
         'supplier_balances': context.stream_query_mapping.get('supplier_balances') or context.supplier_balances_query or '',
         'customer_balances': context.stream_query_mapping.get('customer_balances') or context.customer_balances_query or '',
@@ -2177,6 +2241,7 @@ async def _build_context(
     context.sales_query = context.stream_query_mapping.get('sales_documents') or context.sales_query
     context.purchases_query = context.stream_query_mapping.get('purchase_documents') or context.purchases_query
     context.inventory_query = context.stream_query_mapping.get('inventory_documents') or context.inventory_query
+    context.item_master_query = context.stream_query_mapping.get('item_master') or context.item_master_query
     context.cashflow_query = context.stream_query_mapping.get('cash_transactions') or context.cashflow_query
     context.supplier_balances_query = (
         context.stream_query_mapping.get('supplier_balances') or context.supplier_balances_query
@@ -2218,6 +2283,24 @@ def _build_fact(
     external_id = str(raw_external)[:128]
 
     doc_date = _as_doc_date(get('doc_date', 'document_date', context.date_column, 'updated_at') or incremental_val)
+
+    if entity == 'items':
+        return (
+            {
+                'external_id': external_id,
+                'event_id': str(get('event_id') or external_id)[:128],
+                'doc_date': doc_date,
+                'updated_at': updated_at,
+                'branch_ext_id': str(branch_ext)[:64] if branch_ext is not None else None,
+                'warehouse_ext_id': str(warehouse_ext)[:64] if warehouse_ext is not None else None,
+                'brand_ext_id': str(brand_ext)[:64] if brand_ext is not None else None,
+                'category_ext_id': str(category_ext)[:64] if category_ext is not None else None,
+                'group_ext_id': str(group_ext)[:64] if group_ext is not None else None,
+                'item_code': str(item_code)[:128] if item_code is not None else None,
+                'source_payload_json': _sanitize_payload_json(row),
+            },
+            incremental_val,
+        )
 
     if entity in {'sales', 'purchases'}:
         qty = _as_float(get(context.qty_column, 'qty', 'quantity'))
@@ -2403,12 +2486,24 @@ def _build_fact(
             discount_amount = _as_optional_float(
                 get('discount_amount', 'discount_value', 'disc_amount', 'line_discount', 'line_discount_amount')
             )
-            discount1_pct = _as_optional_float(get('discount1_pct', 'disc1prc', 'discount_1_pct'))
-            discount2_pct = _as_optional_float(get('discount2_pct', 'disc2prc', 'discount_2_pct'))
-            discount3_pct = _as_optional_float(get('discount3_pct', 'disc3prc', 'discount_3_pct'))
-            discount1_amount = _as_optional_float(get('discount1_amount', 'disc1val', 'discount_1_amount'))
-            discount2_amount = _as_optional_float(get('discount2_amount', 'disc2val', 'discount_2_amount'))
-            discount3_amount = _as_optional_float(get('discount3_amount', 'disc3val', 'discount_3_amount'))
+            no_discount_amount = _as_optional_float(
+                get('no_discount_amount', 'nodscamnt', 'no_discount_value', 'gross_line_value_before_discount')
+            )
+            if discount_amount is None and no_discount_amount is not None:
+                inferred_discount = no_discount_amount - net
+                if abs(inferred_discount) > 0.004:
+                    discount_amount = inferred_discount
+            if discount_pct is None and discount_amount is not None and no_discount_amount:
+                try:
+                    discount_pct = (discount_amount / no_discount_amount) * 100
+                except ZeroDivisionError:
+                    discount_pct = None
+            discount1_pct = _as_optional_float(get('discount1_pct', 'disc1prc', 'discount_1_pct', 'disc1_prc'))
+            discount2_pct = _as_optional_float(get('discount2_pct', 'disc2prc', 'discount_2_pct', 'disc2_prc'))
+            discount3_pct = _as_optional_float(get('discount3_pct', 'disc3prc', 'discount_3_pct', 'disc3_prc'))
+            discount1_amount = _as_optional_float(get('discount1_amount', 'disc1val', 'discount_1_amount', 'disc1_val'))
+            discount2_amount = _as_optional_float(get('discount2_amount', 'disc2val', 'discount_2_amount', 'disc2_val'))
+            discount3_amount = _as_optional_float(get('discount3_amount', 'disc3val', 'discount_3_amount', 'disc3_val'))
             base.update(
                 {
                     'supplier_ext_id': str(supplier_ext)[:64] if supplier_ext is not None else None,
@@ -2828,6 +2923,7 @@ async def _process_job_once(job: dict[str, Any]) -> dict[str, Any]:
             'customer_balances',
             'expenses',
             'supplier_orders',
+            'items',
         }
     )
     bulk_fact_batch_size = max(100, int(getattr(settings, 'sqlserver_bulk_upsert_batch_size', 1000) or 1000))
@@ -2982,6 +3078,7 @@ async def _process_job_once(job: dict[str, Any]) -> dict[str, Any]:
     expense_category_cache: dict[str, Any] = {}
     fact_identity_cache: dict[tuple[Any, ...], str] = {}
     sales_charge_seen: set[str] = set()
+    relink_counts: dict[str, int] = {}
 
     async def _resolve_dim_id_cached(model, external_id: str | None):
         if not external_id:
@@ -3049,7 +3146,7 @@ async def _process_job_once(job: dict[str, Any]) -> dict[str, Any]:
                     await tenant_db.execute(staging_stmt)
 
             stage_id = None
-            if not bulk_fact_mode:
+            if not bulk_fact_mode and entity != 'items':
                 stage_id = await _stage_ingest_row(
                     tenant_db,
                     connector_type=connector_type,
@@ -3074,7 +3171,7 @@ async def _process_job_once(job: dict[str, Any]) -> dict[str, Any]:
                         await _mark_staging_row_processed(tenant_db, stream=stream, stage_id=stage_id)
                     continue
 
-                if duplicate_protection.get('enabled', True):
+                if duplicate_protection.get('enabled', True) and entity != 'items':
                     await _canonicalize_fact_external_id(
                         tenant_db,
                         entity,
@@ -3082,8 +3179,17 @@ async def _process_job_once(job: dict[str, Any]) -> dict[str, Any]:
                         fact_identity_cache,
                         mode=str(duplicate_protection.get('mode') or 'natural_key'),
                     )
-                await _upsert_dims_from_row(tenant_db, entity, row, fact, dim_seen_cache=dim_seen_cache)
-                if entity == 'sales':
+                await _upsert_dims_from_row(
+                    tenant_db,
+                    entity,
+                    row,
+                    fact,
+                    dim_seen_cache=dim_seen_cache,
+                    dim_id_cache=dim_id_cache,
+                )
+                if entity == 'items':
+                    stmt = None
+                elif entity == 'sales':
                     if not fast_backfill_mode:
                         fact['branch_id'] = await _resolve_dim_id_cached(DimBranch, fact.get('branch_ext_id'))
                         fact['warehouse_id'] = await _resolve_dim_id_cached(DimWarehouse, fact.get('warehouse_ext_id'))
@@ -3138,7 +3244,9 @@ async def _process_job_once(job: dict[str, Any]) -> dict[str, Any]:
                         fact['customer_id'] = await _resolve_dim_id_cached(DimCustomer, fact.get('customer_ext_id'))
                     stmt = _upsert_customer_balance_stmt(fact)
 
-                if bulk_fact_mode:
+                if entity == 'items':
+                    await _mark_staging_row_processed(tenant_db, stream=stream, stage_id=stage_id)
+                elif bulk_fact_mode:
                     fact_batch.append(fact)
                     if len(fact_batch) >= fact_batch_size:
                         await _flush_fact_batch()
@@ -3186,6 +3294,7 @@ async def _process_job_once(job: dict[str, Any]) -> dict[str, Any]:
                 update_ingest_progress(tenant_slug, status='running')
 
         await _flush_fact_batch()
+        relink_counts = await _relink_fact_dimensions_after_bulk_ingest(tenant_db, entity) if bulk_fact_mode else {}
         if not ignore_sync_state:
             sync_state.last_sync_timestamp = last_ts
             sync_state.last_sync_id = last_id
@@ -3230,6 +3339,7 @@ async def _process_job_once(job: dict[str, Any]) -> dict[str, Any]:
         'last_sync_timestamp': last_ts.isoformat() if isinstance(last_ts, datetime) else None,
         'last_sync_id': last_id,
         'cursor_overlap_minutes': cursor_overlap_minutes,
+        'dimension_relink': relink_counts if bulk_fact_mode else {},
     }
 
 

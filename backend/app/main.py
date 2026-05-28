@@ -23,6 +23,7 @@ from app.middleware.rbac_guard import rbac_guard_middleware
 from app.middleware.kpi_performance import kpi_performance_middleware
 from app.middleware.request_logging import request_logging_middleware
 from app.middleware.secure_headers import secure_headers_middleware
+from app.middleware.session_idle import session_idle_middleware
 from app.middleware.subscription_guard import subscription_guard_middleware
 from app.middleware.ui_auth_redirect import ui_auth_redirect_middleware
 from app.observability.metrics import (
@@ -72,6 +73,7 @@ app.middleware('http')(canonical_path_middleware)
 app.middleware('http')(host_access_guard_middleware)
 app.middleware('http')(ui_auth_redirect_middleware)
 app.middleware('http')(rbac_guard_middleware)
+app.middleware('http')(session_idle_middleware)
 app.middleware('http')(csrf_middleware)
 app.middleware('http')(plan_guard_middleware)
 app.middleware('http')(subscription_guard_middleware)

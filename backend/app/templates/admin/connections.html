@@ -61,9 +61,7 @@
     <select class="form-select form-select-sm" style="width:175px" id="globalConnectorSelect">
       <option value="sql_connector"  {% if conn_type=='sql_connector'  %}selected{% endif %}>SQL Connector</option>
       <option value="pharmacyone_sql"{% if conn_type=='pharmacyone_sql'%}selected{% endif %}>SQL (legacy key)</option>
-      {% if conn_type == 'external_api' %}
-      <option value="external_api" selected>External API (σε ενοποίηση)</option>
-      {% endif %}
+      <option value="external_api" {% if conn_type == 'external_api' %}selected{% endif %}>External API / SoftOne</option>
       {% if conn_type == 'file_import' %}
       <option value="file_import" selected>File Import (σε ενοποίηση)</option>
       {% endif %}
@@ -127,12 +125,12 @@
         <p>Direct connection via pyodbc to Microsoft SQL Server. Maximum fidelity &amp; speed.</p>
       </div>
 
-      <div class="bv-src-card disabled {% if conn_type=='external_api' %}selected{% endif %}"
-           data-connector="external_api" data-srctype="api">
+      <div class="bv-src-card {% if conn_type=='external_api' %}selected{% endif %}"
+           data-connector="external_api" data-srctype="api" onclick="bvSelectSource(this)">
         <div class="bv-src-icon api"><i data-feather="cloud"></i></div>
-        <span class="bv-src-badge bg-secondary-subtle text-secondary border border-secondary-subtle">Σε ενοποίηση</span>
+        <span class="bv-src-badge bg-primary-subtle text-primary border border-primary-subtle">SoftOne</span>
         <h6>External API</h6>
-        <p>Υποστηρίζεται στο backend, αλλά το admin workflow δεν είναι ακόμη πλήρως δεμένο.</p>
+        <p>SoftOne Advanced JavaScript bridge με login/authenticate και per-stream endpoints.</p>
       </div>
 
       <div class="bv-src-card disabled {% if conn_type=='file_import' %}selected{% endif %}"
@@ -289,12 +287,13 @@
         <div class="col-md-8">
           <label class="form-label fw-semibold">Base URL <span class="text-danger">*</span></label>
           <input class="form-control" id="fApiBaseUrl" placeholder="https://api.client.com/v1"
-                 value="{{ fv.host or '' }}" oninput="document.getElementById('fHostApi').value=this.value" {% if is_api %}required{% endif %}>
+                 value="{{ fv.base_url or fv.host or '' }}" oninput="document.getElementById('fHostApi').value=this.value" {% if is_api %}required{% endif %}>
           <div class="bv-field-hint">Root URL of the API. Endpoints are mapped per stream in Step 3.</div>
         </div>
         <div class="col-md-4">
           <label class="form-label fw-semibold">Auth Type</label>
-          <select class="form-select" id="fApiAuthType">
+          <select class="form-select" id="fApiAuthType" name="api_auth_type">
+            <option value="softone_login" {% if fv.api_auth_type == 'softone_login' or not fv.api_auth_type %}selected{% endif %}>SoftOne login</option>
             <option value="api_key">API Key</option>
             <option value="bearer">Bearer Token</option>
             <option value="basic">Basic Auth</option>
@@ -303,16 +302,38 @@
       </div>
       <div class="row g-2 mb-2">
         <div class="col-md-5">
-          <label class="form-label fw-semibold">Client ID / App Name</label>
-          <input class="form-control" name="username" placeholder="client_id or app name" value="{{ fv.username or '' }}">
+          <label class="form-label fw-semibold">SoftOne Username</label>
+          <input class="form-control" name="username" placeholder="CloudOnWS" value="{{ fv.username or '' }}">
         </div>
         <div class="col-md-5">
-          <label class="form-label fw-semibold">API Key / Secret {% if not has_saved %}<span class="text-danger">*</span>{% endif %}</label>
+          <label class="form-label fw-semibold">SoftOne Password {% if not has_saved %}<span class="text-danger">*</span>{% endif %}</label>
           <input class="form-control" type="password" name="password" autocomplete="new-password"
-                 placeholder="{% if has_saved %}Leave blank to keep current{% else %}API key or secret{% endif %}">
+                 placeholder="{% if has_saved %}Leave blank to keep current{% else %}SoftOne password{% endif %}">
           {% if has_saved %}
           <div class="bv-field-hint text-success"><i data-feather="lock" style="width:11px;height:11px"></i> Secret saved.</div>
           {% endif %}
+        </div>
+      </div>
+      <div class="row g-2 mb-2">
+        <div class="col-md-3">
+          <label class="form-label fw-semibold">App ID</label>
+          <input class="form-control" name="api_app_id" placeholder="1004" value="{{ fv.api_app_id or '' }}">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label fw-semibold">Company</label>
+          <input class="form-control" name="api_company" placeholder="1001" value="{{ fv.api_company or '' }}">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label fw-semibold">Branch</label>
+          <input class="form-control" name="api_branch" placeholder="1002" value="{{ fv.api_branch or '' }}">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label fw-semibold">Module</label>
+          <input class="form-control" name="api_module" placeholder="0" value="{{ fv.api_module or '0' }}">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label fw-semibold">Ref ID</label>
+          <input class="form-control" name="api_refid" placeholder="1" value="{{ fv.api_refid or '' }}">
         </div>
       </div>
 
@@ -1081,9 +1102,23 @@ window.bvSubmitAs = function (action) {
   if (!f) return;
   const prev = f.action;
   f.action = action;
+  bvPrepareSubmit();
   f.submit();
   f.action = prev;
 };
+
+window.bvPrepareSubmit = function () {
+  const active = document.getElementById('hSrcType').value || 'sql';
+  [['sqlFields', 'sql'], ['apiFields', 'api'], ['fileFields', 'file']].forEach(function (pair) {
+    const box = document.getElementById(pair[0]);
+    if (!box) return;
+    box.querySelectorAll('input,select,textarea').forEach(function (el) {
+      el.disabled = pair[1] !== active;
+    });
+  });
+};
+const mainForm = document.getElementById('bvMainForm');
+if (mainForm) mainForm.addEventListener('submit', bvPrepareSubmit);
 
 /* ── Password visibility toggle ── */
 window.bvTogglePwd = function () {

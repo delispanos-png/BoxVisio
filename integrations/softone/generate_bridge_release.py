@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate a dated SoftOne bridge release from the canonical bridge file.
+"""Generate a timestamped SoftOne bridge release from the canonical bridge file.
 
 This keeps the customer-deployable JavaScript snapshots in sync with the
 canonical bridge while validating the SQL/querypack mappings we depend on.
@@ -12,6 +12,7 @@ import datetime as dt
 import re
 import sys
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -19,6 +20,7 @@ INTEGRATIONS_DIR = ROOT / "integrations" / "softone"
 CANONICAL_BRIDGE = INTEGRATIONS_DIR / "boxvisio_bi_bridge.js"
 QUERYPACK_SALES = ROOT / "backend" / "querypacks" / "pharmacyone" / "facts" / "sales_facts.sql"
 MANUAL = INTEGRATIONS_DIR / "SOFTONE_BI_BRIDGE_TECHNICAL_MANUAL.md"
+RELEASE_TIMEZONE = ZoneInfo("Europe/Athens")
 
 
 SYNC_RULES = [
@@ -35,7 +37,7 @@ SYNC_RULES = [
     {
         "name": "Payment method from FINDOC.PAYMENT",
         "querypack_tokens": ["F.PAYMENT", "payment_method", "FROM PAYMENT P"],
-        "bridge_tokens": ["PAYMENT_METHOD", "F.PAYMENT", "OUTER APPLY (SELECT TOP 1 P.CODE, P.NAME FROM PAYMENT P"],
+        "bridge_tokens": ["PAYMENT_METHOD", "docPayment", "OUTER APPLY (SELECT TOP 1 P.CODE, P.NAME FROM PAYMENT P"],
     },
     {
         "name": "Item group from ITEM.MTRGROUP",
@@ -76,12 +78,12 @@ def _validate_alignment(bridge_text: str, querypack_text: str) -> list[str]:
     return notes
 
 
-def _build_release_text(bridge_text: str, release_date: str, version: str) -> str:
+def _build_release_text(bridge_text: str, release_stamp: str, version: str) -> str:
     banner = (
         "/*\n"
         "  Generated release snapshot for customer infrastructure.\n"
         f"  Source: integrations/softone/boxvisio_bi_bridge.js\n"
-        f"  Release date: {release_date}\n"
+        f"  Release timestamp: {release_stamp}\n"
         f"  Bridge version: {version}\n"
         "*/\n\n"
     )
@@ -110,7 +112,7 @@ python3 integrations/softone/generate_bridge_release.py
 What the generator does:
 
 - validates that the canonical bridge still matches the current `sales_facts.sql` mappings
-- creates a dated customer snapshot like `boxvisio_bi_bridge_2026-04-22.js`
+- creates a timestamped customer snapshot like `boxvisio_bi_bridge_2026-04-22_18-30-00.js`
 - keeps the deployable customer JS under the same `integrations/softone/` folder
 
 Validation currently guards these synchronized fields:
@@ -124,30 +126,34 @@ Validation currently guards these synchronized fields:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Generate dated SoftOne BI bridge release file.")
+    parser = argparse.ArgumentParser(description="Generate timestamped SoftOne BI bridge release file.")
     parser.add_argument("--date", help="Release date in YYYY-MM-DD format. Defaults to today.")
     parser.add_argument("--stdout", action="store_true", help="Print generated content instead of writing the release file.")
     args = parser.parse_args()
 
+    now = dt.datetime.now(RELEASE_TIMEZONE)
     if args.date:
         try:
             release_date = dt.date.fromisoformat(args.date).isoformat()
         except ValueError as exc:
             raise SystemExit(f"Invalid --date value: {exc}") from exc
+        release_time = now.strftime("%H-%M-%S")
     else:
-        release_date = dt.date.today().isoformat()
+        release_date = now.date().isoformat()
+        release_time = now.strftime("%H-%M-%S")
+    release_stamp = f"{release_date}_{release_time}"
 
     bridge_text = _read(CANONICAL_BRIDGE)
     querypack_text = _read(QUERYPACK_SALES)
     version = _extract_version(bridge_text)
     validated_rules = _validate_alignment(bridge_text, querypack_text)
-    release_text = _build_release_text(bridge_text, release_date, version)
+    release_text = _build_release_text(bridge_text, release_stamp, version)
 
     if args.stdout:
         sys.stdout.write(release_text)
         return 0
 
-    output_path = INTEGRATIONS_DIR / f"boxvisio_bi_bridge_{release_date}.js"
+    output_path = INTEGRATIONS_DIR / f"boxvisio_bi_bridge_{release_stamp}.js"
     _write(output_path, release_text)
 
     manual_text = _read(MANUAL)

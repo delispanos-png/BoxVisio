@@ -100,6 +100,17 @@ def _api_connection_supports_stream(conn: TenantConnection, stream: OperationalI
     return bool(base_url)
 
 
+def _connection_is_usable(conn: TenantConnection) -> bool:
+    connector_type = str(conn.connector_type or '').strip().lower()
+    source_type = _normalize_source_type(connector_type, conn.source_type)
+    params = conn.connection_parameters if isinstance(conn.connection_parameters, dict) else {}
+    if source_type == 'api' or connector_type == 'external_api':
+        return bool(str(params.get('base_url') or params.get('host') or '').strip() and str(params.get('username') or '').strip() and conn.enc_payload)
+    if source_type == 'file' or connector_type == 'file_import':
+        return True
+    return bool(str(params.get('host') or '').strip() and str(params.get('database') or '').strip() and str(params.get('username') or '').strip() and conn.enc_payload)
+
+
 def _candidate_sort_key(entry: dict[str, Any]) -> tuple[int, int]:
     # Prefer SQL when multiple active connectors can serve the same stream.
     # This keeps ingest deterministic and avoids accidental fallback to API
@@ -152,7 +163,7 @@ async def plan_tenant_sync_jobs(
 
     if not rows:
         return _default_sql_jobs(tenant_slug, tenant_priority=tenant_priority)
-    active_rows = [row for row in rows if bool(getattr(row, 'is_active', True))]
+    active_rows = [row for row in rows if bool(getattr(row, 'is_active', True)) and _connection_is_usable(row)]
     if not active_rows:
         return []
     if preferred_connector:

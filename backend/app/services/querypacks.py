@@ -25,6 +25,7 @@ class QueryPack:
     sales_sql: str
     purchases_sql: str
     inventory_sql: str | None = None
+    item_master_sql: str | None = None
     cashflow_sql: str | None = None
     supplier_balances_sql: str | None = None
     customer_balances_sql: str | None = None
@@ -57,6 +58,7 @@ def load_querypack(provider: str = 'erp_sql', pack_name: str = 'default') -> Que
     sales_sql = _read_sql(root, ['facts/sales_facts.sql'], required=True)
     purchases_sql = _read_sql(root, ['facts/purchases_facts.sql'], required=True)
     inventory_sql = _read_sql(root, ['facts/inventory_facts.sql'], required=False)
+    item_master_sql = _read_sql(root, ['facts/item_master.sql', 'facts/item_master_facts.sql'], required=False)
     cashflow_sql = _read_sql(root, ['facts/cashflow_facts.sql'], required=False)
     supplier_balances_sql = _read_sql(
         root,
@@ -86,6 +88,7 @@ def load_querypack(provider: str = 'erp_sql', pack_name: str = 'default') -> Que
         sales_sql=sales_sql,
         purchases_sql=purchases_sql,
         inventory_sql=inventory_sql,
+        item_master_sql=item_master_sql,
         cashflow_sql=cashflow_sql,
         supplier_balances_sql=supplier_balances_sql,
         customer_balances_sql=customer_balances_sql,
@@ -100,6 +103,9 @@ def apply_querypack_to_connection(conn: TenantConnection, pack: QueryPack) -> No
     conn.purchases_query_template = pack.purchases_sql
     if pack.inventory_sql:
         conn.inventory_query_template = pack.inventory_sql
+    if pack.item_master_sql:
+        conn.stream_query_mapping = conn.stream_query_mapping or {}
+        conn.stream_query_mapping['item_master'] = pack.item_master_sql
     if pack.cashflow_sql:
         conn.cashflow_query_template = pack.cashflow_sql
     if pack.supplier_balances_sql:
@@ -125,6 +131,7 @@ def apply_querypack_to_connection(conn: TenantConnection, pack: QueryPack) -> No
         'sales_documents',
         'purchase_documents',
         'inventory_documents',
+        'item_master',
         'cash_transactions',
         'supplier_balances',
         'customer_balances',
@@ -137,6 +144,7 @@ def apply_querypack_to_connection(conn: TenantConnection, pack: QueryPack) -> No
         'sales_documents',
         'purchase_documents',
         'inventory_documents',
+        'item_master',
         'cash_transactions',
         'supplier_balances',
         'customer_balances',
@@ -150,6 +158,7 @@ def apply_querypack_to_connection(conn: TenantConnection, pack: QueryPack) -> No
         'sales_documents': conn.sales_query_template,
         'purchase_documents': conn.purchases_query_template,
         'inventory_documents': conn.inventory_query_template or '',
+        'item_master': (pack.item_master_sql or ''),
         'cash_transactions': conn.cashflow_query_template or '',
         'supplier_balances': conn.supplier_balances_query_template or '',
         'customer_balances': conn.customer_balances_query_template or '',

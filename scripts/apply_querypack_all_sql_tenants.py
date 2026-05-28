@@ -42,10 +42,12 @@ def main() -> None:
         'sales_documents',
         'purchase_documents',
         'inventory_documents',
+        'item_master',
         'cash_transactions',
         'supplier_balances',
         'customer_balances',
         'operating_expenses',
+        'supplier_orders',
     ]
     enabled_streams = [s for s in supported_streams if s != 'operating_expenses']
     if args.enable_operating_expenses:
@@ -55,10 +57,12 @@ def main() -> None:
         'sales_documents': pack.sales_sql,
         'purchase_documents': pack.purchases_sql,
         'inventory_documents': pack.inventory_sql or '',
+        'item_master': pack.item_master_sql or '',
         'cash_transactions': pack.cashflow_sql or '',
         'supplier_balances': pack.supplier_balances_sql or '',
         'customer_balances': pack.customer_balances_sql or '',
         'operating_expenses': pack.expenses_sql or '',
+        'supplier_orders': pack.supplier_orders_sql or '',
     }
 
     updated = 0
@@ -129,4 +133,3 @@ def main() -> None:
 
 if __name__ == '__main__':
     main()
-

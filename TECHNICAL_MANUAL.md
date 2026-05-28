@@ -950,6 +950,34 @@ SoftOne source strategy:
 - `qty_reserved` is read from `MTRBALSHEET` candidates where available; otherwise it defaults to `0`.
 - `qty_available` is computed as `qty_on_hand - qty_reserved` for stock snapshots.
 - Temporary FnR bootstrap rule: `min_stock` and `replenishment_moq` remain `1` where SoftOne is empty. `vendor_moq` is now read from `MTRSUPCODE.CCC88MOQ`; when empty it remains `1`.
+- Replenishment scope includes only active stock items from SoftOne: `dim_items.softone_sotype = 51` and `dim_items.is_active_source = true`. Services, accounting/service item rows and inactive stock cards must not create replenishment or data-quality alerts.
+- Purchase-price fallback rule for Replenishment/Availability:
+  1. use the latest positive purchase line in BI facts: `fact_purchases.net_value / fact_purchases.qty`,
+  2. if empty, use `dim_items.current_purchase_price` from SoftOne item data,
+  3. if still empty and there is stock value/quantity, use `stock_value / stock_qty` only for operational valuation.
+  Missing-price warnings are shown only for imported FnR workbook rows, not for the BI-fact Availability foundation.
+- Price semantics:
+  - `latest_purchase_price` is the last positive net purchase unit price and is used for supplier-order valuation because it best represents the expected next buying cost.
+  - `avg_purchase_price` is the weighted average positive purchase unit price for the last 365 days: `SUM(fact_purchases.net_value) / SUM(fact_purchases.qty)`. It is used for Availability/Overstock valuation and shortage value because it reflects the real cost base of the item.
+  - Drilldowns expose both values plus their percentage variance so abnormal supplier price changes or discount changes are visible.
+
+Availability foundation:
+- `/tenant/replenishment` now renders an Availability Foundation section from BI facts even when no FnR workbook exists.
+- Inputs:
+  - latest `agg_stock_aging` snapshot for `stock_qty` and `stock_value`
+  - `fact_sales` current 30-day and previous 30-day item/store movement
+  - open, untransformed `fact_supplier_orders` as supplier-side expected incoming quantity
+  - `dim_items` categories, replenishment statuses, `min_stock`, and `current_purchase_price`
+  - recent `fact_purchases` supplier ranking to infer the primary supplier per item
+- Important calculation rule: supplier-order expected quantity is item-level, not store-level. It is displayed and used for vendor context, but it is not subtracted from every store row, so store availability pressure is not artificially hidden or duplicated.
+- Availability pressure is currently `shortage_value + stockout_items * 100`; this is an operational prioritization score, not an accounting value.
+- UI filters are applied server-side on the same BI-fact dataset: branch/store, replenishment status, category, supplier/vendor, and free-text item/category/vendor search.
+- Drilldown endpoint: `/v1/kpi/replenishment/availability-drilldown`.
+  - supported dimensions: `store`, `status`, `category`, `vendor`
+  - supported kinds: `all`, `shortage`, `stockout`, `overstock`
+  - returns item-level rows with stock, target stock, expected supplier quantity, 30-day sales, growth, shortage quantity/value, weeks of stock, stockout and overstock flags
+- Availability summary and drilldown use the shared KPI cache with a short 120-second TTL, keyed by tenant and filters, to keep repeated UI interactions responsive while sync/backfill jobs are running.
+- Subscription rule: locked Replenishment plans must not render real availability data or drilldown rows; the UI only shows the upgrade notice.
 
 Operational rule:
 - any customer-specific field confirmation must be reflected in:

@@ -232,6 +232,22 @@ class PlanFeature(ControlBase):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
 
+class PlanFeatureCatalog(ControlBase):
+    __tablename__ = 'plan_feature_catalog'
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    feature_key: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
+    label: Mapped[str] = mapped_column(String(255), nullable=False)
+    group: Mapped[str] = mapped_column(String(64), nullable=False, default='Custom')
+    feature_type: Mapped[str] = mapped_column(String(32), nullable=False, default='feature')
+    plan_status: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    tenant_id: Mapped[int | None] = mapped_column(ForeignKey('tenants.id'), nullable=True, index=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+
 class SubscriptionEvent(ControlBase):
     __tablename__ = 'subscription_events'
 
@@ -346,6 +362,10 @@ class RefreshToken(ControlBase):
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
     replaced_by_jti: Mapped[str | None] = mapped_column(String(128), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    last_seen_path: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    last_seen_ip: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    last_seen_user_agent: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
 
 class GlobalRuleSet(ControlBase):

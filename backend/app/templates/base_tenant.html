@@ -119,11 +119,13 @@
         {% set _menu_stream_customers = _menu_visibility.get('stream_customer_balances', true) %}
         {% set _menu_analytics_sales = _menu_visibility.get('analytics_sales', true) %}
         {% set _menu_analytics_pos = _menu_visibility.get('analytics_pos', _menu_analytics_sales) %}
+        {% set _menu_analytics_call_center = _menu_visibility.get('analytics_call_center', true) %}
         {% set _menu_analytics_eshop = _menu_visibility.get('analytics_eshop', _menu_analytics_sales) %}
         {% set _menu_analytics_sellout = _menu_visibility.get('analytics_sellout', _menu_analytics_sales) %}
         {% set _menu_analytics_purchases = _menu_visibility.get('analytics_purchases', true) %}
         {% set _menu_analytics_inventory = _menu_visibility.get('analytics_inventory', true) %}
         {% set _menu_analytics_era_exploration = _menu_visibility.get('analytics_era_exploration_data', true) %}
+        {% set _menu_analytics_iqvia = _menu_visibility.get('analytics_iqvia', true) %}
         {% set _menu_analytics_replenishment = _menu_visibility.get('analytics_replenishment', _menu_analytics_inventory) %}
         {% set _menu_analytics_items = _menu_visibility.get('analytics_items', _menu_analytics_inventory) %}
         {% set _menu_analytics_cash = _menu_visibility.get('analytics_cashflows', true) %}
@@ -135,13 +137,13 @@
         {% set _menu_exports = _menu_visibility.get('exports', true) %}
         {% set _show_dashboard_group = _menu_dashboard_executive or _menu_dashboard_finance or _menu_insights %}
         {% set _show_operational_stream_group = _menu_stream_sales or _menu_stream_purchases or _menu_stream_inventory or _menu_stream_cash or _menu_stream_expenses or _menu_stream_supplier_orders or _menu_stream_suppliers or _menu_stream_customers %}
-        {% set _show_analytics_group = _menu_analytics_sales or _menu_analytics_pos or _menu_analytics_eshop or _menu_analytics_sellout or _menu_analytics_era_exploration or _menu_analytics_replenishment or _menu_analytics_purchases or _menu_analytics_inventory or _menu_analytics_items or _menu_analytics_cash or _menu_analytics_receivables or _menu_analytics_supplier_targets or _menu_analytics_price_control or _menu_analytics_business_advisor %}
+        {% set _show_analytics_group = _menu_analytics_sales or _menu_analytics_pos or _menu_analytics_call_center or _menu_analytics_eshop or _menu_analytics_sellout or _menu_analytics_era_exploration or _menu_analytics_iqvia or _menu_analytics_replenishment or _menu_analytics_purchases or _menu_analytics_inventory or _menu_analytics_items or _menu_analytics_cash or _menu_analytics_receivables or _menu_analytics_supplier_targets or _menu_analytics_price_control or _menu_analytics_business_advisor %}
         {% set _has_multiple_branches = tenant_has_multiple_branches if tenant_has_multiple_branches is defined else true %}
         {% set _operational_stream_pages = ['sales_documents', 'purchase_documents', 'supplier_orders', 'warehouse_documents', 'expense_documents', 'operating_expenses', 'suppliers', 'customers'] %}
         {% set _operational_stream_open = active_page in _operational_stream_pages or (active_page == 'cashflow' and _cashflow_is_stream) %}
         {% set _dashboard_pages = ['dashboard', 'finance_dashboard', 'insights'] %}
         {% set _dashboard_open = active_page in _dashboard_pages %}
-        {% set _analytics_open = active_page in ['sales', 'pos', 'eshop_analysis', 'purchases', 'inventory', 'items', 'replenishment', 'analytics_receivables_payables', 'supplier_targets', 'price_control', 'business_advisor', 'era_exploration_data', 'exports_sellout'] or (active_page == 'cashflow' and not _cashflow_is_stream) %}
+        {% set _analytics_open = active_page in ['sales', 'pos', 'call_center', 'eshop_analysis', 'purchases', 'inventory', 'items', 'replenishment', 'analytics_receivables_payables', 'supplier_targets', 'price_control', 'business_advisor', 'era_exploration_data', 'iqvia', 'exports_sellout'] or (active_page == 'cashflow' and not _cashflow_is_stream) %}
         {% set _comparison_pages = ['compare_period', 'compare_branch', 'compare_category'] %}
         {% set _comparison_open = active_page in _comparison_pages %}
         {% set _exports_open = active_page in ['exports_reports', 'exports_csv_excel'] %}
@@ -339,6 +341,11 @@
                 <a class="bv-submenu-link" href="/tenant/pos"><i class="fe fe-shopping-bag"></i><span>Φυσικό Σημείο</span>{% if _menu_locked.get('analytics_pos', false) %}<i class="fe fe-lock ms-auto"></i>{% endif %}</a>
               </li>
               {% endif %}
+              {% if _menu_analytics_call_center %}
+              <li class="{% if active_page == 'call_center' %}is-active{% endif %} {% if _menu_locked.get('analytics_call_center', false) %}opacity-75{% endif %}">
+                <a class="bv-submenu-link" href="/tenant/call-center"><i class="fe fe-phone-call"></i><span>Τηλεφωνικό Κέντρο</span>{% if _menu_locked.get('analytics_call_center', false) %}<i class="fe fe-lock ms-auto"></i>{% endif %}</a>
+              </li>
+              {% endif %}
               {% if _menu_analytics_eshop %}
               <li class="{% if active_page == 'eshop_analysis' %}is-active{% endif %} {% if _menu_locked.get('analytics_eshop', false) %}opacity-75{% endif %}">
                 <a class="bv-submenu-link" href="/tenant/e-shop-analysis"><i class="fe fe-truck"></i><span>E-Shop analysis</span>{% if _menu_locked.get('analytics_eshop', false) %}<i class="fe fe-lock ms-auto"></i>{% endif %}</a>
@@ -352,6 +359,11 @@
               {% if _menu_analytics_era_exploration %}
               <li class="{% if active_page == 'era_exploration_data' %}is-active{% endif %} {% if _menu_locked.get('analytics_era_exploration_data', false) %}opacity-75{% endif %}">
                 <a class="bv-submenu-link" href="/tenant/era-exploration-data"><i class="fe fe-database"></i><span>eRA Exploration Data</span>{% if _menu_locked.get('analytics_era_exploration_data', false) %}<i class="fe fe-lock ms-auto"></i>{% endif %}</a>
+              </li>
+              {% endif %}
+              {% if _menu_analytics_iqvia %}
+              <li class="{% if active_page == 'iqvia' %}is-active{% endif %} {% if _menu_locked.get('analytics_iqvia', false) %}opacity-75{% endif %}">
+                <a class="bv-submenu-link" href="/tenant/iqvia"><i class="fe fe-bar-chart-2"></i><span>IQVIA Market Data</span>{% if _menu_locked.get('analytics_iqvia', false) %}<i class="fe fe-lock ms-auto"></i>{% endif %}</a>
               </li>
               {% endif %}
               {% if _menu_analytics_purchases %}
@@ -554,9 +566,11 @@
             'supplier_targets': 'supplier-targets',
             'sales': 'sales-analytics',
             'pos': 'pos',
+            'call_center': 'call-center',
             'eshop_analysis': 'eshop-analysis',
             'exports_sellout': 'sellout',
             'era_exploration_data': 'era-exploration-data',
+            'iqvia': 'iqvia',
             'purchases': 'purchases-analytics',
             'inventory': 'inventory-analytics',
             'replenishment': 'replenishment',
@@ -595,7 +609,9 @@
             <p class="bv-page-subtitle">Παραγγελίες προς προμηθευτές και ανοιχτές ποσότητες πριν την πρόταση FnR.</p>
             {% elif active_page in ['suppliers', 'customers'] %}
             <p class="bv-page-subtitle">Υπόλοιπα και ιστορικά στοιχεία με ενιαίο pattern πινάκων.</p>
-            {% elif active_page in ['sales', 'purchases', 'inventory', 'items', 'replenishment', 'analytics_receivables_payables', 'supplier_targets', 'price_control', 'business_advisor', 'era_exploration_data', 'exports_sellout', 'pos', 'eshop_analysis'] %}
+            {% elif active_page == 'call_center' %}
+            <p class="bv-page-subtitle">3CX KPIs για παραγωγικότητα ομάδων, απαντήσεις, χαμένες κλήσεις και SLA.</p>
+            {% elif active_page in ['sales', 'purchases', 'inventory', 'items', 'replenishment', 'analytics_receivables_payables', 'supplier_targets', 'price_control', 'business_advisor', 'era_exploration_data', 'iqvia', 'exports_sellout', 'pos', 'eshop_analysis'] %}
             <p class="bv-page-subtitle">Αναλυτικά KPIs, τάσεις και breakdowns σε συνεπή διάταξη.</p>
             {% elif active_page in ['compare_period', 'compare_branch', 'compare_category'] %}
             <p class="bv-page-subtitle">Συγκρίσεις περιόδων και διαστάσεων με κοινή παρουσίαση.</p>
@@ -619,7 +635,7 @@
         </div>
 
         {% set _hide_page_filters = hide_page_filters if hide_page_filters is defined else false %}
-        {% if active_page in ['dashboard', 'finance_dashboard', 'sales', 'pos', 'eshop_analysis', 'sales_documents', 'purchases', 'purchase_documents', 'expense_documents', 'suppliers', 'warehouse_documents', 'operating_expenses', 'inventory', 'items', 'replenishment', 'cashflow', 'customers', 'compare_period', 'compare_branch', 'compare_category', 'insights', 'analytics_receivables_payables', 'supplier_targets', 'price_control', 'business_advisor', 'era_exploration_data', 'exports_reports', 'exports_csv_excel', 'exports_sellout'] and not _hide_page_filters %}
+        {% if active_page in ['dashboard', 'finance_dashboard', 'sales', 'pos', 'call_center', 'eshop_analysis', 'sales_documents', 'purchases', 'purchase_documents', 'expense_documents', 'suppliers', 'warehouse_documents', 'operating_expenses', 'inventory', 'items', 'replenishment', 'cashflow', 'customers', 'compare_period', 'compare_branch', 'compare_category', 'insights', 'analytics_receivables_payables', 'supplier_targets', 'price_control', 'business_advisor', 'era_exploration_data', 'iqvia', 'exports_reports', 'exports_csv_excel', 'exports_sellout'] and not _hide_page_filters %}
         <div class="card filter-card mb-3">
           <div class="card-header d-flex justify-content-between align-items-center">
             <h5 class="mb-0">{{ tt(request, 'filters') }}</h5>
@@ -754,8 +770,10 @@
       return '';
     }
     const csrfToken = getCookie('csrf_token');
-    if (csrfToken) {
-      document.querySelectorAll('form').forEach((form) => {
+    document.querySelectorAll('form').forEach((form) => {
+      const method = String(form.getAttribute('method') || 'get').toLowerCase();
+      if (!['post', 'put', 'patch', 'delete'].includes(method)) return;
+      if (csrfToken) {
         if (!form.querySelector('input[name="csrf_token"]')) {
           const input = document.createElement('input');
           input.type = 'hidden';
@@ -763,7 +781,27 @@
           input.value = csrfToken;
           form.appendChild(input);
         }
+      }
+      form.addEventListener('submit', () => {
+        const freshCsrfToken = getCookie('csrf_token') || csrfToken;
+        if (!freshCsrfToken) return;
+        let hiddenToken = form.querySelector('input[name="csrf_token"]');
+        if (!hiddenToken) {
+          hiddenToken = document.createElement('input');
+          hiddenToken.type = 'hidden';
+          hiddenToken.name = 'csrf_token';
+          form.appendChild(hiddenToken);
+        }
+        hiddenToken.value = freshCsrfToken;
+        if ((form.enctype || '').toLowerCase() === 'multipart/form-data') {
+            const action = form.getAttribute('action') || window.location.pathname;
+            const url = new URL(action, window.location.origin);
+            url.searchParams.set('csrf_token', freshCsrfToken);
+            form.setAttribute('action', url.pathname + url.search + url.hash);
+        }
       });
+    });
+    if (csrfToken) {
       const originalFetch = window.fetch;
       window.fetch = function(url, options) {
         const opts = options || {};

@@ -1,5 +1,8 @@
 import secrets
 import asyncio
+import csv
+import hashlib
+import io
 import json
 import logging
 import os
@@ -13,6 +16,7 @@ from typing import Any
 from urllib.parse import urlencode
 from uuid import UUID
 
+import httpx
 from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
@@ -20,6 +24,7 @@ from redis import Redis
 from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.api.deps import get_current_user, get_request_tenant, get_tenant_db, require_roles
 from app.core.celery_sender import make_celery_sender
@@ -44,6 +49,7 @@ from app.models.control import (
     OverrideMode,
     Plan,
     PlanFeature,
+    PlanFeatureCatalog,
     PlanName,
     TenantRuleOverride,
     RoleName,
@@ -73,11 +79,30 @@ from app.services.intelligence_service import (
 from app.services.connection_secrets import (
     SqlServerSecret,
     build_odbc_connection_string,
+    decrypt_json_secret,
     decrypt_sqlserver_secret,
+    encrypt_json_secret,
     encrypt_sqlserver_secret,
 )
-from app.services.era_exploration import clear_era_exploration_cache, era_period_from_filename, validate_era_exploration_file
-from app.services.replenishment import build_replenishment_from_facts
+from app.services.era_exploration import (
+    clear_era_exploration_cache,
+    DuplicateMarketImportError as EraDuplicateMarketImportError,
+    era_period_from_filename,
+    file_sha256 as era_file_sha256,
+    import_era_exploration_file,
+    validate_era_exploration_file,
+)
+from app.services.email_delivery import send_email, send_tenant_welcome_email
+from app.services.iqvia import (
+    clear_iqvia_cache,
+    DuplicateMarketImportError as IqviaDuplicateMarketImportError,
+    file_sha256 as iqvia_file_sha256,
+    import_iqvia_file,
+    iqvia_period_from_filename,
+    validate_iqvia_file,
+)
+from app.services.kpi_cache import get_or_set_cache
+from app.services.replenishment import build_availability_foundation, build_replenishment_from_facts
 from app.services.supplier_orders import (
     SupplierOrdersFilters,
     build_supplier_orders_dashboard,
@@ -116,7 +141,10 @@ from app.services.querypacks import apply_querypack_to_connection, load_querypac
 from app.services.subscriptions import apply_subscription_time_transitions, get_or_create_subscription, sync_tenant_from_subscription
 from app.services.provisioning_wizard import _drop_db_and_role
 from app.services.subscription_features import (
+    ADD_ON_FEATURE_KEYS,
+    SubscriptionFeature,
     SUBSCRIPTION_FEATURES,
+    addon_allowed_for_plan,
     infer_subscription_feature_defaults,
     normalize_subscription_feature_flags,
 )
@@ -136,6 +164,143 @@ templates.env.globals.setdefault('app_version', settings.app_version)
 templates.env.globals.setdefault('project_name', settings.project_name)
 celery_client = make_celery_sender('ui_sender')
 logger = logging.getLogger(__name__)
+
+_CONTROL_ENV_PATH = Path(__file__).resolve().parents[3] / '.env'
+_MAIL_ENV_KEYS = (
+    'SMTP_HOST',
+    'SMTP_PORT',
+    'SMTP_USERNAME',
+    'SMTP_PASSWORD',
+    'SMTP_FROM_EMAIL',
+    'SMTP_FROM_NAME',
+    'SMTP_USE_TLS',
+    'APP_PUBLIC_BASE_URL',
+)
+_INFRASTRUCTURE_TENANT_SLUGS = {'startdb', 'rddb'}
+_INFRASTRUCTURE_TENANT_SOURCES = {'system', 'template', 'infrastructure', 'internal'}
+
+
+def _is_infrastructure_tenant(tenant: Tenant | None) -> bool:
+    if tenant is None:
+        return False
+    flags = tenant.feature_flags if isinstance(tenant.feature_flags, dict) else {}
+    source = str(tenant.source or '').strip().lower()
+    slug = str(tenant.slug or '').strip().lower()
+    db_name = str(tenant.db_name or '').strip()
+    if bool(flags.get('system_infrastructure')):
+        return True
+    if source in _INFRASTRUCTURE_TENANT_SOURCES:
+        return True
+    if slug in _INFRASTRUCTURE_TENANT_SLUGS:
+        return True
+    if db_name and not db_name.startswith('bi_tenant_'):
+        return True
+    return False
+
+
+def _parse_env_value(raw_value: str) -> str:
+    value = str(raw_value or '').strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+        value = value[1:-1]
+        if raw_value.strip().startswith('"'):
+            value = value.replace('\\n', '\n').replace('\\"', '"').replace('\\\\', '\\')
+    return value
+
+
+def _read_control_env(path: Path = _CONTROL_ENV_PATH) -> dict[str, str]:
+    values: dict[str, str] = {}
+    try:
+        lines = path.read_text(encoding='utf-8').splitlines()
+    except FileNotFoundError:
+        return values
+    except Exception:
+        logger.exception('control_env_read_failed', extra={'path': str(path)})
+        return values
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith('#') or '=' not in line:
+            continue
+        key, raw_value = line.split('=', 1)
+        key = key.strip()
+        if re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', key):
+            values[key] = _parse_env_value(raw_value)
+    return values
+
+
+def _env_format_value(value: str) -> str:
+    text_value = str(value or '')
+    if re.fullmatch(r'[A-Za-z0-9_@./:+-]*', text_value):
+        return text_value if text_value else '""'
+    escaped = text_value.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
+    return f'"{escaped}"'
+
+
+def _write_control_env(updates: dict[str, str], path: Path = _CONTROL_ENV_PATH) -> None:
+    existing_lines: list[str]
+    try:
+        existing_lines = path.read_text(encoding='utf-8').splitlines()
+    except FileNotFoundError:
+        existing_lines = []
+
+    pending = dict(updates)
+    out: list[str] = []
+    for line in existing_lines:
+        if '=' not in line or line.lstrip().startswith('#'):
+            out.append(line)
+            continue
+        key, _raw_value = line.split('=', 1)
+        clean_key = key.strip()
+        if clean_key in pending:
+            out.append(f'{clean_key}={_env_format_value(pending.pop(clean_key))}')
+        else:
+            out.append(line)
+
+    if pending:
+        if out and out[-1].strip():
+            out.append('')
+        out.append('# Mail server settings managed from /admin/settings/mail-server')
+        for key in _MAIL_ENV_KEYS:
+            if key in pending:
+                out.append(f'{key}={_env_format_value(pending.pop(key))}')
+        for key in sorted(pending):
+            out.append(f'{key}={_env_format_value(pending[key])}')
+
+    path.write_text('\n'.join(out).rstrip() + '\n', encoding='utf-8')
+
+
+def _smtp_bool(value: str | bool | None) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value or '').strip().lower() in {'1', 'true', 'yes', 'y', 'on'}
+
+
+def _apply_runtime_mail_settings(values: dict[str, str]) -> None:
+    settings.smtp_host = values.get('SMTP_HOST', '')
+    settings.smtp_port = int(values.get('SMTP_PORT') or 587)
+    settings.smtp_username = values.get('SMTP_USERNAME', '')
+    settings.smtp_password = values.get('SMTP_PASSWORD', '')
+    settings.smtp_from_email = values.get('SMTP_FROM_EMAIL', '')
+    settings.smtp_from_name = values.get('SMTP_FROM_NAME', 'CloudOn BI')
+    settings.smtp_use_tls = _smtp_bool(values.get('SMTP_USE_TLS', 'true'))
+    settings.app_public_base_url = values.get('APP_PUBLIC_BASE_URL', '')
+
+
+def _current_mail_settings() -> dict[str, object]:
+    env_values = _read_control_env()
+    password = env_values.get('SMTP_PASSWORD', settings.smtp_password)
+    return {
+        'smtp_host': env_values.get('SMTP_HOST', settings.smtp_host),
+        'smtp_port': env_values.get('SMTP_PORT', str(settings.smtp_port or 587)),
+        'smtp_username': env_values.get('SMTP_USERNAME', settings.smtp_username),
+        'smtp_from_email': env_values.get('SMTP_FROM_EMAIL', settings.smtp_from_email),
+        'smtp_from_name': env_values.get('SMTP_FROM_NAME', settings.smtp_from_name),
+        'smtp_use_tls': _smtp_bool(env_values.get('SMTP_USE_TLS', settings.smtp_use_tls)),
+        'app_public_base_url': env_values.get('APP_PUBLIC_BASE_URL', settings.app_public_base_url),
+        'has_password': bool(password),
+        'env_path': str(_CONTROL_ENV_PATH),
+        'configured': bool(env_values.get('SMTP_HOST', settings.smtp_host))
+        and bool(env_values.get('SMTP_FROM_EMAIL', settings.smtp_from_email) or env_values.get('SMTP_USERNAME', settings.smtp_username)),
+    }
 
 
 def _default_profile_code_for_role(role: RoleName) -> str:
@@ -158,6 +323,17 @@ def _admin_dashboard_redirect(host: str | None = None) -> str:
     if host and host.lower() != settings.admin_portal_host.lower():
         return f'https://{settings.admin_portal_host}{admin_path}'
     return admin_path
+
+
+def _request_client_ip(request: Request) -> str:
+    forwarded_for = (request.headers.get('x-forwarded-for') or '').split(',')[0].strip()
+    if forwarded_for:
+        return forwarded_for
+    return request.client.host if request.client else ''
+
+
+def _request_user_agent(request: Request) -> str:
+    return (request.headers.get('user-agent') or '')[:255]
 
 
 def _preempt_tenant_tasks(
@@ -316,6 +492,21 @@ _DEFAULT_DUPLICATE_PROTECTION_SETTINGS = {
     'mode': 'natural_key',
 }
 
+_DEFAULT_TENANT_CONTACT_SETTINGS = {
+    'contact_person': '',
+    'contact_email': '',
+    'contact_phone': '',
+    'contact_mobile': '',
+    'billing_email': '',
+    'technical_email': '',
+    'address': '',
+    'city': '',
+    'postal_code': '',
+    'afm': '',
+    'doy': '',
+    'notes': '',
+}
+
 _SYNC_PROFILE_DEFAULTS = {
     'live': {'interval_minutes': 1, 'overlap_minutes': 5, 'recovery_days': 1},
     'daily': {'interval_minutes': 1440, 'overlap_minutes': 10, 'recovery_days': 1},
@@ -336,6 +527,12 @@ _SYNC_STREAM_LABELS = {
     'supplier_orders': 'Παραγγελίες προμηθευτών',
 }
 
+_DEFAULT_3CX_FQDN = ''
+_DEFAULT_3CX_USERNAME = ''
+_3CX_CONNECTOR_TYPE = '3cx_call_center'
+_DEFAULT_3CX_AGENT_DIRECTORY_TEXT = ''
+_DEFAULT_3CX_QUEUE_DIRECTORY_TEXT = ''
+
 
 def _parse_int_in_range(raw: object, *, default: int, min_value: int, max_value: int) -> int:
     try:
@@ -345,12 +542,121 @@ def _parse_int_in_range(raw: object, *, default: int, min_value: int, max_value:
     return max(min_value, min(max_value, parsed))
 
 
+def _parse_3cx_directory_text(raw: object) -> dict[str, str]:
+    directory: dict[str, str] = {}
+    for line in str(raw or '').splitlines():
+        raw_line = str(line or '').strip()
+        if not raw_line:
+            continue
+        if '=' in raw_line:
+            code, label = raw_line.split('=', 1)
+        elif ':' in raw_line:
+            code, label = raw_line.split(':', 1)
+        else:
+            continue
+        code_clean = str(code or '').strip()
+        label_clean = str(label or '').strip()
+        if code_clean and label_clean:
+            directory[code_clean] = label_clean
+    return directory
+
+
+def _extract_3cx_extension_code(value: object) -> str:
+    text_value = str(value or '').strip()
+    if not text_value:
+        return ''
+    paren_match = re.search(r'\(([A-Za-z0-9]+)\)\s*$', text_value)
+    if paren_match:
+        return paren_match.group(1).strip()
+    token_match = re.search(r'\b(GRP[A-Za-z0-9]*|\d{3,4})\b', text_value)
+    return token_match.group(1).strip() if token_match else text_value
+
+
+def _apply_3cx_agent_directory(agent_rows: object, directory: dict[str, str]) -> list[dict[str, object]]:
+    if not isinstance(agent_rows, list):
+        return []
+    grouped: dict[str, dict[str, object]] = {}
+    for row in agent_rows:
+        if not isinstance(row, dict):
+            continue
+        extension_code = _extract_3cx_extension_code(row.get('extension') or row.get('agent'))
+        display_name = directory.get(extension_code) if directory else ''
+        if directory and not display_name:
+            continue
+        clean_row = dict(row)
+        clean_row['extension'] = extension_code
+        if display_name:
+            clean_row['agent'] = display_name
+        key = extension_code or str(clean_row.get('agent') or '')
+        bucket = grouped.setdefault(
+            key,
+            {
+                'agent': clean_row.get('agent') or 'Χωρίς agent',
+                'extension': extension_code,
+                'answered': 0,
+                'outbound': 0,
+                'inbound': 0,
+                'missed': 0,
+                'talk_seconds': 0,
+                'calls': 0,
+                'recent': [],
+            },
+        )
+        bucket['agent'] = clean_row.get('agent') or bucket['agent']
+        bucket['extension'] = extension_code or bucket.get('extension') or ''
+        for field in ('answered', 'outbound', 'inbound', 'missed', 'talk_seconds', 'calls'):
+            bucket[field] = int(bucket.get(field) or 0) + int(clean_row.get(field) or 0)
+        if isinstance(clean_row.get('recent'), list):
+            recent_rows = bucket.get('recent') if isinstance(bucket.get('recent'), list) else []
+            recent_rows.extend([item for item in clean_row['recent'] if isinstance(item, dict)])
+            bucket['recent'] = recent_rows[:8]
+    out = list(grouped.values())
+    for row in out:
+        calls = max(1, int(row.get('calls') or 0))
+        row['avg_talk_seconds'] = int(int(row.get('talk_seconds') or 0) / calls)
+        row['target_pct'] = round((int(row.get('answered') or 0) / 60) * 100, 1)
+    return sorted(out, key=lambda item: int(item.get('answered') or 0) + int(item.get('outbound') or 0), reverse=True)
+
+
+def _apply_3cx_queue_directory(queue_rows: object, directory: dict[str, str]) -> list[dict[str, object]]:
+    if not isinstance(queue_rows, list):
+        return []
+    out: list[dict[str, object]] = []
+    for row in queue_rows:
+        if not isinstance(row, dict):
+            continue
+        clean_row = dict(row)
+        queue_code = _extract_3cx_extension_code(clean_row.get('queue'))
+        if queue_code in directory:
+            clean_row['queue'] = directory[queue_code]
+            clean_row['extension'] = queue_code
+        out.append(clean_row)
+    return out
+
+
+def _3cx_directory_rows(directory: dict[str, str]) -> list[dict[str, str]]:
+    return [{'extension': extension, 'name': name} for extension, name in directory.items()]
+
+
 def _parse_bool_enabled(raw: object, default: bool = True) -> bool:
     if raw is None:
         return bool(default)
     if isinstance(raw, str):
         return raw.strip().lower() not in {'0', 'false', 'no', 'off', 'disabled'}
     return bool(raw)
+
+
+def _tenant_contact_settings(tenant: Tenant | None) -> dict[str, str]:
+    flags = tenant.feature_flags if tenant is not None else None
+    source: dict[str, object] = {}
+    if isinstance(flags, dict):
+        cfg = flags.get('contact')
+        if isinstance(cfg, dict):
+            source = cfg
+    out: dict[str, str] = {}
+    for key, default_value in _DEFAULT_TENANT_CONTACT_SETTINGS.items():
+        out[key] = str(source.get(key) or default_value or '').strip()
+    return out
 
 
 def _tenant_inventory_item_classification_settings(tenant: Tenant | None) -> dict[str, object]:
@@ -555,6 +861,10 @@ def _tenant_eshop_fulfillment_settings(tenant: Tenant | None) -> dict[str, objec
         cfg = flags.get('eshop_fulfillment')
         if isinstance(cfg, dict):
             source = cfg
+        else:
+            source = {'use_defaults': False}
+    else:
+        source = {'use_defaults': False}
     return normalize_eshop_fulfillment_config(source)
 
 
@@ -622,6 +932,741 @@ def _tenant_era_exploration_settings(tenant: Tenant | None) -> dict[str, object]
     }
 
 
+def _tenant_iqvia_settings(tenant: Tenant | None) -> dict[str, object]:
+    flags = tenant.feature_flags if tenant is not None else None
+    source: dict[str, object] = {}
+    if isinstance(flags, dict):
+        cfg = flags.get('iqvia_config') or flags.get('iqvia')
+        if isinstance(cfg, dict):
+            source = cfg
+    return {
+        'file_path': str(source.get('file_path') or ''),
+        'archive_path': str(source.get('archive_path') or ''),
+        'filename': str(source.get('filename') or ''),
+        'uploaded_at': str(source.get('uploaded_at') or ''),
+        'uploaded_by': str(source.get('uploaded_by') or ''),
+        'period': str(source.get('period') or iqvia_period_from_filename(source.get('filename') or source.get('file_path'))),
+        'rows': int(source.get('rows') or 0),
+        'categories': int(source.get('categories') or 0),
+        'manufacturers': int(source.get('manufacturers') or 0),
+        'territories': int(source.get('territories') or 0),
+    }
+
+
+async def _tenant_call_center_settings(db: AsyncSession, tenant_id: int) -> dict[str, object]:
+    conn = await _find_tenant_connection(db, tenant_id=tenant_id, connector_type=_3CX_CONNECTOR_TYPE)
+    params = conn.connection_parameters if conn is not None and isinstance(conn.connection_parameters, dict) else {}
+    manual_import = params.get('manual_import') if isinstance(params.get('manual_import'), dict) else {}
+    stats = manual_import.get('stats') if isinstance(manual_import.get('stats'), dict) else {}
+    agent_directory_text = str(params.get('agent_directory_text') or '')
+    queue_directory_text = str(params.get('queue_directory_text') or '')
+    agent_directory = _parse_3cx_directory_text(agent_directory_text)
+    queue_directory = _parse_3cx_directory_text(queue_directory_text)
+    secret_payload: dict[str, Any] = {}
+    if conn is not None and conn.enc_payload:
+        try:
+            secret_payload = decrypt_json_secret(conn.enc_payload)
+        except Exception:
+            logger.exception('tenant_3cx_secret_decrypt_failed', extra={'tenant_id': tenant_id})
+    return {
+        'configured': bool(conn and conn.is_active and str(params.get('fqdn') or '').strip()),
+        'fqdn': str(params.get('fqdn') or ''),
+        'username': str(params.get('username') or secret_payload.get('username') or ''),
+        'client_id': str(params.get('client_id') or ''),
+        'queue_ids': str(params.get('queue_ids') or ''),
+        'team_extensions': str(params.get('team_extensions') or ''),
+        'agent_directory_text': agent_directory_text,
+        'queue_directory_text': queue_directory_text,
+        'agent_directory_rows': _3cx_directory_rows(agent_directory),
+        'queue_directory_rows': _3cx_directory_rows(queue_directory),
+        'polling_interval_minutes': _parse_int_in_range(
+            params.get('polling_interval_minutes'),
+            default=5,
+            min_value=1,
+            max_value=1440,
+        ),
+        'answer_sla_seconds': _parse_int_in_range(
+            params.get('answer_sla_seconds'),
+            default=30,
+            min_value=1,
+            max_value=3600,
+        ),
+        'target_calls_per_agent': _parse_int_in_range(
+            params.get('target_calls_per_agent'),
+            default=60,
+            min_value=1,
+            max_value=1000,
+        ),
+        'has_password': bool(secret_payload.get('password')),
+        'last_sync_at': conn.last_sync_at if conn is not None else None,
+        'last_test_ok_at': conn.last_test_ok_at if conn is not None else None,
+        'last_test_error': conn.last_test_error if conn is not None else None,
+        'sync_status': str(conn.sync_status if conn is not None else 'never'),
+        'manual_import': manual_import,
+        'stats': stats,
+        'daily_rows': manual_import.get('daily_rows') if isinstance(manual_import.get('daily_rows'), list) else [],
+        'queue_rows': _apply_3cx_queue_directory(manual_import.get('queue_rows'), queue_directory),
+        'agent_rows': _apply_3cx_agent_directory(manual_import.get('agent_rows'), agent_directory),
+        'source_rows': manual_import.get('source_rows') if isinstance(manual_import.get('source_rows'), list) else [],
+    }
+
+
+def _as_3cx_report_text(upload: UploadFile) -> str:
+    raw = upload.file.read()
+    if isinstance(raw, str):
+        return raw
+    for encoding in ('utf-8-sig', 'utf-16', 'cp1253', 'latin-1'):
+        try:
+            return raw.decode(encoding)
+        except Exception:
+            continue
+    return raw.decode('utf-8', errors='replace')
+
+
+def _clean_3cx_header(value: object) -> str:
+    return re.sub(r'[^a-z0-9]+', '', str(value or '').strip().lower())
+
+
+def _pick_3cx_value(row: dict[str, object], *candidates: str) -> str:
+    normalized = {_clean_3cx_header(key): value for key, value in row.items()}
+    for candidate in candidates:
+        value = normalized.get(_clean_3cx_header(candidate))
+        if value is not None and str(value).strip():
+            return str(value).strip()
+    return ''
+
+
+def _parse_3cx_duration_seconds(raw: object) -> int:
+    text_value = str(raw or '').strip()
+    if not text_value:
+        return 0
+    if text_value.isdigit():
+        return int(text_value)
+    parts = [p for p in re.split(r'[:.]', text_value) if p != '']
+    try:
+        nums = [int(float(p)) for p in parts]
+    except Exception:
+        nums = []
+    if len(nums) >= 3:
+        return nums[-3] * 3600 + nums[-2] * 60 + nums[-1]
+    if len(nums) == 2:
+        return nums[0] * 60 + nums[1]
+    number_match = re.search(r'\d+', text_value)
+    return int(number_match.group(0)) if number_match else 0
+
+
+def _parse_3cx_date(raw: object) -> str:
+    text_value = str(raw or '').strip()
+    if not text_value:
+        return ''
+    for fmt in (
+        '%Y-%m-%d %H:%M:%S',
+        '%Y-%m-%dT%H:%M:%S',
+        '%d/%m/%Y %H:%M:%S',
+        '%d/%m/%Y %H:%M',
+        '%m/%d/%Y %H:%M:%S',
+        '%m/%d/%Y %H:%M',
+        '%Y-%m-%d',
+        '%d/%m/%Y',
+        '%m/%d/%Y',
+    ):
+        try:
+            return datetime.strptime(text_value[:19], fmt).date().isoformat()
+        except Exception:
+            continue
+    iso_match = re.search(r'\d{4}-\d{2}-\d{2}', text_value)
+    if iso_match:
+        return iso_match.group(0)
+    dmy_match = re.search(r'(\d{1,2})/(\d{1,2})/(\d{4})', text_value)
+    if dmy_match:
+        day, month, year = dmy_match.groups()
+        return f'{int(year):04d}-{int(month):02d}-{int(day):02d}'
+    return ''
+
+
+def _normalize_3cx_key_part(raw: object) -> str:
+    text_value = re.sub(r'\s+', ' ', str(raw or '').strip()).lower()
+    return text_value
+
+
+def _3cx_call_fingerprint(
+    *,
+    is_outbound: bool,
+    raw_call_time: object,
+    call_date: object,
+    source_number: object,
+    did_number: object,
+    queue: object,
+    agent: object,
+    extension: object,
+    status: object,
+    duration_seconds: int,
+) -> str:
+    parts = [
+        'out' if is_outbound else 'in',
+        _normalize_3cx_key_part(raw_call_time) or _normalize_3cx_key_part(call_date),
+        _normalize_3cx_key_part(source_number),
+        _normalize_3cx_key_part(did_number),
+        _normalize_3cx_key_part(queue),
+        _normalize_3cx_key_part(agent),
+        _normalize_3cx_key_part(extension),
+        _normalize_3cx_key_part(status),
+        str(int(duration_seconds or 0)),
+    ]
+    return '|'.join(parts)
+
+
+def _parse_3cx_report_upload(upload: UploadFile, *, user_identity: str, report_kind: str = 'auto') -> dict[str, object]:
+    filename = Path(upload.filename or '').name
+    if not filename.lower().endswith(('.csv', '.txt')):
+        raise ValueError('3CX report import supports CSV/TXT exports only.')
+    text_value = _as_3cx_report_text(upload)
+    sample = text_value[:4096]
+    try:
+        dialect = csv.Sniffer().sniff(sample, delimiters=',;\t')
+    except Exception:
+        dialect = csv.excel
+    reader = csv.DictReader(io.StringIO(text_value), dialect=dialect)
+    rows = [row for row in reader if any(str(value or '').strip() for value in row.values())]
+    if not rows:
+        raise ValueError('Το 3CX CSV δεν έχει γραμμές δεδομένων.')
+    headers = {_clean_3cx_header(key) for key in (reader.fieldnames or [])}
+    kind = str(report_kind or 'auto').strip().lower()
+    if kind not in {'inbound', 'outbound'}:
+        lower_filename = filename.lower()
+        if 'outbound' in lower_filename or 'callerdisplayname' in headers or 'destinationcalleeid' in headers:
+            kind = 'outbound'
+        elif 'inbound' in lower_filename or 'did' in headers:
+            kind = 'inbound'
+        else:
+            kind = 'auto'
+
+    total_calls = answered_calls = missed_calls = outbound_calls = total_wait_seconds = wait_count = 0
+    daily: dict[str, dict[str, object]] = {}
+    queues: dict[str, dict[str, object]] = {}
+    agents: dict[str, dict[str, object]] = {}
+    sources: dict[str, dict[str, object]] = {}
+    seen_call_keys: set[str] = set()
+    duplicate_rows = 0
+
+    for row in rows:
+        direction = _pick_3cx_value(row, 'Direction', 'Call Type', 'Type').lower()
+        status = _pick_3cx_value(row, 'Status', 'Call Status', 'Result', 'Disposition').lower()
+        is_outbound = kind == 'outbound' or ('out' in direction)
+        destination_value = _pick_3cx_value(row, 'Destination', 'To', 'Destination Name', 'Final Destination')
+        if is_outbound:
+            queue = _pick_3cx_value(row, 'Trunk', 'Trunk number', 'Department') or 'Outbound'
+            agent = (
+                _pick_3cx_value(row, 'Caller Display name', 'Caller Display Name', 'Agent', 'User', 'Name')
+                or 'Χωρίς agent'
+            )
+            extension = _pick_3cx_value(row, 'Caller ID', 'Caller Extension', 'Extension', 'Ext', 'DN')
+            source_number = (
+                _pick_3cx_value(
+                    row,
+                    'Destination Callee Id',
+                    'Destination Callee ID',
+                    'Destination Display Name',
+                    'Destination',
+                    'Called Number',
+                    'To Number',
+                    'To',
+                )
+                or 'Άγνωστη πηγή'
+            )
+            did_number = ''
+        else:
+            queue = (
+                _pick_3cx_value(
+                    row,
+                    'Queue',
+                    'Queue Name',
+                    'Call Queue',
+                    'Group',
+                    'Ring Group',
+                    'Department',
+                    'Destination Group',
+                    'Destination Queue',
+                    'Queue Extension',
+                    'Final Destination',
+                    'Destination',
+                )
+                or 'Χωρίς queue'
+            )
+            agent = _pick_3cx_value(
+                row,
+                'Agent',
+                'User',
+                'Answered By',
+                'Destination Display Name',
+                'Destination Name',
+                'To Name',
+                'Name',
+            )
+            agent = agent or destination_value or 'Χωρίς agent'
+            extension = _pick_3cx_value(row, 'Extension', 'Ext', 'Agent Extension', 'Destination', 'To', 'DN')
+            source_number = (
+                _pick_3cx_value(
+                    row,
+                    'Caller ID',
+                    'Caller',
+                    'Caller Number',
+                    'From',
+                    'From Number',
+                    'Source',
+                    'Originator',
+                    'External Number',
+                    'Αριθμός Καλούντος',
+                    'Καλών',
+                )
+                or 'Άγνωστη πηγή'
+            )
+            did_number = _pick_3cx_value(row, 'DID', 'DDI', 'Dialed Number', 'Called Number', 'To Number', 'Line', 'Εισερχόμενος Αριθμός')
+        raw_call_time = _pick_3cx_value(row, 'Date', 'Start Time', 'Start', 'Time', 'Call Time')
+        call_date = _parse_3cx_date(raw_call_time)
+        duration_seconds = _parse_3cx_duration_seconds(
+            _pick_3cx_value(
+                row,
+                'Duration',
+                'Talk Time',
+                'Talking Time',
+                'Talk Duration',
+                'Talking',
+                'Conversation Time',
+                'Connected Time',
+                'Call Duration',
+                'Answered Duration',
+                'Billable Duration',
+                'Total Talk Time',
+                'Total Talking Time',
+                'Συνολικός Χρόνος',
+                'Συν. Χρόνος',
+                'Χρόνος Ομιλίας',
+                'Διάρκεια Ομιλίας',
+                'Ομιλία',
+            )
+        )
+        wait_seconds = _parse_3cx_duration_seconds(
+            _pick_3cx_value(row, 'Wait Time', 'Waiting Time', 'Ring Time', 'Queue Wait', 'Ringing', 'Χρόνος Αναμονής', 'Αναμονή')
+        )
+
+        is_missed = any(token in status for token in ('miss', 'abandon', 'unanswer', 'no answer', 'failed'))
+        is_answered = not is_missed and (duration_seconds > 0 or any(token in status for token in ('answer', 'complete', 'connected')))
+        agent_key = f'{agent}|{extension}'
+        call_key = _3cx_call_fingerprint(
+            is_outbound=is_outbound,
+            raw_call_time=raw_call_time,
+            call_date=call_date,
+            source_number=source_number,
+            did_number=did_number,
+            queue=queue,
+            agent=agent,
+            extension=extension,
+            status=status,
+            duration_seconds=duration_seconds,
+        )
+        if call_key in seen_call_keys:
+            duplicate_rows += 1
+            continue
+        seen_call_keys.add(call_key)
+
+        total_calls += 1
+        answered_calls += 1 if is_answered else 0
+        missed_calls += 1 if is_missed else 0
+        outbound_calls += 1 if is_outbound else 0
+        if wait_seconds:
+            total_wait_seconds += wait_seconds
+            wait_count += 1
+
+        if call_date:
+            bucket = daily.setdefault(call_date, {'date': call_date, 'calls': 0, 'answered': 0, 'missed': 0, 'outbound': 0})
+            bucket['calls'] = int(bucket['calls']) + 1
+            bucket['answered'] = int(bucket['answered']) + (1 if is_answered else 0)
+            bucket['missed'] = int(bucket['missed']) + (1 if is_missed else 0)
+            bucket['outbound'] = int(bucket.get('outbound') or 0) + (1 if is_outbound else 0)
+
+        queue_bucket = queues.setdefault(queue, {'queue': queue, 'calls': 0, 'answered': 0, 'missed': 0, 'sla': 0})
+        queue_bucket['calls'] = int(queue_bucket['calls']) + 1
+        queue_bucket['answered'] = int(queue_bucket['answered']) + (1 if is_answered else 0)
+        queue_bucket['missed'] = int(queue_bucket['missed']) + (1 if is_missed else 0)
+        if wait_seconds and wait_seconds <= 30:
+            queue_bucket['sla'] = int(queue_bucket['sla']) + 1
+
+        source_key = f'{source_number}|{did_number}|{queue}'
+        source_bucket = sources.setdefault(
+            source_key,
+            {
+                'source': source_number,
+                'did': did_number,
+                'queue': queue,
+                'calls': 0,
+                'answered': 0,
+                'missed': 0,
+                'outbound': 0,
+                'talk_seconds': 0,
+                'last_call': '',
+                'agents': {},
+                'recent': [],
+            },
+        )
+        source_bucket['calls'] = int(source_bucket['calls']) + 1
+        source_bucket['answered'] = int(source_bucket['answered']) + (1 if is_answered else 0)
+        source_bucket['missed'] = int(source_bucket['missed']) + (1 if is_missed else 0)
+        source_bucket['outbound'] = int(source_bucket['outbound']) + (1 if is_outbound else 0)
+        source_bucket['talk_seconds'] = int(source_bucket['talk_seconds']) + duration_seconds
+        if call_date:
+            source_bucket['last_call'] = max(str(source_bucket.get('last_call') or ''), call_date)
+        source_agents = source_bucket.get('agents') if isinstance(source_bucket.get('agents'), dict) else {}
+        agent_source_bucket = source_agents.setdefault(
+            agent_key,
+            {'agent': agent, 'extension': extension, 'calls': 0, 'talk_seconds': 0},
+        )
+        agent_source_bucket['calls'] = int(agent_source_bucket['calls']) + 1
+        agent_source_bucket['talk_seconds'] = int(agent_source_bucket['talk_seconds']) + duration_seconds
+        source_bucket['agents'] = source_agents
+        recent_calls = source_bucket.get('recent') if isinstance(source_bucket.get('recent'), list) else []
+        if len(recent_calls) < 5:
+            recent_calls.append(
+                {
+                    'date': call_date,
+                    'agent': agent,
+                    'extension': extension,
+                    'direction': 'Εξ.' if is_outbound else 'Εισ.',
+                    'duration_seconds': duration_seconds,
+                    'status': 'Χαμένη' if is_missed else 'Απαντ.',
+                }
+            )
+            source_bucket['recent'] = recent_calls
+
+        agent_bucket = agents.setdefault(
+            agent_key,
+            {
+                'agent': agent,
+                'extension': extension,
+                'answered': 0,
+                'outbound': 0,
+                'inbound': 0,
+                'missed': 0,
+                'talk_seconds': 0,
+                'calls': 0,
+                'recent': [],
+            },
+        )
+        agent_bucket['calls'] = int(agent_bucket['calls']) + 1
+        agent_bucket['answered'] = int(agent_bucket['answered']) + (1 if is_answered else 0)
+        agent_bucket['outbound'] = int(agent_bucket['outbound']) + (1 if is_outbound else 0)
+        agent_bucket['inbound'] = int(agent_bucket['inbound']) + (0 if is_outbound else 1)
+        agent_bucket['missed'] = int(agent_bucket['missed']) + (1 if is_missed else 0)
+        agent_bucket['talk_seconds'] = int(agent_bucket['talk_seconds']) + duration_seconds
+        agent_recent = agent_bucket.get('recent') if isinstance(agent_bucket.get('recent'), list) else []
+        if len(agent_recent) < 8:
+            agent_recent.append(
+                {
+                    'date': call_date,
+                    'source': source_number,
+                    'queue': queue,
+                    'direction': 'Εξ.' if is_outbound else 'Εισ.',
+                    'duration_seconds': duration_seconds,
+                    'status': 'Χαμένη' if is_missed else 'Απαντ.',
+                }
+            )
+            agent_bucket['recent'] = agent_recent
+
+    for queue_row in queues.values():
+        calls = max(1, int(queue_row['calls']))
+        queue_row['sla_pct'] = round((int(queue_row.get('sla') or 0) / calls) * 100, 1)
+    target_calls_per_agent = 60
+    for agent_row in agents.values():
+        calls = max(1, int(agent_row.get('calls') or 0))
+        agent_row['avg_talk_seconds'] = int(int(agent_row.get('talk_seconds') or 0) / calls)
+        agent_row['target_pct'] = round((int(agent_row.get('answered') or 0) / target_calls_per_agent) * 100, 1)
+    source_rows: list[dict[str, object]] = []
+    for source_row in sources.values():
+        calls = max(1, int(source_row.get('calls') or 0))
+        source_agents = source_row.get('agents') if isinstance(source_row.get('agents'), dict) else {}
+        agent_rows = []
+        for agent_source_row in source_agents.values():
+            agent_calls = max(1, int(agent_source_row.get('calls') or 0))
+            agent_rows.append(
+                {
+                    **agent_source_row,
+                    'avg_talk_seconds': int(int(agent_source_row.get('talk_seconds') or 0) / agent_calls),
+                }
+            )
+        clean_source_row = dict(source_row)
+        clean_source_row['avg_talk_seconds'] = int(int(source_row.get('talk_seconds') or 0) / calls)
+        clean_source_row['agents'] = sorted(agent_rows, key=lambda item: int(item.get('calls') or 0), reverse=True)[:5]
+        source_rows.append(clean_source_row)
+
+    return {
+        'filename': filename,
+        'uploaded_at': datetime.utcnow().isoformat(timespec='seconds') + 'Z',
+        'uploaded_by': user_identity or 'admin',
+        'source_sha256': hashlib.sha256(text_value.encode('utf-8')).hexdigest(),
+        'rows': len(rows) - duplicate_rows,
+        'raw_rows': len(rows),
+        'duplicate_rows': duplicate_rows,
+        'stats': {
+            'total_calls': total_calls,
+            'answered_calls': answered_calls,
+            'missed_calls': missed_calls,
+            'outbound_calls': outbound_calls,
+            'answer_rate_pct': round((answered_calls / total_calls) * 100, 1) if total_calls else 0,
+            'avg_wait_seconds': int(total_wait_seconds / wait_count) if wait_count else 0,
+        },
+        'daily_rows': sorted(daily.values(), key=lambda item: str(item.get('date') or ''))[-31:],
+        'queue_rows': sorted(queues.values(), key=lambda item: int(item.get('calls') or 0), reverse=True)[:20],
+        'agent_rows': sorted(agents.values(), key=lambda item: int(item.get('answered') or 0), reverse=True)[:50],
+        'source_rows': sorted(source_rows, key=lambda item: int(item.get('calls') or 0), reverse=True)[:50],
+    }
+
+
+def _merge_3cx_manual_imports(imports: list[dict[str, object]], *, user_identity: str) -> dict[str, object]:
+    valid_imports = [item for item in imports if isinstance(item, dict)]
+    if not valid_imports:
+        raise ValueError('Δεν υπάρχει έγκυρο 3CX import.')
+    merged: dict[str, object] = {
+        'filename': ' + '.join(str(item.get('filename') or '') for item in valid_imports if item.get('filename')),
+        'uploaded_at': datetime.utcnow().isoformat(timespec='seconds') + 'Z',
+        'uploaded_by': user_identity or 'admin',
+        'rows': sum(int(item.get('rows') or 0) for item in valid_imports),
+        'raw_rows': sum(int(item.get('raw_rows') or item.get('rows') or 0) for item in valid_imports),
+        'duplicate_rows': sum(int(item.get('duplicate_rows') or 0) for item in valid_imports),
+        'import_fingerprints': sorted(
+            str(item.get('source_sha256') or '')
+            for item in valid_imports
+            if str(item.get('source_sha256') or '').strip()
+        ),
+    }
+    stats = {
+        'total_calls': 0,
+        'answered_calls': 0,
+        'missed_calls': 0,
+        'outbound_calls': 0,
+        'avg_wait_seconds': 0,
+    }
+    daily: dict[str, dict[str, object]] = {}
+    queues: dict[str, dict[str, object]] = {}
+    agents: dict[str, dict[str, object]] = {}
+    sources: dict[str, dict[str, object]] = {}
+    for item in valid_imports:
+        item_stats = item.get('stats') if isinstance(item.get('stats'), dict) else {}
+        stats['total_calls'] += int(item_stats.get('total_calls') or 0)
+        stats['answered_calls'] += int(item_stats.get('answered_calls') or 0)
+        stats['missed_calls'] += int(item_stats.get('missed_calls') or 0)
+        stats['outbound_calls'] += int(item_stats.get('outbound_calls') or 0)
+        stats['avg_wait_seconds'] = max(int(stats['avg_wait_seconds']), int(item_stats.get('avg_wait_seconds') or 0))
+        for row in item.get('daily_rows') if isinstance(item.get('daily_rows'), list) else []:
+            if not isinstance(row, dict):
+                continue
+            key = str(row.get('date') or '')
+            bucket = daily.setdefault(key, {'date': key, 'calls': 0, 'answered': 0, 'missed': 0, 'outbound': 0})
+            for field in ('calls', 'answered', 'missed', 'outbound'):
+                bucket[field] = int(bucket.get(field) or 0) + int(row.get(field) or 0)
+        for row in item.get('queue_rows') if isinstance(item.get('queue_rows'), list) else []:
+            if not isinstance(row, dict):
+                continue
+            key = str(row.get('queue') or 'Χωρίς queue')
+            bucket = queues.setdefault(key, {'queue': key, 'calls': 0, 'answered': 0, 'missed': 0, 'sla': 0})
+            for field in ('calls', 'answered', 'missed', 'sla'):
+                bucket[field] = int(bucket.get(field) or 0) + int(row.get(field) or 0)
+        for row in item.get('agent_rows') if isinstance(item.get('agent_rows'), list) else []:
+            if not isinstance(row, dict):
+                continue
+            key = f"{row.get('agent') or ''}|{row.get('extension') or ''}"
+            bucket = agents.setdefault(
+                key,
+                {
+                    'agent': row.get('agent') or 'Χωρίς agent',
+                    'extension': row.get('extension') or '',
+                    'answered': 0,
+                    'outbound': 0,
+                    'inbound': 0,
+                    'missed': 0,
+                    'talk_seconds': 0,
+                    'calls': 0,
+                    'recent': [],
+                },
+            )
+            for field in ('answered', 'outbound', 'inbound', 'missed', 'talk_seconds', 'calls'):
+                bucket[field] = int(bucket.get(field) or 0) + int(row.get(field) or 0)
+            if isinstance(row.get('recent'), list):
+                recent_rows = bucket.get('recent') if isinstance(bucket.get('recent'), list) else []
+                recent_rows.extend([item for item in row['recent'] if isinstance(item, dict)])
+                bucket['recent'] = recent_rows[:8]
+        for row in item.get('source_rows') if isinstance(item.get('source_rows'), list) else []:
+            if not isinstance(row, dict):
+                continue
+            key = f"{row.get('source') or ''}|{row.get('did') or ''}|{row.get('queue') or ''}"
+            bucket = sources.setdefault(
+                key,
+                {'source': row.get('source') or '', 'did': row.get('did') or '', 'queue': row.get('queue') or '', 'calls': 0, 'answered': 0, 'missed': 0, 'outbound': 0, 'talk_seconds': 0, 'last_call': '', 'agents': [], 'recent': []},
+            )
+            for field in ('calls', 'answered', 'missed', 'outbound', 'talk_seconds'):
+                bucket[field] = int(bucket.get(field) or 0) + int(row.get(field) or 0)
+            bucket['last_call'] = max(str(bucket.get('last_call') or ''), str(row.get('last_call') or ''))
+            bucket['agents'] = list(bucket.get('agents') or []) + list(row.get('agents') or [])
+            bucket['recent'] = (list(bucket.get('recent') or []) + list(row.get('recent') or []))[:5]
+    stats['answer_rate_pct'] = round((stats['answered_calls'] / stats['total_calls']) * 100, 1) if stats['total_calls'] else 0
+    for queue_row in queues.values():
+        calls = max(1, int(queue_row.get('calls') or 0))
+        queue_row['sla_pct'] = round((int(queue_row.get('sla') or 0) / calls) * 100, 1)
+    for agent_row in agents.values():
+        calls = max(1, int(agent_row.get('calls') or 0))
+        agent_row['avg_talk_seconds'] = int(int(agent_row.get('talk_seconds') or 0) / calls)
+        agent_row['target_pct'] = round((int(agent_row.get('answered') or 0) / 60) * 100, 1)
+    for source_row in sources.values():
+        calls = max(1, int(source_row.get('calls') or 0))
+        source_row['avg_talk_seconds'] = int(int(source_row.get('talk_seconds') or 0) / calls)
+    merged['stats'] = stats
+    merged['daily_rows'] = sorted(daily.values(), key=lambda row: str(row.get('date') or ''))[-31:]
+    merged['queue_rows'] = sorted(queues.values(), key=lambda row: int(row.get('calls') or 0), reverse=True)[:20]
+    merged['agent_rows'] = sorted(agents.values(), key=lambda row: int(row.get('answered') or 0), reverse=True)[:50]
+    merged['source_rows'] = sorted(sources.values(), key=lambda row: int(row.get('calls') or 0), reverse=True)[:50]
+    return merged
+
+
+async def _replace_3cx_manual_import(
+    db: AsyncSession,
+    *,
+    tenant_id: int,
+    imports: list[dict[str, object]],
+    user_identity: str,
+) -> dict[str, object]:
+    manual_import = _merge_3cx_manual_imports(imports, user_identity=user_identity)
+    conn = await _find_tenant_connection(db, tenant_id=tenant_id, connector_type=_3CX_CONNECTOR_TYPE)
+    if conn is None:
+        conn = TenantConnection(
+            tenant_id=tenant_id,
+            connector_type=_3CX_CONNECTOR_TYPE,
+            source_type='file',
+            is_active=True,
+            supported_streams=['call_center_kpis'],
+            enabled_streams=['call_center_kpis'],
+        )
+        db.add(conn)
+    params = dict(conn.connection_parameters if isinstance(conn.connection_parameters, dict) else {})
+    params.setdefault('fqdn', _DEFAULT_3CX_FQDN)
+    params.setdefault('username', _DEFAULT_3CX_USERNAME)
+    params.setdefault('client_id', '')
+    params.setdefault('queue_ids', '')
+    params.setdefault('team_extensions', '')
+    params.setdefault('agent_directory_text', _DEFAULT_3CX_AGENT_DIRECTORY_TEXT)
+    params.setdefault('queue_directory_text', _DEFAULT_3CX_QUEUE_DIRECTORY_TEXT)
+    params.setdefault('polling_interval_minutes', 5)
+    params.setdefault('answer_sla_seconds', 30)
+    params.setdefault('target_calls_per_agent', 60)
+    params['manual_import'] = manual_import
+    params['import_mode'] = 'replace_snapshot'
+    conn.connection_parameters = params
+    conn.source_type = conn.source_type or 'file'
+    conn.is_active = True
+    conn.sync_status = 'imported'
+    flag_modified(conn, 'connection_parameters')
+    db.add(conn)
+    return manual_import
+
+
+async def _run_3cx_manual_sync_check(db: AsyncSession, tenant: Tenant) -> dict[str, object]:
+    conn = await _find_tenant_connection(db, tenant_id=tenant.id, connector_type=_3CX_CONNECTOR_TYPE)
+    if conn is None or not conn.is_active:
+        return {'ok': False, 'message': 'Δεν υπάρχει ενεργή ρύθμιση 3CX για τον tenant.'}
+    params = conn.connection_parameters if isinstance(conn.connection_parameters, dict) else {}
+    fqdn = str(params.get('fqdn') or _DEFAULT_3CX_FQDN).strip().rstrip('/')
+    client_id = str(params.get('client_id') or '').strip()
+    secret_payload: dict[str, Any] = {}
+    if conn.enc_payload:
+        try:
+            secret_payload = decrypt_json_secret(conn.enc_payload)
+        except Exception:
+            logger.exception('tenant_3cx_manual_secret_decrypt_failed', extra={'tenant_id': tenant.id})
+    client_secret = str(secret_payload.get('password') or '').strip()
+    if not fqdn:
+        conn.sync_status = 'failed'
+        conn.last_test_error = 'Λείπει το 3CX FQDN.'
+        await db.commit()
+        return {'ok': False, 'message': conn.last_test_error}
+    if not client_id:
+        message = 'Λείπει το Client ID / API key. Το 3CX XAPI χρειάζεται Service Principal client_id και client_secret για manual sync.'
+        conn.sync_status = 'failed'
+        conn.last_test_error = message
+        await db.commit()
+        return {'ok': False, 'message': message}
+    if not client_secret:
+        message = 'Λείπει το API secret/password για το 3CX Service Principal.'
+        conn.sync_status = 'failed'
+        conn.last_test_error = message
+        await db.commit()
+        return {'ok': False, 'message': message}
+
+    token_url = f'{fqdn}/connect/token'
+    defs_url = f'{fqdn}/xapi/v1/Defs?$select=Id'
+    try:
+        async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
+            token_response = await client.post(
+                token_url,
+                data={
+                    'client_id': client_id,
+                    'client_secret': client_secret,
+                    'grant_type': 'client_credentials',
+                },
+                headers={'Accept': 'application/json'},
+            )
+            if token_response.status_code >= 400:
+                message = f'3CX token failed: HTTP {token_response.status_code}'
+                conn.sync_status = 'failed'
+                conn.last_test_error = message
+                await db.commit()
+                return {'ok': False, 'message': message}
+            token_payload = token_response.json()
+            access_token = str(token_payload.get('access_token') or '').strip()
+            if not access_token:
+                message = 'Το 3CX δεν επέστρεψε access_token.'
+                conn.sync_status = 'failed'
+                conn.last_test_error = message
+                await db.commit()
+                return {'ok': False, 'message': message}
+            defs_response = await client.get(
+                defs_url,
+                headers={'Accept': 'application/json', 'Authorization': f'Bearer {access_token}'},
+            )
+            if defs_response.status_code >= 400:
+                message = f'3CX XAPI quick check failed: HTTP {defs_response.status_code}'
+                conn.sync_status = 'failed'
+                conn.last_test_error = message
+                await db.commit()
+                return {'ok': False, 'message': message}
+    except httpx.RequestError as exc:
+        message = f'Αποτυχία σύνδεσης με 3CX: {exc.__class__.__name__}'
+        conn.sync_status = 'failed'
+        conn.last_test_error = message
+        await db.commit()
+        return {'ok': False, 'message': message}
+    except Exception as exc:
+        logger.exception('tenant_3cx_manual_sync_failed', extra={'tenant_id': tenant.id})
+        message = f'Αποτυχία manual 3CX sync: {exc.__class__.__name__}'
+        conn.sync_status = 'failed'
+        conn.last_test_error = message
+        await db.commit()
+        return {'ok': False, 'message': message}
+
+    conn.last_test_ok_at = datetime.utcnow()
+    conn.last_sync_at = datetime.utcnow()
+    conn.last_test_error = None
+    conn.sync_status = 'ok'
+    db.add(
+        AuditLog(
+            tenant_id=tenant.id,
+            action='tenant_3cx_manual_sync_check_ok',
+            entity_type='tenant_connection',
+            entity_id=str(conn.id),
+            payload={'fqdn': fqdn, 'client_id': client_id, 'quick_check': 'xapi_defs'},
+        )
+    )
+    await db.commit()
+    return {'ok': True, 'message': 'Το 3CX XAPI απάντησε σωστά. Το επόμενο βήμα είναι mapping report endpoint για να γεμίσουν τα KPI.'}
+
+
 def _save_era_exploration_upload(
     tenant: Tenant,
     upload: UploadFile,
@@ -638,6 +1683,7 @@ def _save_era_exploration_upload(
         with tmp_path.open('wb') as out_file:
             shutil.copyfileobj(upload.file, out_file)
         validation = validate_era_exploration_file(tmp_path)
+        checksum = era_file_sha256(tmp_path)
         period = str(validation.get('period') or era_period_from_filename(uploaded_name) or 'unknown')
         archive_path = upload_dir / f'{period}.xlsx'
         tmp_path.replace(archive_path)
@@ -650,6 +1696,7 @@ def _save_era_exploration_upload(
             'uploaded_at': datetime.utcnow().isoformat(timespec='seconds') + 'Z',
             'uploaded_by': user_identity or 'tenant',
             'period': period,
+            'source_sha256': checksum,
             'rows': int(validation.get('rows') or 0),
             'brands': int(validation.get('brands') or 0),
             'categories': int(validation.get('categories') or 0),
@@ -668,6 +1715,57 @@ def _save_era_exploration_upload(
         except Exception:
             pass
         return None, 'era_file_upload_failed'
+
+
+def _save_iqvia_upload(
+    tenant: Tenant,
+    upload: UploadFile,
+    user_identity: str,
+) -> tuple[dict[str, object] | None, str | None]:
+    uploaded_name = Path(upload.filename or '').name
+    if not uploaded_name.lower().endswith('.xlsx'):
+        return None, 'iqvia_file_type'
+    upload_dir = Path('/opt/cloudon-bi/uploads/tenants') / tenant.slug / 'iqvia'
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    target_path = upload_dir / 'current.xlsx'
+    tmp_path = upload_dir / f'.{int(time.time())}.uploading.xlsx'
+    try:
+        with tmp_path.open('wb') as out_file:
+            shutil.copyfileobj(upload.file, out_file)
+        validation = validate_iqvia_file(tmp_path)
+        checksum = iqvia_file_sha256(tmp_path)
+        period = str(validation.get('period') or iqvia_period_from_filename(uploaded_name) or 'unknown')
+        archive_path = upload_dir / f'{period}.xlsx'
+        tmp_path.replace(archive_path)
+        shutil.copyfile(archive_path, target_path)
+        clear_iqvia_cache()
+        return {
+            'file_path': str(target_path),
+            'archive_path': str(archive_path),
+            'filename': uploaded_name,
+            'uploaded_at': datetime.utcnow().isoformat(timespec='seconds') + 'Z',
+            'uploaded_by': user_identity or 'tenant',
+            'period': period,
+            'source_sha256': checksum,
+            'rows': int(validation.get('rows') or 0),
+            'categories': int(validation.get('categories') or 0),
+            'manufacturers': int(validation.get('manufacturers') or 0),
+            'territories': int(validation.get('territories') or 0),
+        }, None
+    except ValueError as exc:
+        logger.warning('iqvia_upload_invalid', extra={'tenant_id': tenant.id, 'reason': str(exc)})
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+        return None, 'iqvia_file_invalid'
+    except Exception:
+        logger.exception('iqvia_upload_failed', extra={'tenant_id': tenant.id})
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+        return None, 'iqvia_file_upload_failed'
 
 
 _CASHFLOW_CATEGORY_ALIAS_MAP: dict[str, str] = {
@@ -883,6 +1981,79 @@ def _normalize_slug(raw: str) -> str:
     val = re.sub(r'[^a-z0-9-]+', '-', val)
     val = re.sub(r'-{2,}', '-', val).strip('-')
     return val
+
+
+_PLAN_FEATURE_STATUSES = {'none', 'included', 'extra', 'custom'}
+
+
+def _normalize_feature_key(raw: str, fallback: str) -> str:
+    source = raw or fallback
+    val = (source or '').strip().lower()
+    val = re.sub(r'[^a-z0-9_ -]+', '', val)
+    val = re.sub(r'[\s-]+', '_', val).strip('_')
+    val = re.sub(r'_{2,}', '_', val)
+    if not val:
+        val = 'custom_feature'
+    if val[0].isdigit():
+        val = f'f_{val}'
+    return val[:64]
+
+
+def _catalog_status(row: PlanFeatureCatalog, plan: PlanName) -> str:
+    statuses = row.plan_status if isinstance(row.plan_status, dict) else {}
+    status = str(statuses.get(plan.value) or 'none').strip().lower()
+    return status if status in _PLAN_FEATURE_STATUSES else 'none'
+
+
+def _catalog_feature_allowed(row: PlanFeatureCatalog, plan: PlanName, tenant_id: int | None = None) -> bool:
+    if row.tenant_id is not None and int(row.tenant_id) != int(tenant_id or 0):
+        return False
+    if row.tenant_id is not None and plan != PlanName.custom:
+        return False
+    return _catalog_status(row, plan) in {'included', 'extra', 'custom'}
+
+
+def _catalog_feature_default(row: PlanFeatureCatalog, plan: PlanName, tenant_id: int | None = None) -> bool:
+    if not _catalog_feature_allowed(row, plan, tenant_id):
+        return False
+    return _catalog_status(row, plan) in {'included', 'custom'}
+
+
+def _catalog_feature_is_addon(row: PlanFeatureCatalog) -> bool:
+    statuses = row.plan_status if isinstance(row.plan_status, dict) else {}
+    if row.tenant_id is not None:
+        return True
+    return any(str(value).strip().lower() == 'extra' for value in statuses.values())
+
+
+def _catalog_minimum_plan(row: PlanFeatureCatalog) -> str:
+    if row.tenant_id is not None:
+        return 'Custom υλοποίηση συγκεκριμένου πελάτη'
+    statuses = row.plan_status if isinstance(row.plan_status, dict) else {}
+    labels = {'standard': 'Standard', 'pro': 'Pro', 'enterprise': 'Enterprise', 'custom': 'Custom'}
+    enabled = [labels[key] for key, value in statuses.items() if str(value).strip().lower() in {'included', 'extra', 'custom'} and key in labels]
+    return ', '.join(enabled) if enabled else 'Δεν έχει ενεργοποιηθεί σε πλάνο'
+
+
+def _catalog_to_subscription_feature(row: PlanFeatureCatalog) -> SubscriptionFeature:
+    return SubscriptionFeature(
+        key=row.feature_key,
+        label=row.label,
+        group=row.group or ('Custom πελάτη' if row.tenant_id is not None else 'Custom'),
+        menu_keys=(),
+        path_prefixes=(),
+        default_standard=_catalog_feature_default(row, PlanName.standard),
+        default_pro=_catalog_feature_default(row, PlanName.pro),
+        default_enterprise=_catalog_feature_default(row, PlanName.enterprise),
+        default_custom=_catalog_feature_default(row, PlanName.custom),
+        minimum_plan=_catalog_minimum_plan(row),
+        addon=_catalog_feature_is_addon(row),
+    )
+
+
+def _normalize_catalog_status(raw: str) -> str:
+    status = (raw or 'none').strip().lower()
+    return status if status in _PLAN_FEATURE_STATUSES else 'none'
 
 
 def _normalize_sub_status(raw: str) -> str:
@@ -1851,6 +3022,7 @@ def _coerce_stream_query_mapping_from_values(form_values: dict) -> dict[str, str
         'sales_documents': str(form_values.get('sales_query_template') or ''),
         'purchase_documents': str(form_values.get('purchases_query_template') or ''),
         'inventory_documents': str(form_values.get('inventory_query_template') or ''),
+        'item_master': str((form_values.get('stream_query_mapping') or {}).get('item_master') or ''),
         'cash_transactions': str(form_values.get('cashflow_query_template') or ''),
         'supplier_balances': str(form_values.get('supplier_balances_query_template') or ''),
         'customer_balances': str(form_values.get('customer_balances_query_template') or ''),
@@ -2551,6 +3723,7 @@ async def _connections_template_context(
 
         if conn is not None:
             params = conn.connection_parameters if isinstance(conn.connection_parameters, dict) else {}
+            auth_cfg = params.get('auth_config') if isinstance(params.get('auth_config'), dict) else {}
             options_map = params.get('options') if isinstance(params.get('options'), dict) else {}
             resolved_form.update(
                 {
@@ -2560,10 +3733,17 @@ async def _connections_template_context(
                         str(conn.source_type or ''),
                     ),
                     'is_active': bool(getattr(conn, 'is_active', True)),
-                    'host': str(params.get('host') or ''),
+                    'host': str(params.get('base_url') or params.get('host') or ''),
+                    'base_url': str(params.get('base_url') or params.get('host') or ''),
                     'port': str(params.get('port') or '1433'),
                     'database': str(params.get('database') or ''),
-                    'username': str(params.get('username') or ''),
+                    'username': str(auth_cfg.get('username') or params.get('username') or ''),
+                    'api_auth_type': str(params.get('auth_type') or 'softone_login'),
+                    'api_app_id': str(auth_cfg.get('app_id') or auth_cfg.get('appId') or ''),
+                    'api_company': str(auth_cfg.get('company') or auth_cfg.get('COMPANY') or ''),
+                    'api_branch': str(auth_cfg.get('branch') or auth_cfg.get('BRANCH') or ''),
+                    'api_module': str(auth_cfg.get('module') or auth_cfg.get('MODULE') or '0'),
+                    'api_refid': str(auth_cfg.get('refid') or auth_cfg.get('REFID') or ''),
                     'options': _stringify_options_map(options_map),
                     'sales_query_template': conn.sales_query_template or DEFAULT_GENERIC_SALES_QUERY,
                     'purchases_query_template': conn.purchases_query_template or DEFAULT_GENERIC_PURCHASES_QUERY,
@@ -2583,7 +3763,7 @@ async def _connections_template_context(
                     'qty_column': conn.qty_column or 'Qty',
                     'stream_field_mapping_json': json.dumps(conn.stream_field_mapping or {}, ensure_ascii=False, indent=2),
                     'stream_api_endpoint_json': json.dumps(conn.stream_api_endpoint or {}, ensure_ascii=False, indent=2),
-                    'has_saved_password': bool(conn.enc_payload),
+                    'has_saved_password': bool(conn.enc_payload) or bool(auth_cfg.get('password')),
                     'supported_streams': _normalize_stream_selection(
                         conn.supported_streams if isinstance(conn.supported_streams, list) else None,
                         fallback=_stream_defaults_for_connector(str(conn.connector_type or selected_connector)),
@@ -2822,12 +4002,19 @@ async def portal_root(request: Request, db: AsyncSession = Depends(get_control_d
 
 @router.api_route('/login', methods=['GET', 'HEAD'], response_class=HTMLResponse)
 async def login_page(request: Request, error: str | None = None):
+    host = (request.headers.get('host') or '').split(':')[0].lower()
+    cookie_domain = _cookie_domain_for_host(host)
     if request.method.upper() == 'HEAD':
         resp = Response(status_code=200, media_type='text/html')
         resp.headers['Cache-Control'] = 'no-store'
         return resp
     resp = templates.TemplateResponse('auth/login.html', {'request': request, 'error': error})
     resp.headers['Cache-Control'] = 'no-store'
+    if host == settings.admin_portal_host.lower():
+        for domain in (None, cookie_domain, settings.tenant_portal_host.lower(), '.boxvisio.com'):
+            resp.delete_cookie('access_token', path='/', domain=domain)
+            resp.delete_cookie('refresh_token', path='/', domain=domain)
+            resp.delete_cookie('csrf_token', path='/', domain=domain)
     return resp
 
 
@@ -2887,6 +4074,13 @@ async def login_submit(
         )
 
     host = (request.headers.get('host') or '').split(':')[0].lower()
+    if host == settings.admin_portal_host.lower() and user.role != RoleName.cloudon_admin:
+        return templates.TemplateResponse(
+            'auth/login.html',
+            {'request': request, 'error': 'Το admin panel επιτρέπει μόνο CloudOn admin χρήστες.'},
+            status_code=403,
+        )
+
     host_tenant_slug = _tenant_slug_from_host(host)
     if host_tenant_slug and user.tenant_id is not None:
         user_tenant_slug = (
@@ -2920,6 +4114,26 @@ async def login_submit(
             token_jti=refresh_jti,
             expires_at=refresh_exp.replace(tzinfo=None),
             revoked_at=None,
+            last_seen_at=datetime.utcnow(),
+            last_seen_path='/login',
+            last_seen_ip=_request_client_ip(request),
+            last_seen_user_agent=_request_user_agent(request),
+        )
+    )
+    db.add(
+        AuditLog(
+            tenant_id=user.tenant_id,
+            actor_user_id=user.id,
+            action='auth_login_success',
+            entity_type='auth_session',
+            entity_id=refresh_jti,
+            payload={
+                'host': host,
+                'audience': access_audience,
+                'ip': _request_client_ip(request),
+                'user_agent': _request_user_agent(request),
+                'refresh_expires_at': refresh_exp.isoformat(),
+            },
         )
     )
     await db.commit()
@@ -2960,10 +4174,58 @@ async def login_submit(
     return resp
 
 
+async def _revoke_refresh_cookie_session(request: Request, db: AsyncSession, *, host: str) -> None:
+    refresh_cookie = request.cookies.get('refresh_token')
+    if not refresh_cookie:
+        return
+    try:
+        payload = safe_decode(refresh_cookie, token_type='refresh')
+    except Exception:
+        return
+    if not payload:
+        return
+    jti = str(payload.get('jti') or '').strip()
+    subject = str(payload.get('sub') or '').strip()
+    if not jti:
+        return
+    token_row = (
+        await db.execute(
+            select(RefreshToken)
+            .where(RefreshToken.token_jti == jti)
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if not token_row:
+        return
+    now = datetime.utcnow()
+    if token_row.revoked_at is None:
+        token_row.revoked_at = now
+    actor_user_id = int(subject) if subject.isdigit() else token_row.user_id
+    user = (
+        await db.execute(select(User).where(User.id == actor_user_id).limit(1))
+    ).scalar_one_or_none()
+    db.add(
+        AuditLog(
+            tenant_id=user.tenant_id if user else None,
+            actor_user_id=actor_user_id,
+            action='auth_logout',
+            entity_type='auth_session',
+            entity_id=jti,
+            payload={
+                'host': host,
+                'ip': _request_client_ip(request),
+                'user_agent': _request_user_agent(request),
+            },
+        )
+    )
+    await db.commit()
+
+
 @router.post('/logout')
-async def logout(request: Request):
+async def logout(request: Request, db: AsyncSession = Depends(get_control_db)):
     host = (request.headers.get('host') or '').split(':')[0].lower()
     cookie_domain = _cookie_domain_for_host(host)
+    await _revoke_refresh_cookie_session(request, db, host=host)
     resp = RedirectResponse(url='/login', status_code=303)
     resp.delete_cookie('access_token', path='/', domain=cookie_domain)
     resp.delete_cookie('refresh_token', path='/', domain=cookie_domain)
@@ -2972,9 +4234,10 @@ async def logout(request: Request):
 
 
 @router.get('/logout')
-async def logout_get(request: Request):
+async def logout_get(request: Request, db: AsyncSession = Depends(get_control_db)):
     host = (request.headers.get('host') or '').split(':')[0].lower()
     cookie_domain = _cookie_domain_for_host(host)
+    await _revoke_refresh_cookie_session(request, db, host=host)
     resp = RedirectResponse(url='/login', status_code=303)
     resp.delete_cookie('access_token', path='/', domain=cookie_domain)
     resp.delete_cookie('refresh_token', path='/', domain=cookie_domain)
@@ -3133,24 +4396,105 @@ async def admin_tenant_create(
     source: str = Form(default='external'),
     subscription_status: str = Form(default='trial'),
     trial_days: int = Form(default=14),
-    send_welcome_email: bool = Form(default=False),
+    max_users: int = Form(default=5),
+    send_welcome_email: bool = Form(default=True),
     create_subdomain: bool = Form(default=False),
+    connection_type: str = Form(default='none'),
+    softone_base_url: str = Form(default=''),
+    softone_username: str = Form(default=''),
+    softone_password: str = Form(default=''),
+    softone_app_id: str = Form(default=''),
+    softone_company: str = Form(default=''),
+    softone_branch: str = Form(default=''),
+    softone_module: str = Form(default='0'),
+    softone_refid: str = Form(default=''),
+    softone_bridge_path: str = Form(default='JS/myWS'),
+    sql_host: str = Form(default=''),
+    sql_port: int = Form(default=1433),
+    sql_database: str = Form(default=''),
+    sql_username: str = Form(default=''),
+    sql_password: str = Form(default=''),
+    sql_options: str = Form(default='Encrypt=yes;TrustServerCertificate=yes'),
     _: object = Depends(require_roles(RoleName.cloudon_admin)),
     db: AsyncSession = Depends(get_control_db),
 ):
-    selected_plan = PlanName(plan)
-    selected_sub = SubscriptionStatus(subscription_status)
+    try:
+        selected_plan = PlanName(str(plan or '').strip().lower())
+        selected_sub = SubscriptionStatus(str(subscription_status or '').strip().lower())
+    except ValueError:
+        tenants = (
+            await db.execute(select(Tenant).where(Tenant.status != TenantStatus.terminated).order_by(Tenant.created_at.desc()))
+        ).scalars().all()
+        for t in tenants:
+            sub = await get_or_create_subscription(db, t)
+            await sync_tenant_from_subscription(db, t, sub)
+        await db.commit()
+        return templates.TemplateResponse(
+            'admin/tenants.html',
+            {
+                'request': request,
+                'tenants': tenants,
+                'error': 'Invalid plan or subscription status.',
+                'provisioning_result': None,
+                'active_page': 'tenants',
+                'title': 'title_tenants',
+            },
+            status_code=400,
+        )
+    clean_slug = str(slug or '').strip().lower()
+    existing_tenant = (await db.execute(select(Tenant).where(Tenant.slug == clean_slug))).scalar_one_or_none()
+    if existing_tenant is not None:
+        tenants = (
+            await db.execute(select(Tenant).where(Tenant.status != TenantStatus.terminated).order_by(Tenant.created_at.desc()))
+        ).scalars().all()
+        for t in tenants:
+            sub = await get_or_create_subscription(db, t)
+            await sync_tenant_from_subscription(db, t, sub)
+        await db.commit()
+        return templates.TemplateResponse(
+            'admin/tenants.html',
+            {
+                'request': request,
+                'tenants': tenants,
+                'error': None,
+                'provisioning_result': {
+                    'status': 'exists',
+                    'slug': existing_tenant.slug,
+                    'tenant_id': existing_tenant.id,
+                    'tenant_name': existing_tenant.name,
+                },
+                'active_page': 'tenants',
+                'title': 'title_tenants',
+            },
+        )
     result = await run_tenant_provisioning_wizard(
         db=db,
         name=name,
-        slug=slug,
+        slug=clean_slug,
         admin_email=admin_email,
         plan=selected_plan,
         source=source,
         subscription_status=selected_sub,
         trial_days=trial_days,
+        max_users=max_users,
         send_welcome_email=bool(send_welcome_email),
         create_subdomain=bool(create_subdomain),
+        connection_type=connection_type,
+        softone_base_url=softone_base_url,
+        softone_username=softone_username,
+        softone_password=softone_password,
+        softone_app_id=softone_app_id,
+        softone_company=softone_company,
+        softone_branch=softone_branch,
+        softone_module=softone_module,
+        softone_refid=softone_refid,
+        softone_bridge_path=softone_bridge_path,
+        sql_host=sql_host,
+        sql_port=sql_port,
+        sql_database=sql_database,
+        sql_username=sql_username,
+        sql_password=sql_password,
+        sql_options=sql_options,
     )
     if result['status'] != 'ok':
         tenants = (
@@ -3191,6 +4535,105 @@ async def admin_tenant_create(
     )
 
 
+@router.post('/admin/tenants/{tenant_id}/resend-welcome')
+async def admin_tenant_resend_welcome(
+    tenant_id: int,
+    next_url: str = Form(default='/admin/tenants'),
+    admin_user: User = Depends(require_roles(RoleName.cloudon_admin)),
+    db: AsyncSession = Depends(get_control_db),
+):
+    redirect_target = next_url if next_url.startswith('/admin/') else '/admin/tenants'
+    sep = '&' if '?' in redirect_target else '?'
+    tenant = (await db.execute(select(Tenant).where(Tenant.id == tenant_id))).scalar_one_or_none()
+    if tenant is None:
+        return RedirectResponse(url=f'{redirect_target}{sep}credentials_sent=0&reason=tenant_not_found', status_code=303)
+    if _is_infrastructure_tenant(tenant):
+        return RedirectResponse(url=f'{redirect_target}{sep}credentials_sent=0&reason=system_tenant', status_code=303)
+    target = (
+        await db.execute(
+            select(User)
+            .where(
+                User.tenant_id == tenant.id,
+                User.role == RoleName.tenant_admin,
+                User.is_active.is_(True),
+            )
+            .order_by(User.id.asc())
+        )
+    ).scalar_one_or_none()
+    if target is None:
+        target = (
+            await db.execute(
+                select(User)
+                .where(User.tenant_id == tenant.id, User.role == RoleName.tenant_admin)
+                .order_by(User.id.asc())
+            )
+        ).scalar_one_or_none()
+    if target is None or not str(target.email or '').strip():
+        return RedirectResponse(url=f'{redirect_target}{sep}credentials_sent=0&reason=admin_user_not_found', status_code=303)
+
+    invite_token = secrets.token_urlsafe(24)
+    temporary_password = secrets.token_urlsafe(12)
+    target.password_hash = get_password_hash(temporary_password)
+    target.reset_token = invite_token
+    target.reset_token_expires_at = datetime.utcnow() + timedelta(days=2)
+    target.is_active = True
+
+    try:
+        email_result = await asyncio.to_thread(
+            send_tenant_welcome_email,
+            tenant_name=tenant.name,
+            tenant_slug=tenant.slug,
+            admin_email=target.email,
+            invite_token=invite_token,
+            temporary_password=temporary_password,
+        )
+        email_status = str(email_result.get('status') or 'unknown')
+    except Exception as exc:
+        await db.rollback()
+        logging.exception('admin_tenant_resend_welcome_failed', extra={'tenant_id': tenant.id})
+        return RedirectResponse(
+            url=f'{redirect_target}{sep}{urlencode({"credentials_sent": "0", "reason": "email_failed", "message": str(exc)[:160]})}',
+            status_code=303,
+        )
+    if email_status != 'sent':
+        await db.rollback()
+        reason = str(email_result.get('reason') or email_status or 'email_not_sent')
+        return RedirectResponse(
+            url=f'{redirect_target}{sep}{urlencode({"credentials_sent": "0", "reason": reason, "message": reason[:160]})}',
+            status_code=303,
+        )
+
+    db.add(
+        AuditLog(
+            tenant_id=tenant.id,
+            actor_user_id=admin_user.id,
+            action='tenant_welcome_credentials_resent',
+            entity_type='user',
+            entity_id=str(target.id),
+            payload={'email': target.email, 'email_status': email_status},
+        )
+    )
+    await db.commit()
+    return RedirectResponse(
+        url=f'{redirect_target}{sep}{urlencode({"credentials_sent": "1", "email": target.email})}',
+        status_code=303,
+    )
+
+
+@router.get('/admin/tenants/{tenant_id}/resend-welcome')
+async def admin_tenant_resend_welcome_get(
+    tenant_id: int,
+    next_url: str = Query(default='/admin/tenants'),
+    _: object = Depends(require_roles(RoleName.cloudon_admin)),
+):
+    redirect_target = next_url if next_url.startswith('/admin/') else '/admin/tenants'
+    sep = '&' if '?' in redirect_target else '?'
+    return RedirectResponse(
+        url=f'{redirect_target}{sep}credentials_sent=0&reason=resend_requires_post&tenant_id={tenant_id}',
+        status_code=303,
+    )
+
+
 @router.get('/admin/tenants/{tenant_id}/edit')
 async def admin_tenant_edit_get_redirect(
     request: Request,
@@ -3214,20 +4657,37 @@ async def admin_tenant_edit_get_redirect(
         ).scalar_one_or_none()
         if primary_conn is not None:
             params = primary_conn.connection_parameters if isinstance(primary_conn.connection_parameters, dict) else {}
-            auto_sync = {
-                'enabled': _parse_bool_enabled(params.get('auto_sync_enabled'), True),
-                'interval_minutes': _parse_int_in_range(
-                    params.get('sync_interval_minutes'),
-                    default=int(auto_sync['interval_minutes']),
-                    min_value=1,
-                    max_value=1440,
-                ),
-            }
+            auto_sync = dict(auto_sync)
+            auto_sync['enabled'] = _parse_bool_enabled(params.get('auto_sync_enabled'), True)
+            auto_sync['interval_minutes'] = _parse_int_in_range(
+                params.get('sync_interval_minutes'),
+                default=int(auto_sync['interval_minutes']),
+                min_value=1,
+                max_value=1440,
+            )
+    tenant_contact = _tenant_contact_settings(tenant)
+    tenant_admin_user = (
+        await db.execute(
+            select(User)
+            .where(User.tenant_id == tenant.id, User.role == RoleName.tenant_admin)
+            .order_by(User.is_active.desc(), User.id.asc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if tenant_admin_user is not None and str(tenant_admin_user.email or '').strip():
+        admin_email = str(tenant_admin_user.email or '').strip()
+        if not tenant_contact.get('contact_email'):
+            tenant_contact['contact_email'] = admin_email
+        if not tenant_contact.get('billing_email'):
+            tenant_contact['billing_email'] = admin_email
+        if not tenant_contact.get('technical_email'):
+            tenant_contact['technical_email'] = admin_email
     return templates.TemplateResponse(
         'admin/tenant_edit.html',
         {
             'request': request,
             'tenant': tenant,
+            'tenant_contact': tenant_contact,
             'inventory_item_classification': _tenant_inventory_item_classification_settings(tenant),
             'auto_sync': auto_sync,
             'daily_reconciliation': _tenant_daily_reconciliation_settings(tenant),
@@ -3237,6 +4697,7 @@ async def admin_tenant_edit_get_redirect(
             'price_margin_targets': _tenant_price_margin_targets_settings(tenant),
             'business_advisor_targets': _tenant_business_advisor_targets_settings(tenant),
             'era_exploration_data': _tenant_era_exploration_settings(tenant),
+            'call_center_3cx': await _tenant_call_center_settings(db, tenant.id),
             'active_page': 'tenants',
             'title': 'title_tenants',
             'next_url': request.query_params.get('next') or '/admin/tenants',
@@ -3253,6 +4714,18 @@ async def admin_tenant_edit(
     source: str = Form(default=''),
     tenant_status: str = Form(default=''),
     subscription_status: str = Form(default=''),
+    contact_person: str = Form(default=''),
+    contact_email: str = Form(default=''),
+    contact_phone: str = Form(default=''),
+    contact_mobile: str = Form(default=''),
+    billing_email: str = Form(default=''),
+    technical_email: str = Form(default=''),
+    contact_address: str = Form(default=''),
+    contact_city: str = Form(default=''),
+    contact_postal_code: str = Form(default=''),
+    contact_afm: str = Form(default=''),
+    contact_doy: str = Form(default=''),
+    contact_notes: str = Form(default=''),
     auto_sync_enabled: bool = Form(default=False),
     auto_sync_profile: str = Form(default='live'),
     auto_sync_interval_minutes: str = Form(default='5'),
@@ -3280,8 +4753,8 @@ async def admin_tenant_edit(
     slow_sales_qty_30d_max: str = Form(default='5'),
     pickup_warehouses_text: str = Form(default=''),
     store_warehouses_text: str = Form(default=''),
-    pure_eshop_warehouses_text: str = Form(default='1004'),
-    three_pl_warehouses_text: str = Form(default='3000'),
+    pure_eshop_warehouses_text: str = Form(default=''),
+    three_pl_warehouses_text: str = Form(default=''),
     shipping_method_labels_text: str = Form(default=''),
     sales_series_channel_labels_text: str = Form(default=''),
     document_series_labels_text: str = Form(default=''),
@@ -3290,6 +4763,20 @@ async def admin_tenant_edit(
     group_margin_targets_text: str = Form(default=''),
     inventory_coverage_days: str = Form(default='60'),
     physical_branch_names_text: str = Form(default=''),
+    call_center_fqdn: str = Form(default=''),
+    call_center_username: str = Form(default=''),
+    call_center_password: str = Form(default=''),
+    call_center_client_id: str = Form(default=''),
+    call_center_queue_ids: str = Form(default=''),
+    call_center_team_extensions: str = Form(default=''),
+    call_center_agent_directory_text: str = Form(default=''),
+    call_center_queue_directory_text: str = Form(default=''),
+    call_center_polling_interval_minutes: str = Form(default='5'),
+    call_center_answer_sla_seconds: str = Form(default='30'),
+    call_center_target_calls_per_agent: str = Form(default='60'),
+    call_center_report_file: UploadFile | None = File(default=None),
+    call_center_inbound_report_file: UploadFile | None = File(default=None),
+    call_center_outbound_report_file: UploadFile | None = File(default=None),
     era_exploration_file: UploadFile | None = File(default=None),
     next_url: str = Form(default='/admin/tenants'),
     admin_user: object = Depends(require_roles(RoleName.cloudon_admin)),
@@ -3341,6 +4828,7 @@ async def admin_tenant_edit(
         'source': tenant.source,
         'tenant_status': tenant.status.value,
         'subscription_status': tenant.subscription_status.value,
+        'contact': _tenant_contact_settings(tenant),
         'auto_sync': _tenant_auto_sync_settings(tenant),
         'daily_reconciliation': _tenant_daily_reconciliation_settings(tenant),
         'duplicate_protection': _tenant_duplicate_protection_settings(tenant),
@@ -3350,6 +4838,7 @@ async def admin_tenant_edit(
         'price_margin_targets': _tenant_price_margin_targets_settings(tenant),
         'business_advisor_targets': _tenant_business_advisor_targets_settings(tenant),
         'era_exploration_data': _tenant_era_exploration_settings(tenant),
+        'call_center_3cx': await _tenant_call_center_settings(db, tenant.id),
     }
 
     tenant.name = name or tenant.name
@@ -3398,6 +4887,21 @@ async def admin_tenant_edit(
     )
     if settings_payload['slow_sales_qty_30d_max'] >= settings_payload['fast_sales_qty_30d_min']:
         settings_payload['slow_sales_qty_30d_max'] = max(0, settings_payload['fast_sales_qty_30d_min'] - 1)
+
+    contact_payload = {
+        'contact_person': str(contact_person or '').strip(),
+        'contact_email': str(contact_email or '').strip(),
+        'contact_phone': str(contact_phone or '').strip(),
+        'contact_mobile': str(contact_mobile or '').strip(),
+        'billing_email': str(billing_email or '').strip(),
+        'technical_email': str(technical_email or '').strip(),
+        'address': str(contact_address or '').strip(),
+        'city': str(contact_city or '').strip(),
+        'postal_code': str(contact_postal_code or '').strip(),
+        'afm': str(contact_afm or '').strip(),
+        'doy': str(contact_doy or '').strip(),
+        'notes': str(contact_notes or '').strip(),
+    }
 
     auto_sync_payload = _tenant_auto_sync_settings(tenant)
     profile_clean = str(auto_sync_profile or '').strip().lower()
@@ -3516,7 +5020,6 @@ async def admin_tenant_edit(
     duplicate_protection_payload['enabled'] = bool(duplicate_protection_enabled)
     duplicate_protection_payload['mode'] = duplicate_mode_clean if duplicate_mode_clean in {'event_id', 'natural_key'} else 'natural_key'
 
-    current_fulfillment = _tenant_eshop_fulfillment_settings(tenant)
     pickup_map: dict[str, str] = {}
     for line in str(pickup_warehouses_text or '').splitlines():
         raw_line = str(line or '').strip()
@@ -3532,9 +5035,6 @@ async def admin_tenant_edit(
         label_clean = str(label or '').strip()
         if code_clean and label_clean:
             pickup_map[code_clean] = label_clean
-    if not pickup_map:
-        pickup_map = dict(current_fulfillment.get('pickup_warehouses') or {})
-
     store_warehouse_map: dict[str, str] = {}
     for line in str(store_warehouses_text or '').splitlines():
         raw_line = str(line or '').strip()
@@ -3550,9 +5050,6 @@ async def admin_tenant_edit(
         label_clean = str(label or '').strip()
         if code_clean and label_clean:
             store_warehouse_map[code_clean] = label_clean
-    if not store_warehouse_map:
-        store_warehouse_map = dict(current_fulfillment.get('store_warehouses') or {})
-
     shipping_method_label_map: dict[str, str] = {}
     for line in str(shipping_method_labels_text or '').splitlines():
         raw_line = str(line or '').strip()
@@ -3568,9 +5065,6 @@ async def admin_tenant_edit(
         label_clean = str(label or '').strip()
         if code_clean and label_clean:
             shipping_method_label_map[code_clean] = label_clean
-    if not shipping_method_label_map:
-        shipping_method_label_map = dict(current_fulfillment.get('shipping_method_labels') or {})
-
     sales_series_channel_label_map: dict[str, str] = {}
     for line in str(sales_series_channel_labels_text or '').splitlines():
         raw_line = str(line or '').strip()
@@ -3586,9 +5080,6 @@ async def admin_tenant_edit(
         label_clean = str(label or '').strip()
         if code_clean and label_clean:
             sales_series_channel_label_map[code_clean] = label_clean
-    if not sales_series_channel_label_map:
-        sales_series_channel_label_map = dict(current_fulfillment.get('sales_series_channel_labels') or {})
-
     current_document_series_labels = _tenant_document_series_labels_settings(tenant)
     document_series_label_map: dict[str, str] = {}
     for line in str(document_series_labels_text or '').splitlines():
@@ -3666,10 +5157,7 @@ async def admin_tenant_edit(
         if clean and clean not in seen_physical_branch_names:
             seen_physical_branch_names.add(clean)
             physical_branch_names.append(clean)
-    if not physical_branch_names:
-        physical_branch_names = list(current_fulfillment.get('physical_branch_names') or [])
-
-    def _csv_to_list(raw: str, fallback: list[str]) -> list[str]:
+    def _csv_to_list(raw: str) -> list[str]:
         seen: set[str] = set()
         out: list[str] = []
         for item in str(raw or '').replace('\n', ',').split(','):
@@ -3677,20 +5165,15 @@ async def admin_tenant_edit(
             if clean and clean not in seen:
                 seen.add(clean)
                 out.append(clean)
-        return out or list(fallback)
+        return out
 
     eshop_fulfillment_payload = normalize_eshop_fulfillment_config(
         {
+            'use_defaults': False,
             'pickup_warehouses': pickup_map,
             'store_warehouses': store_warehouse_map,
-            'pure_eshop_warehouses': _csv_to_list(
-                pure_eshop_warehouses_text,
-                list(current_fulfillment.get('pure_eshop_warehouses') or ['1004']),
-            ),
-            'three_pl_warehouses': _csv_to_list(
-                three_pl_warehouses_text,
-                list(current_fulfillment.get('three_pl_warehouses') or ['3000']),
-            ),
+            'pure_eshop_warehouses': _csv_to_list(pure_eshop_warehouses_text),
+            'three_pl_warehouses': _csv_to_list(three_pl_warehouses_text),
             'shipping_method_labels': shipping_method_label_map,
             'sales_series_channel_labels': sales_series_channel_label_map,
             'physical_branch_names': physical_branch_names,
@@ -3706,6 +5189,7 @@ async def admin_tenant_edit(
     flags['document_series_labels'] = normalize_document_series_labels_config(document_series_label_map)
     flags['price_margin_targets'] = price_margin_targets_payload
     flags['business_advisor_targets'] = business_advisor_targets_payload
+    flags['contact'] = contact_payload
     era_upload_payload = _tenant_era_exploration_settings(tenant)
     if era_exploration_file is not None and era_exploration_file.filename:
         era_saved_payload, era_error = _save_era_exploration_upload(
@@ -3745,6 +5229,134 @@ async def admin_tenant_edit(
         }
         db.add(conn)
 
+    call_center_fqdn_base = str(call_center_fqdn or '').strip().rstrip('/')
+    call_center_fqdn_clean = (call_center_fqdn_base + '/') if call_center_fqdn_base else ''
+    if call_center_fqdn_clean and not call_center_fqdn_clean.startswith(('https://', 'http://')):
+        call_center_fqdn_clean = f'https://{call_center_fqdn_clean}'
+    call_center_payload = {
+        'fqdn': call_center_fqdn_clean,
+        'username': str(call_center_username or '').strip(),
+        'client_id': str(call_center_client_id or '').strip(),
+        'queue_ids': str(call_center_queue_ids or '').strip(),
+        'team_extensions': str(call_center_team_extensions or '').strip(),
+        'agent_directory_text': str(call_center_agent_directory_text or '').strip(),
+        'queue_directory_text': str(call_center_queue_directory_text or '').strip(),
+        'polling_interval_minutes': _parse_int_in_range(
+            call_center_polling_interval_minutes,
+            default=5,
+            min_value=1,
+            max_value=1440,
+        ),
+        'answer_sla_seconds': _parse_int_in_range(
+            call_center_answer_sla_seconds,
+            default=30,
+            min_value=1,
+            max_value=3600,
+        ),
+        'target_calls_per_agent': _parse_int_in_range(
+            call_center_target_calls_per_agent,
+            default=60,
+            min_value=1,
+            max_value=1000,
+        ),
+    }
+    call_center_conn = await _find_tenant_connection(db, tenant_id=tenant.id, connector_type=_3CX_CONNECTOR_TYPE)
+    existing_call_center_params = (
+        call_center_conn.connection_parameters
+        if call_center_conn is not None and isinstance(call_center_conn.connection_parameters, dict)
+        else {}
+    )
+    if isinstance(existing_call_center_params.get('manual_import'), dict):
+        call_center_payload['manual_import'] = existing_call_center_params['manual_import']
+    call_center_imports: list[dict[str, object]] = []
+    if call_center_report_file is not None and call_center_report_file.filename:
+        try:
+            call_center_imports.append(
+                _parse_3cx_report_upload(
+                    call_center_report_file,
+                    user_identity=str(getattr(admin_user, 'email', '') or getattr(admin_user, 'username', '') or 'admin'),
+                )
+            )
+        except ValueError as exc:
+            sep = '&' if '?' in redirect_target else '?'
+            return RedirectResponse(
+                url=f'{redirect_target}{sep}{urlencode({"updated": "0", "reason": "3cx_report_invalid", "message": str(exc)})}',
+                status_code=303,
+            )
+    if call_center_inbound_report_file is not None and call_center_inbound_report_file.filename:
+        try:
+            call_center_imports.append(
+                _parse_3cx_report_upload(
+                    call_center_inbound_report_file,
+                    user_identity=str(getattr(admin_user, 'email', '') or getattr(admin_user, 'username', '') or 'admin'),
+                    report_kind='inbound',
+                )
+            )
+        except ValueError as exc:
+            sep = '&' if '?' in redirect_target else '?'
+            return RedirectResponse(url=f'{redirect_target}{sep}{urlencode({"updated": "0", "reason": "3cx_inbound_invalid", "message": str(exc)})}', status_code=303)
+    if call_center_outbound_report_file is not None and call_center_outbound_report_file.filename:
+        try:
+            call_center_imports.append(
+                _parse_3cx_report_upload(
+                    call_center_outbound_report_file,
+                    user_identity=str(getattr(admin_user, 'email', '') or getattr(admin_user, 'username', '') or 'admin'),
+                    report_kind='outbound',
+                )
+            )
+        except ValueError as exc:
+            sep = '&' if '?' in redirect_target else '?'
+            return RedirectResponse(url=f'{redirect_target}{sep}{urlencode({"updated": "0", "reason": "3cx_outbound_invalid", "message": str(exc)})}', status_code=303)
+    if call_center_imports:
+        call_center_payload['manual_import'] = _merge_3cx_manual_imports(
+            call_center_imports,
+            user_identity=str(getattr(admin_user, 'email', '') or getattr(admin_user, 'username', '') or 'admin'),
+        )
+    existing_call_center_secret: dict[str, Any] = {}
+    if call_center_conn is not None and call_center_conn.enc_payload:
+        try:
+            existing_call_center_secret = decrypt_json_secret(call_center_conn.enc_payload)
+        except Exception:
+            existing_call_center_secret = {}
+    call_center_secret = {
+        'username': call_center_payload['username'],
+        'password': (
+            str(call_center_password or '')
+            if str(call_center_password or '').strip()
+            else str(existing_call_center_secret.get('password') or '')
+        ),
+    }
+    call_center_has_config = any(
+        str(call_center_payload.get(key) or '').strip()
+        for key in (
+            'fqdn',
+            'username',
+            'client_id',
+            'queue_ids',
+            'team_extensions',
+            'agent_directory_text',
+            'queue_directory_text',
+        )
+    ) or bool(call_center_imports) or bool(call_center_payload.get('manual_import'))
+    if call_center_conn is None:
+        if call_center_has_config:
+            call_center_conn = TenantConnection(
+                tenant_id=tenant.id,
+                connector_type=_3CX_CONNECTOR_TYPE,
+                source_type='api',
+                is_active=True,
+                supported_streams=['call_center_kpis'],
+                enabled_streams=['call_center_kpis'],
+            )
+            db.add(call_center_conn)
+    if call_center_conn is not None:
+        call_center_conn.is_active = bool(call_center_has_config)
+        call_center_conn.source_type = 'api'
+        call_center_conn.connection_parameters = call_center_payload if call_center_has_config else {}
+        call_center_conn.enc_payload = encrypt_json_secret(call_center_secret) if call_center_has_config else ''
+        call_center_conn.sync_status = call_center_conn.sync_status or ('configured' if call_center_has_config else 'disabled')
+        db.add(call_center_conn)
+
     db.add(
         AuditLog(
             tenant_id=tenant.id,
@@ -3760,6 +5372,7 @@ async def admin_tenant_edit(
                     'source': tenant.source,
                     'tenant_status': tenant.status.value,
                     'subscription_status': sub.status.value,
+                    'contact': contact_payload,
                     'auto_sync': auto_sync_payload,
                     'daily_reconciliation': reconciliation_payload,
                     'duplicate_protection': duplicate_protection_payload,
@@ -3769,6 +5382,7 @@ async def admin_tenant_edit(
                     'price_margin_targets': price_margin_targets_payload,
                     'business_advisor_targets': business_advisor_targets_payload,
                     'era_exploration_data': era_upload_payload,
+                    'call_center_3cx': {**call_center_payload, 'password': '***' if call_center_secret.get('password') else ''},
                 },
             },
         )
@@ -3798,6 +5412,10 @@ async def admin_tenant_delete(
     tenant = (await db.execute(select(Tenant).where(Tenant.id == tenant_id))).scalar_one_or_none()
     if tenant is None:
         return RedirectResponse(url='/admin/tenants?deleted=0', status_code=303)
+    if _is_infrastructure_tenant(tenant):
+        redirect_target = next_url if next_url.startswith('/admin/') else '/admin/tenants'
+        sep = '&' if '?' in redirect_target else '?'
+        return RedirectResponse(url=f'{redirect_target}{sep}deleted=0&reason=system_tenant', status_code=303)
 
     tenant_db_name_value = tenant.db_name
     tenant_db_user_value = tenant.db_user
@@ -3848,6 +5466,20 @@ async def admin_tenant_delete(
     return RedirectResponse(url=f'{redirect_target}{sep}deleted=1&db_deleted=1', status_code=303)
 
 
+@router.get('/admin/tenants/{tenant_id}/delete')
+async def admin_tenant_delete_get(
+    tenant_id: int,
+    next_url: str = Query(default='/admin/tenants'),
+    _: object = Depends(require_roles(RoleName.cloudon_admin)),
+):
+    redirect_target = next_url if next_url.startswith('/admin/') else '/admin/tenants'
+    sep = '&' if '?' in redirect_target else '?'
+    return RedirectResponse(
+        url=f'{redirect_target}{sep}deleted=0&reason=delete_requires_post&tenant_id={tenant_id}',
+        status_code=303,
+    )
+
+
 @router.get('/admin/subscriptions', response_class=HTMLResponse)
 async def admin_subscriptions(
     request: Request,
@@ -3855,17 +5487,49 @@ async def admin_subscriptions(
     db: AsyncSession = Depends(get_control_db),
 ):
     tenants = (await db.execute(select(Tenant).order_by(Tenant.created_at.desc()))).scalars().all()
+    catalog_rows = (
+        await db.execute(select(PlanFeatureCatalog).where(PlanFeatureCatalog.is_active == True).order_by(PlanFeatureCatalog.group, PlanFeatureCatalog.label))
+    ).scalars().all()
+    dynamic_subscription_features = tuple(_catalog_to_subscription_feature(row) for row in catalog_rows)
+    all_subscription_features = (*SUBSCRIPTION_FEATURES, *dynamic_subscription_features)
+    catalog_by_key = {row.feature_key: row for row in catalog_rows}
     subscriptions_by_tenant: dict[int, Subscription] = {}
     subscription_features_by_tenant: dict[int, dict[str, bool]] = {}
     subscription_limits_by_tenant: dict[int, dict[str, object]] = {}
+    subscription_feature_allowed_by_tenant: dict[int, dict[str, bool]] = {}
+    subscription_customer_feature_keys_by_tenant: dict[int, set[str]] = {}
     for t in tenants:
         sub = await get_or_create_subscription(db, t)
         await sync_tenant_from_subscription(db, t, sub)
         limit_context = await _tenant_user_license_context(db, t)
+        feature_values = normalize_subscription_feature_flags(sub.plan, sub.feature_flags)
+        allowed_values: dict[str, bool] = {}
+        raw_flags = dict(sub.feature_flags or {})
+        for row in catalog_rows:
+            allowed = _catalog_feature_allowed(row, sub.plan, int(t.id))
+            feature_values[row.feature_key] = bool(raw_flags.get(row.feature_key, _catalog_feature_default(row, sub.plan, int(t.id)))) if allowed else False
+            allowed_values[row.feature_key] = allowed
         subscriptions_by_tenant[int(t.id)] = sub
-        subscription_features_by_tenant[int(t.id)] = normalize_subscription_feature_flags(sub.plan, sub.feature_flags)
+        subscription_features_by_tenant[int(t.id)] = feature_values
         subscription_limits_by_tenant[int(t.id)] = limit_context
+        subscription_feature_allowed_by_tenant[int(t.id)] = allowed_values
+        subscription_customer_feature_keys_by_tenant[int(t.id)] = {row.feature_key for row in catalog_rows if row.tenant_id == t.id}
     await db.commit()
+    plan_choices = [
+        {'value': PlanName.standard.value, 'label': 'Standard'},
+        {'value': PlanName.pro.value, 'label': 'Pro'},
+        {'value': PlanName.enterprise.value, 'label': 'Enterprise'},
+        {'value': PlanName.custom.value, 'label': 'Custom'},
+    ]
+    addon_feature_keys = set(ADD_ON_FEATURE_KEYS) | {row.feature_key for row in catalog_rows if _catalog_feature_is_addon(row)}
+    addon_allowed_by_plan = {
+        plan.value: {
+            feature.key: (addon_allowed_for_plan(plan, feature.key) if feature.key not in catalog_by_key else _catalog_feature_allowed(catalog_by_key[feature.key], plan))
+            for feature in all_subscription_features
+            if feature.key in addon_feature_keys
+        }
+        for plan in PlanName
+    }
     return templates.TemplateResponse(
         'admin/subscriptions.html',
         {
@@ -3873,8 +5537,13 @@ async def admin_subscriptions(
             'tenants': tenants,
             'subscriptions_by_tenant': subscriptions_by_tenant,
             'subscription_features_by_tenant': subscription_features_by_tenant,
+            'subscription_feature_allowed_by_tenant': subscription_feature_allowed_by_tenant,
+            'subscription_customer_feature_keys_by_tenant': subscription_customer_feature_keys_by_tenant,
             'subscription_limits_by_tenant': subscription_limits_by_tenant,
-            'subscription_features': SUBSCRIPTION_FEATURES,
+            'subscription_features': all_subscription_features,
+            'plan_choices': plan_choices,
+            'addon_feature_keys': addon_feature_keys,
+            'addon_allowed_by_plan': addon_allowed_by_plan,
             'active_page': 'subscriptions',
             'title': 'title_subscriptions',
         },
@@ -3893,9 +5562,13 @@ async def admin_subscription_update_get_redirect(
 @router.post('/admin/subscriptions/{tenant_id}/update')
 async def admin_subscription_update(
     tenant_id: int,
+    plan: str = Form(default=''),
     subscription_status: str = Form(default=''),
     max_users: str = Form(default=''),
+    max_branches: str = Form(default=''),
     enabled_features: list[str] = Form(default=[]),
+    custom_agreement_notes: str = Form(default=''),
+    custom_exclusive_implementations: str = Form(default=''),
     note: str = Form(default=''),
     next_url: str = Form(default='/admin/subscriptions'),
     _: object = Depends(require_roles(RoleName.cloudon_admin)),
@@ -3911,6 +5584,13 @@ async def admin_subscription_update(
         return RedirectResponse(url=f'{redirect_target}?saved=0&reason=tenant_not_found', status_code=303)
 
     sub = await get_or_create_subscription(db, tenant)
+    prev_plan = sub.plan
+    try:
+        selected_plan = PlanName(str(plan or sub.plan.value).strip().lower())
+    except ValueError:
+        return RedirectResponse(url=f'{redirect_target}?saved=0&reason=invalid_plan', status_code=303)
+    sub.plan = selected_plan
+
     limit_context = await _tenant_user_license_context(db, tenant)
     requested_max_users_raw = (max_users or '').strip()
     requested_max_users = int(limit_context['max_users'])
@@ -3926,6 +5606,18 @@ async def admin_subscription_update(
         if isinstance(limit_obj, SubscriptionLimit):
             limit_obj.limit_value = requested_max_users
             limit_obj.used_value = int(limit_context['active_users'])
+    requested_max_branches_raw = (max_branches or '').strip()
+    requested_max_branches = int(limit_context.get('max_branches') or 1)
+    if requested_max_branches_raw:
+        try:
+            requested_max_branches = int(requested_max_branches_raw)
+        except ValueError:
+            return RedirectResponse(url=f'{redirect_target}?saved=0&reason=bad_max_branches', status_code=303)
+        requested_max_branches = max(1, min(requested_max_branches, 9999))
+        branch_limit_obj = limit_context.get('branch_limit')
+        if isinstance(branch_limit_obj, SubscriptionLimit):
+            branch_limit_obj.limit_value = requested_max_branches
+            branch_limit_obj.used_value = int(limit_context.get('active_branches') or 0)
     try:
         next_status = SubscriptionStatus(subscription_status or sub.status.value)
     except ValueError:
@@ -3937,10 +5629,22 @@ async def admin_subscription_update(
     if sub.status == SubscriptionStatus.suspended:
         sub.suspended_at = datetime.utcnow()
     selected_features = {str(item) for item in (enabled_features or [])}
+    catalog_rows = (
+        await db.execute(select(PlanFeatureCatalog).where(PlanFeatureCatalog.is_active == True).order_by(PlanFeatureCatalog.group, PlanFeatureCatalog.label))
+    ).scalars().all()
     sub.feature_flags = {
         feature.key: feature.key in selected_features
-        for feature in SUBSCRIPTION_FEATURES
+        for feature in (*SUBSCRIPTION_FEATURES, *(_catalog_to_subscription_feature(row) for row in catalog_rows))
     }
+    for row in catalog_rows:
+        if not _catalog_feature_allowed(row, selected_plan, int(tenant.id)):
+            sub.feature_flags[row.feature_key] = False
+    custom_agreement_notes = (custom_agreement_notes or '').strip()
+    if selected_plan == PlanName.custom and custom_agreement_notes:
+        sub.feature_flags['custom_agreement_notes'] = custom_agreement_notes
+    custom_exclusive_implementations = (custom_exclusive_implementations or '').strip()
+    if selected_plan == PlanName.custom and custom_exclusive_implementations:
+        sub.feature_flags['custom_exclusive_implementations'] = custom_exclusive_implementations
     await sync_tenant_from_subscription(db, tenant, sub)
 
     db.add(
@@ -3960,9 +5664,12 @@ async def admin_subscription_update(
             payload={
                 'from': prev,
                 'to': sub.status.value,
+                'from_plan': prev_plan.value,
+                'to_plan': sub.plan.value,
                 'note': note or None,
                 'feature_flags': sub.feature_flags,
                 'max_users': requested_max_users,
+                'max_branches': requested_max_branches,
             },
         )
     )
@@ -4141,21 +5848,73 @@ async def admin_plans(
     db: AsyncSession = Depends(get_control_db),
 ):
     rows = (await db.execute(select(PlanFeature).order_by(PlanFeature.plan, PlanFeature.feature_name))).scalars().all()
+    catalog_rows = (
+        await db.execute(select(PlanFeatureCatalog).where(PlanFeatureCatalog.is_active == True).order_by(PlanFeatureCatalog.group, PlanFeatureCatalog.label))
+    ).scalars().all()
+    tenants = (await db.execute(select(Tenant).order_by(Tenant.name))).scalars().all()
     plans: dict[str, dict[str, bool]] = {}
     for plan_name in PlanName:
         plans[plan_name.value] = normalize_subscription_feature_flags(plan_name, {})
     for r in rows:
         plans.setdefault(r.plan.value, {})[r.feature_name] = bool(r.enabled)
+    for row in catalog_rows:
+        for plan_name in PlanName:
+            plans.setdefault(plan_name.value, {})[row.feature_key] = _catalog_feature_default(row, plan_name)
     return templates.TemplateResponse(
         'admin/plans.html',
         {
             'request': request,
             'plans': plans,
             'subscription_features': SUBSCRIPTION_FEATURES,
+            'dynamic_feature_catalog': catalog_rows,
+            'dynamic_subscription_features': tuple(_catalog_to_subscription_feature(row) for row in catalog_rows),
+            'plan_status_choices': [
+                {'value': 'none', 'label': 'Όχι'},
+                {'value': 'included', 'label': 'Περιλαμβάνεται'},
+                {'value': 'extra', 'label': 'Extra'},
+                {'value': 'custom', 'label': 'Custom / πελάτη'},
+            ],
+            'tenants': tenants,
             'active_page': 'plans',
             'title': 'title_plan_features',
         },
     )
+
+
+async def _cascade_plan_feature_flags_to_subscriptions(
+    db: AsyncSession,
+    *,
+    plan: PlanName,
+    feature_values: dict[str, bool],
+    tenant_id: int | None = None,
+) -> int:
+    stmt = (
+        select(Subscription, Tenant)
+        .join(Tenant, Tenant.id == Subscription.tenant_id)
+        .where(Subscription.plan == plan)
+    )
+    if tenant_id is not None:
+        stmt = stmt.where(Tenant.id == tenant_id)
+    rows = (
+        await db.execute(stmt)
+    ).all()
+    updated = 0
+    for sub, tenant in rows:
+        flags = dict(sub.feature_flags or {})
+        changed = False
+        for feature_key, enabled in feature_values.items():
+            if flags.get(feature_key) != bool(enabled):
+                flags[feature_key] = bool(enabled)
+                changed = True
+        if not changed:
+            continue
+        sub.feature_flags = flags
+        flag_modified(sub, 'feature_flags')
+        await sync_tenant_from_subscription(db, tenant, sub)
+        flag_modified(tenant, 'feature_flags')
+        await invalidate_tenant_cache(str(tenant.id))
+        updated += 1
+    return updated
 
 
 @router.post('/admin/plans/{plan}/features')
@@ -4191,8 +5950,256 @@ async def admin_plan_features_update(
             payload=values,
         )
     )
+    updated_subscriptions = await _cascade_plan_feature_flags_to_subscriptions(
+        db,
+        plan=selected_plan,
+        feature_values=values,
+    )
+    db.add(
+        AuditLog(
+            tenant_id=None,
+            action='plan_features_cascaded_ui',
+            entity_type='plan',
+            entity_id=selected_plan.value,
+            payload={'updated_subscriptions': updated_subscriptions},
+        )
+    )
     await db.commit()
     return RedirectResponse(url='/admin/plans', status_code=303)
+
+
+@router.post('/admin/plans/{plan}/features/{feature_key}/toggle')
+async def admin_plan_feature_toggle(
+    plan: str,
+    feature_key: str,
+    next_url: str = Form(default='/admin/plans'),
+    _: object = Depends(require_roles(RoleName.cloudon_admin)),
+    db: AsyncSession = Depends(get_control_db),
+):
+    try:
+        selected_plan = PlanName(plan)
+    except ValueError:
+        return RedirectResponse(url='/admin/plans?saved=0&reason=invalid_plan', status_code=303)
+    feature_keys = {feature.key for feature in SUBSCRIPTION_FEATURES}
+    if feature_key not in feature_keys:
+        return RedirectResponse(url='/admin/plans?saved=0&reason=feature_not_found', status_code=303)
+
+    defaults = normalize_subscription_feature_flags(selected_plan, {})
+    row = (
+        await db.execute(
+            select(PlanFeature).where(
+                PlanFeature.plan == selected_plan,
+                PlanFeature.feature_name == feature_key,
+            )
+        )
+    ).scalar_one_or_none()
+    current_enabled = bool(row.enabled) if row is not None else bool(defaults.get(feature_key))
+    next_enabled = not current_enabled
+    if row is None:
+        db.add(PlanFeature(plan=selected_plan, feature_name=feature_key, enabled=next_enabled))
+    else:
+        row.enabled = next_enabled
+    db.add(
+        AuditLog(
+            tenant_id=None,
+            action='plan_feature_toggled_ui',
+            entity_type='plan',
+            entity_id=selected_plan.value,
+            payload={'feature': feature_key, 'enabled': next_enabled},
+        )
+    )
+    updated_subscriptions = await _cascade_plan_feature_flags_to_subscriptions(
+        db,
+        plan=selected_plan,
+        feature_values={feature_key: next_enabled},
+    )
+    db.add(
+        AuditLog(
+            tenant_id=None,
+            action='plan_feature_toggle_cascaded_ui',
+            entity_type='plan',
+            entity_id=selected_plan.value,
+            payload={'feature': feature_key, 'enabled': next_enabled, 'updated_subscriptions': updated_subscriptions},
+        )
+    )
+    await db.commit()
+    redirect_target = next_url if next_url.startswith('/admin/') else '/admin/plans'
+    sep = '&' if '?' in redirect_target else '?'
+    return RedirectResponse(url=f'{redirect_target}{sep}saved=1', status_code=303)
+
+
+@router.post('/admin/plans/custom-features')
+async def admin_plan_custom_feature_create(
+    label: str = Form(default=''),
+    feature_key: str = Form(default=''),
+    group: str = Form(default='Custom'),
+    feature_type: str = Form(default='feature'),
+    status_standard: str = Form(default='none'),
+    status_pro: str = Form(default='none'),
+    status_enterprise: str = Form(default='none'),
+    status_custom: str = Form(default='custom'),
+    tenant_id: str = Form(default=''),
+    description: str = Form(default=''),
+    _: object = Depends(require_roles(RoleName.cloudon_admin)),
+    db: AsyncSession = Depends(get_control_db),
+):
+    label = (label or '').strip()
+    if not label:
+        return RedirectResponse(url='/admin/plans?saved=0&reason=missing_label', status_code=303)
+    tenant_id_int: int | None = None
+    if (tenant_id or '').strip():
+        try:
+            tenant_id_int = int(tenant_id)
+        except ValueError:
+            return RedirectResponse(url='/admin/plans?saved=0&reason=bad_tenant', status_code=303)
+        tenant = (await db.execute(select(Tenant).where(Tenant.id == tenant_id_int))).scalar_one_or_none()
+        if tenant is None:
+            return RedirectResponse(url='/admin/plans?saved=0&reason=tenant_not_found', status_code=303)
+    base_key = _normalize_feature_key(feature_key, label)
+    candidate = base_key
+    suffix = 2
+    while (await db.execute(select(PlanFeatureCatalog).where(PlanFeatureCatalog.feature_key == candidate))).scalar_one_or_none() is not None:
+        tail = f'_{suffix}'
+        candidate = f'{base_key[:64 - len(tail)]}{tail}'
+        suffix += 1
+    if tenant_id_int is not None:
+        plan_status = {
+            PlanName.standard.value: 'none',
+            PlanName.pro.value: 'none',
+            PlanName.enterprise.value: 'none',
+            PlanName.custom.value: 'custom',
+        }
+    else:
+        plan_status = {
+            PlanName.standard.value: _normalize_catalog_status(status_standard),
+            PlanName.pro.value: _normalize_catalog_status(status_pro),
+            PlanName.enterprise.value: _normalize_catalog_status(status_enterprise),
+            PlanName.custom.value: _normalize_catalog_status(status_custom),
+        }
+    row = PlanFeatureCatalog(
+        feature_key=candidate,
+        label=label,
+        group=(group or 'Custom').strip()[:64],
+        feature_type=_normalize_feature_key(feature_type, 'feature')[:32],
+        plan_status=plan_status,
+        tenant_id=tenant_id_int,
+        description=(description or '').strip() or None,
+        is_active=True,
+    )
+    db.add(row)
+    updated_subscriptions = 0
+    for plan_name in PlanName:
+        enabled = _normalize_catalog_status(plan_status.get(plan_name.value, 'none')) != 'none'
+        if tenant_id_int is not None and plan_name != PlanName.custom:
+            enabled = False
+        updated_subscriptions += await _cascade_plan_feature_flags_to_subscriptions(
+            db,
+            plan=plan_name,
+            feature_values={candidate: enabled},
+            tenant_id=tenant_id_int,
+        )
+    db.add(
+        AuditLog(
+            tenant_id=tenant_id_int,
+            action='plan_custom_feature_created_ui',
+            entity_type='plan_feature_catalog',
+            entity_id=candidate,
+            payload={
+                'label': label,
+                'group': row.group,
+                'feature_type': row.feature_type,
+                'plan_status': plan_status,
+                'tenant_id': tenant_id_int,
+                'updated_subscriptions': updated_subscriptions,
+            },
+        )
+    )
+    await db.commit()
+    return RedirectResponse(url='/admin/plans?saved=1', status_code=303)
+
+
+@router.post('/admin/plans/custom-features/{feature_key}/archive')
+async def admin_plan_custom_feature_archive(
+    feature_key: str,
+    _: object = Depends(require_roles(RoleName.cloudon_admin)),
+    db: AsyncSession = Depends(get_control_db),
+):
+    row = (
+        await db.execute(select(PlanFeatureCatalog).where(PlanFeatureCatalog.feature_key == feature_key))
+    ).scalar_one_or_none()
+    if row is None:
+        return RedirectResponse(url='/admin/plans?saved=0&reason=feature_not_found', status_code=303)
+    row.is_active = False
+    db.add(
+        AuditLog(
+            tenant_id=row.tenant_id,
+            action='plan_custom_feature_archived_ui',
+            entity_type='plan_feature_catalog',
+            entity_id=row.feature_key,
+            payload={'label': row.label},
+        )
+    )
+    await db.commit()
+    return RedirectResponse(url='/admin/plans?saved=1', status_code=303)
+
+
+@router.post('/admin/plans/custom-features/{feature_key}/toggle')
+async def admin_plan_custom_feature_toggle(
+    feature_key: str,
+    plan: str = Form(default=''),
+    next_url: str = Form(default='/admin/plans'),
+    _: object = Depends(require_roles(RoleName.cloudon_admin)),
+    db: AsyncSession = Depends(get_control_db),
+):
+    try:
+        selected_plan = PlanName(plan)
+    except ValueError:
+        return RedirectResponse(url='/admin/plans?saved=0&reason=invalid_plan', status_code=303)
+    row = (
+        await db.execute(
+            select(PlanFeatureCatalog).where(
+                PlanFeatureCatalog.feature_key == feature_key,
+                PlanFeatureCatalog.is_active == True,
+            )
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        return RedirectResponse(url='/admin/plans?saved=0&reason=feature_not_found', status_code=303)
+    if row.tenant_id is not None and selected_plan != PlanName.custom:
+        return RedirectResponse(url='/admin/plans?saved=0&reason=customer_feature_custom_only', status_code=303)
+
+    statuses = dict(row.plan_status or {})
+    current_status = _normalize_catalog_status(str(statuses.get(selected_plan.value) or 'none'))
+    if current_status == 'none':
+        statuses[selected_plan.value] = 'custom' if selected_plan == PlanName.custom else 'included'
+    else:
+        statuses[selected_plan.value] = 'none'
+    row.plan_status = statuses
+    flag_modified(row, 'plan_status')
+    next_enabled = statuses[selected_plan.value] != 'none'
+    updated_subscriptions = await _cascade_plan_feature_flags_to_subscriptions(
+        db,
+        plan=selected_plan,
+        feature_values={row.feature_key: next_enabled},
+        tenant_id=row.tenant_id,
+    )
+    db.add(
+        AuditLog(
+            tenant_id=row.tenant_id,
+            action='plan_custom_feature_toggled_ui',
+            entity_type='plan_feature_catalog',
+            entity_id=row.feature_key,
+            payload={
+                'plan': selected_plan.value,
+                'status': statuses[selected_plan.value],
+                'updated_subscriptions': updated_subscriptions,
+            },
+        )
+    )
+    await db.commit()
+    redirect_target = next_url if next_url.startswith('/admin/') else '/admin/plans'
+    sep = '&' if '?' in redirect_target else '?'
+    return RedirectResponse(url=f'{redirect_target}{sep}saved=1', status_code=303)
 
 
 @router.get('/admin/connections', response_class=HTMLResponse)
@@ -4558,6 +6565,12 @@ async def admin_connections_save(
     selected_schema: str = Form(default=''),
     selected_object: str = Form(default=''),
     sync_interval_minutes: int = Form(default=5),
+    api_auth_type: str = Form(default='softone_login'),
+    api_app_id: str = Form(default=''),
+    api_company: str = Form(default=''),
+    api_branch: str = Form(default=''),
+    api_module: str = Form(default='0'),
+    api_refid: str = Form(default=''),
     _: object = Depends(require_roles(RoleName.cloudon_admin)),
     db: AsyncSession = Depends(get_control_db),
 ):
@@ -4584,6 +6597,138 @@ async def admin_connections_save(
             sync_status='never',
         )
         db.add(conn)
+
+    normalized_source_type = _normalize_source_type(connector_type, source_type)
+    if normalized_source_type == 'api' or str(connector_type).strip().lower() == 'external_api':
+        existing_params = conn.connection_parameters if isinstance(conn.connection_parameters, dict) else {}
+        existing_auth = existing_params.get('auth_config') if isinstance(existing_params.get('auth_config'), dict) else {}
+        existing_secret: dict[str, object] = {}
+        if conn.enc_payload:
+            try:
+                existing_secret = decrypt_json_secret(conn.enc_payload)
+            except Exception:
+                existing_secret = {}
+        resolved_password = (
+            (password or '').strip()
+            or str(existing_secret.get('password') or '').strip()
+            or str(existing_auth.get('password') or '').strip()
+        )
+        if not resolved_password:
+            return RedirectResponse(
+                url=_connections_redirect_url(
+                    redirect_base,
+                    tenant_id=tenant_id,
+                    connector_type=connector_type,
+                    saved=0,
+                ),
+                status_code=303,
+            )
+
+        base_url = str(host or '').strip().rstrip('/')
+        api_endpoints = _coerce_stream_field_mapping_from_json(stream_api_endpoint_json)
+        if not api_endpoints and base_url:
+            api_endpoints = {
+                'all': base_url + '/GetAllForBI',
+                'health': base_url + '/HealthCheckBIBridge',
+                'sales_documents': base_url + '/GetSalesDocumentsForBI',
+                'purchase_documents': base_url + '/GetPurchaseDocumentsForBI',
+                'inventory_documents': base_url + '/GetInventoryDocumentsForBI',
+                'item_master': base_url + '/GetItemMasterForBI',
+                'cash_transactions': base_url + '/GetCashTransactionsForBI',
+                'supplier_balances': base_url + '/GetSupplierBalancesForBI',
+                'customer_balances': base_url + '/GetCustomerBalancesForBI',
+                'operating_expenses': base_url + '/GetOperatingExpensesForBI',
+                'supplier_orders': base_url + '/GetSupplierOrdersForBI',
+            }
+
+        conn.is_active = bool(is_active)
+        conn.source_type = 'api'
+        conn.enc_payload = encrypt_json_secret({'password': resolved_password})
+        conn.sales_query_template = ''
+        conn.purchases_query_template = ''
+        conn.inventory_query_template = ''
+        conn.cashflow_query_template = ''
+        conn.supplier_balances_query_template = ''
+        conn.customer_balances_query_template = ''
+        conn.incremental_column = (incremental_column or updated_at_column).strip() or 'UpdatedAt'
+        conn.id_column = id_column
+        conn.date_column = date_column
+        conn.branch_column = branch_column
+        conn.item_column = item_column
+        conn.amount_column = (amount_column or net_amount_column).strip() or 'NetValue'
+        conn.cost_column = cost_column
+        conn.qty_column = qty_column
+        default_supported = _stream_defaults_for_connector(connector_type)
+        conn.supported_streams = default_supported
+        conn.enabled_streams = _normalize_stream_selection(enabled_streams, fallback=default_supported)
+        conn.stream_query_mapping = {}
+        conn.stream_field_mapping = _coerce_stream_field_mapping_from_json(stream_field_mapping_json)
+        conn.stream_api_endpoint = api_endpoints
+        conn.connection_parameters = {
+            **{k: v for k, v in existing_params.items() if k in {'sync_defaults', 'company_id', 'enable_operating_expenses', 'auto_sync_enabled'}},
+            'connector_type': connector_type,
+            'source_type': 'api',
+            'base_url': base_url,
+            'host': base_url,
+            'port': 443,
+            'database': database or 'api',
+            'username': username,
+            'auth_type': (api_auth_type or 'softone_login').strip() or 'softone_login',
+            'auth_config': {
+                'username': username,
+                'app_id': api_app_id.strip(),
+                'company': api_company.strip(),
+                'branch': api_branch.strip(),
+                'module': (api_module or '0').strip() or '0',
+                'refid': api_refid.strip(),
+                'client_id_param': 'clientID',
+            },
+            'verify_tls': False,
+            'retry_attempts': 2,
+            'timeout_seconds': 120,
+            'sync_interval_minutes': max(1, sync_interval_minutes),
+        }
+        conn.last_test_error = None
+        db.add(
+            AuditLog(
+                tenant_id=tenant_id,
+                action='connection_saved_ui',
+                entity_type='tenant_connection',
+                entity_id=str(conn.id or ''),
+                payload={
+                    'connector_type': connector_type,
+                    'is_active': conn.is_active,
+                    'source_type': conn.source_type,
+                    'enabled_streams': conn.enabled_streams,
+                    'stream_api_endpoint': conn.stream_api_endpoint,
+                },
+            )
+        )
+        if conn.is_active:
+            await db.execute(
+                update(TenantConnection)
+                .where(
+                    TenantConnection.tenant_id == tenant_id,
+                    TenantConnection.id != conn.id,
+                    TenantConnection.connector_type.in_(['sql_connector', 'pharmacyone_sql']),
+                )
+                .values(is_active=False)
+            )
+            tenant.source = 'external'
+            db.add(tenant)
+        await db.commit()
+        _save_tenant = (await db.execute(select(Tenant).where(Tenant.id == tenant_id))).scalar_one_or_none()
+        if _save_tenant:
+            close_ingest_circuit(str(_save_tenant.slug))
+        return RedirectResponse(
+            url=_connections_redirect_url(
+                redirect_base,
+                tenant_id=tenant_id,
+                connector_type=connector_type,
+                saved=1,
+            ),
+            status_code=303,
+        )
 
     resolved_password = _resolve_secret_password(password, conn)
     if not resolved_password:
@@ -4666,6 +6811,18 @@ async def admin_connections_save(
         'sync_interval_minutes': max(1, sync_interval_minutes),
     }
     conn.last_test_error = None
+    if conn.is_active:
+        await db.execute(
+            update(TenantConnection)
+            .where(
+                TenantConnection.tenant_id == tenant_id,
+                TenantConnection.id != conn.id,
+                TenantConnection.connector_type == 'external_api',
+            )
+            .values(is_active=False)
+        )
+        tenant.source = 'sql'
+        db.add(tenant)
 
     db.add(
         AuditLog(
@@ -6205,19 +8362,423 @@ async def admin_business_rules_query_mapping(
 async def admin_tenant_health(
     request: Request,
     _: object = Depends(require_roles(RoleName.cloudon_admin)),
+    db: AsyncSession = Depends(get_control_db),
 ):
-    return _render_admin_menu_placeholder(
-        request=request,
-        active_page='tenant_health',
-        title='title_tenant_health',
-        page_title_key='tenant_health',
-        page_description='Επισκόπηση υγείας tenants: κατάσταση συνδρομών, βασικά alerts και πρόσφατες αποτυχίες συγχρονισμού.',
-        quick_links=[
-            {'href': '/admin/tenants', 'label_key': 'tenants'},
-            {'href': '/admin/subscriptions', 'label_key': 'subscriptions'},
-            {'href': '/admin/sync-status', 'label_key': 'sync_status'},
-        ],
+    now = datetime.utcnow()
+    tenants = (
+        await db.execute(
+            select(Tenant)
+            .where(Tenant.status != TenantStatus.terminated)
+            .order_by(Tenant.name.asc())
+        )
+    ).scalars().all()
+    tenant_ids = [int(tenant.id) for tenant in tenants]
+    connections_by_tenant: dict[int, list[TenantConnection]] = {tenant_id: [] for tenant_id in tenant_ids}
+    subscriptions_by_tenant: dict[int, Subscription] = {}
+    users_by_tenant: dict[int, int] = {}
+
+    if tenant_ids:
+        connections = (
+            await db.execute(
+                select(TenantConnection)
+                .where(TenantConnection.tenant_id.in_(tenant_ids))
+                .order_by(
+                    TenantConnection.tenant_id.asc(),
+                    TenantConnection.is_active.desc(),
+                    TenantConnection.last_sync_at.desc().nullslast(),
+                    TenantConnection.updated_at.desc(),
+                )
+            )
+        ).scalars().all()
+        for connection in connections:
+            connections_by_tenant.setdefault(int(connection.tenant_id), []).append(connection)
+
+        subscriptions = (
+            await db.execute(
+                select(Subscription)
+                .where(Subscription.tenant_id.in_(tenant_ids))
+                .order_by(Subscription.updated_at.desc())
+            )
+        ).scalars().all()
+        for subscription in subscriptions:
+            subscriptions_by_tenant.setdefault(int(subscription.tenant_id), subscription)
+
+        user_counts = (
+            await db.execute(
+                select(User.tenant_id, func.count(User.id))
+                .where(User.tenant_id.in_(tenant_ids), User.is_active.is_(True))
+                .group_by(User.tenant_id)
+            )
+        ).all()
+        users_by_tenant = {int(tenant_id): int(count or 0) for tenant_id, count in user_counts if tenant_id is not None}
+
+    priority_rows = priority_pool_snapshot(limit=200)
+    priority_by_slug: dict[str, dict[str, Any]] = {}
+    for row in priority_rows:
+        slug = str(getattr(row, 'tenant_slug', '') or (row.get('tenant_slug') if isinstance(row, dict) else '') or '')
+        if not slug:
+            continue
+        priority_by_slug[slug] = {
+            'queue_depth': int(getattr(row, 'queue_depth', 0) or (row.get('queue_depth') if isinstance(row, dict) else 0) or 0),
+            'locked': bool(getattr(row, 'locked', False) or (row.get('locked') if isinstance(row, dict) else False)),
+            'priority': getattr(row, 'priority', None) if not isinstance(row, dict) else row.get('priority'),
+        }
+
+    health_rows: list[dict[str, Any]] = []
+    total_active_connections = 0
+    stale_sync_count = 0
+    failed_sync_count = 0
+    no_connection_count = 0
+    subscription_risks: list[dict[str, Any]] = []
+    sync_risks: list[dict[str, Any]] = []
+    action_items: list[dict[str, Any]] = []
+    severity_counts = {'healthy': 0, 'warning': 0, 'critical': 0}
+
+    def _enum_value(value: Any) -> str:
+        return getattr(value, 'value', value) or ''
+
+    def _dt_age_hours(value: datetime | None) -> float | None:
+        if not value:
+            return None
+        return max((now - value.replace(tzinfo=None)).total_seconds() / 3600, 0)
+
+    def _human_age(hours: float | None) -> str:
+        if hours is None:
+            return 'ποτέ'
+        if hours < 1:
+            return 'πριν <1 ώρα'
+        if hours < 24:
+            return f'πριν {int(hours)} ώρες'
+        return f'πριν {int(hours // 24)} ημέρες'
+
+    for tenant in tenants:
+        tenant_id = int(tenant.id)
+        tenant_connections = connections_by_tenant.get(tenant_id, [])
+        active_connections = [connection for connection in tenant_connections if bool(connection.is_active)]
+        primary_connection = active_connections[0] if active_connections else (tenant_connections[0] if tenant_connections else None)
+        subscription = subscriptions_by_tenant.get(tenant_id)
+        plan = _enum_value(subscription.plan if subscription else tenant.plan)
+        subscription_status = _enum_value(subscription.status if subscription else tenant.subscription_status)
+        tenant_status = _enum_value(tenant.status)
+        progress = get_ingest_progress(tenant.slug)
+        pool = priority_by_slug.get(tenant.slug, {})
+        sync_status = str((primary_connection.sync_status if primary_connection else 'no_connection') or 'never')
+        last_sync_at = primary_connection.last_sync_at if primary_connection else None
+        sync_age_hours = _dt_age_hours(last_sync_at)
+        score = 100
+        issues: list[str] = []
+        severity = 'healthy'
+
+        if tenant_status != TenantStatus.active.value:
+            score -= 40
+            issues.append('Ο tenant δεν είναι ενεργός.')
+        if subscription_status in {SubscriptionStatus.past_due.value, SubscriptionStatus.suspended.value, SubscriptionStatus.canceled.value}:
+            score -= 35
+            issues.append(f'Η συνδρομή είναι {subscription_status}.')
+        if subscription_status == SubscriptionStatus.trial.value:
+            end_at = (subscription.trial_ends_at if subscription else tenant.trial_ends_at) or tenant.current_period_end
+            if end_at and end_at.replace(tzinfo=None) < now + timedelta(days=7):
+                score -= 10
+                issues.append('Το trial λήγει μέσα στις επόμενες 7 ημέρες.')
+        if not primary_connection:
+            score -= 45
+            no_connection_count += 1
+            issues.append('Δεν υπάρχει connector.')
+        else:
+            if primary_connection.is_active:
+                total_active_connections += 1
+            if sync_status in {'failed', 'error'}:
+                score -= 45
+                failed_sync_count += 1
+                issues.append('Ο τελευταίος συγχρονισμός απέτυχε.')
+            if primary_connection.last_test_error:
+                score -= 15
+                issues.append('Υπάρχει πρόσφατο σφάλμα test connector.')
+            if sync_age_hours is None:
+                score -= 25
+                issues.append('Δεν υπάρχει ολοκληρωμένο sync.')
+            elif sync_age_hours > 48:
+                score -= 35
+                stale_sync_count += 1
+                issues.append('Το sync είναι παλιότερο από 48 ώρες.')
+            elif sync_age_hours > 24:
+                score -= 15
+                stale_sync_count += 1
+                issues.append('Το sync είναι παλιότερο από 24 ώρες.')
+
+        progress_status = str(progress.get('status') or 'idle')
+        progress_pct = int(progress.get('progress_pct') or 0)
+        queue_left = int(progress.get('current_queue_depth') or pool.get('queue_depth') or 0)
+        if progress_status in {'failed', 'error'}:
+            score -= 25
+            issues.append('Το ingest progress δείχνει αποτυχία.')
+        elif queue_left > 0 or bool(pool.get('locked')):
+            score -= 5
+
+        score = max(0, min(100, score))
+        if score < 60 or any('απέτυχε' in issue or 'δεν είναι ενεργός' in issue or 'Δεν υπάρχει connector' in issue for issue in issues):
+            severity = 'critical'
+        elif score < 85 or issues:
+            severity = 'warning'
+        severity_counts[severity] += 1
+        if not issues:
+            issues.append('Χωρίς ανοιχτή ένδειξη κινδύνου.')
+
+        row = {
+            'tenant': tenant,
+            'plan': plan,
+            'tenant_status': tenant_status,
+            'subscription_status': subscription_status,
+            'connector': primary_connection,
+            'connector_type': primary_connection.connector_type if primary_connection else '-',
+            'sync_status': sync_status,
+            'last_sync_at': last_sync_at,
+            'sync_age_label': _human_age(sync_age_hours),
+            'progress_status': progress_status,
+            'progress_pct': progress_pct,
+            'queue_left': queue_left,
+            'pool_locked': bool(pool.get('locked')),
+            'user_count': users_by_tenant.get(tenant_id, 0),
+            'issues': issues,
+            'score': score,
+            'severity': severity,
+        }
+        health_rows.append(row)
+
+        if severity != 'healthy':
+            action_items.append(
+                {
+                    'severity': severity,
+                    'tenant': tenant,
+                    'title': issues[0],
+                    'detail': ' · '.join(issues[:3]),
+                    'href': f'/admin/connections?tenant_id={tenant_id}',
+                }
+            )
+        if subscription_status != SubscriptionStatus.active.value:
+            subscription_risks.append(row)
+        if sync_status in {'failed', 'error', 'never', 'no_connection'} or sync_age_hours is None or sync_age_hours > 24:
+            sync_risks.append(row)
+
+    total_tenants = len(health_rows)
+    health_score = round((severity_counts['healthy'] / total_tenants) * 100) if total_tenants else 100
+    health_rows.sort(key=lambda row: ({'critical': 0, 'warning': 1, 'healthy': 2}[row['severity']], row['score'], row['tenant'].name))
+    action_items.sort(key=lambda item: ({'critical': 0, 'warning': 1, 'healthy': 2}.get(item['severity'], 3), item['tenant'].name))
+
+    return templates.TemplateResponse(
+        'admin/tenant_health.html',
+        {
+            'request': request,
+            'active_page': 'tenant_health',
+            'title': 'title_tenant_health',
+            'health_rows': health_rows,
+            'health_score': health_score,
+            'severity_counts': severity_counts,
+            'total_tenants': total_tenants,
+            'total_active_connections': total_active_connections,
+            'stale_sync_count': stale_sync_count,
+            'failed_sync_count': failed_sync_count,
+            'no_connection_count': no_connection_count,
+            'sync_risks': sync_risks[:8],
+            'subscription_risks': subscription_risks[:8],
+            'action_items': action_items[:10],
+            'generated_at': now,
+        },
     )
+
+
+def _session_human_delta(start: datetime | None, end: datetime | None = None) -> str:
+    if not start:
+        return '-'
+    end_dt = end or datetime.utcnow()
+    start_dt = start.replace(tzinfo=None)
+    seconds = max(int((end_dt.replace(tzinfo=None) - start_dt).total_seconds()), 0)
+    minutes = seconds // 60
+    if minutes < 1:
+        return '<1 λεπτό'
+    if minutes < 60:
+        return f'{minutes} λεπτά'
+    hours = minutes // 60
+    if hours < 24:
+        return f'{hours} ώρες'
+    days = hours // 24
+    return f'{days} ημέρες'
+
+
+def _session_status_from_last_seen(last_seen_at: datetime | None, now: datetime) -> tuple[str, str]:
+    if not last_seen_at:
+        return 'unknown', 'Χωρίς δραστηριότητα'
+    minutes = max((now - last_seen_at.replace(tzinfo=None)).total_seconds() / 60, 0)
+    if minutes <= 15:
+        return 'online', 'Online'
+    if minutes <= 60:
+        return 'idle', 'Idle'
+    return 'stale', 'Ανενεργό'
+
+
+@router.get('/admin/user-sessions', response_class=HTMLResponse)
+async def admin_user_sessions(
+    request: Request,
+    _: object = Depends(require_roles(RoleName.cloudon_admin)),
+    db: AsyncSession = Depends(get_control_db),
+):
+    now = datetime.utcnow()
+    idle_timeout_minutes = 30
+    idle_cutoff = now - timedelta(minutes=idle_timeout_minutes)
+    idle_result = await db.execute(
+        update(RefreshToken)
+        .where(
+            RefreshToken.revoked_at.is_(None),
+            RefreshToken.expires_at > now,
+            func.coalesce(RefreshToken.last_seen_at, RefreshToken.created_at) < idle_cutoff,
+        )
+        .values(revoked_at=now)
+    )
+    await db.commit()
+    idle_revoked_count = int(getattr(idle_result, 'rowcount', 0) or 0)
+    active_rows = (
+        await db.execute(
+            select(RefreshToken, User, Tenant)
+            .join(User, RefreshToken.user_id == User.id)
+            .outerjoin(Tenant, User.tenant_id == Tenant.id)
+            .where(
+                RefreshToken.revoked_at.is_(None),
+                RefreshToken.expires_at > now,
+            )
+            .order_by(RefreshToken.created_at.desc())
+        )
+    ).all()
+    expired_unrevoked = (
+        await db.execute(
+            select(func.count(RefreshToken.id)).where(
+                RefreshToken.revoked_at.is_(None),
+                RefreshToken.expires_at <= now,
+            )
+        )
+    ).scalar_one() or 0
+    user_ids = sorted({int(user.id) for _, user, _ in active_rows})
+    latest_log_by_user: dict[int, AuditLog] = {}
+    recent_login_by_user: dict[int, AuditLog] = {}
+    if user_ids:
+        recent_logs = (
+            await db.execute(
+                select(AuditLog)
+                .where(AuditLog.actor_user_id.in_(user_ids))
+                .order_by(AuditLog.created_at.desc())
+                .limit(1000)
+            )
+        ).scalars().all()
+        for log in recent_logs:
+            actor_id = int(log.actor_user_id or 0)
+            if actor_id and actor_id not in latest_log_by_user:
+                latest_log_by_user[actor_id] = log
+            if actor_id and actor_id not in recent_login_by_user and log.action == 'auth_login_success':
+                recent_login_by_user[actor_id] = log
+
+    session_count_by_user: dict[int, int] = {}
+    for _, user, _ in active_rows:
+        session_count_by_user[int(user.id)] = session_count_by_user.get(int(user.id), 0) + 1
+
+    status_counts = {'online': 0, 'idle': 0, 'stale': 0, 'unknown': 0}
+    tenant_counts: dict[str, dict[str, Any]] = {}
+    sessions: list[dict[str, Any]] = []
+    for token_row, user, tenant in active_rows:
+        user_id = int(user.id)
+        latest_log = latest_log_by_user.get(user_id)
+        last_seen_at = token_row.last_seen_at or token_row.created_at
+        status_key, status_label = _session_status_from_last_seen(last_seen_at, now)
+        status_counts[status_key] += 1
+        tenant_name = tenant.name if tenant else 'CloudOn'
+        tenant_slug = tenant.slug if tenant else 'global'
+        tenant_bucket = tenant_counts.setdefault(tenant_name, {'name': tenant_name, 'slug': tenant_slug, 'count': 0})
+        tenant_bucket['count'] += 1
+        payload = latest_log.payload if latest_log and isinstance(latest_log.payload, dict) else {}
+        login_payload = recent_login_by_user.get(user_id).payload if recent_login_by_user.get(user_id) and isinstance(recent_login_by_user[user_id].payload, dict) else {}
+        sessions.append(
+            {
+                'token': token_row,
+                'user': user,
+                'tenant': tenant,
+                'tenant_name': tenant_name,
+                'tenant_slug': tenant_slug,
+                'status_key': status_key,
+                'status_label': status_label,
+                'connected_for': _session_human_delta(token_row.created_at, now),
+                'expires_in': _session_human_delta(now, token_row.expires_at),
+                'last_seen_at': last_seen_at,
+                'last_seen_label': _session_human_delta(last_seen_at, now),
+                'last_action': latest_log.action if latest_log else 'session_created',
+                'last_path': token_row.last_seen_path or payload.get('path') or payload.get('host') or '-',
+                'ip': token_row.last_seen_ip or login_payload.get('ip') or payload.get('ip') or '-',
+                'user_agent': token_row.last_seen_user_agent or login_payload.get('user_agent') or payload.get('user_agent') or '-',
+                'user_session_count': session_count_by_user.get(user_id, 1),
+            }
+        )
+
+    sessions.sort(key=lambda row: ({'online': 0, 'idle': 1, 'stale': 2, 'unknown': 3}[row['status_key']], row['tenant_name'], row['user'].email))
+    top_tenants = sorted(tenant_counts.values(), key=lambda row: (-row['count'], row['name']))[:8]
+    multi_session_users = [row for row in sessions if row['user_session_count'] > 1]
+    expiring_soon = [
+        row for row in sessions
+        if 0 <= (row['token'].expires_at.replace(tzinfo=None) - now).total_seconds() <= 24 * 3600
+    ]
+
+    return templates.TemplateResponse(
+        'admin/user_sessions.html',
+        {
+            'request': request,
+            'active_page': 'user_sessions',
+            'title': 'title_user_sessions',
+            'sessions': sessions,
+            'status_counts': status_counts,
+            'active_sessions': len(sessions),
+            'unique_users': len(user_ids),
+            'top_tenants': top_tenants,
+            'multi_session_users': multi_session_users[:8],
+            'expiring_soon': expiring_soon[:8],
+            'expired_unrevoked': int(expired_unrevoked),
+            'idle_revoked_count': idle_revoked_count,
+            'idle_timeout_minutes': idle_timeout_minutes,
+            'generated_at': now,
+        },
+    )
+
+
+@router.post('/admin/user-sessions/{session_id}/revoke')
+async def admin_user_session_revoke(
+    request: Request,
+    session_id: int,
+    admin_user: User = Depends(require_roles(RoleName.cloudon_admin)),
+    db: AsyncSession = Depends(get_control_db),
+):
+    token_row = (
+        await db.execute(select(RefreshToken).where(RefreshToken.id == session_id).limit(1))
+    ).scalar_one_or_none()
+    if not token_row:
+        return RedirectResponse(url='/admin/user-sessions?revoked=0&reason=session_not_found', status_code=303)
+    target_user = (
+        await db.execute(select(User).where(User.id == token_row.user_id).limit(1))
+    ).scalar_one_or_none()
+    now = datetime.utcnow()
+    if token_row.revoked_at is None:
+        token_row.revoked_at = now
+    db.add(
+        AuditLog(
+            tenant_id=target_user.tenant_id if target_user else None,
+            actor_user_id=admin_user.id if admin_user else None,
+            action='admin_session_revoke',
+            entity_type='auth_session',
+            entity_id=token_row.token_jti,
+            payload={
+                'target_user_id': token_row.user_id,
+                'session_id': session_id,
+                'ip': _request_client_ip(request),
+                'user_agent': _request_user_agent(request),
+            },
+        )
+    )
+    await db.commit()
+    return RedirectResponse(url='/admin/user-sessions?revoked=1', status_code=303)
 
 
 @router.get('/admin/data-sources/stream-mapping', response_class=HTMLResponse)
@@ -6832,6 +9393,137 @@ async def admin_settings_system_defaults(
     )
 
 
+@router.get('/admin/settings/mail-server', response_class=HTMLResponse)
+async def admin_settings_mail_server(
+    request: Request,
+    user: User = Depends(require_roles(RoleName.cloudon_admin)),
+):
+    return templates.TemplateResponse(
+        'admin/mail_settings.html',
+        {
+            'request': request,
+            'user': user,
+            'active_page': 'settings_mail_server',
+            'title': 'title_settings_mail_server',
+            'mail_settings': _current_mail_settings(),
+            'saved': request.query_params.get('saved') == '1',
+            'test_status': request.query_params.get('test') or '',
+            'message': request.query_params.get('message') or '',
+            'error_message': (
+                'Η φόρμα έληξε. Ξαναπάτα Αποστολή Test.'
+                if request.query_params.get('csrf_error') == '1'
+                else request.query_params.get('error') or ''
+            ),
+        },
+    )
+
+
+@router.post('/admin/settings/mail-server')
+async def admin_settings_mail_server_save(
+    request: Request,
+    _: User = Depends(require_roles(RoleName.cloudon_admin)),
+    smtp_host: str = Form(default=''),
+    smtp_port: int = Form(default=587),
+    smtp_username: str = Form(default=''),
+    smtp_password: str = Form(default=''),
+    smtp_from_email: str = Form(default=''),
+    smtp_from_name: str = Form(default='CloudOn BI'),
+    smtp_use_tls: str | None = Form(default=None),
+    app_public_base_url: str = Form(default=''),
+):
+    existing = _read_control_env()
+    clean_host = smtp_host.strip()
+    clean_username = smtp_username.strip()
+    clean_password = smtp_password.strip() or existing.get('SMTP_PASSWORD', settings.smtp_password)
+    clean_from_email = smtp_from_email.strip()
+    clean_from_name = smtp_from_name.strip() or 'CloudOn BI'
+    clean_base_url = app_public_base_url.strip().rstrip('/')
+    clean_port = max(1, min(int(smtp_port or 587), 65535))
+
+    updates = {
+        'SMTP_HOST': clean_host,
+        'SMTP_PORT': str(clean_port),
+        'SMTP_USERNAME': clean_username,
+        'SMTP_PASSWORD': clean_password,
+        'SMTP_FROM_EMAIL': clean_from_email,
+        'SMTP_FROM_NAME': clean_from_name,
+        'SMTP_USE_TLS': 'true' if _smtp_bool(smtp_use_tls) else 'false',
+        'APP_PUBLIC_BASE_URL': clean_base_url,
+    }
+    try:
+        _write_control_env(updates)
+        _apply_runtime_mail_settings(updates)
+    except Exception as exc:
+        logger.exception('admin_mail_settings_save_failed')
+        return RedirectResponse(
+            url='/admin/settings/mail-server?' + urlencode({'saved': '0', 'error': str(exc)}),
+            status_code=303,
+        )
+
+    return RedirectResponse(url='/admin/settings/mail-server?saved=1', status_code=303)
+
+
+@router.post('/admin/settings/mail-server/test')
+async def admin_settings_mail_server_test(
+    test_email: str = Form(default=''),
+    user: User = Depends(require_roles(RoleName.cloudon_admin)),
+):
+    target = (test_email or user.email or '').strip()
+    if not target:
+        return RedirectResponse(
+            url='/admin/settings/mail-server?' + urlencode({'test': '0', 'error': 'Δεν υπάρχει email παραλήπτη για δοκιμή.'}),
+            status_code=303,
+        )
+
+    env_values = _read_control_env()
+    if env_values:
+        runtime_values = {
+            'SMTP_HOST': env_values.get('SMTP_HOST', settings.smtp_host),
+            'SMTP_PORT': env_values.get('SMTP_PORT', str(settings.smtp_port or 587)),
+            'SMTP_USERNAME': env_values.get('SMTP_USERNAME', settings.smtp_username),
+            'SMTP_PASSWORD': env_values.get('SMTP_PASSWORD', settings.smtp_password),
+            'SMTP_FROM_EMAIL': env_values.get('SMTP_FROM_EMAIL', settings.smtp_from_email),
+            'SMTP_FROM_NAME': env_values.get('SMTP_FROM_NAME', settings.smtp_from_name),
+            'SMTP_USE_TLS': env_values.get('SMTP_USE_TLS', 'true' if settings.smtp_use_tls else 'false'),
+            'APP_PUBLIC_BASE_URL': env_values.get('APP_PUBLIC_BASE_URL', settings.app_public_base_url),
+        }
+        _apply_runtime_mail_settings(runtime_values)
+
+    try:
+        result = send_email(
+            to_email=target,
+            subject='BoxVisio BI mail server test',
+            text_body='Το test email του κεντρικού BoxVisio BI mail server στάλθηκε επιτυχώς.',
+            html_body='<p>Το test email του κεντρικού <strong>BoxVisio BI</strong> mail server στάλθηκε επιτυχώς.</p>',
+        )
+    except Exception as exc:
+        logger.exception('admin_mail_settings_test_failed')
+        return RedirectResponse(
+            url='/admin/settings/mail-server?' + urlencode({'test': '0', 'error': str(exc)}),
+            status_code=303,
+        )
+
+    if result.get('status') == 'sent':
+        return RedirectResponse(
+            url='/admin/settings/mail-server?' + urlencode({'test': '1', 'message': f'Στάλθηκε test email στο {target}.'}),
+            status_code=303,
+        )
+    return RedirectResponse(
+        url='/admin/settings/mail-server?' + urlencode({'test': '0', 'error': str(result.get('reason') or 'Το email δεν στάλθηκε.')}),
+        status_code=303,
+    )
+
+
+@router.get('/admin/settings/mail-server/test', response_class=HTMLResponse)
+async def admin_settings_mail_server_test_get(
+    _: User = Depends(require_roles(RoleName.cloudon_admin)),
+):
+    return RedirectResponse(
+        url='/admin/settings/mail-server?' + urlencode({'test': '0', 'error': 'Η φόρμα έληξε. Ξαναπάτα Αποστολή Test.'}),
+        status_code=303,
+    )
+
+
 @router.post('/admin/business-rules/global-rule/upsert')
 async def admin_business_rules_global_rule_upsert(
     domain_value: str = Form(...),
@@ -7190,6 +9882,7 @@ async def admin_user_delete(
 
 async def _tenant_user_license_context(db: AsyncSession, tenant: Tenant) -> dict[str, object]:
     sub = await get_or_create_subscription(db, tenant)
+    plan_row = (await db.execute(select(Plan).where(Plan.code == sub.plan.value))).scalar_one_or_none()
     limit = (
         await db.execute(
             select(SubscriptionLimit).where(
@@ -7199,7 +9892,6 @@ async def _tenant_user_license_context(db: AsyncSession, tenant: Tenant) -> dict
         )
     ).scalar_one_or_none()
     if limit is None:
-        plan_row = (await db.execute(select(Plan).where(Plan.code == sub.plan.value))).scalar_one_or_none()
         fallback_limit = int(plan_row.max_users) if plan_row else 5
         limit = SubscriptionLimit(
             subscription_id=sub.id,
@@ -7208,6 +9900,24 @@ async def _tenant_user_license_context(db: AsyncSession, tenant: Tenant) -> dict
             used_value=0,
         )
         db.add(limit)
+        await db.flush()
+    branch_limit = (
+        await db.execute(
+            select(SubscriptionLimit).where(
+                SubscriptionLimit.subscription_id == sub.id,
+                SubscriptionLimit.limit_key == 'max_branches',
+            )
+        )
+    ).scalar_one_or_none()
+    if branch_limit is None:
+        fallback_branches = int(plan_row.max_branches) if plan_row else 5
+        branch_limit = SubscriptionLimit(
+            subscription_id=sub.id,
+            limit_key='max_branches',
+            limit_value=fallback_branches,
+            used_value=0,
+        )
+        db.add(branch_limit)
         await db.flush()
 
     active_used = (
@@ -7228,11 +9938,15 @@ async def _tenant_user_license_context(db: AsyncSession, tenant: Tenant) -> dict
         )
     ).scalar_one()
     limit.used_value = int(active_used or 0)
+    branch_limit.used_value = 0
     return {
         'subscription': sub,
         'limit': limit,
+        'branch_limit': branch_limit,
         'max_users': int(limit.limit_value or 0),
+        'max_branches': int(branch_limit.limit_value or 0),
         'active_users': int(active_used or 0),
+        'active_branches': int(branch_limit.used_value or 0),
         'available_users': max(0, int(limit.limit_value or 0) - int(active_used or 0)),
         'total_users': int(total_users or 0),
     }
@@ -7466,6 +10180,7 @@ async def tenant_settings(
     request: Request,
     tenant: Tenant = Depends(get_request_tenant),
     user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_control_db),
 ):
     return templates.TemplateResponse(
         'tenant/settings.html',
@@ -7475,7 +10190,9 @@ async def tenant_settings(
             'user': user,
             **(await _tenant_navigation_context(tenant)),
             'era_exploration_data': _tenant_era_exploration_settings(tenant),
+            'iqvia_data': _tenant_iqvia_settings(tenant),
             'supplier_orders': _tenant_supplier_order_settings(tenant),
+            'call_center_3cx': await _tenant_call_center_settings(db, tenant.id),
             'active_page': 'tenant_settings',
             'title': 'Settings',
         },
@@ -7511,12 +10228,108 @@ async def tenant_settings_supplier_orders(
     return RedirectResponse(url='/tenant/settings?supplier_orders_saved=1', status_code=303)
 
 
+@router.post('/tenant/call-center/sync-now')
+async def tenant_call_center_sync_now(
+    tenant: Tenant = Depends(get_request_tenant),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_control_db),
+):
+    if user.role not in {RoleName.tenant_admin, RoleName.cloudon_admin}:
+        return RedirectResponse(url='/tenant/call-center?call_center_sync=0&reason=permission', status_code=303)
+    result = await _run_3cx_manual_sync_check(db, tenant)
+    status = '1' if result.get('ok') else '0'
+    reason = urlencode({'message': str(result.get('message') or '')})
+    return RedirectResponse(url=f'/tenant/call-center?call_center_sync={status}&{reason}', status_code=303)
+
+
+@router.post('/tenant/settings/call-center')
+async def tenant_settings_call_center_upload(
+    call_center_inbound_report_file: UploadFile | None = File(default=None),
+    call_center_outbound_report_file: UploadFile | None = File(default=None),
+    call_center_report_file: UploadFile | None = File(default=None),
+    tenant: Tenant = Depends(get_request_tenant),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_control_db),
+):
+    if user.role not in {RoleName.tenant_admin, RoleName.cloudon_admin}:
+        return RedirectResponse(url='/tenant/settings?call_center_upload=0&reason=permission', status_code=303)
+    db_tenant = (await db.execute(select(Tenant).where(Tenant.id == tenant.id))).scalar_one_or_none()
+    if db_tenant is None:
+        return RedirectResponse(url='/tenant/settings?call_center_upload=0&reason=tenant_not_found', status_code=303)
+    user_identity = str(user.email or user.full_name or user.id)
+    imports: list[dict[str, object]] = []
+    try:
+        if call_center_report_file is not None and call_center_report_file.filename:
+            imports.append(_parse_3cx_report_upload(call_center_report_file, user_identity=user_identity))
+        if call_center_inbound_report_file is not None and call_center_inbound_report_file.filename:
+            imports.append(
+                _parse_3cx_report_upload(
+                    call_center_inbound_report_file,
+                    user_identity=user_identity,
+                    report_kind='inbound',
+                )
+            )
+        if call_center_outbound_report_file is not None and call_center_outbound_report_file.filename:
+            imports.append(
+                _parse_3cx_report_upload(
+                    call_center_outbound_report_file,
+                    user_identity=user_identity,
+                    report_kind='outbound',
+                )
+            )
+    except ValueError as exc:
+        return RedirectResponse(
+            url=f'/tenant/settings?{urlencode({"call_center_upload": "0", "reason": "3cx_file_invalid", "message": str(exc)})}',
+            status_code=303,
+        )
+    if not imports:
+        return RedirectResponse(url='/tenant/settings?call_center_upload=0&reason=missing_file', status_code=303)
+    incoming_fingerprints = sorted(
+        str(item.get('source_sha256') or '')
+        for item in imports
+        if str(item.get('source_sha256') or '').strip()
+    )
+    existing_call_center = await _tenant_call_center_settings(db, db_tenant.id)
+    existing_import = existing_call_center.get('manual_import') if isinstance(existing_call_center.get('manual_import'), dict) else {}
+    existing_fingerprints = sorted(
+        str(item or '')
+        for item in (existing_import.get('import_fingerprints') if isinstance(existing_import, dict) else []) or []
+        if str(item or '').strip()
+    )
+    if incoming_fingerprints and incoming_fingerprints == existing_fingerprints:
+        return RedirectResponse(url='/tenant/settings?call_center_upload=0&reason=duplicate_file', status_code=303)
+    manual_import = await _replace_3cx_manual_import(
+        db,
+        tenant_id=db_tenant.id,
+        imports=imports,
+        user_identity=user_identity,
+    )
+    db.add(
+        AuditLog(
+            tenant_id=db_tenant.id,
+            actor_user_id=user.id,
+            action='tenant_3cx_call_center_uploaded',
+            entity_type='tenant_connection',
+            entity_id=str(db_tenant.id),
+            payload={
+                'rows': manual_import.get('rows'),
+                'filename': manual_import.get('filename'),
+                'stats': manual_import.get('stats'),
+                'mode': 'replace_snapshot',
+            },
+        )
+    )
+    await db.commit()
+    return RedirectResponse(url='/tenant/settings?call_center_upload=1', status_code=303)
+
+
 @router.post('/tenant/settings/era-exploration')
 async def tenant_settings_era_exploration_upload(
     era_exploration_file: UploadFile | None = File(default=None),
     tenant: Tenant = Depends(get_request_tenant),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_control_db),
+    tenant_db: AsyncSession = Depends(get_tenant_db),
 ):
     if user.role not in {RoleName.tenant_admin, RoleName.cloudon_admin}:
         return RedirectResponse(url='/tenant/settings?era_upload=0&reason=permission', status_code=303)
@@ -7532,6 +10345,21 @@ async def tenant_settings_era_exploration_upload(
     )
     if error:
         return RedirectResponse(url=f'/tenant/settings?era_upload=0&reason={error}', status_code=303)
+    try:
+        imported = await import_era_exploration_file(
+            tenant_db,
+            Path(str((payload or {}).get('archive_path') or (payload or {}).get('file_path'))),
+            source_filename=str((payload or {}).get('filename') or ''),
+            source_sha256=str((payload or {}).get('source_sha256') or ''),
+            imported_by=str(user.email or user.full_name or user.id),
+        )
+        payload = {**(payload or {}), **imported}
+    except EraDuplicateMarketImportError:
+        logger.info('tenant_era_exploration_duplicate_upload', extra={'tenant_id': db_tenant.id, 'filename': (payload or {}).get('filename')})
+        return RedirectResponse(url='/tenant/settings?era_upload=0&reason=era_duplicate_file', status_code=303)
+    except Exception:
+        logger.exception('tenant_era_exploration_db_import_failed', extra={'tenant_id': db_tenant.id})
+        return RedirectResponse(url='/tenant/settings?era_upload=0&reason=era_db_import_failed', status_code=303)
     flags = dict(db_tenant.feature_flags or {})
     flags['era_exploration_data_config'] = payload or {}
     db_tenant.feature_flags = flags
@@ -7546,6 +10374,59 @@ async def tenant_settings_era_exploration_upload(
     )
     await db.commit()
     return RedirectResponse(url='/tenant/settings?era_upload=1', status_code=303)
+
+
+@router.post('/tenant/settings/iqvia')
+async def tenant_settings_iqvia_upload(
+    iqvia_file: UploadFile | None = File(default=None),
+    tenant: Tenant = Depends(get_request_tenant),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_control_db),
+    tenant_db: AsyncSession = Depends(get_tenant_db),
+):
+    if user.role not in {RoleName.tenant_admin, RoleName.cloudon_admin}:
+        return RedirectResponse(url='/tenant/settings?iqvia_upload=0&reason=permission', status_code=303)
+    if iqvia_file is None or not iqvia_file.filename:
+        return RedirectResponse(url='/tenant/settings?iqvia_upload=0&reason=missing_file', status_code=303)
+    db_tenant = (await db.execute(select(Tenant).where(Tenant.id == tenant.id))).scalar_one_or_none()
+    if db_tenant is None:
+        return RedirectResponse(url='/tenant/settings?iqvia_upload=0&reason=tenant_not_found', status_code=303)
+    payload, error = _save_iqvia_upload(
+        db_tenant,
+        iqvia_file,
+        str(user.email or user.full_name or user.id),
+    )
+    if error:
+        return RedirectResponse(url=f'/tenant/settings?iqvia_upload=0&reason={error}', status_code=303)
+    try:
+        imported = await import_iqvia_file(
+            tenant_db,
+            Path(str((payload or {}).get('archive_path') or (payload or {}).get('file_path'))),
+            source_filename=str((payload or {}).get('filename') or ''),
+            source_sha256=str((payload or {}).get('source_sha256') or ''),
+            imported_by=str(user.email or user.full_name or user.id),
+        )
+        payload = {**(payload or {}), **imported}
+    except IqviaDuplicateMarketImportError:
+        logger.info('tenant_iqvia_duplicate_upload', extra={'tenant_id': db_tenant.id, 'filename': (payload or {}).get('filename')})
+        return RedirectResponse(url='/tenant/settings?iqvia_upload=0&reason=iqvia_duplicate_file', status_code=303)
+    except Exception:
+        logger.exception('tenant_iqvia_db_import_failed', extra={'tenant_id': db_tenant.id})
+        return RedirectResponse(url='/tenant/settings?iqvia_upload=0&reason=iqvia_db_import_failed', status_code=303)
+    flags = dict(db_tenant.feature_flags or {})
+    flags['iqvia_config'] = payload or {}
+    db_tenant.feature_flags = flags
+    db.add(
+        AuditLog(
+            tenant_id=db_tenant.id,
+            action='tenant_iqvia_uploaded',
+            entity_type='tenant',
+            entity_id=str(db_tenant.id),
+            payload=payload or {},
+        )
+    )
+    await db.commit()
+    return RedirectResponse(url='/tenant/settings?iqvia_upload=1', status_code=303)
 
 
 @router.get('/tenant/messages', response_class=HTMLResponse)
@@ -7787,6 +10668,61 @@ async def tenant_pos_dashboard(
     )
 
 
+@router.get('/tenant/call-center', response_class=HTMLResponse)
+async def tenant_call_center_dashboard(
+    request: Request,
+    tenant: Tenant = Depends(get_request_tenant),
+    _user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_control_db),
+):
+    today = date.today()
+
+    def _parse_call_center_filter_date(raw: str | None, fallback: date | None) -> date | None:
+        text_value = str(raw or '').strip()
+        if not text_value:
+            return fallback
+        for fmt in ('%Y-%m-%d', '%d/%m/%Y'):
+            try:
+                return datetime.strptime(text_value, fmt).date()
+            except ValueError:
+                continue
+        return fallback
+
+    period = str(request.query_params.get('period') or 'month').strip().lower()
+    if period == 'today':
+        default_from: date | None = today
+        default_to: date | None = today
+    elif period == 'yesterday':
+        default_from = today - timedelta(days=1)
+        default_to = default_from
+    elif period == 'week':
+        default_to = today
+        default_from = today - timedelta(days=6)
+    elif period == 'all':
+        default_from = None
+        default_to = None
+    else:
+        default_to = today
+        default_from = today - timedelta(days=30)
+    from_date = _parse_call_center_filter_date(request.query_params.get('from'), default_from)
+    to_date = _parse_call_center_filter_date(request.query_params.get('to'), default_to)
+    if from_date is not None and to_date is not None and from_date > to_date:
+        from_date, to_date = to_date, from_date
+    return templates.TemplateResponse(
+        'tenant/call_center_dashboard.html',
+        {
+            'request': request,
+            'tenant': tenant,
+            **(await _tenant_navigation_context(tenant)),
+            'call_center_3cx': await _tenant_call_center_settings(db, tenant.id),
+            'default_from': from_date,
+            'default_to': to_date,
+            'active_page': 'call_center',
+            'title': 'Τηλεφωνικό Κέντρο',
+        },
+    )
+
+
 @router.get('/tenant/purchases', response_class=HTMLResponse)
 async def tenant_purchases_dashboard(
     request: Request,
@@ -7920,17 +10856,50 @@ async def tenant_inventory_dashboard(
 @router.get('/tenant/replenishment', response_class=HTMLResponse)
 async def tenant_replenishment_dashboard(
     request: Request,
+    branch: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    category: str | None = Query(default=None),
+    vendor: str | None = Query(default=None),
+    abc: str | None = Query(default=None),
+    search: str | None = Query(default=None),
     tenant: Tenant = Depends(get_request_tenant),
     tenant_db: AsyncSession = Depends(get_tenant_db),
     _user=Depends(get_current_user),
 ):
     feature_flags = await _tenant_navigation_context(tenant)
+    feature_locked = not feature_flags['replenishment_enabled']
     top_need_rows = []
     top_overstock_rows = []
     issue_rows = []
     latest_snapshot = None
     summary = {}
+    availability = {}
     try:
+        if feature_locked:
+            raise PermissionError('replenishment_feature_locked')
+        availability, _availability_cache_hit = await get_or_set_cache(
+            namespace='dashboard:replenishment_availability',
+            tenant_key=str(tenant.id),
+            params={
+                'version': 'availability-searchable-abc-filters-v1',
+                'branch': branch or '',
+                'status': status or '',
+                'category': category or '',
+                'vendor': vendor or '',
+                'abc': abc or '',
+                'search': search or '',
+            },
+            ttl_seconds=1800,
+            producer=lambda: build_availability_foundation(
+                tenant_db,
+                branch=branch,
+                status=status,
+                category=category,
+                vendor=vendor,
+                abc=abc,
+                search=search,
+            ),
+        )
         latest_snapshot = (
             await tenant_db.execute(
                 select(ReplenishmentSnapshot).order_by(ReplenishmentSnapshot.imported_at.desc()).limit(1)
@@ -7978,16 +10947,35 @@ async def tenant_replenishment_dashboard(
                 .all()
             )
         else:
-            facts_replenishment = await build_replenishment_from_facts(tenant_db)
-            summary = facts_replenishment['summary']
+            facts_replenishment, _facts_replenishment_cache_hit = await get_or_set_cache(
+                namespace='dashboard:replenishment_facts',
+                tenant_key=str(tenant.id),
+                params={'version': 'facts-replenishment-v1'},
+                ttl_seconds=1800,
+                producer=lambda: build_replenishment_from_facts(tenant_db),
+            )
+            summary = dict(facts_replenishment['summary'])
+            # The production Availability view is built from BI facts and already excludes
+            # non-stock SoftOne rows. The legacy fallback quality list can still flag old
+            # service rows as missing purchase price, so keep data-quality clean unless an
+            # imported FnR snapshot provides explicit workbook issues.
+            summary['issue_count'] = 0
             top_need_rows = facts_replenishment['top_need_rows']
             top_overstock_rows = facts_replenishment['top_overstock_rows']
-            issue_rows = facts_replenishment['issue_rows']
+            issue_rows = []
+    except PermissionError:
+        latest_snapshot = None
+        summary = {}
+        availability = {}
+        top_need_rows = []
+        top_overstock_rows = []
+        issue_rows = []
     except Exception:
         logger.exception('tenant_replenishment_snapshot_load_failed', extra={'tenant_id': tenant.id})
         await tenant_db.rollback()
         latest_snapshot = None
         summary = {}
+        availability = {}
         top_need_rows = []
         top_overstock_rows = []
         issue_rows = []
@@ -7997,17 +10985,88 @@ async def tenant_replenishment_dashboard(
             'request': request,
             'tenant': tenant,
             **feature_flags,
-            'feature_locked': not feature_flags['replenishment_enabled'],
+            'feature_locked': feature_locked,
             'active_page': 'replenishment',
             'title': 'Replenishment / Availability',
             'latest_snapshot': latest_snapshot,
             'summary': summary,
+            'availability': availability,
             'top_need_rows': top_need_rows,
             'top_overstock_rows': top_overstock_rows,
             'issue_rows': issue_rows,
             'hide_page_filters': True,
         },
     )
+
+
+@router.get('/v1/kpi/replenishment/availability-drilldown')
+async def replenishment_availability_drilldown(
+    request: Request,
+    dimension: str = Query(default='store'),
+    value: str = Query(default=''),
+    kind: str = Query(default='all'),
+    branch: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    category: str | None = Query(default=None),
+    vendor: str | None = Query(default=None),
+    abc: str | None = Query(default=None),
+    search: str | None = Query(default=None),
+    tenant: Tenant = Depends(get_request_tenant),
+    tenant_db: AsyncSession = Depends(get_tenant_db),
+    _user=Depends(get_current_user),
+):
+    feature_flags = await _tenant_navigation_context(tenant)
+    if not feature_flags.get('replenishment_enabled', False):
+        return JSONResponse(
+            status_code=403,
+            content={'detail': 'Το Replenishment / Availability δεν είναι διαθέσιμο στη συνδρομή σας.'},
+        )
+    allowed_dimensions = {'store', 'status', 'category', 'vendor'}
+    allowed_kinds = {'all', 'shortage', 'stockout', 'overstock'}
+    safe_dimension = dimension if dimension in allowed_dimensions else 'store'
+    safe_kind = kind if kind in allowed_kinds else 'all'
+    data, cache_hit = await get_or_set_cache(
+        namespace='dashboard:replenishment_availability_drilldown',
+        tenant_key=str(tenant.id),
+        params={
+            'version': 'availability-searchable-abc-filters-v1',
+            'branch': branch or '',
+            'status': status or '',
+            'category': category or '',
+            'vendor': vendor or '',
+            'abc': abc or '',
+            'search': search or '',
+            'dimension': safe_dimension,
+            'value': value or '',
+            'kind': safe_kind,
+        },
+        ttl_seconds=1800,
+        producer=lambda: build_availability_foundation(
+            tenant_db,
+            branch=branch,
+            status=status,
+            category=category,
+            vendor=vendor,
+            abc=abc,
+            search=search,
+            include_detail_rows=True,
+            detail_kind=safe_kind,
+            detail_dimension=safe_dimension,
+            detail_value=value,
+            detail_limit=150,
+        ),
+    )
+    response = JSONResponse(
+        {
+            'summary': data.get('summary') or {},
+            'dimension': safe_dimension,
+            'value': value,
+            'kind': safe_kind,
+            'rows': data.get('detail_rows') or [],
+        }
+    )
+    response.headers['X-KPI-Cache'] = 'HIT' if cache_hit else 'MISS'
+    return response
 
 
 @router.get('/tenant/supplier-orders', response_class=HTMLResponse)
@@ -8216,6 +11275,24 @@ async def tenant_era_exploration_dashboard(
             **(await _tenant_navigation_context(tenant)),
             'active_page': 'era_exploration_data',
             'title': 'eRA Exploration Data',
+        },
+    )
+
+
+@router.get('/tenant/iqvia', response_class=HTMLResponse)
+async def tenant_iqvia_dashboard(
+    request: Request,
+    tenant: Tenant = Depends(get_request_tenant),
+    _user=Depends(get_current_user),
+):
+    return templates.TemplateResponse(
+        'tenant/iqvia.html',
+        {
+            'request': request,
+            'tenant': tenant,
+            **(await _tenant_navigation_context(tenant)),
+            'active_page': 'iqvia',
+            'title': 'IQVIA Market Data',
         },
     )
 

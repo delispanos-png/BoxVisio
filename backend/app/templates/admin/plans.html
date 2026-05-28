@@ -1,5 +1,51 @@
 {% extends "base_admin.html" %}
 {% block content %}
+{% if request.query_params.get('saved') == '1' %}
+<div class="alert alert-success mt-3">Η δυνατότητα αποθηκεύτηκε.</div>
+{% elif request.query_params.get('saved') == '0' %}
+<div class="alert alert-danger mt-3">Αποτυχία αποθήκευσης. Αιτία: {{ request.query_params.get('reason') or 'unknown' }}</div>
+{% endif %}
+{% macro mark(value) -%}
+  {% set normalized = (value or '')|string|lower %}
+  {% if value == 'Ναι' or normalized == 'included' %}
+    <span class="text-primary"><i class="fe fe-check"></i></span>
+  {% elif value == 'Όχι' or normalized == 'none' %}
+    <span class="text-muted"><i class="fe fe-x"></i></span>
+  {% elif value == 'Extra' or normalized == 'extra' %}
+    <span class="badge bg-info-subtle text-info border">Extra</span>
+  {% elif value == 'Custom' or normalized == 'custom' %}
+    <span class="badge bg-primary-subtle text-primary border">Custom</span>
+  {% else %}
+    <span>{{ value }}</span>
+  {% endif %}
+{%- endmacro %}
+{% macro plan_toggle_cell(plan, feature, enabled) -%}
+  <form method="post" action="/admin/plans/{{ plan }}/features/{{ feature.key }}/toggle" class="m-0">
+    <input type="hidden" name="next_url" value="/admin/plans">
+    <button class="btn btn-sm w-100 {% if enabled %}btn-outline-primary{% else %}btn-light text-muted border{% endif %}" type="submit" title="Κλικ για {% if enabled %}απενεργοποίηση{% else %}ενεργοποίηση{% endif %}">
+      {% if enabled %}<i class="fe fe-check"></i>{% else %}<i class="fe fe-x"></i>{% endif %}
+    </button>
+  </form>
+{%- endmacro %}
+{% macro custom_feature_toggle_cell(plan, feature, status) -%}
+  {% set normalized = (status or 'none')|string|lower %}
+  {% set enabled = normalized != 'none' %}
+  <form method="post" action="/admin/plans/custom-features/{{ feature.feature_key }}/toggle" class="m-0">
+    <input type="hidden" name="plan" value="{{ plan }}">
+    <input type="hidden" name="next_url" value="/admin/plans">
+    <button class="btn btn-sm w-100 {% if enabled %}btn-outline-primary{% else %}btn-light text-muted border{% endif %}" type="submit" title="Κλικ για {% if enabled %}απενεργοποίηση{% else %}ενεργοποίηση{% endif %}">
+      {% if normalized == 'extra' %}
+        Extra
+      {% elif normalized == 'custom' %}
+        Custom
+      {% elif enabled %}
+        <i class="fe fe-check"></i>
+      {% else %}
+        <i class="fe fe-x"></i>
+      {% endif %}
+    </button>
+  </form>
+{%- endmacro %}
 <div class="bv-admin-page">
   <div class="bv-admin-hero">
     <div>
@@ -11,40 +57,164 @@
     </div>
   </div>
 
-  <div class="bv-admin-panel">
-    <div class="bv-admin-panel-head">
-      <div>
-        <h5>{{ tt(request, 'plan_feature_flags') }}</h5>
-        <p>Default πρόσβαση σε κυκλώματα για κάθε νέο ή ενημερωμένο πλάνο.</p>
-      </div>
+<div class="bv-admin-panel mt-4">
+  <div class="bv-admin-panel-head">
+    <div>
+      <h5>Νέα δυνατότητα ή κύκλωμα</h5>
+      <p>Πρόσθεσε εμπορικό feature, add-on ή custom-only υλοποίηση και όρισε πού ανήκει.</p>
     </div>
-    <div class="bv-admin-panel-body">
-    <div class="table-responsive">
+  </div>
+  <div class="bv-admin-panel-body">
+    <form method="post" action="/admin/plans/custom-features" class="row g-3 align-items-end">
+      <div class="col-md-3">
+        <label class="form-label">Όνομα</label>
+        <input class="form-control" name="label" required placeholder="π.χ. IQVIA Advanced Benchmarking">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">Key</label>
+        <input class="form-control" name="feature_key" placeholder="auto">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">Ομάδα</label>
+        <input class="form-control" name="group" value="Custom">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">Τύπος</label>
+        <select class="form-select" name="feature_type">
+          <option value="feature">Δυνατότητα</option>
+          <option value="module">Κύκλωμα</option>
+        </select>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Συγκεκριμένος πελάτης</label>
+        <select class="form-select" name="tenant_id">
+          <option value="">Όχι, γενικό feature</option>
+          {% for tenant in tenants %}
+          <option value="{{ tenant.id }}">{{ tenant.name }} ({{ tenant.slug }})</option>
+          {% endfor %}
+        </select>
+      </div>
+      {% for plan_value, plan_label in [('standard', 'Standard'), ('pro', 'Pro'), ('enterprise', 'Enterprise'), ('custom', 'Custom')] %}
+      <div class="col-md-3">
+        <label class="form-label">{{ plan_label }}</label>
+        <select class="form-select" name="status_{{ plan_value }}">
+          {% for choice in plan_status_choices %}
+          <option value="{{ choice.value }}" {% if (plan_value == 'custom' and choice.value == 'custom') or (plan_value != 'custom' and choice.value == 'none') %}selected{% endif %}>{{ choice.label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      {% endfor %}
+      <div class="col-md-9">
+        <label class="form-label">Περιγραφή</label>
+        <input class="form-control" name="description" placeholder="Εσωτερική σημείωση για εμπορική χρήση ή υλοποίηση">
+      </div>
+      <div class="col-md-3">
+        <button class="btn btn-primary w-100" type="submit"><i class="fe fe-plus"></i> Προσθήκη</button>
+      </div>
+    </form>
+
+    {% if dynamic_feature_catalog %}
+    <div class="table-responsive mt-4">
       <table class="table table-bordered align-middle bv-unified-table" data-bv-admin-table="1">
         <thead>
           <tr>
-            <th style="width:140px">{{ tt(request, 'plan') }}</th>
-            <th>Default δικαιώματα κυκλωμάτων</th>
-            <th style="width:120px">{{ tt(request, 'save') }}</th>
+            <th>Feature</th>
+            <th>Τύπος</th>
+            <th>Standard</th>
+            <th>Pro</th>
+            <th>Enterprise</th>
+            <th>Custom</th>
+            <th>Πελάτης</th>
+            <th style="width:90px"></th>
           </tr>
         </thead>
         <tbody>
-          {% for plan, f in plans.items() %}
+          {% for feature in dynamic_feature_catalog %}
+          {% set status = feature.plan_status if feature.plan_status is mapping else {} %}
+          {% set tenant = tenants|selectattr('id', 'equalto', feature.tenant_id)|first if feature.tenant_id else none %}
           <tr>
-            <form method="post" action="/admin/plans/{{ plan }}/features">
-              <td><strong>{{ plan }}</strong></td>
-              <td>
-                <div class="bv-admin-feature-grid">
-                  {% for feature in subscription_features %}
-                  <label class="form-check form-check-inline border rounded px-2 py-1 m-0 small bv-feature-toggle" title="{{ feature.group }}">
-                    <input class="form-check-input" type="checkbox" name="enabled_features" value="{{ feature.key }}" {% if f.get(feature.key) %}checked{% endif %}>
-                    <span class="form-check-label">{{ feature.label }}</span>
-                  </label>
-                  {% endfor %}
-                </div>
-              </td>
-              <td><button class="btn btn-sm bv-action-btn bv-action-save" type="submit"><i class="fe fe-save"></i>{{ tt(request, 'update') }}</button></td>
-            </form>
+            <td>
+              <strong>{{ feature.label }}</strong>
+              <div class="text-muted small">{{ feature.feature_key }} · {{ feature.group }}</div>
+            </td>
+            <td>{{ 'Κύκλωμα' if feature.feature_type == 'module' else 'Δυνατότητα' }}</td>
+            <td>{{ mark(status.get('standard', 'Όχι')) }}</td>
+            <td>{{ mark(status.get('pro', 'Όχι')) }}</td>
+            <td>{{ mark(status.get('enterprise', 'Όχι')) }}</td>
+            <td>{{ mark(status.get('custom', 'Όχι')) }}</td>
+            <td>{% if tenant %}{{ tenant.name }}{% else %}<span class="text-muted">Γενικό</span>{% endif %}</td>
+            <td>
+              <form method="post" action="/admin/plans/custom-features/{{ feature.feature_key }}/archive" onsubmit="return confirm('Αρχειοθέτηση δυνατότητας {{ feature.label }};');">
+                <button class="btn btn-sm btn-outline-danger" type="submit"><i class="fe fe-archive"></i></button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{% set comparison_rows = [
+  ('Χρήστες', '3', '5', '50', 'Κατόπιν συνεννόησης'),
+  ('Υποκαταστήματα', '1', '5', '10', 'Κατόπιν συνεννόησης'),
+  ('Υποστήριξη', 'Email', 'Email + Chat', 'Priority', 'Dedicated')
+] %}
+
+<div class="bv-admin-panel mt-4">
+  <div class="bv-admin-panel-head">
+    <div>
+      <h5>Σύγκριση πακέτων</h5>
+      <p>Εμπορικός πίνακας πακέτων με τα βασικά κυκλώματα και τα add-ons.</p>
+    </div>
+  </div>
+  <div class="bv-admin-panel-body">
+    <div class="table-responsive">
+      <table class="table table-bordered align-middle text-center bv-unified-table" data-bv-admin-table="1">
+        <thead>
+          <tr>
+            <th class="text-start" style="min-width:260px">Δυνατότητα</th>
+            <th>Standard</th>
+            <th>Pro</th>
+            <th>Enterprise</th>
+            <th>Custom</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for label, standard, pro, enterprise, custom in comparison_rows %}
+          <tr>
+            <td class="text-start fw-semibold">{{ label }}</td>
+            <td>{{ mark(standard) }}</td>
+            <td>{{ mark(pro) }}</td>
+            <td>{{ mark(enterprise) }}</td>
+            <td>{{ mark(custom) }}</td>
+          </tr>
+          {% endfor %}
+          {% for feature in subscription_features %}
+          <tr>
+            <td class="text-start fw-semibold">
+              {{ feature.label }}
+              <div class="text-muted small">{{ feature.group }} · {{ feature.minimum_plan }}</div>
+            </td>
+            <td>{{ plan_toggle_cell('standard', feature, plans.get('standard', {}).get(feature.key)) }}</td>
+            <td>{{ plan_toggle_cell('pro', feature, plans.get('pro', {}).get(feature.key)) }}</td>
+            <td>{{ plan_toggle_cell('enterprise', feature, plans.get('enterprise', {}).get(feature.key)) }}</td>
+            <td>{{ plan_toggle_cell('custom', feature, plans.get('custom', {}).get(feature.key)) }}</td>
+          </tr>
+          {% endfor %}
+          {% for feature in dynamic_feature_catalog %}
+          {% set status = feature.plan_status if feature.plan_status is mapping else {} %}
+          <tr>
+            <td class="text-start fw-semibold">
+              {{ feature.label }}
+              <div class="text-muted small">{{ feature.group }} · {{ feature.feature_key }}</div>
+            </td>
+            <td>{{ custom_feature_toggle_cell('standard', feature, status.get('standard', 'none')) }}</td>
+            <td>{{ custom_feature_toggle_cell('pro', feature, status.get('pro', 'none')) }}</td>
+            <td>{{ custom_feature_toggle_cell('enterprise', feature, status.get('enterprise', 'none')) }}</td>
+            <td>{{ custom_feature_toggle_cell('custom', feature, status.get('custom', 'none')) }}</td>
           </tr>
           {% endfor %}
         </tbody>

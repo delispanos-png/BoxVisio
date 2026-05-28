@@ -227,6 +227,12 @@ Resolved fields:
 - `vendor_moq`: `MTRSUPCODE.CCC88MOQ`, joined by `MTRSUPCODE.MTRL`; when multiple supplier records exist, BI uses the minimum positive MOQ for the item. Fallback `1`.
 - `current_purchase_price`: candidates such as `PURCHASEPRICE`, `PURCHASE_PRICE`, `LASTPURPRICE`, `FINALPURCHASEPRICE`, `NUM04`, falling back to `MTRL.PRICEW`.
 
+Replenishment/Availability production rule:
+- BI must use only active stock items (`SOTYPE = 51`, active source) for replenishment calculations and quality alerts.
+- The latest operational purchase price comes first from the latest positive purchase line (`net_value / qty`) already synchronized in BI facts; the SoftOne item price is fallback when no purchase line exists.
+- Supplier-order value uses the latest positive net purchase unit price. Availability, shortage and overstock valuation use the weighted average positive purchase unit price for the last 365 days (`SUM(net_value) / SUM(qty)`). Both are calculated from BI `fact_purchases`, so SQL connector and JavaScript bridge remain equivalent as long as purchase facts include net value and quantity.
+- Imported FnR workbook validation may still report missing workbook purchase prices, but the live BI Availability foundation must not flag service rows or inactive items as missing purchase price.
+
 For a customer-specific rollout, confirm the exact SoftOne custom field names and add them to the candidate list before production sync.
 
 ## 5) Installation In SoftOne (Advanced JavaScript)
@@ -340,7 +346,8 @@ python3 integrations/softone/generate_bridge_release.py
 What the generator does:
 
 - validates that the canonical bridge still matches the current `sales_facts.sql` mappings
-- creates a dated customer snapshot like `boxvisio_bi_bridge_2026-04-22.js`
+- creates a timestamped customer snapshot like `boxvisio_bi_bridge_2026-04-22_18-30-00.js`
+- uses `Europe/Athens` time for the snapshot timestamp
 - keeps the deployable customer JS under the same `integrations/softone/` folder
 
 Validation currently guards these synchronized fields:

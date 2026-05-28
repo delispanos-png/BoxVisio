@@ -17,8 +17,10 @@
   </div>
 
   <div class="tenant-meta-grid">
+    {% set tenant_flags = tenant.feature_flags if tenant.feature_flags is mapping else {} %}
+    {% set is_infra_tenant = tenant_flags.get('system_infrastructure') or tenant.source in ['system', 'template', 'infrastructure', 'internal'] or tenant.slug in ['startdb', 'rddb'] or (tenant.db_name and not tenant.db_name.startswith('bi_tenant_')) %}
     <div class="tenant-meta"><span>Πλάνο</span><strong>{{ tenant.plan.value }}</strong></div>
-    <div class="tenant-meta"><span>Πηγή</span><strong>{% if tenant.source in ['sql', 'pharmacyone', 'pharmacyone_sql'] %}SQL{% elif tenant.source == 'external' %}API{% elif tenant.source == 'files' %}Αρχεία{% else %}{{ tenant.source }}{% endif %}</strong></div>
+    <div class="tenant-meta"><span>Πηγή</span><strong>{% if is_infra_tenant %}System{% elif tenant.source in ['sql', 'pharmacyone', 'pharmacyone_sql'] %}SQL{% elif tenant.source == 'external' %}API{% elif tenant.source == 'files' %}Αρχεία{% else %}{{ tenant.source }}{% endif %}</strong></div>
     <div class="tenant-meta"><span>Κατάσταση</span><strong>{{ tenant.status.value }}</strong></div>
     <div class="tenant-meta"><span>Συνδρομή</span><strong>{{ tenant.subscription_status.value }}</strong></div>
   </div>
@@ -54,6 +56,7 @@
                   <option value="standard" {% if tenant.plan.value == 'standard' %}selected{% endif %}>Standard</option>
                   <option value="pro" {% if tenant.plan.value == 'pro' %}selected{% endif %}>Pro</option>
                   <option value="enterprise" {% if tenant.plan.value == 'enterprise' %}selected{% endif %}>Enterprise</option>
+                  <option value="custom" {% if tenant.plan.value == 'custom' %}selected{% endif %}>Custom</option>
                 </select>
               </div>
               <div class="col-lg-4">
@@ -89,6 +92,194 @@
         <div class="card tenant-form-card">
           <div class="card-body">
             <div class="tenant-section-head">
+              <div class="tenant-section-icon"><i class="fe fe-user"></i></div>
+              <div>
+                <h5>Στοιχεία επικοινωνίας πελάτη</h5>
+                <p>Υπεύθυνος, emails, τηλέφωνα και στοιχεία τιμολόγησης/επικοινωνίας.</p>
+              </div>
+            </div>
+
+            <div class="row g-3">
+              <div class="col-lg-4">
+                <label class="form-label">Υπεύθυνος επικοινωνίας</label>
+                <input class="form-control" name="contact_person" value="{{ tenant_contact.contact_person or '' }}" placeholder="Ονοματεπώνυμο">
+              </div>
+              <div class="col-lg-4">
+                <label class="form-label">Κύριο email</label>
+                <input class="form-control" type="email" name="contact_email" value="{{ tenant_contact.contact_email or '' }}" placeholder="customer@example.com">
+              </div>
+              <div class="col-lg-2">
+                <label class="form-label">Τηλέφωνο</label>
+                <input class="form-control" name="contact_phone" value="{{ tenant_contact.contact_phone or '' }}" placeholder="210...">
+              </div>
+              <div class="col-lg-2">
+                <label class="form-label">Κινητό</label>
+                <input class="form-control" name="contact_mobile" value="{{ tenant_contact.contact_mobile or '' }}" placeholder="69...">
+              </div>
+              <div class="col-lg-4">
+                <label class="form-label">Billing email</label>
+                <input class="form-control" type="email" name="billing_email" value="{{ tenant_contact.billing_email or '' }}" placeholder="billing@example.com">
+                <span class="tenant-field-help">Για τιμολόγηση, συνδρομές και οικονομικές ειδοποιήσεις.</span>
+              </div>
+              <div class="col-lg-4">
+                <label class="form-label">Technical email</label>
+                <input class="form-control" type="email" name="technical_email" value="{{ tenant_contact.technical_email or '' }}" placeholder="it@example.com">
+                <span class="tenant-field-help">Για τεχνικές ειδοποιήσεις, sync και πρόσβαση.</span>
+              </div>
+              <div class="col-lg-2">
+                <label class="form-label">ΑΦΜ</label>
+                <input class="form-control" name="contact_afm" value="{{ tenant_contact.afm or '' }}">
+              </div>
+              <div class="col-lg-2">
+                <label class="form-label">ΔΟΥ</label>
+                <input class="form-control" name="contact_doy" value="{{ tenant_contact.doy or '' }}">
+              </div>
+              <div class="col-lg-6">
+                <label class="form-label">Διεύθυνση</label>
+                <input class="form-control" name="contact_address" value="{{ tenant_contact.address or '' }}" placeholder="Οδός, αριθμός">
+              </div>
+              <div class="col-lg-3">
+                <label class="form-label">Πόλη</label>
+                <input class="form-control" name="contact_city" value="{{ tenant_contact.city or '' }}">
+              </div>
+              <div class="col-lg-3">
+                <label class="form-label">Τ.Κ.</label>
+                <input class="form-control" name="contact_postal_code" value="{{ tenant_contact.postal_code or '' }}">
+              </div>
+              <div class="col-12">
+                <label class="form-label">Σημειώσεις επικοινωνίας</label>
+                <textarea class="form-control" name="contact_notes" rows="3" placeholder="Π.χ. ώρες επικοινωνίας, δεύτερος υπεύθυνος, οδηγίες">{{ tenant_contact.notes or '' }}</textarea>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card tenant-form-card">
+          <div class="card-body">
+            <div class="tenant-section-head">
+              <div class="tenant-section-icon"><i class="fe fe-phone-call"></i></div>
+              <div>
+                <h5>Τηλεφωνικό Κέντρο 3CX</h5>
+                <p>Credentials και KPI στόχοι για το dashboard τηλεφωνικού κέντρου του tenant.</p>
+              </div>
+            </div>
+
+            <div class="tenant-rule-card">
+              <div class="tenant-rule-grid">
+                <div>
+                  <label class="form-label">3CX FQDN</label>
+                  <input class="form-control" type="url" name="call_center_fqdn" value="{{ call_center_3cx.fqdn or '' }}" placeholder="https://customer.3cx.eu/">
+                  <span class="tenant-field-help">Το πλήρες URL του 3CX instance.</span>
+                </div>
+                <div>
+                  <label class="form-label">Username</label>
+                  <input class="form-control" type="email" name="call_center_username" value="{{ call_center_3cx.username or '' }}" placeholder="user@example.com">
+                  <span class="tenant-field-help">Χρήστης σύνδεσης ή API account.</span>
+                </div>
+                <div>
+                  <label class="form-label d-flex align-items-center gap-2">
+                    <span>Password</span>
+                    {% if call_center_3cx.has_password %}
+                    <span class="badge bg-success">Αποθηκευμένο</span>
+                    {% endif %}
+                  </label>
+                  <input class="form-control" type="password" name="call_center_password" value="" placeholder="{{ 'Αφήστε κενό για να μείνει ίδιο' if call_center_3cx.has_password else '3CX password' }}">
+                  <span class="tenant-field-help">Αποθηκεύεται κρυπτογραφημένο. Κενό σημαίνει κρατάμε τον υπάρχοντα κωδικό.</span>
+                </div>
+                <div>
+                  <label class="form-label">Client ID / API key</label>
+                  <input class="form-control" type="text" name="call_center_client_id" value="{{ call_center_3cx.client_id or '' }}" placeholder="Προαιρετικό API credential">
+                  <span class="tenant-field-help">Συμπληρώνεται όταν το 3CX API το απαιτεί.</span>
+                </div>
+                <div>
+                  <label class="form-label">Queue IDs</label>
+                  <input class="form-control" type="text" name="call_center_queue_ids" value="{{ call_center_3cx.queue_ids or '' }}" placeholder="800,801">
+                  <span class="tenant-field-help">Οι ουρές που θα συμμετέχουν στα KPI. Χωρίζονται με κόμμα.</span>
+                </div>
+                <div>
+                  <label class="form-label">Extensions ομάδας</label>
+                  <input class="form-control" type="text" name="call_center_team_extensions" value="{{ call_center_3cx.team_extensions or '' }}" placeholder="101,102,103">
+                  <span class="tenant-field-help">Εσωτερικά χρηστών/agents που ανήκουν στην ομάδα.</span>
+                </div>
+                <div>
+                  <label class="form-label">Sync κάθε</label>
+                  <div class="input-group">
+                    <input class="form-control" type="number" min="1" max="1440" name="call_center_polling_interval_minutes" value="{{ call_center_3cx.polling_interval_minutes or 5 }}">
+                    <span class="input-group-text">λεπτά</span>
+                  </div>
+                </div>
+                <div>
+                  <label class="form-label">SLA απάντησης</label>
+                  <div class="input-group">
+                    <input class="form-control" type="number" min="1" max="3600" name="call_center_answer_sla_seconds" value="{{ call_center_3cx.answer_sla_seconds or 30 }}">
+                    <span class="input-group-text">sec</span>
+                  </div>
+                </div>
+                <div>
+                  <label class="form-label">Στόχος κλήσεων / agent</label>
+                  <input class="form-control" type="number" min="1" max="1000" name="call_center_target_calls_per_agent" value="{{ call_center_3cx.target_calls_per_agent or 60 }}">
+                </div>
+              </div>
+              <div class="row g-3 mt-1">
+                <div class="col-12 col-xl-6">
+                  <label class="form-label">3CX users / extensions</label>
+                  <textarea class="form-control" name="call_center_agent_directory_text" rows="8" spellcheck="false" placeholder="212=kassaveti, p2pharmacist">{{ call_center_3cx.agent_directory_text or '' }}</textarea>
+                  <span class="tenant-field-help">Ένα ανά γραμμή: extension=όνομα. Αυτό διορθώνει τα ονόματα agents στο dashboard.</span>
+                </div>
+                <div class="col-12 col-xl-6">
+                  <label class="form-label">3CX call handling / queues</label>
+                  <textarea class="form-control" name="call_center_queue_directory_text" rows="8" spellcheck="false" placeholder="851=Call Center (Queue)">{{ call_center_3cx.queue_directory_text or '' }}</textarea>
+                  <span class="tenant-field-help">Ένα ανά γραμμή: extension=όνομα queue/ring group/digital receptionist.</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="tenant-rule-card mt-3">
+              <div class="tenant-rule-grid">
+                <div>
+                  <label class="form-label">3CX CSV / CDR Report</label>
+                  <input class="form-control" type="file" name="call_center_report_file" accept=".csv,text/csv,.txt,text/plain">
+                  <span class="tenant-field-help">Legacy ενιαίο report. Προτιμήστε τα δύο ξεχωριστά reports παρακάτω για καλύτερα KPI.</span>
+                </div>
+                <div>
+                  <label class="form-label">Inbound Calls CSV</label>
+                  <input class="form-control" type="file" name="call_center_inbound_report_file" accept=".csv,text/csv,.txt,text/plain">
+                  <span class="tenant-field-help">Report από 3CX Inbound Calls. Περιέχει Caller ID, DID, Destination, Ringing, Talking.</span>
+                </div>
+                <div>
+                  <label class="form-label">Outbound Calls CSV</label>
+                  <input class="form-control" type="file" name="call_center_outbound_report_file" accept=".csv,text/csv,.txt,text/plain">
+                  <span class="tenant-field-help">Report από 3CX Outbound Calls. Περιέχει agent, προορισμό, χρόνο ομιλίας και κόστος όπου υπάρχει.</span>
+                </div>
+                <div>
+                  <label class="form-label">Τρέχον import</label>
+                  <div class="form-control bg-light">
+                    {{ call_center_3cx.manual_import.filename or 'Δεν έχει ανέβει 3CX report' }}
+                  </div>
+                  <span class="tenant-field-help">
+                    {% if call_center_3cx.manual_import.uploaded_at %}
+                    {{ call_center_3cx.manual_import.rows or 0 }} γραμμές · {{ call_center_3cx.manual_import.uploaded_at }}.
+                    {% else %}
+                    Το dashboard μένει άδειο μέχρι να ανέβει CSV/CDR report ή να ενεργοποιηθεί XAPI.
+                    {% endif %}
+                  </span>
+                </div>
+                <div>
+                  <label class="form-label">Import KPIs</label>
+                  <div class="tenant-check-grid">
+                    <span class="tenant-inline-check"><i class="fe fe-phone-call"></i><span>{{ call_center_3cx.stats.total_calls or 0 }} κλήσεις</span></span>
+                    <span class="tenant-inline-check"><i class="fe fe-check-circle"></i><span>{{ call_center_3cx.stats.answered_calls or 0 }} απαντημένες</span></span>
+                    <span class="tenant-inline-check"><i class="fe fe-alert-circle"></i><span>{{ call_center_3cx.stats.missed_calls or 0 }} χαμένες</span></span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card tenant-form-card">
+          <div class="card-body">
+            <div class="tenant-section-head">
               <div class="tenant-section-icon"><i class="fe fe-database"></i></div>
               <div>
                 <h5>eRA Exploration Data</h5>
@@ -112,7 +303,7 @@
                     {% if era_exploration_data.uploaded_at %}
                     Ανέβηκε {{ era_exploration_data.uploaded_at }} από {{ era_exploration_data.uploaded_by or 'admin' }}.
                     {% else %}
-                    Για pharmacy295 υπάρχει fallback στο αρχείο server μέχρι να γίνει upload.
+                    Το dashboard μένει άδειο μέχρι να ανέβει CSV/CDR report ή να ενεργοποιηθεί 3CX API.
                     {% endif %}
                   </span>
                 </div>
@@ -475,24 +666,24 @@
                 <div class="tenant-fulfillment-grid">
                   <div class="tenant-fulfillment-field is-primary">
                     <label class="form-label">Παραλαβή από Κατάστημα</label>
-                    <textarea class="form-control" name="pickup_warehouses_text" rows="8" placeholder="1001=E-Shop Αγίου Δημητρίου&#10;1007=E-Shop Κηφισίας">{% for code, label in eshop_fulfillment.pickup_warehouses.items() %}{{ code }}={{ label }}{% if not loop.last %}
+                    <textarea class="form-control" name="pickup_warehouses_text" rows="8" placeholder="1001=E-Shop Κεντρικό&#10;1002=E-Shop Υποκατάστημα">{% for code, label in eshop_fulfillment.pickup_warehouses.items() %}{{ code }}={{ label }}{% if not loop.last %}
 {% endif %}{% endfor %}</textarea>
                     <span class="tenant-field-help">Μία γραμμή ανά αποθήκη, μορφή κωδικός=όνομα καταστήματος.</span>
                   </div>
                   <div class="tenant-fulfillment-field is-primary">
                     <label class="form-label">Φυσικά Καταστήματα</label>
-                    <textarea class="form-control" name="store_warehouses_text" rows="8" placeholder="1002=Φαρμακείο Αγίου Δημητρίου&#10;1006=Φαρμακείο Κηφισίας&#10;8000=Φαρμακείο Περιστερίου">{% for code, label in eshop_fulfillment.store_warehouses.items() %}{{ code }}={{ label }}{% if not loop.last %}
+                    <textarea class="form-control" name="store_warehouses_text" rows="8" placeholder="2001=Φυσικό κατάστημα 1&#10;2002=Φυσικό κατάστημα 2">{% for code, label in eshop_fulfillment.store_warehouses.items() %}{{ code }}={{ label }}{% if not loop.last %}
 {% endif %}{% endfor %}</textarea>
                     <span class="tenant-field-help">Για παραγγελίες που εκτελούνται από φυσικό φαρμακείο με Efood/Wolt/courier. Μορφή κωδικός=σημείο πώλησης.</span>
                   </div>
                   <div class="tenant-fulfillment-field is-compact">
                     <label class="form-label">Καθαρό E-Shop</label>
-                    <textarea class="form-control" name="pure_eshop_warehouses_text" rows="5" placeholder="1004&#10;3000">{{ eshop_fulfillment.pure_eshop_warehouses | join('\n') }}</textarea>
+                    <textarea class="form-control" name="pure_eshop_warehouses_text" rows="5" placeholder="1000&#10;1001">{{ eshop_fulfillment.pure_eshop_warehouses | join('\n') }}</textarea>
                     <span class="tenant-field-help">Ένας κωδικός ανά γραμμή.</span>
                   </div>
                   <div class="tenant-fulfillment-field is-compact">
                     <label class="form-label">3PL / Courier στον Πελάτη</label>
-                    <textarea class="form-control" name="three_pl_warehouses_text" rows="5" placeholder="3000">{{ eshop_fulfillment.three_pl_warehouses | join('\n') }}</textarea>
+                    <textarea class="form-control" name="three_pl_warehouses_text" rows="5" placeholder="9000">{{ eshop_fulfillment.three_pl_warehouses | join('\n') }}</textarea>
                     <span class="tenant-field-help">Ένας κωδικός ανά γραμμή.</span>
                   </div>
                 </div>
@@ -551,7 +742,7 @@
                 <div class="tenant-fulfillment-grid is-wide">
                   <div class="tenant-fulfillment-field is-compact">
                     <label class="form-label">Φυσικά Σημεία Εκτέλεσης</label>
-                    <textarea class="form-control" name="physical_branch_names_text" rows="5" placeholder="Έδρα&#10;Κηφισιά Κασσαβέτη&#10;Ελληνικό&#10;Περιστέρι&#10;Σπάτα">{% for name in eshop_fulfillment.physical_branch_names %}{{ name }}{% if not loop.last %}
+                    <textarea class="form-control" name="physical_branch_names_text" rows="5" placeholder="Κεντρικό&#10;Υποκατάστημα 1&#10;Υποκατάστημα 2">{% for name in eshop_fulfillment.physical_branch_names %}{{ name }}{% if not loop.last %}
 {% endif %}{% endfor %}</textarea>
                     <span class="tenant-field-help">Ένα branch name ανά γραμμή.</span>
                   </div>

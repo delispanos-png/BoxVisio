@@ -64,6 +64,90 @@
         <div class="border rounded p-3">
           <div class="d-flex justify-content-between gap-3 flex-wrap mb-3">
             <div>
+              <h6 class="mb-2">Τηλεφωνικό Κέντρο 3CX</h6>
+              <p class="text-muted mb-0">Ανεβάστε CSV εισερχόμενων και εξερχόμενων κλήσεων. Το import αντικαθιστά το τρέχον snapshot του dashboard με καθαρή περίοδο.</p>
+            </div>
+            <a class="btn btn-outline-primary btn-sm align-self-start" href="/tenant/call-center">
+              <i class="fe fe-phone-call me-1"></i> Άνοιγμα dashboard
+            </a>
+          </div>
+
+          {% if request.query_params.get('call_center_upload') == '1' %}
+          <div class="alert alert-success py-2">Τα 3CX CSV ανέβηκαν και το dashboard ενημερώθηκε.</div>
+          {% elif request.query_params.get('call_center_upload') == '0' %}
+          <div class="alert alert-danger py-2">
+            {% if request.query_params.get('reason') == 'missing_file' %}
+            Δεν επιλέχθηκε αρχείο. Ανεβάστε τουλάχιστον ένα CSV.
+            {% elif request.query_params.get('reason') == 'permission' %}
+            Μόνο διαχειριστής tenant μπορεί να ανεβάσει 3CX CSV.
+            {% elif request.query_params.get('reason') == 'duplicate_file' %}
+            Τα ίδια 3CX CSV έχουν ήδη ανέβει. Δεν έγινε νέο import.
+            {% else %}
+            Δεν έγινε upload. Ελέγξτε ότι είναι CSV export του 3CX για Inbound Calls ή Outbound Calls.
+            {% endif %}
+          </div>
+          {% endif %}
+
+          <div class="alert alert-warning py-2">
+            Το νέο upload αντικαθιστά το προηγούμενο snapshot. Ανεβάστε πάντα την πλήρη περίοδο που θέλετε να βλέπετε στο dashboard μέχρι να ενεργοποιηθεί η API διασύνδεση.
+          </div>
+
+          <div class="row g-3 align-items-end">
+            <div class="col-lg-7">
+              <form method="post" action="/tenant/settings/call-center" enctype="multipart/form-data" class="row g-2">
+                <div class="col-md-6">
+                  <label class="form-label">Inbound Calls CSV</label>
+                  <input class="form-control" type="file" name="call_center_inbound_report_file" accept=".csv,text/csv">
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">Outbound Calls CSV</label>
+                  <input class="form-control" type="file" name="call_center_outbound_report_file" accept=".csv,text/csv">
+                </div>
+                <div class="col-12">
+                  <button class="btn btn-primary" type="submit">
+                    <i class="fe fe-upload me-1"></i> Ανέβασμα 3CX CSV
+                  </button>
+                </div>
+              </form>
+              <small class="text-muted d-block mt-2">Προτεινόμενο: ανεβάζουμε πάντα και τα δύο αρχεία της ίδιας περιόδου. Έτσι δεν διπλομετράμε κλήσεις και κρατάμε καθαρό snapshot.</small>
+            </div>
+            <div class="col-lg-5">
+              <div class="row g-2">
+                <div class="col-md-6">
+                  <div class="bg-light border rounded p-2 h-100">
+                    <small class="text-muted d-block">Τρέχον import</small>
+                    <strong>{{ call_center_3cx.manual_import.rows or 0 }}</strong>
+                    <span class="text-muted">μοναδικές γραμμές</span>
+                  </div>
+                </div>
+                <div class="col-md-6">
+                  <div class="bg-light border rounded p-2 h-100">
+                    <small class="text-muted d-block">Κλήσεις</small>
+                    <strong>{{ call_center_3cx.stats.total_calls or 0 }}</strong>
+                    <span class="text-muted">σύνολο · {{ call_center_3cx.stats.outbound_calls or 0 }} outbound</span>
+                  </div>
+                </div>
+                <div class="col-12">
+                  <small class="text-muted">
+                    {% if call_center_3cx.manual_import.uploaded_at %}
+                    Τελευταίο upload: {{ call_center_3cx.manual_import.uploaded_at }} από {{ call_center_3cx.manual_import.uploaded_by or 'tenant' }}.
+                    {% if call_center_3cx.manual_import.duplicate_rows %}
+                    Αγνοήθηκαν {{ call_center_3cx.manual_import.duplicate_rows }} διπλότυπες γραμμές.
+                    {% endif %}
+                    {% else %}
+                    Δεν υπάρχει ακόμη 3CX CSV import.
+                    {% endif %}
+                  </small>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="col-12">
+        <div class="border rounded p-3">
+          <div class="d-flex justify-content-between gap-3 flex-wrap mb-3">
+            <div>
               <h6 class="mb-2">eRA Exploration Data</h6>
               <p class="text-muted mb-0">Ανεβάστε το προσωποποιημένο Excel του tenant για να ενημερωθεί το κύκλωμα eRA Exploration Data.</p>
             </div>
@@ -76,7 +160,11 @@
           <div class="alert alert-success py-2">Το eRA Excel ανέβηκε και είναι διαθέσιμο στο κύκλωμα.</div>
           {% elif request.query_params.get('era_upload') == '0' %}
           <div class="alert alert-danger py-2">
+            {% if request.query_params.get('reason') == 'era_duplicate_file' %}
+            Το ίδιο eRA αρχείο έχει ήδη ανέβει και δεν επιτρέπεται δεύτερο import.
+            {% else %}
             Δεν έγινε upload. Ελέγξτε ότι είναι αρχείο .xlsx και ότι έχει τις σωστές στήλες eRA.
+            {% endif %}
           </div>
           {% endif %}
 
@@ -110,7 +198,70 @@
                     {% if era_exploration_data.uploaded_at %}
                     Τελευταίο upload: {{ era_exploration_data.uploaded_at }} από {{ era_exploration_data.uploaded_by or 'tenant' }}.
                     {% else %}
-                    Αν δεν έχει ανέβει αρχείο, το pharmacy295 χρησιμοποιεί προσωρινά το αρχείο server fallback.
+                    Αν δεν έχει ανέβει αρχείο και δεν έχει γίνει import στη βάση, το κύκλωμα δεν εμφανίζει δεδομένα.
+                    {% endif %}
+                  </small>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="col-12">
+        <div class="border rounded p-3">
+          <div class="d-flex justify-content-between gap-3 flex-wrap mb-3">
+            <div>
+              <h6 class="mb-2">IQVIA Market Data</h6>
+              <p class="text-muted mb-0">Ανεβάστε το μηνιαίο Excel IQVIA. Το αρχείο γίνεται import σε BI tables και κρατάμε ιστορικό ανά μήνα για τάσεις και εποχικότητα.</p>
+            </div>
+            <a class="btn btn-outline-primary btn-sm align-self-start" href="/tenant/iqvia">
+              <i class="fe fe-bar-chart-2 me-1"></i> Άνοιγμα αναφοράς
+            </a>
+          </div>
+
+          {% if request.query_params.get('iqvia_upload') == '1' %}
+          <div class="alert alert-success py-2">Το IQVIA Excel ανέβηκε και έγινε import στη βάση.</div>
+          {% elif request.query_params.get('iqvia_upload') == '0' %}
+          <div class="alert alert-danger py-2">
+            {% if request.query_params.get('reason') == 'iqvia_duplicate_file' %}
+            Το ίδιο IQVIA αρχείο έχει ήδη ανέβει και δεν επιτρέπεται δεύτερο import.
+            {% else %}
+            Δεν έγινε upload. Ελέγξτε ότι είναι αρχείο .xlsx και ότι έχει τις στήλες CATEGORY, PRODUCT, PACK, UNITS YYYYMM και VALUES YYYYMM.
+            {% endif %}
+          </div>
+          {% endif %}
+
+          <div class="row g-3 align-items-end">
+            <div class="col-lg-6">
+              <form method="post" action="/tenant/settings/iqvia" enctype="multipart/form-data" class="d-flex gap-2 flex-wrap">
+                <input class="form-control" type="file" name="iqvia_file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required>
+                <button class="btn btn-primary" type="submit">
+                  <i class="fe fe-upload me-1"></i> Ανέβασμα IQVIA
+                </button>
+              </form>
+              <small class="text-muted d-block mt-2">Κάθε νέο αρχείο δημιουργεί snapshot στη βάση. Το ίδιο αρχείο δεν γίνεται import δεύτερη φορά.</small>
+            </div>
+            <div class="col-lg-6">
+              <div class="row g-2">
+                <div class="col-md-6">
+                  <div class="bg-light border rounded p-2 h-100">
+                    <small class="text-muted d-block">Τρέχον αρχείο</small>
+                    <strong>{{ iqvia_data.filename or 'Δεν έχει ανέβει αρχείο' }}</strong>
+                  </div>
+                </div>
+                <div class="col-md-6">
+                  <div class="bg-light border rounded p-2 h-100">
+                    <small class="text-muted d-block">Validation</small>
+                    <strong>{{ iqvia_data.rows or 0 }}</strong>
+                    <span class="text-muted">γραμμές · {{ iqvia_data.categories or 0 }} κατηγορίες · {{ iqvia_data.manufacturers or 0 }} κατασκευαστές · {{ iqvia_data.period or '-' }}</span>
+                  </div>
+                </div>
+                <div class="col-12">
+                  <small class="text-muted">
+                    {% if iqvia_data.uploaded_at %}
+                    Τελευταίο upload: {{ iqvia_data.uploaded_at }} από {{ iqvia_data.uploaded_by or 'tenant' }}.
+                    {% else %}
+                    Δεν υπάρχει ακόμη IQVIA snapshot για τον tenant.
                     {% endif %}
                   </small>
                 </div>
