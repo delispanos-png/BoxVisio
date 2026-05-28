@@ -1351,6 +1351,36 @@ body.tenant-shell .modal.bv-modal .modal-content {
   border-radius: 18px !important;
 }
 
+body.tenant-shell .bv-filter-date-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 16px;
+  padding: 0 0 16px;
+  border-bottom: 1px solid #e5ebf3;
+}
+
+body.tenant-shell .bv-filter-date-presets .btn {
+  min-height: 32px;
+  border-radius: 999px !important;
+  padding: 5px 11px !important;
+  border-color: #dfe7f2 !important;
+  background: #f8fafc !important;
+  color: #40516c !important;
+  font-size: .76rem;
+  font-weight: 750;
+  line-height: 1.15;
+  box-shadow: none !important;
+}
+
+body.tenant-shell .bv-filter-date-presets .btn:hover,
+body.tenant-shell .bv-filter-date-presets .btn:focus-visible,
+body.tenant-shell .bv-filter-date-presets .btn.is-active {
+  border-color: #c8d8f7 !important;
+  background: #eef4ff !important;
+  color: #2563eb !important;
+}
+
 body.tenant-shell .bv-date-input-wrap {
   position: relative;
   display: block;

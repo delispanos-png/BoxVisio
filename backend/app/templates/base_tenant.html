@@ -6,7 +6,7 @@
   <title>{{ tt(request, title) if title else tt(request, 'app_tenant_title') }}</title>
   <link rel="icon" href="/static/brand/boxvisio-mark.svg?v=20260528logo1" type="image/svg+xml">
   <link href="/static/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
-  <link href="/static/css/boxvisio-unified.css?v=20260528saas4" rel="stylesheet">
+  <link href="/static/css/boxvisio-unified.css?v=20260528saas5" rel="stylesheet">
   <script src="/static/js/bv-unified-ui.js?v=20260513multi"></script>
 </head>
 <body class="bv-shell tenant-shell" data-theme="{{ request.cookies.get('theme', 'light') }}">
@@ -1324,6 +1324,103 @@
       });
     }
 
+    function bvDatePresetDefinitions() {
+      return [
+        ['today', 'Σήμερα'],
+        ['yesterday', 'Χθες'],
+        ['current_week', 'Τρέχουσα εβδομάδα'],
+        ['previous_week', 'Προηγούμενη εβδομάδα'],
+        ['current_month', 'Τρέχων μήνας'],
+        ['previous_month', 'Προηγούμενος μήνας'],
+        ['current_year', 'Τρέχον έτος'],
+        ['previous_year', 'Προηγούμενο έτος'],
+        ['two_years_ago', 'Πριν 2 έτη']
+      ];
+    }
+
+    function bvDmyFromDate(dateObj) {
+      if (!(dateObj instanceof Date)) return '';
+      return `${String(dateObj.getDate()).padStart(2, '0')}/${String(dateObj.getMonth() + 1).padStart(2, '0')}/${dateObj.getFullYear()}`;
+    }
+
+    function bvFilterPresetRange(preset) {
+      const now = new Date();
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const startOfWeek = (d) => {
+        const day = d.getDay() || 7;
+        return new Date(d.getFullYear(), d.getMonth(), d.getDate() - day + 1);
+      };
+      const endOfWeek = (d) => {
+        const start = startOfWeek(d);
+        return new Date(start.getFullYear(), start.getMonth(), start.getDate() + 6);
+      };
+      const ranges = {
+        today: { start: today, to: today },
+        yesterday: { start: new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1), to: new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1) },
+        current_week: { start: startOfWeek(today), to: today },
+        previous_week: {
+          start: new Date(startOfWeek(today).getFullYear(), startOfWeek(today).getMonth(), startOfWeek(today).getDate() - 7),
+          to: new Date(endOfWeek(today).getFullYear(), endOfWeek(today).getMonth(), endOfWeek(today).getDate() - 7)
+        },
+        current_month: { start: new Date(today.getFullYear(), today.getMonth(), 1), to: today },
+        previous_month: { start: new Date(today.getFullYear(), today.getMonth() - 1, 1), to: new Date(today.getFullYear(), today.getMonth(), 0) },
+        current_year: { start: new Date(today.getFullYear(), 0, 1), to: today },
+        previous_year: { start: new Date(today.getFullYear() - 1, 0, 1), to: new Date(today.getFullYear() - 1, 11, 31) },
+        two_years_ago: { start: new Date(today.getFullYear() - 2, 0, 1), to: new Date(today.getFullYear() - 2, 11, 31) }
+      };
+      return ranges[preset] || null;
+    }
+
+    function bvApplyFilterDatePreset(panel, preset) {
+      const range = bvFilterPresetRange(preset);
+      if (!panel || !range) return;
+      const fromDmy = bvDmyFromDate(range.start);
+      const toDmy = bvDmyFromDate(range.to);
+      const inputs = Array.from(panel.querySelectorAll('input[data-date-format="dmy"], input[name], input[id]'))
+        .filter((el) => (el.tagName || '').toLowerCase() === 'input')
+        .filter((el) => (el.type || 'text').toLowerCase() !== 'hidden')
+        .filter((el) => {
+          const key = `${el.name || ''} ${el.id || ''}`.toLowerCase();
+          return el.hasAttribute('data-date-format') || /(from|to|snapshot|as_of|date|asof)/.test(key);
+        });
+      let touched = 0;
+      inputs.forEach((el) => {
+        if (isFromField(el)) {
+          normalizeAndSetDateInput(el, fromDmy);
+          touched += 1;
+        } else if (isToField(el)) {
+          normalizeAndSetDateInput(el, toDmy);
+          touched += 1;
+        }
+      });
+      if (!touched && inputs.length) {
+        normalizeAndSetDateInput(inputs[0], toDmy);
+      }
+      bvInitDmyDateInputs(panel);
+    }
+
+    function bvEnsureFilterDatePresets(panel) {
+      if (!panel || panel.dataset.datePresetsBound === '1') return;
+      const body = panel.querySelector('.card-body') || panel;
+      const hasDateInputs = !!panel.querySelector('input[data-date-format="dmy"], input[name*="from" i], input[name*="to" i], input[id*="date" i], input[id*="asof" i]');
+      if (!hasDateInputs) return;
+      const wrap = document.createElement('div');
+      wrap.className = 'bv-filter-date-presets';
+      wrap.setAttribute('aria-label', 'Γρήγορες επιλογές ημερομηνίας');
+      wrap.innerHTML = bvDatePresetDefinitions().map(([key, label]) => (
+        `<button type="button" class="btn btn-sm btn-light" data-filter-date-preset="${key}">${label}</button>`
+      )).join('');
+      body.insertBefore(wrap, body.firstChild);
+      wrap.addEventListener('click', (event) => {
+        const btn = event.target.closest('[data-filter-date-preset]');
+        if (!btn) return;
+        event.preventDefault();
+        bvApplyFilterDatePreset(panel, btn.dataset.filterDatePreset);
+        wrap.querySelectorAll('[data-filter-date-preset]').forEach((node) => node.classList.toggle('is-active', node === btn));
+      });
+      panel.dataset.datePresetsBound = '1';
+    }
+
     function applyDateFormatGlobal(rootNode = document.body) {
       bvInitDmyDateInputs(document);
       const walker = document.createTreeWalker(rootNode, NodeFilter.SHOW_TEXT, null);
@@ -1377,6 +1474,7 @@
         panel.hidden = !panel.hidden;
         syncFilterState();
         if (!panel.hidden) {
+          bvEnsureFilterDatePresets(panel);
           window.bvInitDmyDateInputs?.(panel);
           setTimeout(() => {
             const firstInput = panel.querySelector('input:not([type="hidden"]), select, button, textarea');
@@ -1593,6 +1691,7 @@
 
       applyDateFormatGlobal();
       ensureMultiSelectSearch();
+      bvEnsureFilterDatePresets(document.getElementById('pageFiltersCollapse'));
       const globalDateBtn = document.getElementById('globalDateRangeBtn');
       const globalDateApplyBtn = document.getElementById('globalDateApplyBtn');
       const globalDateModalEl = document.getElementById('globalDateModal');
