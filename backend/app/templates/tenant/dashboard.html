@@ -498,7 +498,7 @@
   </div>
   <div id="companyOverviewBody" class="card-body">
     <div class="row g-2">
-      <div class="col-6 col-sm-6 col-xl-3">
+      <div class="col-12 col-md-6 col-xl-3">
         <div class="bv-metric-card" style="--mc-color:#3b82f6" data-executive-card="total_sales_period" data-kpi-what="Συνολικός τζίρος πωλήσεων για το επιλεγμένο διάστημα και τα φίλτρα, χωρίς ΦΠΑ και με έξοδα παραστατικών." data-kpi-formula="Πωλήσεις Περιόδου = καθαρή αξία γραμμών + καθαρά έξοδα παραστατικού, μία φορά ανά παραστατικό, στο [Από, Έως].">
           <div class="mc-icon"><i class="fe fe-shopping-bag"></i></div>
           <div class="mc-label">Πωλήσεις περιόδου</div>
@@ -507,7 +507,7 @@
           <div id="kpiTotalSalesPeriodDelta" class="mc-delta mc-delta-neutral">—</div>
         </div>
       </div>
-      <div class="col-6 col-sm-6 col-xl-3">
+      <div class="col-12 col-md-6 col-xl-3">
         <div class="bv-metric-card{% if _purchases_locked %} bv-feature-locked{% endif %}" style="--mc-color:#f97316" data-executive-card="purchases_period"{% if _purchases_locked %} data-locked-url="/tenant/purchases" title="Διαθέσιμο στο Pro ή μεγαλύτερο πακέτο"{% endif %} data-kpi-what="Συνολική αξία αγορών για το επιλεγμένο διάστημα και τα φίλτρα, χωρίς ΦΠΑ και με έξοδα παραστατικών." data-kpi-formula="Αγορές Περιόδου = καθαρή αξία γραμμών αγοράς + καθαρά έξοδα παραστατικού αγοράς, μία φορά ανά παραστατικό, στο [Από, Έως].">
           {% if _purchases_locked %}<span class="bv-feature-lock-badge"><i class="fe fe-lock"></i> Pro</span>{% endif %}
           <div class="mc-icon"><i class="fe fe-shopping-cart"></i></div>
@@ -517,7 +517,7 @@
           <div id="kpiTotalPurchasesPeriodDelta" class="mc-delta mc-delta-neutral">—</div>
         </div>
       </div>
-      <div class="col-6 col-sm-6 col-xl-3">
+      <div class="col-12 col-md-6 col-xl-3">
         <div class="bv-metric-card{% if _purchases_locked %} bv-feature-locked{% endif %}" style="--mc-color:#22c55e" data-executive-card="gross_profit_period"{% if _purchases_locked %} data-locked-url="/tenant/purchases" title="Απαιτεί κύκλωμα Αγορών/κόστους"{% endif %} data-kpi-what="Το αποτέλεσμα πωλήσεων μείον αγορές για το επιλεγμένο διάστημα." data-kpi-formula="Μικτό Κέρδος Περιόδου = Πωλήσεις Περιόδου - Αγορές Περιόδου.">
           {% if _purchases_locked %}<span class="bv-feature-lock-badge"><i class="fe fe-lock"></i> Pro</span>{% endif %}
           <div class="mc-icon"><i class="fe fe-award"></i></div>
@@ -527,7 +527,7 @@
           <div id="kpiGrossProfitPeriodDelta" class="mc-delta mc-delta-neutral">—</div>
         </div>
       </div>
-      <div class="col-6 col-sm-6 col-xl-3">
+      <div class="col-12 col-md-6 col-xl-3">
         <div class="bv-metric-card{% if _purchases_locked %} bv-feature-locked{% endif %}" style="--mc-color:#8b5cf6" data-executive-card="margin_pct_period"{% if _purchases_locked %} data-locked-url="/tenant/purchases" title="Απαιτεί κύκλωμα Αγορών/κόστους"{% endif %} data-kpi-what="Ποσοστό κερδοφορίας σε σχέση με τις πωλήσεις της ίδιας περιόδου." data-kpi-formula="Μέσο Περιθώριο % = ((Πωλήσεις Περιόδου - Αγορές Περιόδου) / Πωλήσεις Περιόδου) * 100.">
           {% if _purchases_locked %}<span class="bv-feature-lock-badge"><i class="fe fe-lock"></i> Pro</span>{% endif %}
           <div class="mc-icon"><i class="fe fe-percent"></i></div>
@@ -537,7 +537,7 @@
           <div id="kpiMarginPctPeriodDelta" class="mc-delta mc-delta-neutral">—</div>
         </div>
       </div>
-      <div class="col-6 col-sm-6 col-xl-3">
+      <div class="col-12 col-md-6 col-xl-3">
         <div class="bv-metric-card{% if _purchases_locked %} bv-feature-locked{% endif %}" style="--mc-color:#06b6d4" data-executive-card="purchases_to_sales"{% if _purchases_locked %} data-locked-url="/tenant/purchases" title="Απαιτεί κύκλωμα Αγορών"{% endif %} data-kpi-what="Δείχνει πόσο βαριές είναι οι αγορές σε σχέση με τις πωλήσεις." data-kpi-formula="Ρυθμός Αγορών / Πωλήσεων = (Αγορές Περιόδου / Πωλήσεις Περιόδου) * 100.">
           {% if _purchases_locked %}<span class="bv-feature-lock-badge"><i class="fe fe-lock"></i> Pro</span>{% endif %}
           <div class="mc-icon"><i class="fe fe-repeat"></i></div>
@@ -547,7 +547,7 @@
           <div id="kpiPurchasesToSalesDelta" class="mc-delta mc-delta-neutral">—</div>
         </div>
       </div>
-      <div class="col-6 col-sm-6 col-xl-3">
+      <div class="col-12 col-md-6 col-xl-3">
         <div class="bv-metric-card" style="--mc-color:#3b82f6" data-executive-card="active_branches" data-kpi-what="Πόσα υποκαταστήματα έχουν θετικό τζίρο στο έτος μέχρι σήμερα." data-kpi-formula="Ενεργά Υποκαταστήματα = count(υποκατάστημα) όπου Τζίρος Έτους YTD > 0.">
           <div class="mc-icon"><i class="fe fe-home"></i></div>
           <div class="mc-label">Ενεργά υποκαταστήματα</div>
@@ -556,7 +556,7 @@
           <div id="kpiActiveBranchesDelta" class="mc-delta mc-delta-neutral">—</div>
         </div>
       </div>
-      <div class="col-6 col-sm-6 col-xl-3">
+      <div class="col-12 col-md-6 col-xl-3">
         <div class="bv-metric-card" style="--mc-color:#8b5cf6" data-executive-card="top_branch_share" data-kpi-what="Το ποσοστό που συμμετέχει το πιο δυνατό υποκατάστημα στον συνολικό ετήσιο τζίρο." data-kpi-formula="Συγκέντρωση Κορυφαίου Καταστήματος = (μεγαλύτερος τζίρος υποκαταστήματος YTD / συνολικός τζίρος YTD) * 100.">
           <div class="mc-icon"><i class="fe fe-pie-chart"></i></div>
           <div class="mc-label">Κορυφαίο κατάστημα</div>
@@ -565,7 +565,7 @@
           <div id="kpiTopBranchShareDelta" class="mc-delta mc-delta-neutral">—</div>
         </div>
       </div>
-      <div class="col-6 col-sm-6 col-xl-3">
+      <div class="col-12 col-md-6 col-xl-3">
         <div class="bv-metric-card" style="--mc-color:#22c55e" data-executive-card="avg_daily_turnover" data-kpi-what="Μέσος καθαρός τζίρος ανά ημέρα στο διάστημα που έχεις επιλέξει." data-kpi-formula="Μέσος Ημερήσιος Τζίρος = Πωλήσεις Περιόδου / πλήθος ημερών από το 'Από' έως το 'Έως'.">
           <div class="mc-icon"><i class="fe fe-activity"></i></div>
           <div class="mc-label">Μέσος ημερήσιος τζίρος</div>
@@ -574,7 +574,7 @@
           <div id="kpiAvgDailyTurnoverDelta" class="mc-delta mc-delta-neutral">—</div>
         </div>
       </div>
-      <div class="col-6 col-sm-6 col-xl-3">
+      <div class="col-12 col-md-6 col-xl-3">
         <div class="bv-metric-card{% if _purchases_locked %} bv-feature-locked{% endif %}" style="--mc-color:#ef4444" data-executive-card="gross_profit_year"{% if _purchases_locked %} data-locked-url="/tenant/purchases" title="Απαιτεί κύκλωμα Αγορών/κόστους"{% endif %} data-kpi-what="Μικτό αποτέλεσμα από την αρχή του έτους μέχρι την ημερομηνία αναφοράς." data-kpi-formula="Μικτό Κέρδος Έτους = Τζίρος Τρέχοντος Έτους YTD - Αγορές Τρέχοντος Έτους YTD.">
           {% if _purchases_locked %}<span class="bv-feature-lock-badge"><i class="fe fe-lock"></i> Pro</span>{% endif %}
           <div class="mc-icon"><i class="fe fe-dollar-sign"></i></div>
@@ -584,7 +584,7 @@
           <div id="kpiGrossProfitYearDelta" class="mc-delta mc-delta-neutral">—</div>
         </div>
       </div>
-      <div class="col-6 col-sm-6 col-xl-3">
+      <div class="col-12 col-md-6 col-xl-3">
         <div class="bv-metric-card" style="--mc-color:#f97316" data-executive-card="month_qty" data-kpi-what="Συνολικές μονάδες πώλησης που γράφτηκαν μέσα στον τρέχοντα μήνα." data-kpi-formula="Ποσότητα Μήνα = άθροισμα qty όλων των παραστατικών εσόδου από 1η μήνα έως ημερομηνία 'Έως'.">
           <div class="mc-icon"><i class="fe fe-package"></i></div>
           <div class="mc-label">Ποσότητα μήνα</div>
@@ -593,7 +593,7 @@
           <div id="kpiMonthQtyDelta" class="mc-delta mc-delta-neutral">—</div>
         </div>
       </div>
-      <div class="col-xl-3 col-sm-6">
+      <div class="col-12 col-md-6 col-xl-3">
         <div class="bv-metric-card" style="--mc-color:#ef4444" data-executive-card="prev_year_full" data-kpi-what="Συνολική καθαρή αξία πωλήσεων για ολόκληρο το προηγούμενο έτος." data-kpi-formula="Τζίρος Προηγ. Έτους Full = άθροισμα net_value όλων των παραστατικών εσόδου από 01/01 έως 31/12 του προηγούμενου έτους.">
           <div class="mc-icon"><i class="fe fe-calendar"></i></div>
           <div class="mc-label">Τζίρος <span id="kpiPrevYearFullLabel">{{ default_to.year - 1 }}</span> (FULL YEAR)</div>
@@ -602,7 +602,7 @@
           <div id="kpiPrevYearFullDelta" class="mc-delta mc-delta-neutral">—</div>
         </div>
       </div>
-      <div class="col-xl-3 col-sm-6">
+      <div class="col-12 col-md-6 col-xl-3">
         <div class="bv-metric-card" style="--mc-color:#3b82f6" data-executive-card="year_to_date_full_cmp" data-kpi-what="Συγκρίνει πόσο έχει φτάσει ο φετινός τζίρος μέχρι σήμερα απέναντι σε όλο το προηγούμενο έτος." data-kpi-formula="Τζίρος YTD vs Full = Τζίρος Τρέχοντος Έτους YTD. Σύγκριση = ((Τζίρος Τρέχοντος Έτους YTD - Τζίρος Προηγ. Έτους Full) / Τζίρος Προηγ. Έτους Full) * 100.">
           <div class="mc-icon"><i class="fe fe-flag"></i></div>
           <div class="mc-label">Τζίρος <span id="kpiYearToDateLabel">{{ default_to.year }}</span> (YTD vs FULL)</div>
