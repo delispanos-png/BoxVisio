@@ -356,67 +356,102 @@ body.tenant-shell .bv-kpi-box.bv-kpi-cyan {
 
 body.tenant-shell .sidebar-foot {
   flex: 0 0 auto;
-  border-top: 1px solid rgba(148, 163, 184, .15);
-  padding: 10px 14px;
-  display: flex;
-  align-items: center;
-  gap: 0;
+  border-top: 1px solid rgba(148, 163, 184, .18);
+  padding: 12px 14px 14px;
   overflow: hidden;
 }
 
 body.tenant-shell .bottom-meta {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
   width: 100%;
-  background: rgba(0, 0, 0, .06);
-  border-radius: var(--bv-radius-sm);
-  overflow: hidden;
+  padding: 10px;
+  border: 1px solid rgba(203, 213, 225, .78);
+  border-radius: 14px;
+  background:
+    radial-gradient(circle at top right, rgba(37, 99, 235, .08), transparent 42%),
+    rgba(248, 250, 252, .88);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, .06);
 }
 
-body.tenant-shell .bottom-meta-item {
+body.tenant-shell .bottom-meta-status {
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 5px;
-  flex: 1 1 50%;
-  padding: 5px 10px;
+  gap: 9px;
+  min-width: 0;
+}
+
+body.tenant-shell .bottom-meta-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #22c55e;
+  box-shadow: 0 0 0 4px rgba(34, 197, 94, .12), 0 0 16px rgba(34, 197, 94, .38);
+  flex: 0 0 auto;
+}
+
+body.tenant-shell .bottom-meta-label {
+  display: block;
   color: #94a3b8;
-  font-family: "Segoe UI", "Noto Sans", sans-serif;
-  font-size: 10.5px;
-  letter-spacing: .3px;
+  font-size: 9.5px;
+  font-weight: 900;
+  letter-spacing: .12em;
+  line-height: 1.1;
+  text-transform: uppercase;
+}
+
+body.tenant-shell .bottom-meta-status strong {
+  display: block;
+  max-width: 100%;
+  margin-top: 2px;
+  color: #334155;
+  font-size: 11px;
+  font-weight: 850;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-body.tenant-shell .bottom-meta-item + .bottom-meta-item {
-  border-left: 1px solid rgba(148, 163, 184, .2);
+body.tenant-shell .bottom-meta-chip,
+body.tenant-shell .bottom-meta-powered {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: 10px;
+  color: #475569;
+  background: rgba(255, 255, 255, .72);
+  border: 1px solid rgba(203, 213, 225, .72);
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: .02em;
+  line-height: 1.1;
 }
 
-body.tenant-shell .bottom-meta-item:nth-child(3) {
-  flex-basis: 100%;
-  border-left: 0;
-  border-top: 1px solid rgba(148, 163, 184, .2);
-}
-
-body.tenant-shell .bottom-meta-item svg {
-  opacity: .55;
-  flex-shrink: 0;
-}
-
-body.tenant-shell .bottom-meta-item i {
-  opacity: .62;
-  flex-shrink: 0;
+body.tenant-shell .bottom-meta-chip i,
+body.tenant-shell .bottom-meta-powered i {
+  color: #64748b;
+  flex: 0 0 auto;
   font-size: 11px;
 }
 
-body.tenant-shell .bottom-meta-item strong {
-  color: #64748b;
-  font-weight: 600;
+body.tenant-shell .bottom-meta-plan {
+  color: #4f46e5;
+  background: rgba(79, 70, 229, .08);
+  border-color: rgba(129, 140, 248, .32);
 }
 
-body.tenant-shell .bottom-meta-plan strong {
+body.tenant-shell .bottom-meta-plan i {
   color: #4f46e5;
-  font-weight: 800;
+}
+
+body.tenant-shell .bottom-meta-powered {
+  color: #64748b;
+  justify-content: center;
 }
 
 body.tenant-shell .powered-by-cloudon,
@@ -794,18 +829,35 @@ body.tenant-shell[data-theme='dark'] .bv-kpi-help-block p {
 }
 
 body.tenant-shell[data-theme='dark'] .bottom-meta {
-  background: rgba(255, 255, 255, .05);
+  background:
+    radial-gradient(circle at top right, rgba(96, 165, 250, .12), transparent 44%),
+    rgba(15, 23, 42, .88);
+  border-color: #334155;
+  box-shadow: none;
 }
 
-body.tenant-shell[data-theme='dark'] .bottom-meta-item {
-  color: #64748b;
-}
-
-body.tenant-shell[data-theme='dark'] .bottom-meta-item strong {
+body.tenant-shell[data-theme='dark'] .bottom-meta-label,
+body.tenant-shell[data-theme='dark'] .bottom-meta-powered {
   color: #94a3b8;
 }
 
-body.tenant-shell[data-theme='dark'] .bottom-meta-plan strong {
+body.tenant-shell[data-theme='dark'] .bottom-meta-status strong {
+  color: #e5e7eb;
+}
+
+body.tenant-shell[data-theme='dark'] .bottom-meta-chip,
+body.tenant-shell[data-theme='dark'] .bottom-meta-powered {
+  background: rgba(2, 6, 23, .35);
+  border-color: #334155;
+}
+
+body.tenant-shell[data-theme='dark'] .bottom-meta-plan {
+  color: #a5b4fc;
+  background: rgba(99, 102, 241, .14);
+  border-color: rgba(129, 140, 248, .28);
+}
+
+body.tenant-shell[data-theme='dark'] .bottom-meta-plan i {
   color: #a5b4fc;
 }
 

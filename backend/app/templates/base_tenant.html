@@ -471,23 +471,22 @@
         {% set _footer_tenant = tenant if tenant is defined else (request.state.tenant if request.state.tenant is defined else none) %}
         {% set _footer_plan = _footer_tenant.plan.value if _footer_tenant and _footer_tenant.plan else '' %}
         {% set _footer_plan_label = {'standard': 'Standard', 'pro': 'Pro', 'enterprise': 'Enterprise', 'custom': 'Custom'}.get(_footer_plan, _footer_plan|capitalize) %}
-        <div class="bottom-meta">
-          <div class="bottom-meta-item">
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>
-            </svg>
-            <span>v<strong>{{ app_version }}</strong></span>
+        <div class="bottom-meta" aria-label="BoxVisio system status">
+          <div class="bottom-meta-status">
+            <span class="bottom-meta-dot" aria-hidden="true"></span>
+            <div>
+              <span class="bottom-meta-label">System build</span>
+              <strong>v{{ app_version }}</strong>
+            </div>
           </div>
           {% if _footer_plan_label %}
-          <div class="bottom-meta-item bottom-meta-plan">
+          <div class="bottom-meta-chip bottom-meta-plan">
             <i class="fe fe-package"></i>
-            <span><strong>{{ _footer_plan_label }}</strong></span>
+            <span>{{ _footer_plan_label }}</span>
           </div>
           {% endif %}
-          <div class="bottom-meta-item">
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
-            </svg>
+          <div class="bottom-meta-powered">
+            <i class="fe fe-zap"></i>
             <span>{{ tt(request, 'powered_by') }}</span>
           </div>
         </div>
