@@ -1065,3 +1065,335 @@ body.tenant-shell .dropdown-menu {
     padding-left: 72px !important;
   }
 }
+
+/* saas3 whole-shell pass: not only cards. */
+body.tenant-shell {
+  --bv-saas-sidebar-width: 268px;
+  --tenant-sidebar-width: 268px;
+  --tenant-sidebar-collapsed-width: 76px;
+  background: #f7f9fc !important;
+}
+
+body.tenant-shell .content.home {
+  padding: 0 28px 36px !important;
+}
+
+body.tenant-shell #leftsidebar.sidebar,
+body.tenant-shell .left-sidebar {
+  width: 268px !important;
+  min-width: 268px !important;
+  max-width: 268px !important;
+  background: #ffffff !important;
+  border-right: 1px solid #dce5f1 !important;
+}
+
+body.tenant-shell .sidebar .admin-image {
+  min-height: 96px;
+  padding: 24px 20px 18px !important;
+  border-bottom: 0;
+}
+
+body.tenant-shell .sidebar .admin-image .brand-logo.bv-logo-asset {
+  width: 184px !important;
+  max-width: 184px !important;
+}
+
+body.tenant-shell .bv-brand-meta {
+  margin-top: 10px !important;
+  color: #7b89a0 !important;
+}
+
+body.tenant-shell .left-sidebar .menu.main-sidebar {
+  padding: 4px 12px 14px !important;
+}
+
+body.tenant-shell .main-sidebar .list {
+  padding-bottom: 146px !important;
+}
+
+body.tenant-shell .main-sidebar .list .bv-menu-group {
+  margin: 16px 0 4px;
+}
+
+body.tenant-shell .main-sidebar .list .bv-menu-group .bv-group-toggle {
+  min-height: 28px;
+  padding: 6px 10px;
+  border: 0 !important;
+  border-radius: 0;
+  background: transparent !important;
+  color: #8b98aa !important;
+  box-shadow: none !important;
+  font-size: 10px;
+  font-weight: 850;
+  letter-spacing: .12em;
+}
+
+body.tenant-shell .main-sidebar .list .bv-menu-group .bv-group-toggle .sidemenu-icon {
+  opacity: .55;
+}
+
+body.tenant-shell .main-sidebar .list .bv-menu-group.open > .bv-group-toggle,
+body.tenant-shell .main-sidebar .list .bv-submenu .bv-menu-group.active > .bv-group-toggle {
+  background: transparent !important;
+  color: #7b89a0 !important;
+  border-color: transparent !important;
+}
+
+body.tenant-shell .main-sidebar .list .nav-item .nav-link,
+body.tenant-shell .main-sidebar .list .bv-submenu-link {
+  min-height: 42px;
+  border-radius: 8px;
+  color: #40516c !important;
+  font-size: 14px;
+  font-weight: 650;
+}
+
+body.tenant-shell .main-sidebar .list .nav-item .nav-link:hover,
+body.tenant-shell .main-sidebar .list .bv-submenu-link:hover {
+  background: #f4f7fc !important;
+  color: #2563eb !important;
+}
+
+body.tenant-shell .main-sidebar .list .nav-item.active > .nav-link,
+body.tenant-shell .main-sidebar .list .bv-submenu li.is-active > .bv-submenu-link {
+  background: #eef4ff !important;
+  border-color: transparent !important;
+  color: #1d4ed8 !important;
+  box-shadow: none !important;
+}
+
+body.tenant-shell .main-sidebar .list .nav-item.active > .nav-link::before,
+body.tenant-shell .main-sidebar .list .bv-submenu li.is-active > .bv-submenu-link::before {
+  display: none !important;
+}
+
+body.tenant-shell .main-sidebar .list .bv-submenu {
+  margin: 2px 0 8px 0 !important;
+  padding: 0 0 0 20px;
+  border-left: 0 !important;
+}
+
+body.tenant-shell .main-sidebar .list .bv-submenu-link {
+  padding: 9px 10px;
+  color: #62728a !important;
+}
+
+body.tenant-shell .sidebar-foot {
+  margin: 12px 14px 16px !important;
+  padding: 12px 0 0;
+  border-top: 1px solid #e4ebf5 !important;
+}
+
+body.tenant-shell .bottom-meta-item {
+  min-height: 28px;
+  padding-inline: 2px;
+  border: 0 !important;
+}
+
+body.tenant-shell .topbar {
+  min-height: 72px;
+  margin: 0 -28px 30px;
+  padding-inline: 28px !important;
+  border-bottom: 1px solid #dfe7f2 !important;
+  background: rgba(255, 255, 255, .92) !important;
+}
+
+body.tenant-shell .topbar .icon-btn,
+body.tenant-shell .topbar .btn,
+body.tenant-shell .topbar .sync-chip,
+body.tenant-shell .bv-profile-toggle {
+  border-radius: 9px !important;
+}
+
+body.tenant-shell .topbar .icon-btn {
+  width: 38px;
+  min-width: 38px;
+  height: 38px;
+}
+
+body.tenant-shell .bv-topbar-kicker {
+  color: #8491a5;
+  font-size: 9px;
+  letter-spacing: .16em;
+}
+
+body.tenant-shell .bv-topbar-title {
+  font-size: 1rem;
+  font-weight: 760;
+}
+
+body.tenant-shell .topbar .btn-outline-secondary.btn-sm {
+  min-height: 38px;
+  padding-inline: 14px;
+  background: #f8fafc !important;
+}
+
+body.tenant-shell #globalDateRangeBtn {
+  min-height: 40px;
+  padding-inline: 18px;
+  border-radius: 9px !important;
+}
+
+body.tenant-shell .sync-chip {
+  gap: 8px;
+}
+
+body.tenant-shell .sync-chip-label {
+  color: #94a0b3;
+  font-size: 10px;
+  letter-spacing: .04em;
+}
+
+body.tenant-shell .sync-chip-value {
+  color: #26344d;
+  font-weight: 720;
+}
+
+body.tenant-shell .bv-page-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  margin: 0 0 22px;
+  padding: 0;
+}
+
+body.tenant-shell .bv-page-title-wrap {
+  min-width: 0;
+}
+
+body.tenant-shell .bv-page-meta .badge {
+  background: #ffffff !important;
+  border-color: #dfe7f2 !important;
+  color: #26344d !important;
+}
+
+body.tenant-shell .dashboard-shell > .row.g-3 {
+  margin-top: 0;
+}
+
+body.tenant-shell .filter-card {
+  border-radius: 12px !important;
+  background: #ffffff !important;
+}
+
+body.tenant-shell .filter-card > .card-header {
+  padding: 12px 16px;
+}
+
+body.tenant-shell .filter-card > .card-header h5 {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+body.tenant-shell .filter-card > .card-header h5::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 99px;
+  background: #2563eb;
+  box-shadow: 0 0 0 5px #eef4ff;
+}
+
+body.tenant-shell .card,
+body.tenant-shell .content-card,
+body.tenant-shell .filter-card,
+body.tenant-shell .bv-metric-card,
+body.tenant-shell .bv-stat-strip,
+body.tenant-shell .eshop-kpi-card,
+body.tenant-shell .eshop-panel,
+body.tenant-shell .modal-content {
+  box-shadow: 0 1px 2px rgba(16, 24, 40, .035), 0 8px 20px rgba(16, 24, 40, .04) !important;
+}
+
+body.tenant-shell .content-card > .card-header,
+body.tenant-shell .card-header {
+  min-height: 58px;
+  padding: 16px 18px;
+}
+
+body.tenant-shell .content-card > .card-body,
+body.tenant-shell .card > .card-body {
+  padding: 18px;
+}
+
+body.tenant-shell .bv-metric-card,
+body.tenant-shell .bv-stat-strip.bv-kpi-style,
+body.tenant-shell .bv-kpi-box,
+body.tenant-shell .eshop-kpi-card {
+  border-radius: 12px !important;
+}
+
+body.tenant-shell .table-responsive,
+body.tenant-shell .bv-table-wrap,
+body.tenant-shell .pc-table-wrap {
+  border-color: #e3eaf4 !important;
+  border-radius: 12px !important;
+}
+
+body.tenant-shell .table thead th,
+body.tenant-shell .bv-unified-table thead th {
+  height: 42px;
+  background: #f6f8fb !important;
+}
+
+body.tenant-shell .table tbody td,
+body.tenant-shell .bv-unified-table tbody td {
+  height: 42px;
+}
+
+body.tenant-shell .modal.bv-modal .modal-header {
+  min-height: 62px;
+}
+
+body.tenant-shell .modal.bv-modal .modal-content {
+  border-radius: 18px !important;
+}
+
+body.tenant-shell.admin-sidebar-collapsed #leftsidebar.sidebar,
+body.tenant-shell.admin-sidebar-collapsed .left-sidebar,
+body.tenant-shell.sidebar-icon-only #leftsidebar.sidebar,
+body.tenant-shell.sidebar-icon-only .left-sidebar {
+  width: 76px !important;
+  min-width: 76px !important;
+  max-width: 76px !important;
+}
+
+body.tenant-shell.admin-sidebar-collapsed .content.home,
+body.tenant-shell.sidebar-icon-only .content.home {
+  margin-left: 76px !important;
+  width: calc(100% - 76px) !important;
+}
+
+@media (max-width: 1199.98px) {
+  body.tenant-shell {
+    --tenant-sidebar-width: 252px;
+  }
+
+  body.tenant-shell #leftsidebar.sidebar,
+  body.tenant-shell .left-sidebar {
+    width: 252px !important;
+    min-width: 252px !important;
+    max-width: 252px !important;
+  }
+}
+
+@media (max-width: 991.98px) {
+  body.tenant-shell .content.home,
+  body.tenant-shell.admin-sidebar-collapsed .content.home,
+  body.tenant-shell.sidebar-icon-only .content.home {
+    margin-left: 0 !important;
+    width: 100% !important;
+    padding: 0 14px 28px !important;
+  }
+
+  body.tenant-shell .topbar {
+    margin: 0 -14px 18px;
+    padding-inline: 14px !important;
+  }
+
+  body.tenant-shell .bv-page-head {
+    display: block;
+  }
+}

@@ -6,7 +6,7 @@
   <title>{{ tt(request, title) if title else tt(request, 'app_tenant_title') }}</title>
   <link rel="icon" href="/static/brand/boxvisio-mark.svg?v=20260528logo1" type="image/svg+xml">
   <link href="/static/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
-  <link href="/static/css/boxvisio-unified.css?v=20260528saas2" rel="stylesheet">
+  <link href="/static/css/boxvisio-unified.css?v=20260528saas3" rel="stylesheet">
   <script src="/static/js/bv-unified-ui.js?v=20260513multi"></script>
 </head>
 <body class="bv-shell tenant-shell" data-theme="{{ request.cookies.get('theme', 'light') }}">
@@ -1277,6 +1277,33 @@
         btn.setAttribute('aria-expanded', 'false');
       });
     });
+
+    document.querySelectorAll('[data-filter-toggle]').forEach((btn) => {
+      if (btn.dataset.bound === '1') return;
+      const targetId = btn.getAttribute('data-target') || btn.getAttribute('aria-controls');
+      const panel = targetId ? document.getElementById(targetId) : null;
+      if (!panel) return;
+      const syncFilterState = () => {
+        const isOpen = !panel.hidden;
+        btn.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+        panel.classList.toggle('is-open', isOpen);
+      };
+      btn.dataset.bound = '1';
+      syncFilterState();
+      btn.addEventListener('click', (event) => {
+        event.preventDefault();
+        panel.hidden = !panel.hidden;
+        syncFilterState();
+        if (!panel.hidden) {
+          window.bvInitDmyDateInputs?.(panel);
+          setTimeout(() => {
+            const firstInput = panel.querySelector('input:not([type="hidden"]), select, button, textarea');
+            firstInput?.focus?.({ preventScroll: true });
+          }, 60);
+        }
+      });
+    });
+
     function syncFullscreenLayout() {
       const isFs = !!document.fullscreenElement;
       document.body.classList.toggle('bv-fullscreen-mode', isFs);
