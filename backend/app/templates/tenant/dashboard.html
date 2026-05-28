@@ -389,6 +389,62 @@
   .decision-badge-info { background: #dbeafe; color: #1d4ed8; }
 </style>
 
+<section class="bv-advisor-hero mb-3" aria-label="AI Business Advisor">
+  <article class="bv-advisor-panel bv-advisor-score-card" id="advisorScoreCard">
+    <div class="bv-advisor-eyebrow"><i class="fe fe-cpu"></i> AI Business Advisor</div>
+    <div class="bv-score-ring" id="advisorScoreRing" style="--score: 72;">
+      <span id="advisorScoreValue">72</span>
+    </div>
+    <div class="bv-score-status" id="advisorScoreStatus">Healthy</div>
+    <p class="bv-score-text" id="advisorScoreText">Αναμονή ενημέρωσης επιχειρησιακής εικόνας.</p>
+    <div class="bv-score-metrics">
+      <span>
+        <strong id="advisorScoreMargin">-</strong>
+        <small>Μικτό περιθώριο</small>
+      </span>
+      <span>
+        <strong id="advisorScoreTrend">-</strong>
+        <small>YTD τάση</small>
+      </span>
+    </div>
+  </article>
+
+  <article class="bv-advisor-panel bv-advisor-summary-card">
+    <div class="bv-advisor-section-head">
+      <div>
+        <span class="bv-advisor-kicker">Executive Intelligence</span>
+        <h5>Σύνοψη επιχειρησιακής εικόνας</h5>
+      </div>
+      <span class="bv-advisor-chip">Live</span>
+    </div>
+    <div id="advisorSummaryBlocks" class="bv-ai-summary-blocks">
+      <div class="bv-ai-summary-block is-info">
+        <strong>Φόρτωση ανάλυσης</strong>
+        <span>Το advisory layer συγχρονίζεται με τα KPI.</span>
+      </div>
+    </div>
+  </article>
+
+  <article class="bv-advisor-panel bv-advisor-actions-card">
+    <div class="bv-advisor-section-head">
+      <div>
+        <span class="bv-advisor-kicker">Critical Actions</span>
+        <h5>Άμεσες ενέργειες</h5>
+      </div>
+      <span class="bv-advisor-chip">Top 3</span>
+    </div>
+    <div id="advisorCriticalActions" class="bv-critical-actions">
+      <div class="bv-critical-action is-info">
+        <div class="bv-action-rank">1</div>
+        <div>
+          <strong>Αναμονή δεδομένων</strong>
+          <span>Οι ενέργειες θα εμφανιστούν με βάση τα ενεργά insights.</span>
+        </div>
+      </div>
+    </div>
+  </article>
+</section>
+
 <div class="row row-cols-1 row-cols-sm-2 row-cols-md-3 row-cols-xl-5 g-3 mb-3">
   <div class="col">
     <div class="bv-metric-card" style="--mc-color:#06b6d4" data-intraday="true" data-kpi-what="Τζίρος πωλήσεων μόνο της ημέρας αναφοράς, χωρίς ΦΠΑ και με έξοδα παραστατικών." data-kpi-formula="Τζίρος Ημέρας = καθαρή αξία γραμμών + καθαρά έξοδα παραστατικού, μία φορά ανά παραστατικό, της ίδιας ημέρας.">
@@ -985,6 +1041,147 @@ function renderDecisionInsights(rows){
       </article>
     `;
   }).join('');
+}
+
+function clampAdvisorScore(value){
+  return Math.max(0, Math.min(100, Math.round(Number(value) || 0)));
+}
+
+function advisorToneFromSeverity(severity){
+  const sev = severityClass(severity);
+  if(sev === 'critical') return 'danger';
+  if(sev === 'warning') return 'warning';
+  return 'info';
+}
+
+function advisorStatus(score){
+  if(score >= 75) return { label: 'Healthy', tone: 'success', text: 'Η συνολική εικόνα είναι σταθερή. Κράτα την παρακολούθηση σε περιθώριο, τάση και ανοιχτά insights.' };
+  if(score >= 55) return { label: 'Warning', tone: 'warning', text: 'Υπάρχουν σημεία που χρειάζονται προσοχή πριν επηρεάσουν την καθημερινή λειτουργία.' };
+  return { label: 'Critical', tone: 'danger', text: 'Η εικόνα δείχνει αυξημένη πίεση. Δώσε προτεραιότητα στις άμεσες ενέργειες.' };
+}
+
+function renderAdvisorHero(executive, selectedFromDate, anchorDate){
+  const root = document.getElementById('advisorScoreCard');
+  if(!root) return;
+  const cards = executive?.cards || {};
+  const periodSales = cards.period_sales || {};
+  const purchasesPeriod = cards.purchases_period || {};
+  const year = cards.year || {};
+  const prevYear = cards.prev_year || {};
+  const periodSalesVal = toNum(periodSales.net_value || 0);
+  const periodPurchasesVal = toNum(purchasesPeriod.net_value || purchasesPeriod.cost_amount || purchasesPeriod.total_cost || 0);
+  const periodGrossProfit = periodSalesVal - periodPurchasesVal;
+  const periodMarginPct = periodSalesVal > 0 ? (periodGrossProfit / periodSalesVal) * 100 : 0;
+  const yearVal = toNum(year.net_value || 0);
+  const prevYearVal = toNum(prevYear.net_value || 0);
+  const yoy = prevYearVal > 0 ? ((yearVal - prevYearVal) / prevYearVal) * 100 : null;
+  const alerts = Array.isArray(executive?.key_alerts) ? executive.key_alerts : [];
+  const critical = alerts.filter((row) => severityClass(row?.severity) === 'critical').length;
+  const warning = alerts.filter((row) => severityClass(row?.severity) === 'warning').length;
+
+  let score = 78;
+  if(periodMarginPct >= 30) score += 10;
+  else if(periodMarginPct < 10) score -= 24;
+  else if(periodMarginPct < 20) score -= 14;
+  if(yoy !== null){
+    if(yoy > 5) score += 8;
+    else if(yoy < -5) score -= 18;
+    else if(yoy < 0) score -= 10;
+  }
+  score -= Math.min(24, critical * 12);
+  score -= Math.min(15, warning * 5);
+  score = clampAdvisorScore(score);
+
+  const status = advisorStatus(score);
+  const scoreRing = document.getElementById('advisorScoreRing');
+  const scoreValue = document.getElementById('advisorScoreValue');
+  const scoreStatus = document.getElementById('advisorScoreStatus');
+  const scoreText = document.getElementById('advisorScoreText');
+  const marginEl = document.getElementById('advisorScoreMargin');
+  const trendEl = document.getElementById('advisorScoreTrend');
+  if(scoreRing){
+    scoreRing.style.setProperty('--score', String(score));
+    scoreRing.dataset.tone = status.tone;
+  }
+  if(scoreValue) scoreValue.textContent = String(score);
+  if(scoreStatus){
+    scoreStatus.textContent = status.label;
+    scoreStatus.dataset.tone = status.tone;
+  }
+  if(scoreText) scoreText.textContent = status.text;
+  if(marginEl) marginEl.textContent = pct(periodMarginPct);
+  if(trendEl) trendEl.textContent = yoy === null ? '-' : `${yoy >= 0 ? '+' : '-'}${pct(Math.abs(yoy))}`;
+
+  const summaryBlocks = document.getElementById('advisorSummaryBlocks');
+  if(summaryBlocks){
+    const marginTone = periodMarginPct >= 30 ? 'success' : (periodMarginPct >= 20 ? 'info' : 'warning');
+    const growthTone = yoy === null ? 'info' : (yoy >= 0 ? 'success' : 'danger');
+    const riskTone = critical ? 'danger' : (warning ? 'warning' : 'success');
+    const growthText = yoy === null
+      ? 'Δεν υπάρχει αρκετή βάση προηγούμενου έτους για ασφαλή σύγκριση.'
+      : `${yoy >= 0 ? 'Θετική' : 'Αρνητική'} YTD απόκλιση ${yoy >= 0 ? '+' : '-'}${pct(Math.abs(yoy))} σε σχέση με το προηγούμενο έτος.`;
+    summaryBlocks.innerHTML = [
+      {
+        tone: marginTone,
+        title: 'Κερδοφορία',
+        text: `Μικτό περιθώριο ${pct(periodMarginPct)} στο επιλεγμένο διάστημα, με μικτό κέρδος ${money(periodGrossProfit)}.`
+      },
+      {
+        tone: growthTone,
+        title: 'Ρυθμός ανάπτυξης',
+        text: growthText
+      },
+      {
+        tone: riskTone,
+        title: 'Επιχειρησιακός κίνδυνος',
+        text: critical || warning
+          ? `${critical} κρίσιμα και ${warning} προειδοποιητικά insights χρειάζονται παρακολούθηση.`
+          : 'Δεν υπάρχουν κρίσιμα ενεργά insights για το επιλεγμένο διάστημα.'
+      }
+    ].map((item) => `
+      <div class="bv-ai-summary-block is-${item.tone}">
+        <strong>${escHtml(item.title)}</strong>
+        <span>${escHtml(item.text)}</span>
+      </div>
+    `).join('');
+  }
+
+  const actionsEl = document.getElementById('advisorCriticalActions');
+  if(actionsEl){
+    const sorted = [...alerts].sort((a, b) => {
+      const rankA = severityClass(a?.severity) === 'critical' ? 0 : (severityClass(a?.severity) === 'warning' ? 1 : 2);
+      const rankB = severityClass(b?.severity) === 'critical' ? 0 : (severityClass(b?.severity) === 'warning' ? 1 : 2);
+      if(rankA !== rankB) return rankA - rankB;
+      return String(b?.created_at || '').localeCompare(String(a?.created_at || ''));
+    }).slice(0, 3);
+    if(!sorted.length){
+      actionsEl.innerHTML = `
+        <div class="bv-critical-action is-success">
+          <div class="bv-action-rank"><i class="fe fe-check"></i></div>
+          <div>
+            <strong>Δεν υπάρχουν άμεσες κρίσιμες ενέργειες</strong>
+            <span>Συνέχισε την παρακολούθηση των βασικών KPI και των φίλτρων περιόδου.</span>
+          </div>
+        </div>
+      `;
+    } else {
+      actionsEl.innerHTML = sorted.map((row, index) => {
+        const tone = advisorToneFromSeverity(row?.severity);
+        const action = String(row?.suggested_action || (Array.isArray(row?.suggested_actions) && row.suggested_actions[0]) || row?.message || row?.explanation || 'Άνοιγμα detail για ανάλυση.');
+        const drill = insightDrilldown(row);
+        return `
+          <a class="bv-critical-action is-${tone}" href="${escHtml(drill)}">
+            <div class="bv-action-rank">${index + 1}</div>
+            <div>
+              <strong>${escHtml(row?.title || 'Insight')}</strong>
+              <span>${escHtml(action)}</span>
+            </div>
+            <i class="fe fe-arrow-up-right"></i>
+          </a>
+        `;
+      }).join('');
+    }
+  }
 }
 function startOfWeek(d){ const x=new Date(d); const day=(x.getDay()+6)%7; x.setDate(x.getDate()-day); return x; }
 function startOfMonth(d){ return new Date(d.getFullYear(), d.getMonth(), 1); }
@@ -2032,6 +2229,7 @@ function renderCentralKpiCards(executive, selectedFromDate, anchorDate){
   }
   setDelta('kpiActiveBranchesDelta', executiveKpiDetails.active_branches?.delta);
   setDelta('kpiTopBranchShareDelta', executiveKpiDetails.top_branch_share?.delta);
+  renderAdvisorHero(executive, selectedFromDate, anchorDate);
   maskLockedExecutiveKpis();
 }
 
