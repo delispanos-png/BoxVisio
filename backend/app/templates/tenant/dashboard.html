@@ -2265,9 +2265,9 @@ function openIntradayModal() {
 }
 
 (function attachIntradayClick() {
-  const icon = document.querySelector('[data-intraday] .mc-icon');
-  if (!icon) { console.warn('intraday icon not found'); return; }
-  icon.addEventListener('click', function(e) {
+  const card = document.querySelector('[data-intraday]');
+  if (!card) { console.warn('intraday card not found'); return; }
+  card.addEventListener('click', function(e) {
     e.preventDefault();
     e.stopPropagation();
     e.stopImmediatePropagation();
@@ -2397,9 +2397,9 @@ function openWeeklyModal() {
 }
 
 (function attachWeeklyClick() {
-  const icon = document.querySelector('[data-weekly] .mc-icon');
-  if (!icon) return;
-  icon.addEventListener('click', function(e) {
+  const card = document.querySelector('[data-weekly]');
+  if (!card) return;
+  card.addEventListener('click', function(e) {
     e.preventDefault();
     e.stopPropagation();
     e.stopImmediatePropagation();
@@ -2541,9 +2541,9 @@ function openMonthlyModal() {
 }
 
 (function attachMonthlyClick() {
-  const icon = document.querySelector('[data-monthly] .mc-icon');
-  if (!icon) return;
-  icon.addEventListener('click', function(e) {
+  const card = document.querySelector('[data-monthly]');
+  if (!card) return;
+  card.addEventListener('click', function(e) {
     e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
     openMonthlyModal();
   });
@@ -2676,10 +2676,9 @@ function openYtdModal(which) {
 }
 
 (function attachYtdClicks() {
-  document.querySelectorAll('[data-ytd] .mc-icon').forEach(icon => {
-    icon.addEventListener('click', function(e) {
+  document.querySelectorAll('[data-ytd]').forEach(card => {
+    card.addEventListener('click', function(e) {
       e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
-      const card = icon.closest('[data-ytd]');
       openYtdModal(card?.dataset?.ytd || 'curr');
     });
   });

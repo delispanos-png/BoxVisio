@@ -1,9 +1,9 @@
-@import url('/static/vendor/feather/feather.css?v=20260528vendor1');
-@import url('/static/css/boxvisio-ui.css?v=20260528unified2');
-@import url('/static/css/bv-modal-system.css?v=20260528unified2');
-@import url('/static/css/bv-unified-ui.css?v=20260528unified2');
-@import url('/static/css/admin-redesign.css?v=20260528unified2');
-@import url('/static/css/tenant-shell.css?v=20260528unified2');
+@import url('/static/vendor/feather/feather.css?v=20260528vendor2');
+@import url('/static/css/boxvisio-ui.css?v=20260528unified3');
+@import url('/static/css/bv-modal-system.css?v=20260528unified3');
+@import url('/static/css/bv-unified-ui.css?v=20260528unified3');
+@import url('/static/css/admin-redesign.css?v=20260528unified3');
+@import url('/static/css/tenant-shell.css?v=20260528unified3');
 
 body.bv-shell {
   min-height: 100vh;

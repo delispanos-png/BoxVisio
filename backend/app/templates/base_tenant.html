@@ -6,7 +6,7 @@
   <title>{{ tt(request, title) if title else tt(request, 'app_tenant_title') }}</title>
   <link rel="icon" href="/static/docs/streams/sales-documents.svg" type="image/svg+xml">
   <link href="/static/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
-  <link href="/static/css/boxvisio-unified.css?v=20260528nolegacy2" rel="stylesheet">
+  <link href="/static/css/boxvisio-unified.css?v=20260528nolegacy3" rel="stylesheet">
   <script src="/static/js/bv-unified-ui.js?v=20260513multi"></script>
 </head>
 <body class="bv-shell tenant-shell" data-theme="{{ request.cookies.get('theme', 'light') }}">
@@ -1877,17 +1877,49 @@
         if (kpiHelpTitle) kpiHelpTitle.textContent = explicitTitle || info.title;
         if (kpiHelpWhat) kpiHelpWhat.textContent = explicitWhat || info.what;
         if (kpiHelpFormula) kpiHelpFormula.textContent = explicitFormula || info.formula;
-        kpiHelpModal?.show?.(trigger || card);
+        if (kpiHelpModal?.show) {
+          try {
+            kpiHelpModal.show(trigger || card);
+            return;
+          } catch (err) {
+            console.warn('KPI help modal controller failed', err);
+          }
+        }
+        kpiHelpModalEl.style.display = 'block';
+        kpiHelpModalEl.classList.add('show');
+        kpiHelpModalEl.removeAttribute('aria-hidden');
+        kpiHelpModalEl.setAttribute('aria-modal', 'true');
+        document.body.classList.add('modal-open');
+        let backdrop = document.querySelector('.modal-backdrop.kpi-help-backdrop');
+        if (!backdrop) {
+          backdrop = document.createElement('div');
+          backdrop.className = 'modal-backdrop fade show kpi-help-backdrop';
+          document.body.appendChild(backdrop);
+        }
+        const closeManual = () => {
+          kpiHelpModalEl.classList.remove('show');
+          kpiHelpModalEl.style.display = 'none';
+          kpiHelpModalEl.setAttribute('aria-hidden', 'true');
+          kpiHelpModalEl.removeAttribute('aria-modal');
+          document.body.classList.remove('modal-open');
+          document.querySelector('.modal-backdrop.kpi-help-backdrop')?.remove();
+        };
+        kpiHelpModalEl.querySelectorAll('[data-bs-dismiss="modal"], .btn-close').forEach((btn) => {
+          if (btn.dataset.kpiHelpManualClose === '1') return;
+          btn.dataset.kpiHelpManualClose = '1';
+          btn.addEventListener('click', closeManual);
+        });
+        backdrop.addEventListener('click', closeManual, { once: true });
       }
 
       document.addEventListener('click', (e) => {
-        const icon = e.target.closest('.bv-kpi-box .kpi-icon, .bv-stat-strip .kpi-icon, .bv-metric-card .mc-icon');
-        if (icon) {
-          const card = icon.closest('.bv-kpi-box, .bv-stat-strip, .bv-metric-card');
+        const kpiTarget = e.target.closest('.bv-kpi-box .kpi-icon, .bv-stat-strip .kpi-icon, .bv-metric-card .mc-icon, .bv-metric-card:not([data-executive-card]):not([data-intraday]):not([data-weekly]):not([data-monthly]):not([data-ytd])');
+        if (kpiTarget) {
+          const card = kpiTarget.closest('.bv-kpi-box, .bv-stat-strip, .bv-metric-card');
           if (card?.dataset?.intraday || card?.dataset?.weekly || card?.dataset?.monthly || card?.dataset?.ytd) return;
           e.preventDefault();
           e.stopPropagation();
-          openKpiHelpForCard(card, icon);
+          openKpiHelpForCard(card, kpiTarget);
           return;
         }
       });

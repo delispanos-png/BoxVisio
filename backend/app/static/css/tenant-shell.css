@@ -999,9 +999,11 @@ body.tenant-shell .table-responsive {
 }
 
 body.tenant-shell .bv-metric-card {
+  position: relative;
   border-radius: var(--bv-radius-md);
   box-shadow: 0 8px 22px rgba(15, 23, 42, .055);
   min-height: 118px;
+  padding-right: 58px !important;
 }
 
 body.tenant-shell .bv-metric-card:hover {
@@ -1027,6 +1029,40 @@ body.tenant-shell[data-theme='dark'] .bv-metric-card .mc-value {
 body.tenant-shell .bv-metric-card .mc-meta {
   color: var(--menu-muted);
   font-weight: 700;
+}
+
+body.tenant-shell .bv-metric-card .mc-icon {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  border-radius: 10px;
+  color: var(--mc-color, var(--menu-active-text));
+  background: color-mix(in srgb, var(--mc-color, var(--menu-active-text)) 14%, var(--panel-bg));
+  border: 1px solid color-mix(in srgb, var(--mc-color, var(--menu-active-text)) 28%, var(--panel-border));
+  box-shadow: 0 8px 18px rgba(15, 23, 42, .08);
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+body.tenant-shell .bv-metric-card .mc-icon i {
+  font-size: 17px;
+  line-height: 1;
+  pointer-events: none;
+}
+
+body.tenant-shell .bv-metric-card[data-executive-card],
+body.tenant-shell .bv-metric-card[data-intraday],
+body.tenant-shell .bv-metric-card[data-weekly],
+body.tenant-shell .bv-metric-card[data-monthly],
+body.tenant-shell .bv-metric-card[data-ytd] {
+  cursor: pointer;
 }
 
 body.tenant-shell .bv-unified-table,
