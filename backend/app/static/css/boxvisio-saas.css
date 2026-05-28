@@ -773,3 +773,295 @@ body.tenant-shell *:focus-visible {
     font-size: 1.42rem !important;
   }
 }
+
+/* Strong visual assertion pass: move the UI away from the previous theme and
+   closer to the PharmacyOne soft SaaS reference while keeping all markup/JS. */
+body.tenant-shell {
+  --bv-saas-bg: #f8fafc;
+  --bv-saas-surface: #ffffff;
+  --bv-saas-surface-2: #fbfdff;
+  --bv-saas-line: #e5ebf3;
+  --bv-saas-line-strong: #d7e0ec;
+  --bv-saas-shadow-card: 0 1px 2px rgba(16, 24, 40, .035), 0 10px 26px rgba(16, 24, 40, .045);
+  --bv-saas-shadow-float: 0 20px 52px rgba(16, 24, 40, .14);
+  --menu-hover-bg: #f4f7ff;
+  background: #f8fafc !important;
+}
+
+body.tenant-shell::before {
+  opacity: .34;
+  background:
+    radial-gradient(circle at 72% -12%, rgba(37, 99, 235, .08), transparent 28%),
+    linear-gradient(90deg, rgba(148, 163, 184, .08) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(148, 163, 184, .065) 1px, transparent 1px);
+  background-size: auto, 64px 64px, 64px 64px;
+}
+
+body.tenant-shell #leftsidebar.sidebar,
+body.tenant-shell .left-sidebar {
+  background: #ffffff !important;
+  border-right: 1px solid #dfe7f2 !important;
+  box-shadow: 8px 0 28px rgba(15, 23, 42, .035) !important;
+  backdrop-filter: none;
+}
+
+body.tenant-shell .sidebar .admin-image {
+  min-height: 86px;
+  padding: 20px 20px 14px !important;
+}
+
+body.tenant-shell .sidebar .admin-image .brand-logo.bv-logo-asset {
+  width: 190px !important;
+  max-width: 190px !important;
+}
+
+body.tenant-shell .bv-brand-meta {
+  margin-top: 8px !important;
+  color: #6b7890 !important;
+  font-size: 9px;
+  letter-spacing: .16em;
+}
+
+body.tenant-shell .main-sidebar .list .nav-item .nav-link,
+body.tenant-shell .main-sidebar .list .bv-menu-group .bv-group-toggle {
+  min-height: 44px;
+  padding: 11px 14px;
+  border-radius: 10px;
+  font-weight: 690;
+}
+
+body.tenant-shell .main-sidebar .list .nav-item.active > .nav-link,
+body.tenant-shell .main-sidebar .list .bv-submenu li.is-active > .bv-submenu-link,
+body.tenant-shell .main-sidebar .list .bv-submenu .bv-menu-group.active > .bv-group-toggle {
+  color: var(--bv-saas-primary) !important;
+  background: linear-gradient(90deg, #eef4ff 0%, #f5f8ff 100%) !important;
+  border-color: #dbe7ff !important;
+  box-shadow: none !important;
+}
+
+body.tenant-shell .main-sidebar .list .nav-item.active > .nav-link::before,
+body.tenant-shell .main-sidebar .list .bv-submenu li.is-active > .bv-submenu-link::before {
+  content: "";
+  width: 4px;
+  height: 20px;
+  border-radius: 99px;
+  background: var(--bv-saas-primary);
+  position: absolute;
+  left: 6px;
+}
+
+body.tenant-shell .main-sidebar .list .nav-item.active > .nav-link,
+body.tenant-shell .main-sidebar .list .bv-submenu li.is-active > .bv-submenu-link {
+  padding-left: 18px;
+}
+
+body.tenant-shell .topbar {
+  top: 0;
+  min-height: 68px;
+  margin: -18px -24px 26px;
+  padding-inline: 24px !important;
+  border-width: 0 0 1px 0 !important;
+  border-radius: 0 !important;
+  background: rgba(255, 255, 255, .88) !important;
+  box-shadow: none !important;
+}
+
+body.tenant-shell .topbar .icon-btn,
+body.tenant-shell .topbar .btn-outline-secondary,
+body.tenant-shell .bv-profile-toggle {
+  background: #ffffff !important;
+  border-color: #dbe4f0 !important;
+}
+
+body.tenant-shell .dashboard-shell {
+  padding-top: 0;
+}
+
+body.tenant-shell .bv-page-head {
+  margin-bottom: 24px;
+  padding: 0;
+}
+
+body.tenant-shell .bv-page-breadcrumb {
+  display: none;
+}
+
+body.tenant-shell .bv-page-title,
+body.tenant-shell .dashboard-shell .bv-page-head h3,
+body.tenant-shell .dashboard-shell h3:first-child {
+  color: #0f172a;
+  font-size: clamp(1.6rem, 1.9vw, 2.12rem);
+  font-weight: 800;
+  letter-spacing: -.02em;
+}
+
+body.tenant-shell .bv-page-subtitle,
+body.tenant-shell .dashboard-shell .bv-page-head p {
+  color: #637083;
+  font-size: .96rem;
+}
+
+body.tenant-shell .filter-card {
+  margin-bottom: 18px !important;
+  border-radius: 14px !important;
+  box-shadow: none !important;
+}
+
+body.tenant-shell .filter-card > .card-header {
+  min-height: 54px;
+  background: #ffffff !important;
+}
+
+body.tenant-shell .card,
+body.tenant-shell .content-card,
+body.tenant-shell .filter-card,
+body.tenant-shell .bv-metric-card,
+body.tenant-shell .bv-stat-strip,
+body.tenant-shell .eshop-kpi-card,
+body.tenant-shell .eshop-panel {
+  border-color: #e3eaf4 !important;
+  border-radius: 14px !important;
+  background: #ffffff !important;
+  box-shadow: var(--bv-saas-shadow-card) !important;
+}
+
+body.tenant-shell .bv-metric-card,
+body.tenant-shell .bv-stat-strip.bv-kpi-style,
+body.tenant-shell .bv-kpi-box,
+body.tenant-shell .eshop-kpi-card {
+  min-height: 116px;
+  padding: 18px 18px 16px 78px !important;
+}
+
+body.tenant-shell .bv-metric-card::before,
+body.tenant-shell .bv-stat-strip.bv-kpi-style::before,
+body.tenant-shell .bv-kpi-box::before {
+  display: none !important;
+}
+
+body.tenant-shell .bv-metric-card .mc-icon,
+body.tenant-shell .bv-kpi-box .kpi-icon,
+body.tenant-shell .bv-stat-strip.bv-kpi-style .kpi-icon,
+body.tenant-shell .eshop-kpi-icon {
+  top: 20px;
+  left: 18px;
+  right: auto;
+  width: 44px;
+  height: 44px;
+  border: 0 !important;
+  border-radius: 13px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--mc-color, var(--bv-saas-primary)) 84%, #ffffff), color-mix(in srgb, var(--mc-color, var(--bv-saas-primary)) 58%, #ffffff)) !important;
+  color: #ffffff !important;
+  box-shadow: 0 10px 20px color-mix(in srgb, var(--mc-color, var(--bv-saas-primary)) 22%, transparent) !important;
+}
+
+body.tenant-shell .mc-label,
+body.tenant-shell .kpi-title,
+body.tenant-shell .bv-stat-strip .label,
+body.tenant-shell .eshop-kpi-label {
+  max-width: none;
+  color: #69778d !important;
+  font-size: .75rem !important;
+  font-weight: 720 !important;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+body.tenant-shell .mc-value,
+body.tenant-shell .kpi-value,
+body.tenant-shell .bv-stat-strip .value,
+body.tenant-shell .eshop-kpi-value {
+  margin-top: 6px;
+  color: #0f172a !important;
+  font-size: clamp(1.55rem, 1.8vw, 2.04rem) !important;
+  font-weight: 760 !important;
+}
+
+body.tenant-shell .mc-meta,
+body.tenant-shell .mc-delta,
+body.tenant-shell .kpi-meta,
+body.tenant-shell .bv-stat-strip .small,
+body.tenant-shell .eshop-kpi-meta {
+  margin-top: 7px;
+  color: #68778c !important;
+  font-size: .78rem;
+  font-weight: 560;
+}
+
+body.tenant-shell .mc-delta,
+body.tenant-shell [id$="Delta"] {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  min-height: 22px;
+  margin-top: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #f3f6fb;
+}
+
+body.tenant-shell .mc-delta-up {
+  background: #e9fbf4;
+  color: #0f9f70 !important;
+}
+
+body.tenant-shell .mc-delta-down {
+  background: #fff0f0;
+  color: #ef4444 !important;
+}
+
+body.tenant-shell .content-card > .card-header,
+body.tenant-shell .card-header {
+  background: #ffffff !important;
+  border-bottom-color: #e5ebf3 !important;
+}
+
+body.tenant-shell .content-card > .card-header h5,
+body.tenant-shell .card-header h5 {
+  font-size: 1rem;
+  font-weight: 760;
+}
+
+body.tenant-shell .table thead th,
+body.tenant-shell .bv-unified-table thead th {
+  background: #f8fafc !important;
+  color: #66758d !important;
+  font-size: .72rem;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+body.tenant-shell .table tbody td,
+body.tenant-shell .bv-unified-table tbody td {
+  color: #22304a;
+}
+
+body.tenant-shell .form-control,
+body.tenant-shell .form-select,
+body.tenant-shell textarea,
+body.tenant-shell .bv-multi-toggle {
+  min-height: 42px;
+  border-radius: 9px !important;
+}
+
+body.tenant-shell .modal.bv-modal .modal-content,
+body.tenant-shell .bv-profile-dropdown,
+body.tenant-shell .bv-multi-menu,
+body.tenant-shell .dropdown-menu {
+  border-radius: 16px !important;
+}
+
+@media (max-width: 991.98px) {
+  body.tenant-shell .topbar {
+    margin: -12px -12px 18px;
+    padding-inline: 12px !important;
+  }
+
+  body.tenant-shell .bv-metric-card,
+  body.tenant-shell .bv-stat-strip.bv-kpi-style,
+  body.tenant-shell .bv-kpi-box,
+  body.tenant-shell .eshop-kpi-card {
+    padding-left: 72px !important;
+  }
+}
