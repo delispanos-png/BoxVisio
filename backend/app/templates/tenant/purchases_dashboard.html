@@ -780,6 +780,14 @@
 {% block scripts %}
 <script>
 let purchaseTrendChart, supplierDonutChart, purchasesSeasonalityChart;
+const purchasesInitialQuery = new URLSearchParams(window.location.search);
+const purchasesInitialMultiFilters = {
+  branches: purchasesInitialQuery.getAll('branches'),
+  warehouses: purchasesInitialQuery.getAll('warehouses'),
+  brands: purchasesInitialQuery.getAll('brands'),
+  categories: purchasesInitialQuery.getAll('categories'),
+  groups: purchasesInitialQuery.getAll('groups'),
+};
 const purchasesFieldDefs = [
   {key:'branches', selectId:'purchasesBranches', label:'{{ tt(request, "branches") }}'},
   {key:'warehouses', selectId:'purchasesWarehouses', label:'{{ tt(request, "warehouses") }}'},
@@ -796,8 +804,9 @@ const purchasesUiFieldDefs = [
   {selectId:'purchasesCategoryL3', label:'Κατηγορία 3'},
 ];
 let purchasesCategoryHierarchy = [];
-let purchasesInitCategoryIds = new Set(new URLSearchParams(window.location.search).getAll('categories'));
+let purchasesInitCategoryIds = new Set(purchasesInitialMultiFilters.categories);
 let purchasesInitApplied = false;
+let purchasesInitFieldFiltersApplied = false;
 function toNum(v){const n=Number(v||0);return Number.isFinite(n)?n:0}
 function money(v){return new Intl.NumberFormat('el-GR',{style:'currency',currency:'EUR',maximumFractionDigits:2}).format(toNum(v))}
 const fmt2 = new Intl.NumberFormat('el-GR',{ minimumFractionDigits:2, maximumFractionDigits:2 });
@@ -870,6 +879,32 @@ function setSelectedByValues(selectId, values){
   const vset = new Set(values || []);
   Array.from(sel.options || []).forEach(o => { o.selected = vset.has(o.value); });
   BvMultiSelect.sync(selectId, { label: purchasesUiFieldDefs.find(f => f.selectId === selectId)?.label || 'Επιλογή' });
+}
+
+function applyPurchasesDateDeepLink(){
+  const form = document.getElementById('purchasesFilters');
+  if(!form) return;
+  ['from', 'to'].forEach((key)=>{
+    const value = purchasesInitialQuery.get(key);
+    if(!value) return;
+    const input = form.querySelector(`[name="${key}"]`);
+    if(input) input.value = window.bvToDmyDate ? window.bvToDmyDate(value) : value;
+  });
+}
+
+function applyPurchasesInitialFieldFilters(){
+  if(purchasesInitFieldFiltersApplied) return;
+  const fieldToSelect = {
+    branches: 'purchasesBranches',
+    warehouses: 'purchasesWarehouses',
+    brands: 'purchasesBrands',
+    groups: 'purchasesGroups',
+  };
+  Object.entries(fieldToSelect).forEach(([key, selectId])=>{
+    const values = purchasesInitialMultiFilters[key] || [];
+    if(values.length) setSelectedByValues(selectId, values);
+  });
+  purchasesInitFieldFiltersApplied = true;
 }
 
 function rebuildPurchasesHiddenCategories(){
@@ -985,6 +1020,7 @@ async function loadPurchasesFilterOptions(){
       const labels=((options && options.labels && options.labels[key]) || {});
       populatePurchasesSelect(field.selectId, field.label, vals, labels);
     });
+    applyPurchasesInitialFieldFilters();
     buildPurchasesCategoryHierarchy(
       (options && options.categories) || [],
       (options && options.labels && options.labels.categories) || {}
@@ -1318,6 +1354,7 @@ document.getElementById('togglePurchasesItems')?.addEventListener('click', () =>
 });
 window.addEventListener('load', async () => {
   purchasesUiFieldDefs.forEach((field)=>initPurchasesMulti(field.selectId, field.label));
+  applyPurchasesDateDeepLink();
   ['purchasesCategoryL1','purchasesCategoryL2','purchasesCategoryL3'].forEach((id)=>{
     const el = document.getElementById(id);
     if(el) el.addEventListener('change', ()=>syncPurchasesCategoryHierarchy(id));

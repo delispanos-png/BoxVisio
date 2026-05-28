@@ -670,6 +670,15 @@
 (function(){
   const asOfEl = document.getElementById('invAsOf');
   const form = document.getElementById('inventoryFiltersForm');
+  const initialQuery = new URLSearchParams(window.location.search);
+  const initialMultiFilters = {
+    branches: initialQuery.getAll('branches'),
+    warehouses: initialQuery.getAll('warehouses'),
+    brands: initialQuery.getAll('brands'),
+    categories: initialQuery.getAll('categories'),
+    groups: initialQuery.getAll('groups'),
+  };
+  let initialFiltersApplied = false;
   const fmtMoney = (n)=> new Intl.NumberFormat('el-GR',{style:'currency',currency:'EUR'}).format(Number(n||0));
   const fmtNum = (n)=> new Intl.NumberFormat('el-GR',{maximumFractionDigits:0}).format(Math.round(Number(n||0)));
   const fmtPct = (n)=> `${new Intl.NumberFormat('el-GR',{minimumFractionDigits:2,maximumFractionDigits:2}).format(Number(n||0))}%`;
@@ -734,6 +743,23 @@
       emptyText: '{{ tt(request, "no_options_available") }}',
     });
   }
+  function setSelectedByValues(selectId, values){
+    const select = document.getElementById(selectId);
+    if(!select || !values || !values.length) return;
+    const wanted = new Set(values.map((v)=>String(v)));
+    Array.from(select.options).forEach((option)=>{
+      option.selected = wanted.has(String(option.value));
+    });
+    const field = invFieldDefs.find((f)=>f.selectId === selectId);
+    syncInvMultiUI(selectId, field?.label || '{{ tt(request, "select") }}');
+  }
+  function applyInitialInventoryFilters(){
+    if(initialFiltersApplied) return;
+    invFieldDefs.forEach((field)=>{
+      setSelectedByValues(field.selectId, initialMultiFilters[field.key] || []);
+    });
+    initialFiltersApplied = true;
+  }
   let invFilterOptionsReloadTimer = null;
   function scheduleInvFilterOptionsReload(){
     window.clearTimeout(invFilterOptionsReloadTimer);
@@ -756,6 +782,7 @@
         const labels = (options && options.labels && options.labels[field.key]) || {};
         populateInvSelect(field.selectId, field.label, (options && options[field.key]) || [], labels);
       });
+      applyInitialInventoryFilters();
     }catch(_err){}
   }
   function tableFill(selector, rows, nameKey){
@@ -931,7 +958,7 @@
     }
   }
 
-  const initialAsOf = todayLocalIso();
+  const initialAsOf = initialQuery.get('to') || initialQuery.get('as_of') || todayLocalIso();
   asOfEl.value = window.bvToDmyDate
     ? window.bvToDmyDate(initialAsOf)
     : initialAsOf;

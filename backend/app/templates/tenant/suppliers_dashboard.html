@@ -249,6 +249,23 @@
     loadSuppliers();
   });
 
+  const initialQuery = new URLSearchParams(window.location.search);
+  const initialSupplierSearch = initialQuery.get('q') || initialQuery.get('supplier') || '';
+  if(initialSupplierSearch){
+    const searchEl = document.getElementById('suppliersSearch');
+    if(searchEl) searchEl.value = initialSupplierSearch;
+  }
+  const initialFrom = initialQuery.get('from');
+  const initialTo = initialQuery.get('to');
+  if(initialFrom){
+    const fromEl = document.getElementById('suppliersFrom');
+    if(fromEl) fromEl.value = window.bvToDmyDate ? window.bvToDmyDate(initialFrom) : initialFrom;
+  }
+  if(initialTo){
+    const toEl = document.getElementById('suppliersTo');
+    if(toEl) toEl.value = window.bvToDmyDate ? window.bvToDmyDate(initialTo) : initialTo;
+  }
+
   loadSuppliers();
 </script>
 {% endblock %}

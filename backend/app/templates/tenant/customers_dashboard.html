@@ -831,6 +831,24 @@
   document.getElementById('custSalesTo').value = defaultTo;
   document.getElementById('custCollectionsFrom').value = defaultFrom;
   document.getElementById('custCollectionsTo').value = defaultTo;
+  const initialQuery = new URLSearchParams(window.location.search);
+  const initialCustomerSearch = initialQuery.get('q') || initialQuery.get('customer') || '';
+  if(initialCustomerSearch){
+    const searchEl = document.getElementById('customersSearch');
+    if(searchEl) searchEl.value = initialCustomerSearch;
+  }
+  const initialFrom = initialQuery.get('from');
+  const initialTo = initialQuery.get('to');
+  if(initialFrom){
+    const value = window.bvToDmyDate ? window.bvToDmyDate(initialFrom) : initialFrom;
+    document.getElementById('custSalesFrom').value = value;
+    document.getElementById('custCollectionsFrom').value = value;
+  }
+  if(initialTo){
+    const value = window.bvToDmyDate ? window.bvToDmyDate(initialTo) : initialTo;
+    document.getElementById('custSalesTo').value = value;
+    document.getElementById('custCollectionsTo').value = value;
+  }
 
   customerModalEl = document.getElementById('customerModal');
   if(customerModalEl){

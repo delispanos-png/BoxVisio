@@ -984,9 +984,96 @@ function severityLabel(severity){
   return 'Πληροφορία';
 }
 function insightDrilldown(row){
-  if(row && row.metadata_json && row.metadata_json.drilldown){
-    return String(row.metadata_json.drilldown);
+  let url;
+  try {
+    url = new URL(String((row && row.metadata_json && row.metadata_json.drilldown) || insightDrillBase(row)), window.location.origin);
+  } catch (_err) {
+    url = new URL(insightDrillBase(row), window.location.origin);
   }
+  normalizeInsightDrillUrl(url);
+  const params = url.searchParams;
+  if(row?.period_from) params.set('from', String(row.period_from));
+  if(row?.period_to) params.set('to', String(row.period_to));
+
+  const entityType = String(row?.entity_type || '').toLowerCase();
+  const entityExternal = String(row?.entity_external_id || '').trim();
+  const entityName = String(row?.entity_name || '').trim();
+  const entityValue = entityExternal || entityName;
+  const path = url.pathname;
+  if(entityValue){
+    if(path.includes('/tenant/sales') || path.includes('/tenant/purchases')){
+      if(entityType === 'brand') params.append('brands', entityValue);
+      else if(entityType === 'category') params.append('categories', entityValue);
+      else if(entityType === 'group') params.append('groups', entityValue);
+      else if(entityType === 'branch') params.append('branches', entityValue);
+      else if(entityType === 'supplier' && path.includes('/tenant/purchases')){
+        url.pathname = '/tenant/suppliers';
+        params.set('q', entityName || entityExternal);
+      }
+    } else if(path.includes('/tenant/inventory')){
+      if(entityType === 'brand') params.append('brands', entityValue);
+      else if(entityType === 'category') params.append('categories', entityValue);
+      else if(entityType === 'group') params.append('groups', entityValue);
+      else if(entityType === 'item' || entityType === 'product') params.set('q', entityValue);
+    } else if(path.includes('/tenant/customers')){
+      if(entityType === 'customer' || String(row?.category || '').toLowerCase() === 'receivables') params.set('q', entityName || entityExternal);
+    } else if(path.includes('/tenant/suppliers')){
+      if(entityType === 'supplier') params.set('q', entityName || entityExternal);
+    }
+  }
+
+  const singularMap = {
+    brand: 'brands',
+    category: 'categories',
+    group: 'groups',
+    branch: 'branches',
+    supplier: 'suppliers',
+    warehouse: 'warehouses',
+    item: 'q',
+  };
+  Object.entries(singularMap).forEach(([oldKey, newKey]) => {
+    if(oldKey === 'supplier' && params.get(oldKey) && url.pathname.includes('/tenant/purchases')){
+      url.pathname = '/tenant/suppliers';
+      params.set('q', params.get(oldKey));
+      params.delete(oldKey);
+      return;
+    }
+    const oldValue = params.get(oldKey);
+    if(oldValue && !params.has(newKey)){
+      if(newKey === 'q') params.set(newKey, oldValue);
+      else params.append(newKey, oldValue);
+    }
+    params.delete(oldKey);
+  });
+
+  const qs = params.toString();
+  return qs ? `${url.pathname}?${qs}` : url.pathname;
+}
+function normalizeInsightDrillUrl(url){
+  const path = url.pathname;
+  const supplierValue = url.searchParams.get('supplier') || url.searchParams.get('suppliers');
+  if(path.startsWith('/tenant/purchases') && supplierValue){
+    url.pathname = '/tenant/suppliers';
+    url.searchParams.set('q', supplierValue);
+    url.searchParams.delete('supplier');
+    url.searchParams.delete('suppliers');
+    return;
+  }
+  if(path.startsWith('/tenant/sales/') && !url.searchParams.has('view')){
+    const view = path.split('/').filter(Boolean).pop();
+    if(view) url.searchParams.set('view', view);
+  }
+  if(path.startsWith('/tenant/purchases/') && !url.searchParams.has('view')){
+    const view = path.split('/').filter(Boolean).pop();
+    if(view) url.searchParams.set('view', view);
+  }
+  if(path.startsWith('/tenant/inventory/')) url.pathname = '/tenant/inventory';
+  if(path.startsWith('/tenant/sales/')) url.pathname = '/tenant/sales';
+  if(path.startsWith('/tenant/purchases/')) url.pathname = '/tenant/purchases';
+  if(path.startsWith('/tenant/customers/')) url.pathname = '/tenant/customers';
+  if(path.startsWith('/tenant/suppliers/')) url.pathname = '/tenant/suppliers';
+}
+function insightDrillBase(row){
   const cat = String(row?.category || '').toLowerCase();
   if(cat === 'purchases') return '/tenant/purchases';
   if(cat === 'inventory') return '/tenant/inventory';

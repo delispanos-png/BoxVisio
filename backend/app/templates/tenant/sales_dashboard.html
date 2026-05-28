@@ -1275,6 +1275,14 @@ let salesDocsPage = 1;
 let salesDocsTotal = 0;
 const documentsMode = {{ 'true' if documents_mode else 'false' }};
 let salesFilterLabels = { branches:{}, brands:{}, categories:{}, groups:{}, warehouses:{} };
+const salesInitialQuery = new URLSearchParams(window.location.search);
+const salesInitialMultiFilters = {
+  branches: salesInitialQuery.getAll('branches'),
+  warehouses: salesInitialQuery.getAll('warehouses'),
+  brands: salesInitialQuery.getAll('brands'),
+  categories: salesInitialQuery.getAll('categories'),
+  groups: salesInitialQuery.getAll('groups'),
+};
 const salesFieldDefs = [
   {key:'branches', selectId:'salesBranches', label:'{{ tt(request, "branches") }}'},
   {key:'warehouses', selectId:'salesWarehouses', label:'{{ tt(request, "warehouses") }}'},
@@ -1291,8 +1299,9 @@ const salesUiFieldDefs = [
   {selectId:'salesCategoryL3', label:'Κατηγορία 3'},
 ];
 let salesCategoryHierarchy = [];
-let salesInitCategoryIds = new Set(new URLSearchParams(window.location.search).getAll('categories'));
+let salesInitCategoryIds = new Set(salesInitialMultiFilters.categories);
 let salesInitApplied = false;
+let salesInitFieldFiltersApplied = false;
 function toNum(v){const n=Number(v||0);return Number.isFinite(n)?n:0}
 const fmt2 = new Intl.NumberFormat('el-GR',{ minimumFractionDigits:2, maximumFractionDigits:2 });
 const fmt0 = new Intl.NumberFormat('el-GR',{ maximumFractionDigits:0 });
@@ -1838,6 +1847,32 @@ function setSelectedByValues(selectId, values){
   BvMultiSelect.sync(selectId, { label: salesUiFieldDefs.find(f => f.selectId === selectId)?.label || 'Επιλογή' });
 }
 
+function applySalesDateDeepLink(){
+  const form = document.getElementById('salesFilters');
+  if(!form) return;
+  ['from', 'to'].forEach((key)=>{
+    const value = salesInitialQuery.get(key);
+    if(!value) return;
+    const input = form.querySelector(`[name="${key}"]`);
+    if(input) input.value = window.bvToDmyDate ? window.bvToDmyDate(value) : value;
+  });
+}
+
+function applySalesInitialFieldFilters(){
+  if(salesInitFieldFiltersApplied) return;
+  const fieldToSelect = {
+    branches: 'salesBranches',
+    warehouses: 'salesWarehouses',
+    brands: 'salesBrands',
+    groups: 'salesGroups',
+  };
+  Object.entries(fieldToSelect).forEach(([key, selectId])=>{
+    const values = salesInitialMultiFilters[key] || [];
+    if(values.length) setSelectedByValues(selectId, values);
+  });
+  salesInitFieldFiltersApplied = true;
+}
+
 function rebuildSalesHiddenCategories(){
   const l1 = selectedValues('salesCategoryL1');
   const l2 = selectedValues('salesCategoryL2');
@@ -1952,6 +1987,7 @@ async function loadSalesFilterOptions(){
       const labels=((options && options.labels && options.labels[key]) || {});
       populateSalesSelect(field.selectId, field.label, vals, labels);
     });
+    applySalesInitialFieldFilters();
     buildSalesCategoryHierarchy(
       (options && options.categories) || [],
       (options && options.labels && options.labels.categories) || {}
@@ -2680,6 +2716,7 @@ window.addEventListener('load', async () => {
     applyInsightsState();
   }
   salesUiFieldDefs.forEach((field)=>initSalesMulti(field.selectId, field.label));
+  applySalesDateDeepLink();
   if(documentsMode) initSalesMulti('salesDocChannels', 'Κανάλι');
   ['salesCategoryL1','salesCategoryL2','salesCategoryL3'].forEach((id)=>{
     const el = document.getElementById(id);

@@ -604,12 +604,7 @@ function renderTableRows(rows){
     const tr=document.createElement('tr');
     const entity = r.entity_name || r.entity_external_id || '-';
     const canAck = (r.status||'')==='open';
-    let drill = '/tenant/sales';
-    if((r.category||'')==='purchases') drill='/tenant/purchases';
-    if((r.category||'')==='inventory') drill='/tenant/inventory';
-    if((r.category||'')==='cashflow') drill='/tenant/cashflow';
-    if((r.category||'')==='receivables') drill='/tenant/customers';
-    if(r.metadata_json && r.metadata_json.drilldown) drill = String(r.metadata_json.drilldown);
+    const drill = buildInsightDrilldownUrl(r);
     const whyText = `${(r.metadata_json && r.metadata_json.why) ? String(r.metadata_json.why) : '{{ tt(request, "no_explanation_available") }}'}${(r.metadata_json && r.metadata_json.formula) ? ' Formula: ' + String(r.metadata_json.formula) : ''}`;
     const whyBtn = `<button class="btn btn-sm bv-action-btn bv-action-toggle" data-bs-toggle="popover" data-bs-trigger="focus" title="{{ tt(request, 'why_am_i_seeing_this') }}" data-bs-content="${escAttr(whyText)}"><i class="fe fe-help-circle"></i> WHY</button>`;
     const detailBtn = `<button class="btn btn-sm bv-action-btn bv-action-edit" data-detail="${escAttr(r.id)}"><i class="fe fe-eye"></i>{{ tt(request, 'detail') }}</button>`;
@@ -638,6 +633,126 @@ function renderTableRows(rows){
       } catch (_err) {}
     });
   }
+}
+
+function normalizeInsightDrillBase(r){
+  const category = String(r?.category || '').toLowerCase();
+  const metaDrill = String((r?.metadata_json && r.metadata_json.drilldown) || '').trim();
+  let base = metaDrill || '/tenant/sales';
+  try {
+    const parsed = new URL(base, window.location.origin);
+    base = parsed.pathname;
+  } catch (_err) {}
+  if (!metaDrill) {
+    if(category === 'purchases') base = '/tenant/purchases';
+    if(category === 'inventory') base = '/tenant/inventory';
+    if(category === 'cashflow') base = '/tenant/cashflow';
+    if(category === 'receivables') base = '/tenant/customers';
+  }
+  return base;
+}
+
+function appendMultiParam(params, key, value){
+  const clean = String(value || '').trim();
+  if (!clean) return;
+  params.append(key, clean);
+}
+
+function normalizeInsightDrillUrl(url){
+  const path = url.pathname;
+  const supplierValue = url.searchParams.get('supplier') || url.searchParams.get('suppliers');
+  if (path.startsWith('/tenant/purchases') && supplierValue) {
+    url.pathname = '/tenant/suppliers';
+    url.searchParams.set('q', supplierValue);
+    url.searchParams.delete('supplier');
+    url.searchParams.delete('suppliers');
+    return;
+  }
+  if (path.startsWith('/tenant/sales/') && !url.searchParams.has('view')) {
+    const view = path.split('/').filter(Boolean).pop();
+    if (view) url.searchParams.set('view', view);
+  }
+  if (path.startsWith('/tenant/purchases/') && !url.searchParams.has('view')) {
+    const view = path.split('/').filter(Boolean).pop();
+    if (view) url.searchParams.set('view', view);
+  }
+  if (path.startsWith('/tenant/inventory/')) url.pathname = '/tenant/inventory';
+  if (path.startsWith('/tenant/sales/')) url.pathname = '/tenant/sales';
+  if (path.startsWith('/tenant/purchases/')) url.pathname = '/tenant/purchases';
+  if (path.startsWith('/tenant/customers/')) url.pathname = '/tenant/customers';
+  if (path.startsWith('/tenant/suppliers/')) url.pathname = '/tenant/suppliers';
+}
+
+function buildInsightDrilldownUrl(r){
+  const metaDrill = String((r?.metadata_json && r.metadata_json.drilldown) || '').trim();
+  let url;
+  try {
+    url = new URL(metaDrill || normalizeInsightDrillBase(r), window.location.origin);
+  } catch (_err) {
+    url = new URL(normalizeInsightDrillBase(r), window.location.origin);
+  }
+  normalizeInsightDrillUrl(url);
+  const params = url.searchParams;
+  const periodFrom = String(r?.period_from || '').trim();
+  const periodTo = String(r?.period_to || '').trim();
+  if (periodFrom) params.set('from', periodFrom);
+  if (periodTo) params.set('to', periodTo);
+
+  const entityType = String(r?.entity_type || '').toLowerCase();
+  const entityExternal = String(r?.entity_external_id || '').trim();
+  const entityName = String(r?.entity_name || '').trim();
+  const entityValue = entityExternal || entityName;
+  const path = url.pathname;
+
+  if (entityValue) {
+    if (path.includes('/tenant/sales') || path.includes('/tenant/purchases')) {
+      if (entityType === 'brand') appendMultiParam(params, 'brands', entityValue);
+      else if (entityType === 'category') appendMultiParam(params, 'categories', entityValue);
+      else if (entityType === 'group') appendMultiParam(params, 'groups', entityValue);
+      else if (entityType === 'branch') appendMultiParam(params, 'branches', entityValue);
+      else if (entityType === 'supplier' && path.includes('/tenant/purchases')) {
+        url.pathname = '/tenant/suppliers';
+        params.set('q', entityName || entityExternal);
+      }
+    } else if (path.includes('/tenant/inventory')) {
+      if (entityType === 'brand') appendMultiParam(params, 'brands', entityValue);
+      else if (entityType === 'category') appendMultiParam(params, 'categories', entityValue);
+      else if (entityType === 'group') appendMultiParam(params, 'groups', entityValue);
+      else if (entityType === 'item' || entityType === 'product') params.set('q', entityValue);
+    } else if (path.includes('/tenant/customers')) {
+      if (entityType === 'customer' || String(r?.category || '').toLowerCase() === 'receivables') params.set('q', entityName || entityExternal);
+    } else if (path.includes('/tenant/suppliers')) {
+      if (entityType === 'supplier') params.set('q', entityName || entityExternal);
+    }
+  }
+
+  // Backward compatibility for older stored insights that used singular params.
+  const singularMap = {
+    brand: 'brands',
+    category: 'categories',
+    group: 'groups',
+    branch: 'branches',
+    supplier: 'suppliers',
+    warehouse: 'warehouses',
+    item: 'q',
+  };
+  Object.entries(singularMap).forEach(([oldKey, newKey]) => {
+    if (oldKey === 'supplier' && params.get(oldKey) && url.pathname.includes('/tenant/purchases')) {
+      url.pathname = '/tenant/suppliers';
+      params.set('q', params.get(oldKey));
+      params.delete(oldKey);
+      return;
+    }
+    const oldValue = params.get(oldKey);
+    if (oldValue && !params.has(newKey)) {
+      if (newKey === 'q') params.set(newKey, oldValue);
+      else params.append(newKey, oldValue);
+    }
+    params.delete(oldKey);
+  });
+
+  const qs = params.toString();
+  return qs ? `${url.pathname}?${qs}` : url.pathname;
 }
 function rerenderInsightsTable(){
   const sorted = sortRows(_allRows || []);
