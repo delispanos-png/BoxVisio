@@ -157,6 +157,87 @@
   #selloutTable tbody tr:hover {
     background: #eef2ff;
   }
+  .sellout-kpi-card {
+    --sellout-accent: #2563eb;
+    align-items: center;
+    background:
+      linear-gradient(145deg, rgba(255, 255, 255, .99), rgba(248, 251, 255, .96)) !important;
+    border: 1px solid #dbe4f0;
+    border-radius: 8px;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, .04), 0 14px 34px rgba(15, 23, 42, .055);
+    color: #0f172a;
+    display: grid;
+    gap: 7px;
+    min-height: 146px;
+    overflow: hidden;
+    padding: 20px 18px;
+    position: relative;
+    text-align: center;
+    transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease;
+  }
+  .sellout-kpi-card::before {
+    background: var(--sellout-accent);
+    border-radius: 8px 8px 0 0;
+    content: "";
+    height: 3px;
+    left: -1px;
+    opacity: .95;
+    position: absolute;
+    right: -1px;
+    top: -1px;
+  }
+  .sellout-kpi-card:hover {
+    border-color: color-mix(in srgb, var(--sellout-accent) 36%, #dbe4f0);
+    box-shadow: 0 2px 8px rgba(15, 23, 42, .06), 0 18px 42px rgba(15, 23, 42, .08);
+    transform: translateY(-1px);
+  }
+  .sellout-kpi-card .kpi-icon {
+    align-items: center;
+    background: color-mix(in srgb, var(--sellout-accent) 12%, #ffffff);
+    border: 1px solid color-mix(in srgb, var(--sellout-accent) 26%, #e2e8f0);
+    border-radius: 10px;
+    box-shadow: 0 12px 24px color-mix(in srgb, var(--sellout-accent) 18%, transparent);
+    color: var(--sellout-accent);
+    display: inline-flex;
+    height: 44px;
+    justify-content: center;
+    justify-self: center;
+    margin: 0 0 4px;
+    width: 44px;
+  }
+  .sellout-kpi-card .kpi-title {
+    color: #64748b !important;
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: .02em;
+    line-height: 1.2;
+    margin: 0;
+    text-transform: none;
+  }
+  .sellout-kpi-card .kpi-value {
+    color: #0f172a !important;
+    font-size: clamp(24px, 1.8vw, 31px);
+    font-weight: 850;
+    letter-spacing: 0;
+    line-height: 1.05;
+    margin: 0;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    text-align: center;
+  }
+  .sellout-kpi-card .kpi-meta {
+    color: #64748b !important;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1.25;
+    margin: 0;
+  }
+  .sellout-kpi-sales { --sellout-accent: #2563eb; }
+  .sellout-kpi-qty { --sellout-accent: #10b981; }
+  .sellout-kpi-profit { --sellout-accent: #0ea5e9; }
+  .sellout-kpi-margin { --sellout-accent: #f59e0b; }
+  .sellout-kpi-stock { --sellout-accent: #06b6d4; }
+  .sellout-kpi-items { --sellout-accent: #ef4444; }
   .sellout-detail-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -463,7 +544,7 @@
 
 <div class="row g-3 mb-3">
   <div class="col-12 col-sm-6 col-xl-2">
-    <div class="bv-kpi-box bv-kpi-purple">
+    <div class="bv-kpi-box sellout-kpi-card sellout-kpi-sales">
       <div class="kpi-icon"><i class="fe fe-trending-up"></i></div>
       <div class="kpi-title">Πωλήσεις</div>
       <div class="kpi-value" id="mSales">0,00 €</div>
@@ -471,7 +552,7 @@
     </div>
   </div>
   <div class="col-12 col-sm-6 col-xl-2">
-    <div class="bv-kpi-box bv-kpi-green">
+    <div class="bv-kpi-box sellout-kpi-card sellout-kpi-qty">
       <div class="kpi-icon"><i class="fe fe-layers"></i></div>
       <div class="kpi-title">Ποσότητα</div>
       <div class="kpi-value" id="mQty">0</div>
@@ -479,7 +560,7 @@
     </div>
   </div>
   <div class="col-12 col-sm-6 col-xl-2">
-    <div class="bv-kpi-box bv-kpi-blue">
+    <div class="bv-kpi-box sellout-kpi-card sellout-kpi-profit">
       <div class="kpi-icon"><i class="fe fe-bar-chart-2"></i></div>
       <div class="kpi-title">Μικτό Κέρδος</div>
       <div class="kpi-value" id="mProfit">0,00 €</div>
@@ -487,7 +568,7 @@
     </div>
   </div>
   <div class="col-12 col-sm-6 col-xl-2">
-    <div class="bv-kpi-box bv-kpi-orange">
+    <div class="bv-kpi-box sellout-kpi-card sellout-kpi-margin">
       <div class="kpi-icon"><i class="fe fe-activity"></i></div>
       <div class="kpi-title">Μικτό %</div>
       <div class="kpi-value" id="mProfitPct">0,00%</div>
@@ -495,7 +576,7 @@
     </div>
   </div>
   <div class="col-12 col-sm-6 col-xl-2">
-    <div class="bv-kpi-box bv-kpi-cyan">
+    <div class="bv-kpi-box sellout-kpi-card sellout-kpi-stock">
       <div class="kpi-icon"><i class="fe fe-archive"></i></div>
       <div class="kpi-title">Απόθεμα</div>
       <div class="kpi-value" id="mStock">0</div>
@@ -503,7 +584,7 @@
     </div>
   </div>
   <div class="col-12 col-sm-6 col-xl-2">
-    <div class="bv-kpi-box bv-kpi-red">
+    <div class="bv-kpi-box sellout-kpi-card sellout-kpi-items">
       <div class="kpi-icon"><i class="fe fe-tag"></i></div>
       <div class="kpi-title">Είδη</div>
       <div class="kpi-value" id="mItems">0</div>
