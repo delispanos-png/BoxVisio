@@ -438,14 +438,35 @@ body.bv-admin-shell .bv-stat-strip.bv-kpi-style .label {
 }
 
 body.bv-admin-shell .content.home {
+  display: block !important;
+  margin-left: 248px !important;
+  width: calc(100% - 248px) !important;
+  min-height: 100vh !important;
+  opacity: 1 !important;
+  visibility: visible !important;
   background: var(--bv-admin-bg) !important;
 }
 
+body.bv-admin-shell.admin-sidebar-collapsed .content.home {
+  margin-left: 0 !important;
+  width: 100% !important;
+}
+
 body.bv-admin-shell .topbar {
+  display: flex !important;
+  opacity: 1 !important;
+  visibility: visible !important;
   min-height: 64px;
   border-bottom: 1px solid var(--bv-admin-border) !important;
   background: var(--topbar-bg) !important;
   box-shadow: none !important;
+}
+
+body.bv-admin-shell .dashboard-shell,
+body.bv-admin-shell .bv-admin-page {
+  display: grid !important;
+  opacity: 1 !important;
+  visibility: visible !important;
 }
 
 body.bv-admin-shell .card,

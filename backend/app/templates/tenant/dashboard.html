@@ -434,10 +434,10 @@
 
 <div class="card border-0 shadow-sm mb-3 content-card">
   <div class="card-header d-flex align-items-center justify-content-between gap-2">
-    <h5 class="mb-0">Συνολική εικόνα εταιρείας</h5>
+    <h5 class="mb-0">{{ tt(request, 'company_overview') }}</h5>
     <button id="toggleCompanyOverview" type="button" class="btn btn-sm btn-outline-secondary">
       <i class="fe fe-chevron-up"></i>
-      <span>Απόκρυψη</span>
+      <span>{{ tt(request, 'hide') }}</span>
     </button>
   </div>
   <div id="companyOverviewBody" class="card-body">
@@ -2218,7 +2218,7 @@ window.addEventListener('load', async ()=>{
       overviewIcon.className = collapsed ? 'fe fe-chevron-down' : 'fe fe-chevron-up';
     }
     if(overviewText){
-      overviewText.textContent = collapsed ? 'Εμφάνιση' : 'Απόκρυψη';
+      overviewText.textContent = collapsed ? '{{ tt(request, "show") }}' : '{{ tt(request, "hide") }}';
     }
   };
   const storedCollapsed = localStorage.getItem(overviewKey) === '1';

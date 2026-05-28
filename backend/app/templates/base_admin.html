@@ -6,7 +6,7 @@
   <title>{{ tt(request, title) if title else tt(request, 'app_admin_title') }}</title>
   <link rel="icon" href="/static/brand/boxvisio-mark.svg?v=20260528logo1" type="image/svg+xml">
   <link href="/static/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
-  <link href="/static/css/boxvisio-unified.css?v=20260528saas7" rel="stylesheet">
+  <link href="/static/css/boxvisio-unified.css?v=20260528saas8" rel="stylesheet">
   <style>
     :root {
       --shell-bg: #f3f5fb;
@@ -335,8 +335,8 @@
       <div class="admin-image">
         <img class="brand-logo bv-logo-asset" src="/static/brand/boxvisio-logo.svg?v=20260528logo1" alt="BoxVisio">
         <div class="bv-admin-product">
-          <span>Admin Console</span>
-          <strong>Control Center</strong>
+          <span>{{ tt(request, 'admin_console') }}</span>
+          <strong>{{ tt(request, 'control_center') }}</strong>
         </div>
       </div>
       <div class="menu main-sidebar">
@@ -431,10 +431,11 @@
         </div>
         <div class="d-flex align-items-center gap-2">
           {% set _lang = request.cookies.get('lang', 'el') %}
+          {% set _target_lang = 'en' if _lang != 'en' else 'el' %}
           {% set _theme = request.cookies.get('theme', 'light') %}
           <button class="icon-btn" id="themeToggleBtnAdmin" data-theme-toggle title="{{ tt(request, 'theme_toggle') }}" data-theme="{{ _theme }}"><i class="fe {{ 'fe-sun' if _theme == 'dark' else 'fe-moon' }}"></i></button>
           <button class="icon-btn" id="fullscreenToggleBtn" type="button" title="{{ tt(request, 'full_screen') }}"><i class="fe fe-maximize"></i></button>
-          <a class="btn btn-outline-secondary btn-sm bv-lang-btn" href="/set-language/{{ 'en' if _lang != 'en' else 'el' }}?next={{ request.url.path }}">{{ tt(request, 'lang_en') if _lang == 'en' else tt(request, 'lang_el') }}</a>
+          <a class="btn btn-outline-secondary btn-sm bv-lang-btn" href="/set-language/{{ _target_lang }}?next={{ request.url.path }}">{{ tt(request, 'lang_en') if _target_lang == 'en' else tt(request, 'lang_el') }}</a>
           <div class="bv-profile-menu">
             <button class="bv-profile-toggle" type="button" data-profile-toggle>
               <span class="bv-avatar-initial">AD</span>
