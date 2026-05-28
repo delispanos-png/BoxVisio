@@ -1,5 +1,353 @@
 {% extends "base_tenant.html" %}
 
+{% block head_extra %}
+<style>
+  .insights-workspace {
+    display: grid;
+    gap: 18px;
+  }
+  .insights-command {
+    display: grid;
+    grid-template-columns: minmax(0, 1.1fr) minmax(280px, .9fr);
+    gap: 16px;
+    align-items: stretch;
+  }
+  .insights-hero,
+  .insights-flow,
+  .insights-board {
+    border: 1px solid var(--bv-border, #dbe5f1);
+    border-radius: 18px;
+    background:
+      radial-gradient(circle at top right, rgba(59, 130, 246, .08), transparent 34%),
+      #fff;
+    box-shadow: 0 18px 40px rgba(15, 23, 42, .07);
+  }
+  .insights-hero {
+    padding: 24px;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 18px;
+  }
+  .insights-score {
+    width: 112px;
+    height: 112px;
+    border-radius: 28px;
+    display: grid;
+    place-items: center;
+    color: #fff;
+    background: linear-gradient(145deg, #2563eb, #7c3aed);
+    box-shadow: 0 18px 36px rgba(37, 99, 235, .25);
+  }
+  .insights-score strong {
+    display: block;
+    font-size: 2.15rem;
+    line-height: 1;
+    letter-spacing: -.02em;
+  }
+  .insights-score span {
+    display: block;
+    margin-top: 4px;
+    font-size: .68rem;
+    font-weight: 800;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    opacity: .86;
+  }
+  .insights-kicker {
+    color: #2563eb;
+    font-size: .74rem;
+    font-weight: 900;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+  }
+  .insights-hero h2 {
+    margin: 7px 0 8px;
+    color: #0f172a;
+    font-size: clamp(1.35rem, 2vw, 2rem);
+    font-weight: 800;
+    letter-spacing: -.02em;
+  }
+  .insights-hero p {
+    margin: 0;
+    max-width: 78ch;
+    color: #64748b;
+    font-weight: 600;
+    line-height: 1.55;
+  }
+  .insights-stats {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+    margin-top: 18px;
+  }
+  .insights-stat {
+    min-height: 78px;
+    border-radius: 16px;
+    padding: 12px;
+    border: 1px solid #e2e8f0;
+    background: #f8fafc;
+  }
+  .insights-stat span {
+    display: block;
+    color: #64748b;
+    font-size: .72rem;
+    font-weight: 900;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+  }
+  .insights-stat strong {
+    display: block;
+    margin-top: 6px;
+    color: #0f172a;
+    font-size: 1.8rem;
+    line-height: 1;
+  }
+  .insights-flow {
+    padding: 18px;
+  }
+  .insights-flow h3 {
+    margin: 0 0 14px;
+    color: #0f172a;
+    font-size: .95rem;
+    font-weight: 900;
+  }
+  .insights-step {
+    display: grid;
+    grid-template-columns: 34px minmax(0, 1fr);
+    gap: 10px;
+    padding: 12px 0;
+    border-top: 1px solid #edf2f7;
+  }
+  .insights-step:first-of-type {
+    border-top: 0;
+    padding-top: 0;
+  }
+  .insights-step-index {
+    width: 34px;
+    height: 34px;
+    border-radius: 12px;
+    display: grid;
+    place-items: center;
+    background: #eff6ff;
+    color: #2563eb;
+    font-weight: 900;
+  }
+  .insights-step strong {
+    display: block;
+    color: #0f172a;
+    font-size: .9rem;
+  }
+  .insights-step span {
+    display: block;
+    margin-top: 2px;
+    color: #64748b;
+    font-size: .8rem;
+    line-height: 1.35;
+  }
+  .insights-board {
+    overflow: hidden;
+  }
+  .insights-board-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 18px 20px;
+    border-bottom: 1px solid #e2e8f0;
+    background: rgba(248, 250, 252, .72);
+  }
+  .insights-board-title {
+    min-width: 0;
+  }
+  .insights-board-title h3 {
+    margin: 0;
+    color: #0f172a;
+    font-size: 1rem;
+    font-weight: 900;
+  }
+  .insights-board-title p {
+    margin: 3px 0 0;
+    color: #64748b;
+    font-size: .82rem;
+    font-weight: 600;
+  }
+  .insights-toolbar {
+    display: grid;
+    grid-template-columns: minmax(240px, 1fr) 150px auto;
+    gap: 10px;
+    align-items: end;
+    padding: 16px 20px;
+    border-bottom: 1px solid #e2e8f0;
+  }
+  .insights-list-shell {
+    padding: 8px 18px 18px;
+  }
+  #insightsTable {
+    border-collapse: separate;
+    border-spacing: 0 10px;
+    margin: 0;
+  }
+  #insightsTable thead th {
+    border: 0;
+    color: #64748b;
+    font-size: .72rem;
+    font-weight: 900;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    background: transparent;
+  }
+  #insightsTable tbody tr {
+    background: #fff;
+    box-shadow: 0 10px 24px rgba(15, 23, 42, .05);
+    transition: transform .16s ease, box-shadow .16s ease;
+  }
+  #insightsTable tbody tr:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 16px 32px rgba(15, 23, 42, .08);
+  }
+  #insightsTable tbody td {
+    vertical-align: middle;
+    border-top: 1px solid #e2e8f0;
+    border-bottom: 1px solid #e2e8f0;
+    padding: 14px 10px;
+    color: #0f172a;
+    font-size: .86rem;
+  }
+  #insightsTable tbody td:first-child {
+    border-left: 1px solid #e2e8f0;
+    border-radius: 16px 0 0 16px;
+  }
+  #insightsTable tbody td:last-child {
+    border-right: 1px solid #e2e8f0;
+    border-radius: 0 16px 16px 0;
+  }
+  .insight-title-cell strong {
+    color: #0f172a;
+    font-size: .95rem;
+  }
+  .insight-title-cell small {
+    display: block;
+    margin-top: 4px;
+    color: #64748b;
+    line-height: 1.35;
+  }
+  .insight-severity-pill,
+  .insight-status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 28px;
+    padding: 5px 10px;
+    border-radius: 999px;
+    font-size: .74rem;
+    font-weight: 900;
+  }
+  .insight-severity-pill::before {
+    content: "";
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+  .insight-severity-pill.is-critical { color: #dc2626; background: #fef2f2; }
+  .insight-severity-pill.is-warning { color: #ca8a04; background: #fefce8; }
+  .insight-severity-pill.is-info { color: #2563eb; background: #eff6ff; }
+  .insight-status-pill {
+    color: #334155;
+    background: #f1f5f9;
+  }
+  .insight-action-stack {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    justify-content: flex-end;
+  }
+  .insight-action-stack .btn {
+    min-height: 34px;
+    border-radius: 11px;
+  }
+  body[data-theme='dark'] .insights-hero,
+  body[data-theme='dark'] .insights-flow,
+  body[data-theme='dark'] .insights-board,
+  body[data-theme='dark'] #insightsTable tbody tr {
+    background: #111827;
+    border-color: #334155;
+  }
+  body[data-theme='dark'] .insights-hero h2,
+  body[data-theme='dark'] .insights-flow h3,
+  body[data-theme='dark'] .insights-step strong,
+  body[data-theme='dark'] .insights-board-title h3,
+  body[data-theme='dark'] .insight-title-cell strong,
+  body[data-theme='dark'] #insightsTable tbody td {
+    color: #e5e7eb;
+  }
+  body[data-theme='dark'] .insights-hero p,
+  body[data-theme='dark'] .insights-step span,
+  body[data-theme='dark'] .insights-board-title p,
+  body[data-theme='dark'] .insight-title-cell small {
+    color: #cbd5e1;
+  }
+  body[data-theme='dark'] .insights-stat,
+  body[data-theme='dark'] .insights-board-head,
+  body[data-theme='dark'] .insights-toolbar {
+    background: #0f172a;
+    border-color: #334155;
+  }
+  body[data-theme='dark'] .insights-stat strong {
+    color: #f8fafc;
+  }
+  body[data-theme='dark'] #insightsTable tbody td {
+    border-color: #334155;
+  }
+  @media (max-width: 1180px) {
+    .insights-command,
+    .insights-toolbar {
+      grid-template-columns: 1fr;
+    }
+    .insights-board-head {
+      align-items: flex-start;
+      flex-direction: column;
+    }
+  }
+  @media (max-width: 760px) {
+    .insights-hero {
+      grid-template-columns: 1fr;
+    }
+    .insights-score {
+      width: 100%;
+      height: 88px;
+      border-radius: 18px;
+    }
+    .insights-stats {
+      grid-template-columns: 1fr;
+    }
+    #insightsTable thead {
+      display: none;
+    }
+    #insightsTable,
+    #insightsTable tbody,
+    #insightsTable tr,
+    #insightsTable td {
+      display: block;
+      width: 100%;
+    }
+    #insightsTable tbody tr {
+      border: 1px solid #e2e8f0;
+      border-radius: 16px;
+      overflow: hidden;
+    }
+    #insightsTable tbody td {
+      border: 0 !important;
+      border-radius: 0 !important;
+      padding: 10px 14px;
+    }
+    .insight-action-stack {
+      justify-content: flex-start;
+    }
+  }
+</style>
+{% endblock %}
+
 {% block filters %}
 <form id="insightFilters" class="row g-2">
   <div class="col-12"><label class="form-label mb-1">{{ tt(request, 'category') }}</label><select class="form-select" name="category"><option value="">{{ tt(request, 'all') }}</option><option value="sales">{{ tt(request, 'sales') }}</option><option value="purchases">{{ tt(request, 'purchases') }}</option><option value="inventory">{{ tt(request, 'inventory') }}</option><option value="cashflow">{{ tt(request, 'cashflow') }}</option><option value="receivables">{{ tt(request, 'receivables') }}</option></select></div>
@@ -10,18 +358,63 @@
   <input type="hidden" name="context_type" value="">
   <div class="col-12 d-grid gap-2">
     <button class="btn btn-primary" type="submit"><i class="fe fe-filter"></i>{{ tt(request, 'apply') }}</button>
-    <button class="btn bv-action-btn bv-action-save" type="button" id="runNowBtn"><i class="fe fe-play"></i>{{ tt(request, 'run_insights_now') }}</button>
   </div>
 </form>
 {% endblock %}
 
 {% block content %}
-<div id="insightsError" class="alert alert-danger d-none"></div>
-<div class="card border-0 shadow-sm">
-  <div class="card-header bg-white"><h5 class="mb-0">{{ tt(request, 'insights') }}</h5></div>
-  <div class="card-body">
-    <div class="row g-2 mb-3 align-items-end">
-      <div class="col-12 col-md-5">
+<div class="insights-workspace">
+  <div id="insightsError" class="alert alert-danger d-none"></div>
+
+  <section class="insights-command" aria-label="Insights command center">
+    <div class="insights-hero">
+      <div class="insights-score">
+        <div>
+          <strong id="insightsOpenTotal">0</strong>
+          <span>Open</span>
+        </div>
+      </div>
+      <div>
+        <div class="insights-kicker">AI Business Advisor</div>
+        <h2>Κέντρο αποφάσεων και ενεργειών</h2>
+        <p>
+          Εδώ βλέπεις τι χρειάζεται προσοχή, γιατί εμφανίστηκε, ποιο κύκλωμα επηρεάζει και ποια ενέργεια πρέπει να γίνει.
+          Χρησιμοποίησε τα φίλτρα αριστερά για να περιορίσεις το scope και τα κουμπιά κάθε γραμμής για drilldown, ανάλυση και αναγνώριση.
+        </p>
+        <div class="insights-stats">
+          <div class="insights-stat"><span>{{ tt(request, 'critical') }}</span><strong id="insightsCriticalCount">0</strong></div>
+          <div class="insights-stat"><span>{{ tt(request, 'warning') }}</span><strong id="insightsWarningCount">0</strong></div>
+          <div class="insights-stat"><span>{{ tt(request, 'acknowledged') }}</span><strong id="insightsAckCount">0</strong></div>
+        </div>
+      </div>
+    </div>
+    <aside class="insights-flow">
+      <h3>Πώς το δουλεύεις</h3>
+      <div class="insights-step">
+        <div class="insights-step-index">1</div>
+        <div><strong>Διάλεξε scope</strong><span>Κατηγορία, σοβαρότητα, status και ημερομηνίες.</span></div>
+      </div>
+      <div class="insights-step">
+        <div class="insights-step-index">2</div>
+        <div><strong>Δες το γιατί</strong><span>Το WHY εξηγεί τον κανόνα/σήμα που άναψε το insight.</span></div>
+      </div>
+      <div class="insights-step">
+        <div class="insights-step-index">3</div>
+        <div><strong>Κάνε ενέργεια</strong><span>Πήγαινε στο αντίστοιχο κύκλωμα ή αναγνώρισε ότι το είδες.</span></div>
+      </div>
+    </aside>
+  </section>
+
+  <section class="insights-board">
+    <div class="insights-board-head">
+      <div class="insights-board-title">
+        <h3>{{ tt(request, 'insights') }}</h3>
+        <p>Actionable λίστα επιχειρησιακών σημάτων με προτεραιότητα και άμεσο drilldown.</p>
+      </div>
+      <button class="btn bv-action-btn bv-action-save" type="button" id="runNowBtn"><i class="fe fe-play"></i>{{ tt(request, 'run_insights_now') }}</button>
+    </div>
+    <div class="insights-toolbar">
+      <div>
         <label class="form-label mb-1">Ταξινόμηση</label>
         <select id="insightsSort" class="form-select">
           <option value="created_desc">Ημερομηνία (νεότερα)</option>
@@ -32,7 +425,7 @@
           <option value="value_asc">Μετρική (μικρότερη)</option>
         </select>
       </div>
-      <div class="col-6 col-md-3">
+      <div>
         <label class="form-label mb-1">Ανά σελίδα</label>
         <select id="insightsPageSize" class="form-select">
           <option value="10">10</option>
@@ -41,60 +434,24 @@
           <option value="100">100</option>
         </select>
       </div>
-      <div class="col-6 col-md-4 text-md-end">
+      <div class="text-md-end">
         <small id="insightsInfo" class="text-muted"></small>
       </div>
     </div>
-    <div class="table-responsive">
-      <table class="table table-hover bv-unified-table" id="insightsTable">
-        <thead><tr><th>{{ tt(request, 'when') }}</th><th>{{ tt(request, 'category') }}</th><th>{{ tt(request, 'severity') }}</th><th>{{ tt(request, 'title') }}</th><th>{{ tt(request, 'entity') }}</th><th>{{ tt(request, 'status') }}</th><th>{{ tt(request, 'drilldown') }}</th><th>{{ tt(request, 'actions') }}</th></tr></thead>
+    <div class="insights-list-shell table-responsive">
+      <table class="table bv-unified-table" id="insightsTable">
+        <thead><tr><th>{{ tt(request, 'when') }}</th><th>{{ tt(request, 'severity') }}</th><th>{{ tt(request, 'title') }}</th><th>{{ tt(request, 'entity') }}</th><th>{{ tt(request, 'category') }}</th><th>{{ tt(request, 'status') }}</th><th>{{ tt(request, 'actions') }}</th></tr></thead>
         <tbody>
-          {% for r in (initial_insights or []) %}
-          {% set drill = '/tenant/sales' %}
-          {% if r.category == 'purchases' %}{% set drill = '/tenant/purchases' %}{% endif %}
-          {% if r.category == 'inventory' %}{% set drill = '/tenant/inventory' %}{% endif %}
-          {% if r.category == 'cashflow' %}{% set drill = '/tenant/cashflow' %}{% endif %}
-          {% if r.category == 'receivables' %}{% set drill = '/tenant/customers' %}{% endif %}
-          {% if r.metadata_json and r.metadata_json.get('drilldown') %}{% set drill = r.metadata_json.get('drilldown') %}{% endif %}
-          <tr>
-            <td>{{ r.created_at or '-' }}</td>
-            <td>{{ r.category or '-' }}</td>
-            <td>
-              {% if (r.severity or '') == 'critical' %}
-              <span class="badge bg-danger">🔴 {{ tt(request, "critical") }}</span>
-              {% elif (r.severity or '') == 'warning' %}
-              <span class="badge bg-warning text-dark">🟡 {{ tt(request, "warning") }}</span>
-              {% else %}
-              <span class="badge bg-info text-dark">🔵 {{ tt(request, "info") }}</span>
-              {% endif %}
-            </td>
-            <td>
-              <div><strong>{{ r.title or '-' }}</strong></div>
-              <div class="text-muted small">{{ r.message or '-' }}</div>
-            </td>
-            <td>{{ r.entity_name or r.entity_external_id or '-' }}</td>
-            <td>{{ r.status or '-' }}</td>
-            <td><a class="btn btn-sm bv-action-btn bv-action-edit" href="{{ drill }}"><i class="fe fe-external-link"></i>{{ tt(request, 'view_details') }}</a></td>
-            <td>
-              <button class="btn btn-sm bv-action-btn bv-action-edit me-1" data-detail="{{ r.id }}"><i class="fe fe-eye"></i>{{ tt(request, 'detail') }}</button>
-              {% if (r.status or '') == 'open' %}
-              <button class="btn btn-sm bv-action-btn bv-action-save" data-ack="{{ r.id }}"><i class="fe fe-check-circle"></i>{{ tt(request, 'acknowledge') }}</button>
-              {% endif %}
-            </td>
-          </tr>
-          {% endfor %}
-          {% if not (initial_insights or []) %}
-          <tr><td colspan="8" class="text-muted">Δεν υπάρχουν insights για το τρέχον διάστημα.</td></tr>
-          {% endif %}
+          <tr><td colspan="7" class="text-muted">Φόρτωση insights...</td></tr>
         </tbody>
       </table>
+      <div class="bv-pager bv-pager--center bv-pager-inline mt-3">
+        <button type="button" class="btn btn-sm btn-outline-secondary" id="insightsPrevBtn"><i class="fe fe-chevron-left"></i> Προηγούμενη</button>
+        <span id="insightsPageLabel" class="bv-pager-info">Σελίδα 1 / 1</span>
+        <button type="button" class="btn btn-sm btn-outline-secondary" id="insightsNextBtn">Επόμενη <i class="fe fe-chevron-right"></i></button>
+      </div>
     </div>
-    <div class="bv-pager bv-pager--center bv-pager-inline mt-3">
-      <button type="button" class="btn btn-sm btn-outline-secondary" id="insightsPrevBtn"><i class="fe fe-chevron-left"></i> Προηγούμενη</button>
-      <span id="insightsPageLabel" class="bv-pager-info">Σελίδα 1 / 1</span>
-      <button type="button" class="btn btn-sm btn-outline-secondary" id="insightsNextBtn">Επόμενη <i class="fe fe-chevron-right"></i></button>
-    </div>
-  </div>
+  </section>
 </div>
 
 <div class="modal fade bv-modal bv-modal--responsive bv-modal--md" id="insightDetailModal" tabindex="-1" aria-hidden="true" data-bv-modal="true" data-bv-close-on-backdrop="true">
@@ -219,10 +576,29 @@ function updatePager(totalPages){
   if (prevBtn) prevBtn.disabled = _currentPage <= 1;
   if (nextBtn) nextBtn.disabled = _currentPage >= totalPages;
 }
+function updateInsightSummary(rows){
+  const all = Array.isArray(rows) ? rows : [];
+  const open = all.filter(r => String(r.status || 'open').toLowerCase() === 'open').length;
+  const critical = all.filter(r => String(r.severity || '').toLowerCase() === 'critical').length;
+  const warning = all.filter(r => String(r.severity || '').toLowerCase() === 'warning').length;
+  const ack = all.filter(r => String(r.status || '').toLowerCase() === 'acknowledged').length;
+  const set = (id, value) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = String(value);
+  };
+  set('insightsOpenTotal', open);
+  set('insightsCriticalCount', critical);
+  set('insightsWarningCount', warning);
+  set('insightsAckCount', ack);
+}
 function renderTableRows(rows){
   _insightRows = {};
   const tbody=document.querySelector('#insightsTable tbody');
   tbody.innerHTML='';
+  if (!Array.isArray(rows) || rows.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7" class="text-muted">Δεν υπάρχουν insights για το τρέχον διάστημα.</td></tr>';
+    return;
+  }
   rows.forEach(r=>{
     _insightRows[r.id] = r;
     const tr=document.createElement('tr');
@@ -235,8 +611,17 @@ function renderTableRows(rows){
     if((r.category||'')==='receivables') drill='/tenant/customers';
     if(r.metadata_json && r.metadata_json.drilldown) drill = String(r.metadata_json.drilldown);
     const whyText = `${(r.metadata_json && r.metadata_json.why) ? String(r.metadata_json.why) : '{{ tt(request, "no_explanation_available") }}'}${(r.metadata_json && r.metadata_json.formula) ? ' Formula: ' + String(r.metadata_json.formula) : ''}`;
-    const whyBtn = `<button class="btn btn-sm bv-action-btn bv-action-toggle me-1" data-bs-toggle="popover" data-bs-trigger="focus" title="{{ tt(request, 'why_am_i_seeing_this') }}" data-bs-content="${esc(whyText)}"><i class="fe fe-help-circle"></i>Why</button>`;
-    tr.innerHTML = `<td>${esc(dmyDate(r.created_at||''))}</td><td>${esc(r.category||'')}</td><td>${sevBadge(r.severity)}</td><td><div><strong>${esc(r.title||'')}</strong></div><div class="text-muted small">${esc(r.message||'')}</div></td><td>${esc(entity)}</td><td>${esc(r.status||'')}</td><td><a class="btn btn-sm bv-action-btn bv-action-edit" href="${drill}"><i class="fe fe-external-link"></i>{{ tt(request, 'view_details') }}</a></td><td>${whyBtn}<button class="btn btn-sm bv-action-btn bv-action-edit me-1" data-detail="${esc(r.id)}"><i class="fe fe-eye"></i>{{ tt(request, 'detail') }}</button>${canAck?`<button class="btn btn-sm bv-action-btn bv-action-save" data-ack="${esc(r.id)}"><i class="fe fe-check-circle"></i>{{ tt(request, 'acknowledge') }}</button>`:''}</td>`;
+    const whyBtn = `<button class="btn btn-sm bv-action-btn bv-action-toggle" data-bs-toggle="popover" data-bs-trigger="focus" title="{{ tt(request, 'why_am_i_seeing_this') }}" data-bs-content="${escAttr(whyText)}"><i class="fe fe-help-circle"></i> WHY</button>`;
+    const detailBtn = `<button class="btn btn-sm bv-action-btn bv-action-edit" data-detail="${escAttr(r.id)}"><i class="fe fe-eye"></i>{{ tt(request, 'detail') }}</button>`;
+    const ackBtn = canAck ? `<button class="btn btn-sm bv-action-btn bv-action-save" data-ack="${escAttr(r.id)}"><i class="fe fe-check-circle"></i>{{ tt(request, 'acknowledge') }}</button>` : '';
+    tr.innerHTML = `
+      <td>${esc(dmyDate(r.created_at||''))}</td>
+      <td>${sevBadge(r.severity)}</td>
+      <td class="insight-title-cell"><strong>${esc(r.title||'')}</strong><small>${esc(r.message||'')}</small></td>
+      <td>${esc(entity)}</td>
+      <td>${esc(r.category||'-')}</td>
+      <td><span class="insight-status-pill">${esc(r.status||'-')}</span></td>
+      <td><div class="insight-action-stack"><a class="btn btn-sm bv-action-btn bv-action-edit" href="${escAttr(drill)}"><i class="fe fe-external-link"></i>{{ tt(request, 'view_details') }}</a>${whyBtn}${detailBtn}${ackBtn}</div></td>`;
     tbody.appendChild(tr);
   });
   if (window.bootstrap?.Popover) {
@@ -246,6 +631,7 @@ function renderTableRows(rows){
 function rerenderInsightsTable(){
   const sorted = sortRows(_allRows || []);
   const { pageRows, totalPages, start, total } = paginateRows(sorted);
+  updateInsightSummary(_allRows || []);
   renderTableRows(pageRows);
   updatePager(totalPages);
   const info = document.getElementById('insightsInfo');
@@ -261,11 +647,12 @@ function setError(msg){
 }
 function sevBadge(sev){
   const s=(sev||'info').toLowerCase();
-  if(s==='critical') return '<span class="badge bg-danger">🔴 {{ tt(request, "critical") }}</span>';
-  if(s==='warning') return '<span class="badge bg-warning text-dark">🟡 {{ tt(request, "warning") }}</span>';
-  return '<span class="badge bg-info text-dark">🔵 {{ tt(request, "info") }}</span>';
+  if(s==='critical') return '<span class="insight-severity-pill is-critical">{{ tt(request, "critical") }}</span>';
+  if(s==='warning') return '<span class="insight-severity-pill is-warning">{{ tt(request, "warning") }}</span>';
+  return '<span class="insight-severity-pill is-info">{{ tt(request, "info") }}</span>';
 }
 function esc(v){return String(v??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;');}
+function escAttr(v){return esc(v).replaceAll('"','&quot;').replaceAll("'","&#39;");}
 function fmt(v){
   if(v===null || v===undefined || v==='') return '-';
   const n=Number(v);

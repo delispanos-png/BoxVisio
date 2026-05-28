@@ -135,24 +135,170 @@
     }
     .hero-visual {
       width: min(100%, 420px);
-      aspect-ratio: 4 / 3;
-      display: grid;
-      grid-template-columns: repeat(6, 1fr);
-      gap: 10px;
-      padding: 24px;
+      min-height: 315px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      padding: 18px;
       border: 1px solid rgba(148, 163, 184, .22);
       border-radius: 18px;
-      background: rgba(15, 23, 42, .34);
+      background:
+        radial-gradient(circle at 14% 18%, rgba(34, 211, 238, .18), transparent 30%),
+        linear-gradient(180deg, rgba(15, 23, 42, .56), rgba(15, 23, 42, .3));
       box-shadow: 0 18px 42px rgba(8, 47, 73, .22);
     }
-    .hero-visual span {
-      display: block;
-      border-radius: 8px;
-      background: rgba(125, 211, 252, .18);
-      min-height: 30px;
+    .hero-visual-top {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 12px;
+      align-items: stretch;
     }
-    .hero-visual span:nth-child(3n) { background: rgba(34, 197, 94, .24); }
-    .hero-visual span:nth-child(4n) { background: rgba(59, 130, 246, .28); }
+    .hero-score-card,
+    .hero-pulse-card,
+    .hero-flow-card {
+      border: 1px solid rgba(148, 163, 184, .2);
+      border-radius: 16px;
+      background: rgba(2, 6, 23, .42);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, .04);
+    }
+    .hero-score-card {
+      padding: 16px;
+    }
+    .hero-score-label,
+    .hero-flow-label {
+      color: #93c5fd;
+      font-size: .72rem;
+      font-weight: 800;
+      letter-spacing: .13em;
+      text-transform: uppercase;
+    }
+    .hero-score-value {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      margin-top: 8px;
+      color: #f8fafc;
+      font-size: 2.45rem;
+      line-height: 1;
+      font-weight: 800;
+    }
+    .hero-score-value small {
+      color: #22c55e;
+      font-size: .88rem;
+      font-weight: 800;
+    }
+    .hero-score-caption {
+      margin-top: 8px;
+      color: #cbd5e1;
+      font-size: .86rem;
+    }
+    .hero-pulse-card {
+      width: 112px;
+      display: grid;
+      place-items: center;
+      position: relative;
+      overflow: hidden;
+    }
+    .hero-pulse-ring {
+      width: 72px;
+      aspect-ratio: 1;
+      border-radius: 50%;
+      background:
+        conic-gradient(#22c55e 0 72%, rgba(148, 163, 184, .22) 72% 100%);
+      display: grid;
+      place-items: center;
+      box-shadow: 0 0 28px rgba(34, 197, 94, .2);
+    }
+    .hero-pulse-ring::after {
+      content: "";
+      width: 50px;
+      aspect-ratio: 1;
+      border-radius: 50%;
+      background: #0f172a;
+      box-shadow: inset 0 0 0 1px rgba(148, 163, 184, .16);
+    }
+    .hero-flow-card {
+      padding: 16px;
+    }
+    .hero-flow-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      margin-top: 12px;
+    }
+    .hero-flow-node {
+      min-height: 58px;
+      border-radius: 14px;
+      padding: 10px;
+      background: rgba(15, 23, 42, .72);
+      border: 1px solid rgba(148, 163, 184, .18);
+      position: relative;
+    }
+    .hero-flow-node::before {
+      content: "";
+      display: block;
+      width: 26px;
+      height: 6px;
+      border-radius: 999px;
+      margin-bottom: 11px;
+      background: var(--node-color, #38bdf8);
+      box-shadow: 0 0 16px color-mix(in srgb, var(--node-color, #38bdf8), transparent 45%);
+    }
+    .hero-flow-node span {
+      display: block;
+      color: #dbeafe;
+      font-size: .72rem;
+      font-weight: 800;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+    }
+    .hero-chart-card {
+      display: grid;
+      grid-template-columns: 1.1fr .9fr;
+      gap: 14px;
+      align-items: end;
+    }
+    .hero-bars {
+      height: 92px;
+      display: flex;
+      align-items: end;
+      gap: 8px;
+      padding: 12px;
+      border-radius: 16px;
+      border: 1px solid rgba(148, 163, 184, .16);
+      background: rgba(15, 23, 42, .46);
+    }
+    .hero-bars i {
+      flex: 1;
+      min-width: 12px;
+      border-radius: 999px 999px 4px 4px;
+      background: linear-gradient(180deg, #8b5cf6, #2563eb 55%, #06b6d4);
+      box-shadow: 0 10px 22px rgba(37, 99, 235, .2);
+    }
+    .hero-alert-stack {
+      display: grid;
+      gap: 8px;
+    }
+    .hero-alert {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 9px 10px;
+      border-radius: 12px;
+      background: rgba(15, 23, 42, .62);
+      border: 1px solid rgba(148, 163, 184, .16);
+      color: #e2e8f0;
+      font-size: .78rem;
+      font-weight: 700;
+    }
+    .hero-alert::before {
+      content: "";
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--alert-color, #22c55e);
+      box-shadow: 0 0 14px var(--alert-color, #22c55e);
+    }
     @media (max-width: 980px) {
       .login-shell {
         grid-template-columns: 1fr;
@@ -165,6 +311,16 @@
         padding: 26px 22px 24px;
         border-left: 0;
         border-top: 1px solid var(--line);
+      }
+      .hero-visual {
+        min-height: 0;
+      }
+      .hero-chart-card,
+      .hero-visual-top {
+        grid-template-columns: 1fr;
+      }
+      .hero-pulse-card {
+        display: none;
       }
     }
     .bottom-meta {
@@ -277,7 +433,7 @@
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
       </svg>
-      {{ tt(request, 'lang_en') if _lang == 'en' else tt(request, 'lang_el') }}
+      {{ tt(request, 'lang_en') if _lang != 'en' else tt(request, 'lang_el') }}
     </a>
   </div>
   <div class="login-wrapper">
@@ -293,9 +449,39 @@
         </div>
         <div style="display:flex;align-items:center;justify-content:center;flex:1;padding:12px 0 0;">
           <div class="hero-visual" aria-hidden="true">
-            <span></span><span></span><span></span><span></span><span></span><span></span>
-            <span></span><span></span><span></span><span></span><span></span><span></span>
-            <span></span><span></span><span></span><span></span><span></span><span></span>
+            <div class="hero-visual-top">
+              <div class="hero-score-card">
+                <div class="hero-score-label">Business Health</div>
+                <div class="hero-score-value">86<small>Live</small></div>
+                <div class="hero-score-caption">AI αξιολόγηση από πωλήσεις, απόθεμα, cashflow και alerts.</div>
+              </div>
+              <div class="hero-pulse-card">
+                <div class="hero-pulse-ring"></div>
+              </div>
+            </div>
+            <div class="hero-flow-card">
+              <div class="hero-flow-label">Operational Streams</div>
+              <div class="hero-flow-grid">
+                <div class="hero-flow-node" style="--node-color:#38bdf8"><span>Sales</span></div>
+                <div class="hero-flow-node" style="--node-color:#8b5cf6"><span>Stock</span></div>
+                <div class="hero-flow-node" style="--node-color:#22c55e"><span>Cash</span></div>
+              </div>
+            </div>
+            <div class="hero-chart-card">
+              <div class="hero-bars">
+                <i style="height:42%"></i>
+                <i style="height:68%"></i>
+                <i style="height:52%"></i>
+                <i style="height:84%"></i>
+                <i style="height:74%"></i>
+                <i style="height:92%"></i>
+              </div>
+              <div class="hero-alert-stack">
+                <div class="hero-alert" style="--alert-color:#22c55e">Healthy margin</div>
+                <div class="hero-alert" style="--alert-color:#f59e0b">Stock watch</div>
+                <div class="hero-alert" style="--alert-color:#3b82f6">Next action</div>
+              </div>
+            </div>
           </div>
         </div>
       </div>

@@ -8,6 +8,7 @@
   <link href="/static/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
   <link href="/static/css/boxvisio-unified.css?v=20260528saas10" rel="stylesheet">
   <script src="/static/js/bv-unified-ui.js?v=20260513multi"></script>
+  {% block head_extra %}{% endblock %}
 </head>
 <body class="bv-shell tenant-shell" data-theme="{{ request.cookies.get('theme', 'light') }}">
   <div class="overlay"></div>
