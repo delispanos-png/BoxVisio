@@ -6,7 +6,7 @@
   <title>{{ tt(request, title) if title else tt(request, 'app_tenant_title') }}</title>
   <link rel="icon" href="/static/docs/streams/sales-documents.svg" type="image/svg+xml">
   <link href="/static/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
-  <link href="/static/css/boxvisio-unified.css?v=20260528nolegacy3" rel="stylesheet">
+  <link href="/static/css/boxvisio-unified.css?v=20260528premium1" rel="stylesheet">
   <script src="/static/js/bv-unified-ui.js?v=20260513multi"></script>
 </head>
 <body class="bv-shell tenant-shell" data-theme="{{ request.cookies.get('theme', 'light') }}">
@@ -86,7 +86,10 @@
   </script>
   <section>
     <aside id="leftsidebar" class="sidebar left-sidebar">
-      <div class="admin-image"><span class="brand-logo bv-logo-wordmark" aria-label="BoxVisio BI">BoxVisio</span></div>
+      <div class="admin-image">
+        <span class="brand-logo bv-logo-wordmark" aria-label="BoxVisio BI">BoxVisio</span>
+        <span class="bv-brand-meta">Command Center · 2026</span>
+      </div>
       <div class="text-center">
         <button id="sidebarExpandMiniBtn" class="tenant-mini-expand" type="button" title="Άνοιγμα μενού">
           <i class="fe fe-menu"></i>
@@ -494,10 +497,14 @@
   <section class="content home">
     <div class="container-fluid p-0">
       <div class="topbar d-flex align-items-center justify-content-between px-3">
-        <div class="d-flex align-items-center gap-3 flex-grow-1">
+        <div class="d-flex align-items-center gap-3 flex-grow-1 min-w-0">
           <button class="icon-btn" id="sidebarToggleBtn" type="button" title="{{ tt(request, 'toggle_filters') }}">
             <i class="fe fe-menu"></i>
           </button>
+          <div class="bv-topbar-context">
+            <span class="bv-topbar-kicker">Live Business Intelligence</span>
+            <span class="bv-topbar-title">{{ tt(request, title) if title else tt(request, 'app_tenant_title') }}</span>
+          </div>
         </div>
         <div class="d-flex align-items-center gap-2">
           {% set _lang = request.cookies.get('lang', 'el') %}
