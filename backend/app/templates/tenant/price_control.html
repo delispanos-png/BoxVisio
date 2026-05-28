@@ -90,6 +90,141 @@
 
 {% block content %}
 <style>
+  .pc-workspace {
+    display: grid;
+    gap: 18px;
+  }
+
+  .pc-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 14px;
+  }
+
+  .pc-metric-card {
+    min-height: 132px;
+    border: 1px solid var(--panel-border, #dbe5f1);
+    border-radius: 16px;
+    padding: 18px;
+    background:
+      radial-gradient(circle at top right, color-mix(in srgb, var(--pc-color, #3b82f6) 13%, transparent), transparent 42%),
+      var(--panel-bg, #fff);
+    box-shadow: 0 16px 34px rgba(15, 23, 42, .07);
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 14px;
+    border-left: 4px solid var(--pc-color, #3b82f6);
+    transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease;
+  }
+
+  .pc-metric-card[role="button"] {
+    cursor: pointer;
+  }
+
+  .pc-metric-card[role="button"]:hover,
+  .pc-metric-card[role="button"]:focus-visible {
+    transform: translateY(-2px);
+    border-color: color-mix(in srgb, var(--pc-color, #3b82f6) 34%, var(--panel-border, #dbe5f1));
+    box-shadow: 0 22px 42px rgba(15, 23, 42, .1);
+    outline: none;
+  }
+
+  .pc-metric-icon {
+    width: 46px;
+    height: 46px;
+    border-radius: 14px;
+    display: grid;
+    place-items: center;
+    color: var(--pc-color, #3b82f6);
+    background: color-mix(in srgb, var(--pc-color, #3b82f6) 13%, #fff);
+    border: 1px solid color-mix(in srgb, var(--pc-color, #3b82f6) 24%, #dbe5f1);
+    box-shadow: 0 14px 24px color-mix(in srgb, var(--pc-color, #3b82f6) 16%, transparent);
+  }
+
+  .pc-metric-icon i {
+    font-size: 1.15rem;
+  }
+
+  .pc-metric-body {
+    min-width: 0;
+    text-align: center;
+  }
+
+  .pc-metric-label {
+    color: #64748b;
+    font-size: .76rem;
+    font-weight: 900;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+  }
+
+  .pc-metric-value {
+    margin-top: 8px;
+    color: #0f172a;
+    font-size: clamp(1.45rem, 2.1vw, 2rem);
+    line-height: 1;
+    font-weight: 850;
+    letter-spacing: -.02em;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .pc-metric-caption {
+    margin-top: 8px;
+    color: #64748b;
+    font-size: .78rem;
+    font-weight: 700;
+    line-height: 1.25;
+  }
+
+  .pc-board {
+    border: 1px solid var(--panel-border, #dbe5f1);
+    border-radius: 18px;
+    background: var(--panel-bg, #fff);
+    box-shadow: 0 18px 40px rgba(15, 23, 42, .07);
+    overflow: hidden;
+  }
+
+  .pc-board-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 18px 20px;
+    border-bottom: 1px solid var(--panel-border, #dbe5f1);
+    background:
+      radial-gradient(circle at top right, rgba(37, 99, 235, .08), transparent 34%),
+      color-mix(in srgb, var(--panel-bg, #fff) 90%, #f8fafc);
+  }
+
+  .pc-board-title h5 {
+    margin: 0;
+    color: #0f172a;
+    font-size: 1.05rem;
+    font-weight: 900;
+  }
+
+  .pc-board-title p {
+    margin: 4px 0 0;
+    color: #64748b;
+    font-size: .82rem;
+    font-weight: 650;
+  }
+
+  .pc-board-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 36px;
+    padding: 7px 12px;
+    border-radius: 999px;
+    color: #2563eb;
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    font-size: .78rem;
+    font-weight: 900;
+  }
+
   body.tenant-shell #pcTable {
     width: max-content;
     min-width: 3000px;
@@ -97,26 +232,45 @@
   }
 
   body.tenant-shell .pc-table-wrap {
-    max-height: calc(100vh - 230px);
+    max-height: calc(100vh - 250px);
     overflow: auto !important;
     position: relative;
+    padding: 10px 18px 18px;
   }
 
   body.tenant-shell #pcTable thead th,
   body.tenant-shell #pcTable tbody td {
-    padding: 16px 24px !important;
-    line-height: 1.55;
+    padding: 14px 18px !important;
+    line-height: 1.45;
   }
 
   body.tenant-shell #pcTable thead th {
     position: sticky;
     top: 0;
     z-index: 8;
-    background: color-mix(in srgb, var(--panel-bg) 96%, #ffffff) !important;
+    background: #f8fafc !important;
     box-shadow: 0 2px 0 var(--panel-border);
     white-space: normal !important;
     line-height: 1.25;
     vertical-align: middle;
+    color: #64748b;
+    font-size: .72rem;
+    font-weight: 900;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+  }
+
+  body.tenant-shell #pcTable tbody tr {
+    transition: background .14s ease;
+  }
+
+  body.tenant-shell #pcTable tbody tr:hover {
+    background: #f8fafc;
+  }
+
+  body.tenant-shell #pcTable tbody td {
+    border-color: #e5edf6;
+    color: #0f172a;
   }
 
   body.tenant-shell #pcTable th:nth-child(1),
@@ -164,49 +318,109 @@
     font-size: .76rem;
     line-height: 1.2;
   }
+
+  body[data-theme='dark'] .pc-metric-card,
+  body[data-theme='dark'] .pc-board {
+    background: #111827;
+    border-color: #334155;
+  }
+
+  body[data-theme='dark'] .pc-board-head,
+  body[data-theme='dark'] #pcTable thead th {
+    background: #0f172a !important;
+    border-color: #334155;
+  }
+
+  body[data-theme='dark'] .pc-metric-value,
+  body[data-theme='dark'] .pc-board-title h5,
+  body[data-theme='dark'] #pcTable tbody td {
+    color: #e5e7eb;
+  }
+
+  body[data-theme='dark'] .pc-metric-label,
+  body[data-theme='dark'] .pc-metric-caption,
+  body[data-theme='dark'] .pc-board-title p {
+    color: #cbd5e1;
+  }
+
+  @media (max-width: 1280px) {
+    .pc-summary-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  @media (max-width: 700px) {
+    .pc-summary-grid {
+      grid-template-columns: 1fr;
+    }
+    .pc-metric-card {
+      min-height: 112px;
+    }
+    .pc-board-head {
+      align-items: flex-start;
+      flex-direction: column;
+    }
+  }
 </style>
 <div id="pcError" class="alert alert-danger d-none mb-3"></div>
 
-<div class="row g-3 mb-3">
-  <div class="col-md-6 col-xl">
-    <div class="bv-kpi-box bv-kpi-blue" data-kpi-what="Πόσοι κωδικοί ειδών συμμετέχουν στον έλεγχο τιμών με τα τρέχοντα φίλτρα." data-kpi-formula="Item Codes = count(item_code) όλων των ειδών που πέρασαν τα φίλτρα.">
-      <div class="kpi-title">{{ tt(request, 'item_codes') }}</div>
-      <div id="pcItemsCount" class="kpi-value">0</div>
+<div class="pc-workspace">
+  <section class="pc-summary-grid" aria-label="Σύνοψη ελέγχου τιμών">
+    <div class="pc-metric-card" style="--pc-color:#3b82f6" data-kpi-what="Πόσοι κωδικοί ειδών συμμετέχουν στον έλεγχο τιμών με τα τρέχοντα φίλτρα." data-kpi-formula="Item Codes = count(item_code) όλων των ειδών που πέρασαν τα φίλτρα.">
+      <div class="pc-metric-icon"><i class="fe fe-package"></i></div>
+      <div class="pc-metric-body">
+        <div class="pc-metric-label">{{ tt(request, 'item_codes') }}</div>
+        <div id="pcItemsCount" class="pc-metric-value">0</div>
+        <div class="pc-metric-caption">Είδη στο επιλεγμένο scope</div>
+      </div>
     </div>
-  </div>
-  <div class="col-md-6 col-xl">
-    <div class="bv-kpi-box bv-kpi-green" data-kpi-what="Το μέσο πραγματικό περιθώριο των ειδών με βάση την καθαρή λιανική. Η λιανική SoftOne περιλαμβάνει ΦΠΑ, άρα πρώτα αφαιρείται ο ΦΠΑ του είδους." data-kpi-formula="Καθαρή Λιανική = Λιανική με ΦΠΑ / (1 + ΦΠΑ%). Περιθώριο Λιανικής % = ((Καθαρή Λιανική - Τιμή Κτήσης) / Καθαρή Λιανική) * 100. Παράδειγμα: 32,86 με ΦΠΑ 24% = 26,50 καθαρά, άρα με κόστος 13,48 το margin είναι 49,13%.">
-      <div class="kpi-title">Μέσο Περιθώριο Λιανικής</div>
-      <div id="pcAvgMargin" class="kpi-value">0.00%</div>
-    </div>
-  </div>
-  <div class="col-md-6 col-xl">
-    <div class="bv-kpi-box bv-kpi-orange" data-kpi-what="Η μέση πραγματική έκπτωση που εφαρμόζεται στα είδη που βλέπεις." data-kpi-formula="Μέση Έκπτωση % = μέσος όρος του ((τιμή καταλόγου - τελική τιμή) / τιμή καταλόγου) * 100 για όλα τα items του result set.">
-      <div class="kpi-title">{{ tt(request, 'discount_pct') }}</div>
-      <div id="pcEffectiveDiscount" class="kpi-value">0.00%</div>
-    </div>
-  </div>
-  <div class="col-md-6 col-xl">
-    <div class="bv-kpi-box bv-kpi-cyan" role="button" tabindex="0" id="pcAbovePredictedCard" data-price-category="above" data-kpi-what="Πόσα προϊόντα έχουν λιανική με ΦΠΑ πάνω από την τιμή στόχου με ΦΠΑ." data-kpi-formula="Καθαρή Τιμή Στόχου = Τιμή Κτήσης / (1 - Στόχος Περιθωρίου%). Τιμή Στόχου με ΦΠΑ = Καθαρή Τιμή Στόχου * (1 + ΦΠΑ%). Για κόστος 13,48, στόχο 25% και ΦΠΑ 24%: 13,48 / 0,75 * 1,24 = 22,29.">
-      <div class="kpi-icon" title="Ανάλυση ειδών πάνω από την προβλεπόμενη τιμή"><i class="fe fe-arrow-up-circle"></i></div>
-      <div class="kpi-title">Πάνω από Προβλ.</div>
-      <div id="pcAbovePredictedCount" class="kpi-value">0</div>
-    </div>
-  </div>
-  <div class="col-md-6 col-xl">
-    <div class="bv-kpi-box bv-kpi-red" role="button" tabindex="0" id="pcBelowPredictedCard" data-price-category="below" data-kpi-what="Πόσα προϊόντα έχουν λιανική με ΦΠΑ κάτω από την τιμή στόχου με ΦΠΑ." data-kpi-formula="Καθαρή Τιμή Στόχου = Τιμή Κτήσης / (1 - Στόχος Περιθωρίου%). Τιμή Στόχου με ΦΠΑ = Καθαρή Τιμή Στόχου * (1 + ΦΠΑ%). Για κόστος 13,48, στόχο 25% και ΦΠΑ 24%: 13,48 / 0,75 * 1,24 = 22,29.">
-      <div class="kpi-icon" title="Ανάλυση ειδών κάτω από την προβλεπόμενη τιμή"><i class="fe fe-arrow-down-circle"></i></div>
-      <div class="kpi-title">Κάτω από Προβλ.</div>
-      <div id="pcBelowPredictedCount" class="kpi-value">0</div>
-    </div>
-  </div>
-</div>
 
-<div class="card border-0 shadow-sm content-card">
-  <div class="card-header">
-    <h5 class="mb-0">{{ tt(request, 'price_control') }}</h5>
-  </div>
-  <div class="card-body table-responsive pc-table-wrap">
+    <div class="pc-metric-card" style="--pc-color:#22c55e" data-kpi-what="Το μέσο πραγματικό περιθώριο των ειδών με βάση την καθαρή λιανική. Η λιανική SoftOne περιλαμβάνει ΦΠΑ, άρα πρώτα αφαιρείται ο ΦΠΑ του είδους." data-kpi-formula="Καθαρή Λιανική = Λιανική με ΦΠΑ / (1 + ΦΠΑ%). Περιθώριο Λιανικής % = ((Καθαρή Λιανική - Τιμή Κτήσης) / Καθαρή Λιανική) * 100. Παράδειγμα: 32,86 με ΦΠΑ 24% = 26,50 καθαρά, άρα με κόστος 13,48 το margin είναι 49,13%.">
+      <div class="pc-metric-icon"><i class="fe fe-trending-up"></i></div>
+      <div class="pc-metric-body">
+        <div class="pc-metric-label">Μέσο Περιθώριο Λιανικής</div>
+        <div id="pcAvgMargin" class="pc-metric-value">0.00%</div>
+        <div class="pc-metric-caption">Καθαρό περιθώριο μετά ΦΠΑ</div>
+      </div>
+    </div>
+
+    <div class="pc-metric-card" style="--pc-color:#f97316" data-kpi-what="Η μέση πραγματική έκπτωση που εφαρμόζεται στα είδη που βλέπεις." data-kpi-formula="Μέση Έκπτωση % = μέσος όρος του ((τιμή καταλόγου - τελική τιμή) / τιμή καταλόγου) * 100 για όλα τα items του result set.">
+      <div class="pc-metric-icon"><i class="fe fe-percent"></i></div>
+      <div class="pc-metric-body">
+        <div class="pc-metric-label">{{ tt(request, 'discount_pct') }}</div>
+        <div id="pcEffectiveDiscount" class="pc-metric-value">0.00%</div>
+        <div class="pc-metric-caption">Μέση εφαρμοσμένη έκπτωση</div>
+      </div>
+    </div>
+
+    <div class="pc-metric-card" style="--pc-color:#06b6d4" role="button" tabindex="0" id="pcAbovePredictedCard" data-price-category="above" data-kpi-what="Πόσα προϊόντα έχουν λιανική με ΦΠΑ πάνω από την τιμή στόχου με ΦΠΑ." data-kpi-formula="Καθαρή Τιμή Στόχου = Τιμή Κτήσης / (1 - Στόχος Περιθωρίου%). Τιμή Στόχου με ΦΠΑ = Καθαρή Τιμή Στόχου * (1 + ΦΠΑ%). Για κόστος 13,48, στόχο 25% και ΦΠΑ 24%: 13,48 / 0,75 * 1,24 = 22,29.">
+      <div class="pc-metric-icon" title="Ανάλυση ειδών πάνω από την προβλεπόμενη τιμή"><i class="fe fe-arrow-up-circle"></i></div>
+      <div class="pc-metric-body">
+        <div class="pc-metric-label">Πάνω από Προβλ.</div>
+        <div id="pcAbovePredictedCount" class="pc-metric-value">0</div>
+        <div class="pc-metric-caption">Κλικ για ανάλυση ειδών</div>
+      </div>
+    </div>
+
+    <div class="pc-metric-card" style="--pc-color:#ef4444" role="button" tabindex="0" id="pcBelowPredictedCard" data-price-category="below" data-kpi-what="Πόσα προϊόντα έχουν λιανική με ΦΠΑ κάτω από την τιμή στόχου με ΦΠΑ." data-kpi-formula="Καθαρή Τιμή Στόχου = Τιμή Κτήσης / (1 - Στόχος Περιθωρίου%). Τιμή Στόχου με ΦΠΑ = Καθαρή Τιμή Στόχου * (1 + ΦΠΑ%). Για κόστος 13,48, στόχο 25% και ΦΠΑ 24%: 13,48 / 0,75 * 1,24 = 22,29.">
+      <div class="pc-metric-icon" title="Ανάλυση ειδών κάτω από την προβλεπόμενη τιμή"><i class="fe fe-arrow-down-circle"></i></div>
+      <div class="pc-metric-body">
+        <div class="pc-metric-label">Κάτω από Προβλ.</div>
+        <div id="pcBelowPredictedCount" class="pc-metric-value">0</div>
+        <div class="pc-metric-caption">Κλικ για ανάλυση απόκλισης</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="pc-board">
+    <div class="pc-board-head">
+      <div class="pc-board-title">
+        <h5>{{ tt(request, 'price_control') }}</h5>
+        <p>Σύγκριση κόστους, λιανικής και τιμής στόχου με τα ίδια φίλτρα του κυκλώματος.</p>
+      </div>
+      <div class="pc-board-pill"><i class="fe fe-sliders"></i> Live pricing workspace</div>
+    </div>
+    <div class="table-responsive pc-table-wrap">
     <table class="table table-sm table-hover align-middle bv-unified-table" id="pcTable">
       <thead>
         <tr>
@@ -229,8 +443,9 @@
       </thead>
       <tbody></tbody>
     </table>
+    </div>
+  </section>
   </div>
-</div>
 
 <div class="modal fade bv-modal bv-modal--responsive bv-modal--xl" id="pcPriceCategoryModal" tabindex="-1" aria-hidden="true" data-bv-modal="true" data-bv-close-on-backdrop="true">
   <div class="modal-dialog modal-dialog-centered modal-xl">
