@@ -1458,11 +1458,13 @@ function getSalesDocModalController(){
     return salesDocModalCtrl;
   }
   if (window.bootstrap?.Modal) {
-    salesDocModalCtrl = salesDocModalCtrl || window.bootstrap.Modal.getOrCreateInstance(salesDocModalEl, {
-      backdrop: 'static',
-      keyboard: true,
-      focus: true,
-    });
+    const Modal = window.bootstrap.Modal;
+    salesDocModalCtrl = salesDocModalCtrl
+      || (typeof Modal.getOrCreateInstance === 'function'
+        ? Modal.getOrCreateInstance(salesDocModalEl, { backdrop: 'static', keyboard: true, focus: true })
+        : (typeof Modal.getInstance === 'function'
+          ? (Modal.getInstance(salesDocModalEl) || new Modal(salesDocModalEl, { backdrop: 'static', keyboard: true, focus: true }))
+          : new Modal(salesDocModalEl, { backdrop: 'static', keyboard: true, focus: true })));
     return salesDocModalCtrl;
   }
   return null;

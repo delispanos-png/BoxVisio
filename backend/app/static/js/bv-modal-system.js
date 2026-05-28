@@ -53,6 +53,21 @@
     });
   }
 
+  function createBootstrapModal(modalEl, options) {
+    const Modal = window.bootstrap && window.bootstrap.Modal;
+    if (!Modal) return null;
+    if (typeof Modal.getOrCreateInstance === 'function') {
+      return Modal.getOrCreateInstance(modalEl, options);
+    }
+    if (typeof Modal.getInstance === 'function') {
+      return Modal.getInstance(modalEl) || new Modal(modalEl, options);
+    }
+    if (typeof Modal === 'function') {
+      return new Modal(modalEl, options);
+    }
+    return null;
+  }
+
   function lockBodyScroll() {
     if (fallbackOpenCount > 0) {
       fallbackOpenCount += 1;
@@ -119,11 +134,12 @@
       const closeOnBackdrop = this.option('closeOnBackdrop', false);
       const keyboard = this.option('keyboard', true);
       const focusTrap = this.option('focusTrap', true);
-      this.bootstrapInstance = window.bootstrap.Modal.getOrCreateInstance(this.el, {
+      this.bootstrapInstance = createBootstrapModal(this.el, {
         backdrop: closeOnBackdrop ? true : 'static',
         keyboard,
         focus: focusTrap,
       });
+      if (!this.bootstrapInstance) return;
       this.el.addEventListener('show.bs.modal', this.bound.onShow);
       this.el.addEventListener('shown.bs.modal', this.bound.onShown);
       this.el.addEventListener('hidden.bs.modal', this.bound.onHidden);
