@@ -97,7 +97,7 @@ app.state.control_sessionmaker = ControlSessionLocal
 
 @app.api_route('/favicon.ico', methods=['GET', 'HEAD'], include_in_schema=False)
 async def favicon():
-    return RedirectResponse(url='/static/azea/images/favicon.ico', status_code=307)
+    return RedirectResponse(url='/static/docs/streams/sales-documents.svg', status_code=307)
 
 
 @app.exception_handler(RequestValidationError)

@@ -1816,13 +1816,13 @@ body.bv-admin-shell .bv-stat-strip.bv-kpi-style.bv-tone-red {
   background: rgba(49, 86, 211, .04);
 }
 
-body.azea-shell .bv-danger-zone > .card-header {
+body.bv-shell .bv-danger-zone > .card-header {
   background: #fff5f5 !important;
   border-bottom: 1px solid #fecaca !important;
 }
 
-body.azea-shell .bv-danger-delete-btn,
-body.azea-shell .bv-start-backfill-btn {
+body.bv-shell .bv-danger-delete-btn,
+body.bv-shell .bv-start-backfill-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1833,44 +1833,44 @@ body.azea-shell .bv-start-backfill-btn {
   text-shadow: 0 1px 1px rgba(0, 0, 0, .16);
 }
 
-body.azea-shell .bv-danger-delete-btn {
+body.bv-shell .bv-danger-delete-btn {
   min-width: 148px;
   background: #dc2626 !important;
   border-color: #dc2626 !important;
   box-shadow: 0 10px 18px rgba(220, 38, 38, .18);
 }
 
-body.azea-shell .bv-danger-delete-btn:hover,
-body.azea-shell .bv-danger-delete-btn:focus {
+body.bv-shell .bv-danger-delete-btn:hover,
+body.bv-shell .bv-danger-delete-btn:focus {
   background: #b91c1c !important;
   border-color: #b91c1c !important;
 }
 
-body.azea-shell .bv-start-backfill-btn {
+body.bv-shell .bv-start-backfill-btn {
   min-width: 142px;
   background: #16a34a !important;
   border-color: #16a34a !important;
   box-shadow: 0 10px 18px rgba(22, 163, 74, .18);
 }
 
-body.azea-shell .bv-start-backfill-btn:hover,
-body.azea-shell .bv-start-backfill-btn:focus {
+body.bv-shell .bv-start-backfill-btn:hover,
+body.bv-shell .bv-start-backfill-btn:focus {
   background: #15803d !important;
   border-color: #15803d !important;
 }
 
-body.azea-shell .bv-danger-delete-btn:disabled,
-body.azea-shell .bv-danger-delete-btn.disabled,
-body.azea-shell .bv-start-backfill-btn:disabled,
-body.azea-shell .bv-start-backfill-btn.disabled {
+body.bv-shell .bv-danger-delete-btn:disabled,
+body.bv-shell .bv-danger-delete-btn.disabled,
+body.bv-shell .bv-start-backfill-btn:disabled,
+body.bv-shell .bv-start-backfill-btn.disabled {
   opacity: .8 !important;
   text-shadow: none;
   box-shadow: none;
 }
 
-body.azea-shell .bv-danger-delete-btn svg,
-body.azea-shell .bv-start-backfill-btn svg,
-body.azea-shell .bv-start-backfill-btn i {
+body.bv-shell .bv-danger-delete-btn svg,
+body.bv-shell .bv-start-backfill-btn svg,
+body.bv-shell .bv-start-backfill-btn i {
   color: #fff !important;
   stroke: #fff !important;
   flex-shrink: 0;

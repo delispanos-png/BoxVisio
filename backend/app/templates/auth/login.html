@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ tt(request, 'app_login_title') }}</title>
-  <link rel="icon" href="/static/azea/images/favicon.ico" type="image/x-icon">
-  <link href="/static/azea/plugins/bootstrap/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="icon" href="/static/docs/streams/sales-documents.svg" type="image/svg+xml">
+  <link href="/static/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
   <style>
     :root {
       --bg-1: #0ea5b7;
@@ -127,6 +127,43 @@
       color: var(--muted);
       font-size: 0.86rem;
     }
+    .auth-logo-wordmark {
+      display: inline-flex;
+      align-items: center;
+      margin-bottom: 24px;
+      color: var(--text);
+      font-size: 2rem;
+      font-weight: 800;
+      letter-spacing: 0;
+    }
+    .auth-logo-wordmark::before {
+      content: '';
+      width: 42px;
+      height: 42px;
+      margin-right: 12px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, #2563eb 0%, #22c55e 100%);
+    }
+    .hero-visual {
+      width: min(100%, 420px);
+      aspect-ratio: 4 / 3;
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 10px;
+      padding: 24px;
+      border: 1px solid rgba(148, 163, 184, .22);
+      border-radius: 18px;
+      background: rgba(15, 23, 42, .34);
+      box-shadow: 0 18px 42px rgba(8, 47, 73, .22);
+    }
+    .hero-visual span {
+      display: block;
+      border-radius: 8px;
+      background: rgba(125, 211, 252, .18);
+      min-height: 30px;
+    }
+    .hero-visual span:nth-child(3n) { background: rgba(34, 197, 94, .24); }
+    .hero-visual span:nth-child(4n) { background: rgba(59, 130, 246, .28); }
     @media (max-width: 980px) {
       .login-shell {
         grid-template-columns: 1fr;
@@ -266,12 +303,15 @@
           </p>
         </div>
         <div style="display:flex;align-items:center;justify-content:center;flex:1;padding:12px 0 0;">
-          <img src="/static/azea/images/bi-hero-illustration.svg" alt="" draggable="false"
-               style="width:100%;max-width:420px;height:auto;opacity:0.92;filter:drop-shadow(0 8px 24px rgba(56,189,248,0.18));">
+          <div class="hero-visual" aria-hidden="true">
+            <span></span><span></span><span></span><span></span><span></span><span></span>
+            <span></span><span></span><span></span><span></span><span></span><span></span>
+            <span></span><span></span><span></span><span></span><span></span><span></span>
+          </div>
         </div>
       </div>
       <div class="form-pane">
-        <img src="/static/azea/images/boxvisio-logo.svg" alt="BoxVisio BI" style="height:80px;width:auto;max-width:100%;margin-bottom:24px;" draggable="false">
+        <div class="auth-logo-wordmark" aria-label="BoxVisio BI">BoxVisio</div>
         <h2>{{ tt(request, 'sign_in') }}</h2>
         {% if error %}
         <div class="alert alert-danger">{{ error }}</div>
@@ -304,7 +344,6 @@
       <span>{{ tt(request, 'powered_by') }}</span>
     </div>
   </div>
-  <script src="/static/azea/js/boxvisio-ui.js"></script>
   <script>
     (function () {
       const btn = document.getElementById('loginThemeToggle');

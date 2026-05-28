@@ -4,22 +4,19 @@ Date: 2026-05-13
 
 ## Summary
 
-The UI currently works, but the styling layer has collision risk because three systems touch the same components:
+The UI now loads through the BoxVisio unified CSS entrypoint, but visual drift can still happen when page-local overrides touch shared components:
 
-- Azea theme CSS/JS (`backend/app/static/azea/...`)
+- BoxVisio unified entrypoint (`backend/app/static/css/boxvisio-unified.css`)
 - BoxVisio shell overrides (`backend/app/static/css/boxvisio-ui.css`)
 - Tenant inline shell overrides (`backend/app/templates/base_tenant.html`)
 - Unified component overrides (`backend/app/static/css/bv-unified-ui.css`, `bv-modal-system.css`)
 
-This is why small visual bugs can persist: an old theme pseudo-element may still target a newer custom menu structure.
+This is why small visual bugs can persist: generic selectors or page-local overrides may still target newer shared markup.
 
 ## Immediate Sidebar Finding
 
 Problem:
-- Active submenu links inherited old Azea pseudo-elements.
-- Two relevant theme rules were found:
-  - `#main-menu .nav-item.active a:before`
-  - `.sidebar .active.open .active a:after`
+- Active submenu links previously inherited legacy theme pseudo-elements.
 
 Impact:
 - These pseudo-elements render a small marker next to the active submenu icon.
@@ -32,17 +29,17 @@ Fix applied:
 ## High-Risk UI Areas
 
 1. Sidebar/menu
-- Multiple owners: Azea main.css, boxvisio-ui.css, base_tenant inline CSS, custom sidebar JS.
+- Multiple owners: boxvisio-ui.css, tenant-shell.css, base_tenant inline CSS, custom sidebar JS.
 - Risk: active/hover/collapsed/mobile rules override each other.
-- Recommendation: move all tenant sidebar rules into one dedicated file, e.g. `tenant-sidebar.css`, loaded after Azea and before page styles.
+- Recommendation: keep tenant sidebar rules inside the unified CSS stack and reduce page-local shell styling.
 
 2. Modals
-- Multiple owners: Bootstrap, Azea, `bv-modal-system.css`, `bv-unified-ui.css`, page-local modal CSS.
+- Multiple owners: Bootstrap, `bv-modal-system.css`, `bv-unified-ui.css`, page-local modal CSS.
 - Risk: z-index, scroll height, close buttons, responsive widths can drift.
 - Recommendation: keep all modal shell behavior in `bv-modal-system.css`; page templates should style only modal content.
 
 3. Tables and active rows
-- Multiple owners: Azea table CSS, boxvisio-ui.css, bv-unified-ui.css, page-local table CSS.
+- Multiple owners: boxvisio-ui.css, bv-unified-ui.css, page-local table CSS.
 - Risk: row selection colors and hover states become inconsistent across sales/purchases/warehouse/customer modals.
 - Recommendation: use one `.bv-unified-table` contract for selectable rows and remove page-level active row color overrides gradually.
 
@@ -52,7 +49,7 @@ Fix applied:
 - Recommendation: extract shared multi-select JS/CSS into one reusable component.
 
 5. Pseudo-elements
-- Multiple `::before` / `::after` rules exist in old theme and new components.
+- Multiple `::before` / `::after` rules exist in shared and page-local components.
 - Risk: decorative markers appear on new markup unexpectedly.
 - Recommendation: new tenant components should use `body.tenant-shell` scoped selectors and avoid generic theme class names like `.active.open .active a`.
 

@@ -4,14 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ tt(request, title) if title else tt(request, 'app_admin_title') }}</title>
-  <link rel="icon" href="/static/azea/images/favicon.ico" type="image/x-icon">
-  <link href="/static/azea/plugins/bootstrap/css/bootstrap.min.css" rel="stylesheet">
-  <link href="/static/azea/plugins/iconfonts/icons.css" rel="stylesheet">
-  <link href="/static/azea/css/main.css" rel="stylesheet">
-  <link href="/static/azea/css/themes/all-themes.css" rel="stylesheet">
-  <link href="/static/css/boxvisio-ui.css?v=20260407a" rel="stylesheet">
-  <link href="/static/css/bv-unified-ui.css?v=20260308a" rel="stylesheet">
-  <link href="/static/css/admin-redesign.css?v=20260522menu1" rel="stylesheet">
+  <link rel="icon" href="/static/docs/streams/sales-documents.svg" type="image/svg+xml">
+  <link href="/static/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
+  <link href="/static/css/boxvisio-unified.css?v=20260528nolegacy1" rel="stylesheet">
   <style>
     :root {
       --shell-bg: #f3f5fb;
@@ -285,29 +280,29 @@
       border-color: #334155;
       color: #cbd5e1;
     }
-    .azea-shell .left-sidebar,
-    .azea-shell #leftsidebar.sidebar,
-    .azea-shell .main-sidebar {
+    .bv-shell .left-sidebar,
+    .bv-shell #leftsidebar.sidebar,
+    .bv-shell .main-sidebar {
       background: var(--panel-bg) !important;
     }
-    .azea-shell .main-sidebar .list .nav-item .nav-link,
-    .azea-shell .main-sidebar .list .nav-item .nav-link .sidemenu-label,
-    .azea-shell .main-sidebar .list .nav-item .nav-link .sidemenu-icon {
+    .bv-shell .main-sidebar .list .nav-item .nav-link,
+    .bv-shell .main-sidebar .list .nav-item .nav-link .sidemenu-label,
+    .bv-shell .main-sidebar .list .nav-item .nav-link .sidemenu-icon {
       color: var(--menu-text) !important;
     }
-    body[data-theme='dark'].azea-shell .left-sidebar,
-    body[data-theme='dark'].azea-shell #leftsidebar.sidebar,
-    body[data-theme='dark'].azea-shell .main-sidebar {
+    body[data-theme='dark'].bv-shell .left-sidebar,
+    body[data-theme='dark'].bv-shell #leftsidebar.sidebar,
+    body[data-theme='dark'].bv-shell .main-sidebar {
       background: #0f172a !important;
       border-color: #334155 !important;
     }
-    body[data-theme='dark'].azea-shell .main-sidebar .list .nav-item .nav-link,
-    body[data-theme='dark'].azea-shell .main-sidebar .list .nav-item .nav-link .sidemenu-label,
-    body[data-theme='dark'].azea-shell .main-sidebar .list .nav-item .nav-link .sidemenu-icon {
+    body[data-theme='dark'].bv-shell .main-sidebar .list .nav-item .nav-link,
+    body[data-theme='dark'].bv-shell .main-sidebar .list .nav-item .nav-link .sidemenu-label,
+    body[data-theme='dark'].bv-shell .main-sidebar .list .nav-item .nav-link .sidemenu-icon {
       color: #e2e8f0 !important;
     }
-    body[data-theme='dark'].azea-shell .main-sidebar .list .nav-item.active .nav-link,
-    body[data-theme='dark'].azea-shell .main-sidebar .list .nav-item .nav-link:hover {
+    body[data-theme='dark'].bv-shell .main-sidebar .list .nav-item.active .nav-link,
+    body[data-theme='dark'].bv-shell .main-sidebar .list .nav-item .nav-link:hover {
       background: #1e293b !important;
       color: #ffffff !important;
     }
@@ -332,13 +327,13 @@
     }
   </style>
 </head>
-<body class="azea-shell bv-admin-shell" data-theme="{{ request.cookies.get('theme', 'light') }}" data-active-page="{{ active_page or '' }}">
+<body class="bv-shell bv-admin-shell" data-theme="{{ request.cookies.get('theme', 'light') }}" data-active-page="{{ active_page or '' }}">
   <div class="overlay"></div>
   <div class="sidebar-overlay" data-toggle="sidebar"></div>
   <section>
     <aside id="leftsidebar" class="sidebar left-sidebar">
       <div class="admin-image">
-        <img class="brand-logo" src="/static/azea/images/boxvisio-logo.svg" alt="BoxVisio logo">
+        <span class="brand-logo bv-logo-wordmark" aria-label="BoxVisio BI">BoxVisio</span>
         <div class="bv-admin-product">
           <span>Admin Console</span>
           <strong>Control Center</strong>
@@ -502,12 +497,8 @@
     </div>
   </section>
 
-  <script src="/static/azea/bundles/libscripts.bundle.js"></script>
-  <script src="/static/azea/bundles/vendorscripts.bundle.js"></script>
-  <script src="/static/azea/bundles/mainscripts.bundle.js"></script>
+  <script src="/static/vendor/bootstrap/js/bootstrap.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <script src="/static/azea/js/custom.js"></script>
-  <script src="/static/azea/js/boxvisio-ui.js"></script>
   <script src="/static/js/bv-unified-ui.js?v=20260308a"></script>
   <script>
     function getCookie(name) {

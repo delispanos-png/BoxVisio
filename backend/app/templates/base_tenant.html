@@ -4,18 +4,12 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ tt(request, title) if title else tt(request, 'app_tenant_title') }}</title>
-  <link rel="icon" href="/static/azea/images/favicon.ico" type="image/x-icon">
-  <link href="/static/azea/plugins/bootstrap/css/bootstrap.min.css" rel="stylesheet">
-  <link href="/static/azea/plugins/iconfonts/icons.css" rel="stylesheet">
-  <link href="/static/azea/css/main.css" rel="stylesheet">
-  <link href="/static/azea/css/themes/all-themes.css" rel="stylesheet">
-  <link href="/static/css/boxvisio-ui.css?v=20260417a" rel="stylesheet">
-  <link href="/static/css/bv-modal-system.css?v=20260520qa1" rel="stylesheet">
-  <link href="/static/css/bv-unified-ui.css?v=20260514mobile4" rel="stylesheet">
-  <link href="/static/css/tenant-shell.css?v=20260520qa1" rel="stylesheet">
+  <link rel="icon" href="/static/docs/streams/sales-documents.svg" type="image/svg+xml">
+  <link href="/static/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
+  <link href="/static/css/boxvisio-unified.css?v=20260528nolegacy1" rel="stylesheet">
   <script src="/static/js/bv-unified-ui.js?v=20260513multi"></script>
 </head>
-<body class="azea-shell tenant-shell" data-theme="{{ request.cookies.get('theme', 'light') }}">
+<body class="bv-shell tenant-shell" data-theme="{{ request.cookies.get('theme', 'light') }}">
   <div class="overlay"></div>
   <div class="sidebar-overlay" data-toggle="sidebar"></div>
   <div class="bv-sidebar-backdrop" id="bvSidebarBackdrop"></div>
@@ -92,7 +86,7 @@
   </script>
   <section>
     <aside id="leftsidebar" class="sidebar left-sidebar">
-      <div class="admin-image"><img class="brand-logo" src="/static/azea/images/boxvisio-logo.svg" alt="BoxVisio logo"></div>
+      <div class="admin-image"><span class="brand-logo bv-logo-wordmark" aria-label="BoxVisio BI">BoxVisio</span></div>
       <div class="text-center">
         <button id="sidebarExpandMiniBtn" class="tenant-mini-expand" type="button" title="Άνοιγμα μενού">
           <i class="fe fe-menu"></i>
@@ -753,12 +747,8 @@
     </div>
   </section>
 
-  <script src="/static/azea/bundles/libscripts.bundle.js"></script>
-  <script src="/static/azea/bundles/vendorscripts.bundle.js"></script>
-  <script src="/static/azea/bundles/mainscripts.bundle.js"></script>
+  <script src="/static/vendor/bootstrap/js/bootstrap.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <script src="/static/azea/js/custom.js"></script>
-  <script src="/static/azea/js/boxvisio-ui.js"></script>
   <script src="/static/js/bv-modal-system.js?v=20260306c"></script>
   <script src="/static/js/bv-form-wizard.js?v=20260306w"></script>
   <script>

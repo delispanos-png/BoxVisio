@@ -1,5 +1,5 @@
 /* Tenant shell stabilization layer.
-   Loaded after legacy Azea + inline shell rules so tenant UI has one clear owner. */
+   Loaded after unified shell rules so tenant UI has one clear owner. */
 
 body.tenant-shell {
   --shell-bg: #f5f7fb;
