@@ -221,7 +221,7 @@
               <li class="{% if active_page == 'supplier_orders' %}is-active{% endif %} {% if _menu_locked.get('stream_supplier_orders', false) %}opacity-75{% endif %}">
                 <a class="bv-submenu-link" href="/tenant/supplier-orders">
                   <i class="fe fe-clipboard"></i>
-                  <span>Παρ. Προμηθευτών</span>{% if _menu_locked.get('stream_supplier_orders', false) %}<i class="fe fe-lock ms-auto"></i>{% endif %}
+                  <span>{{ tt(request, 'supplier_orders_short') }}</span>{% if _menu_locked.get('stream_supplier_orders', false) %}<i class="fe fe-lock ms-auto"></i>{% endif %}
                 </a>
               </li>
               {% endif %}
@@ -335,17 +335,17 @@
               {% endif %}
               {% if _menu_analytics_pos %}
               <li class="{% if active_page == 'pos' %}is-active{% endif %} {% if _menu_locked.get('analytics_pos', false) %}opacity-75{% endif %}">
-                <a class="bv-submenu-link" href="/tenant/pos"><i class="fe fe-shopping-bag"></i><span>Φυσικό Σημείο</span>{% if _menu_locked.get('analytics_pos', false) %}<i class="fe fe-lock ms-auto"></i>{% endif %}</a>
+                <a class="bv-submenu-link" href="/tenant/pos"><i class="fe fe-shopping-bag"></i><span>{{ tt(request, 'physical_pos') }}</span>{% if _menu_locked.get('analytics_pos', false) %}<i class="fe fe-lock ms-auto"></i>{% endif %}</a>
               </li>
               {% endif %}
               {% if _menu_analytics_call_center %}
               <li class="{% if active_page == 'call_center' %}is-active{% endif %} {% if _menu_locked.get('analytics_call_center', false) %}opacity-75{% endif %}">
-                <a class="bv-submenu-link" href="/tenant/call-center"><i class="fe fe-phone-call"></i><span>Τηλεφωνικό Κέντρο</span>{% if _menu_locked.get('analytics_call_center', false) %}<i class="fe fe-lock ms-auto"></i>{% endif %}</a>
+                <a class="bv-submenu-link" href="/tenant/call-center"><i class="fe fe-phone-call"></i><span>{{ tt(request, 'call_center') }}</span>{% if _menu_locked.get('analytics_call_center', false) %}<i class="fe fe-lock ms-auto"></i>{% endif %}</a>
               </li>
               {% endif %}
               {% if _menu_analytics_eshop %}
               <li class="{% if active_page == 'eshop_analysis' %}is-active{% endif %} {% if _menu_locked.get('analytics_eshop', false) %}opacity-75{% endif %}">
-                <a class="bv-submenu-link" href="/tenant/e-shop-analysis"><i class="fe fe-truck"></i><span>E-Shop analysis</span>{% if _menu_locked.get('analytics_eshop', false) %}<i class="fe fe-lock ms-auto"></i>{% endif %}</a>
+                <a class="bv-submenu-link" href="/tenant/e-shop-analysis"><i class="fe fe-truck"></i><span>{{ tt(request, 'eshop_analysis') }}</span>{% if _menu_locked.get('analytics_eshop', false) %}<i class="fe fe-lock ms-auto"></i>{% endif %}</a>
               </li>
               {% endif %}
               {% if _menu_analytics_sellout %}
@@ -400,12 +400,12 @@
               {% endif %}
               {% if _menu_analytics_price_control %}
               <li class="{% if active_page == 'price_control' %}is-active{% endif %} {% if _menu_locked.get('analytics_price_control', false) %}opacity-75{% endif %}">
-                <a class="bv-submenu-link" href="/tenant/price-control"><i class="fe fe-percent"></i><span>Έλεγχος Τιμών</span>{% if _menu_locked.get('analytics_price_control', false) %}<i class="fe fe-lock ms-auto"></i>{% endif %}</a>
+                <a class="bv-submenu-link" href="/tenant/price-control"><i class="fe fe-percent"></i><span>{{ tt(request, 'price_control') }}</span>{% if _menu_locked.get('analytics_price_control', false) %}<i class="fe fe-lock ms-auto"></i>{% endif %}</a>
               </li>
               {% endif %}
               {% if _menu_analytics_business_advisor %}
               <li class="{% if active_page == 'business_advisor' %}is-active{% endif %} {% if _menu_locked.get('analytics_business_advisor', false) %}opacity-75{% endif %}">
-                <a class="bv-submenu-link" href="/tenant/business-advisor"><i class="fe fe-compass"></i><span>Σύμβουλος Επιχείρησης</span>{% if _menu_locked.get('analytics_business_advisor', false) %}<i class="fe fe-lock ms-auto"></i>{% endif %}</a>
+                <a class="bv-submenu-link" href="/tenant/business-advisor"><i class="fe fe-compass"></i><span>{{ tt(request, 'business_advisor') }}</span>{% if _menu_locked.get('analytics_business_advisor', false) %}<i class="fe fe-lock ms-auto"></i>{% endif %}</a>
               </li>
               {% endif %}
             </ul>
@@ -515,14 +515,14 @@
           <a class="btn btn-outline-secondary btn-sm" href="/set-language/{{ _target_lang }}?next={{ request.url.path }}">{{ tt(request, 'lang_en') if _target_lang == 'en' else tt(request, 'lang_el') }}</a>
           <div
             class="sync-chip"
-            title="{{ tenant_softone_last_sync_title if tenant_softone_last_sync_title is defined else 'Δεν έχει καταγραφεί ακόμη συγχρονισμός' }}"
+            title="{{ tenant_softone_last_sync_title if tenant_softone_last_sync_title is defined else tt(request, 'no_sync_recorded') }}"
             data-last-sync-chip
             data-last-sync-iso="{{ tenant_softone_last_sync_iso if tenant_softone_last_sync_iso is defined and tenant_softone_last_sync_iso else '' }}"
           >
             <i class="fe fe-refresh-cw"></i>
             <div>
               <span class="sync-chip-label">{{ tt(request, 'last_sync') }}</span>
-              <span class="sync-chip-value" data-last-sync-value>{{ tenant_softone_last_sync_display if tenant_softone_last_sync_display is defined else 'Μη διαθέσιμο' }}</span>
+              <span class="sync-chip-value" data-last-sync-value>{{ tenant_softone_last_sync_display if tenant_softone_last_sync_display is defined else tt(request, 'not_available') }}</span>
             </div>
           </div>
           <div class="bv-profile-menu">
@@ -537,7 +537,7 @@
               </div>
               <a class="bv-profile-item" href="/tenant/profile"><i class="fe fe-user"></i> {{ tt(request, 'profile') }}</a>
               {% if request.state.user_role is defined and request.state.user_role == 'tenant_admin' %}
-              <a class="bv-profile-item" href="/tenant/users"><i class="fe fe-user-check"></i> Χρήστες &amp; Άδειες</a>
+              <a class="bv-profile-item" href="/tenant/users"><i class="fe fe-user-check"></i> {{ tt(request, 'users_permissions') }}</a>
               {% endif %}
               <a class="bv-profile-item" href="/tenant/settings"><i class="fe fe-settings"></i> {{ tt(request, 'settings') }}</a>
               <a class="bv-profile-item" href="/tenant/messages"><i class="fe fe-message-circle"></i> {{ tt(request, 'messages') }}</a>
@@ -603,23 +603,23 @@
             {% elif active_page == 'finance_dashboard' %}
             <p class="bv-page-subtitle">{{ 'Receivables, payables and cash flow analysis.' if request.cookies.get('lang', 'el') == 'en' else 'Ανάλυση απαιτήσεων, υποχρεώσεων και ταμειακών ροών.' }}</p>
             {% elif active_page == 'business_advisor' %}
-            <p class="bv-page-subtitle">Συμπυκνωμένη επιχειρησιακή διάγνωση με θετικά σήματα, κινδύνους και προτεινόμενες ενέργειες.</p>
+            <p class="bv-page-subtitle">{{ tt(request, 'page_subtitle_business_advisor') }}</p>
             {% elif active_page in ['sales_documents', 'purchase_documents', 'expense_documents', 'warehouse_documents', 'operating_expenses', 'cashflow'] %}
-            <p class="bv-page-subtitle">Λίστα παραστατικών με ενιαία φίλτρα, αναζήτηση και σελιδοποίηση.</p>
+            <p class="bv-page-subtitle">{{ tt(request, 'page_subtitle_documents') }}</p>
             {% elif active_page == 'supplier_orders' %}
-            <p class="bv-page-subtitle">Παραγγελίες προς προμηθευτές και ανοιχτές ποσότητες πριν την πρόταση FnR.</p>
+            <p class="bv-page-subtitle">{{ tt(request, 'page_subtitle_supplier_orders') }}</p>
             {% elif active_page in ['suppliers', 'customers'] %}
-            <p class="bv-page-subtitle">Υπόλοιπα και ιστορικά στοιχεία με ενιαίο pattern πινάκων.</p>
+            <p class="bv-page-subtitle">{{ tt(request, 'page_subtitle_balances') }}</p>
             {% elif active_page == 'call_center' %}
-            <p class="bv-page-subtitle">3CX KPIs για παραγωγικότητα ομάδων, απαντήσεις, χαμένες κλήσεις και SLA.</p>
+            <p class="bv-page-subtitle">{{ tt(request, 'page_subtitle_call_center') }}</p>
             {% elif active_page in ['sales', 'purchases', 'inventory', 'items', 'replenishment', 'analytics_receivables_payables', 'supplier_targets', 'price_control', 'business_advisor', 'era_exploration_data', 'iqvia', 'exports_sellout', 'pos', 'eshop_analysis'] %}
-            <p class="bv-page-subtitle">Αναλυτικά KPIs, τάσεις και breakdowns σε συνεπή διάταξη.</p>
+            <p class="bv-page-subtitle">{{ tt(request, 'page_subtitle_analytics') }}</p>
             {% elif active_page in ['compare_period', 'compare_branch', 'compare_category'] %}
-            <p class="bv-page-subtitle">Συγκρίσεις περιόδων και διαστάσεων με κοινή παρουσίαση.</p>
+            <p class="bv-page-subtitle">{{ tt(request, 'page_subtitle_comparisons') }}</p>
             {% elif active_page in ['exports_reports', 'exports_csv_excel'] %}
-            <p class="bv-page-subtitle">Εξαγωγές αναφορών και αρχείων σε ενιαίο format.</p>
+            <p class="bv-page-subtitle">{{ tt(request, 'page_subtitle_exports') }}</p>
             {% elif active_page in ['tenant_users', 'tenant_profile', 'tenant_settings', 'tenant_messages', 'user_manual'] %}
-            <p class="bv-page-subtitle">Ρυθμίσεις χρήστη, πρόσβασης και υποστήριξης tenant.</p>
+            <p class="bv-page-subtitle">{{ tt(request, 'page_subtitle_settings') }}</p>
             {% endif %}
             {% if _manual_help_anchor %}
             <div class="mt-2">
@@ -669,15 +669,15 @@
             <div class="modal-body">
               <div class="bv-date-range-layout">
                 <div class="bv-date-presets">
-                  <button type="button" class="btn btn-light btn-sm" data-global-preset="today">Σήμερα</button>
-                  <button type="button" class="btn btn-light btn-sm" data-global-preset="yesterday">Χθες</button>
-                  <button type="button" class="btn btn-light btn-sm" data-global-preset="current_week">Τρέχουσα εβδομάδα</button>
-                  <button type="button" class="btn btn-light btn-sm" data-global-preset="previous_week">Προηγ/νη εβδομάδα</button>
-                  <button type="button" class="btn btn-light btn-sm" data-global-preset="current_month">Τρέχων μήνας</button>
-                  <button type="button" class="btn btn-light btn-sm" data-global-preset="previous_month">Προηγ/νος μήνας</button>
-                  <button type="button" class="btn btn-light btn-sm" data-global-preset="current_year">Τρέχον έτος</button>
-                  <button type="button" class="btn btn-light btn-sm" data-global-preset="previous_year">Προηγούμενο έτος</button>
-                  <button type="button" class="btn btn-light btn-sm" data-global-preset="two_years_ago">Πριν 2 έτη</button>
+                  <button type="button" class="btn btn-light btn-sm" data-global-preset="today">{{ tt(request, 'date_preset_today') }}</button>
+                  <button type="button" class="btn btn-light btn-sm" data-global-preset="yesterday">{{ tt(request, 'date_preset_yesterday') }}</button>
+                  <button type="button" class="btn btn-light btn-sm" data-global-preset="current_week">{{ tt(request, 'date_preset_current_week') }}</button>
+                  <button type="button" class="btn btn-light btn-sm" data-global-preset="previous_week">{{ tt(request, 'date_preset_previous_week') }}</button>
+                  <button type="button" class="btn btn-light btn-sm" data-global-preset="current_month">{{ tt(request, 'date_preset_current_month') }}</button>
+                  <button type="button" class="btn btn-light btn-sm" data-global-preset="previous_month">{{ tt(request, 'date_preset_previous_month') }}</button>
+                  <button type="button" class="btn btn-light btn-sm" data-global-preset="current_year">{{ tt(request, 'date_preset_current_year') }}</button>
+                  <button type="button" class="btn btn-light btn-sm" data-global-preset="previous_year">{{ tt(request, 'date_preset_previous_year') }}</button>
+                  <button type="button" class="btn btn-light btn-sm" data-global-preset="two_years_ago">{{ tt(request, 'date_preset_two_years_ago') }}</button>
                 </div>
                 <div>
                   <div class="row g-2 mb-2">
@@ -718,10 +718,10 @@
                   </div>
                 </div>
               </div>
-              <div class="small text-muted mt-2">Η περίοδος θα εφαρμοστεί στα φίλτρα της τρέχουσας σελίδας. Μετά μπορείς να αλλάξεις μεμονωμένα όποιο πεδίο θέλεις.</div>
+              <div class="small text-muted mt-2">{{ tt(request, 'date_range_help') }}</div>
             </div>
             <div class="modal-footer">
-              <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Κλείσιμο</button>
+              <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">{{ tt(request, 'close') }}</button>
               <button type="button" class="btn btn-primary" id="globalDateApplyBtn">{{ tt(request, 'apply') }}</button>
             </div>
           </div>
@@ -737,11 +737,11 @@
             <div class="modal-body">
               <div id="kpiHelpTitle" class="bv-kpi-help-title">KPI</div>
               <div class="bv-kpi-help-block">
-                <h6 id="kpiHelpWhatLabel">Τι δείχνει</h6>
+                <h6 id="kpiHelpWhatLabel">{{ tt(request, 'kpi_what_label') }}</h6>
                 <p id="kpiHelpWhat">-</p>
               </div>
               <div class="bv-kpi-help-block">
-                <h6 id="kpiHelpFormulaLabel">Υπολογισμός</h6>
+                <h6 id="kpiHelpFormulaLabel">{{ tt(request, 'kpi_formula_label') }}</h6>
                 <p id="kpiHelpFormula">-</p>
               </div>
             </div>
@@ -1333,15 +1333,15 @@
 
     function bvDatePresetDefinitions() {
       return [
-        ['today', 'Σήμερα'],
-        ['yesterday', 'Χθες'],
-        ['current_week', 'Τρέχουσα εβδομάδα'],
-        ['previous_week', 'Προηγούμενη εβδομάδα'],
-        ['current_month', 'Τρέχων μήνας'],
-        ['previous_month', 'Προηγούμενος μήνας'],
-        ['current_year', 'Τρέχον έτος'],
-        ['previous_year', 'Προηγούμενο έτος'],
-        ['two_years_ago', 'Πριν 2 έτη']
+        ['today', '{{ tt(request, "date_preset_today") }}'],
+        ['yesterday', '{{ tt(request, "date_preset_yesterday") }}'],
+        ['current_week', '{{ tt(request, "date_preset_current_week") }}'],
+        ['previous_week', '{{ tt(request, "date_preset_previous_week") }}'],
+        ['current_month', '{{ tt(request, "date_preset_current_month") }}'],
+        ['previous_month', '{{ tt(request, "date_preset_previous_month") }}'],
+        ['current_year', '{{ tt(request, "date_preset_current_year") }}'],
+        ['previous_year', '{{ tt(request, "date_preset_previous_year") }}'],
+        ['two_years_ago', '{{ tt(request, "date_preset_two_years_ago") }}']
       ];
     }
 
