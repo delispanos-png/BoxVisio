@@ -13,7 +13,7 @@ DB ?=
 FILE ?=
 DROP_CREATE ?=false
 
-.PHONY: up down logs migrate-control migrate-tenant create-tenant seed-admin check-migrations backup-nightly restore-db
+.PHONY: up down logs migrate-control migrate-tenant create-tenant seed-admin check-migrations backup-nightly restore-db pilot-refresh-dry-run pilot-refresh-execute
 
 up:
 	$(DC) up --build -d
@@ -77,3 +77,9 @@ ifeq ($(DROP_CREATE),true)
 else
 	./scripts/restore_db.sh --db $(DB) --file $(FILE)
 endif
+
+pilot-refresh-dry-run:
+	./scripts/refresh_pilot_tenant_db.sh
+
+pilot-refresh-execute:
+	./scripts/refresh_pilot_tenant_db.sh --execute
