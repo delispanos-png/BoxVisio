@@ -542,3 +542,438 @@ body.tenant-shell[data-theme='dark'] .modal-footer {
     display: none;
   }
 }
+
+/* Elegant light refresh. This final block deliberately overrides the first
+   premium pass with a calmer enterprise dashboard language. */
+body.tenant-shell {
+  --tenant-sidebar-width: 252px;
+  --tenant-sidebar-collapsed-width: 76px;
+  --bv-2026-bg: #f7f9fc;
+  --bv-2026-ink: #061127;
+  --bv-2026-text: #1e293b;
+  --bv-2026-muted: #64748b;
+  --bv-2026-panel: #ffffff;
+  --bv-2026-panel-solid: #ffffff;
+  --bv-2026-line: #dbe4f0;
+  --bv-2026-line-strong: #c8d5e6;
+  --bv-2026-blue: #2563eb;
+  --bv-2026-blue-soft: #eaf1ff;
+  --bv-2026-radius: 8px;
+  --bv-2026-radius-sm: 8px;
+  --bv-2026-shadow: 0 1px 2px rgba(15, 23, 42, .045), 0 8px 22px rgba(15, 23, 42, .04);
+  --bv-2026-shadow-hover: 0 2px 4px rgba(15, 23, 42, .06), 0 14px 34px rgba(37, 99, 235, .10);
+  --shell-bg: var(--bv-2026-bg);
+  --panel-bg: #ffffff;
+  --panel-border: var(--bv-2026-line);
+  --menu-text: #52627a;
+  --menu-muted: #8a99ad;
+  --menu-active-bg: #eaf1ff;
+  --menu-active-text: var(--bv-2026-blue);
+  --menu-hover-bg: #f2f6fc;
+  --topbar-bg: rgba(255, 255, 255, .94);
+  --topbar-border: var(--bv-2026-line);
+  background: var(--bv-2026-bg) !important;
+  color: var(--bv-2026-text);
+}
+
+body.tenant-shell::before {
+  background:
+    linear-gradient(180deg, rgba(37, 99, 235, .035), transparent 260px),
+    linear-gradient(90deg, rgba(148, 163, 184, .09) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(148, 163, 184, .075) 1px, transparent 1px);
+  background-size: auto, 48px 48px, 48px 48px;
+  mask-image: linear-gradient(180deg, rgba(0,0,0,.50), transparent 56%);
+}
+
+body.tenant-shell #leftsidebar.sidebar,
+body.tenant-shell .left-sidebar {
+  background: #ffffff !important;
+  border-right: 1px solid var(--bv-2026-line) !important;
+  box-shadow: none !important;
+}
+
+body.tenant-shell .sidebar .admin-image {
+  padding: 16px 18px 12px !important;
+  border-bottom: 1px solid var(--bv-2026-line);
+}
+
+body.tenant-shell .sidebar .admin-image .brand-logo.bv-logo-asset {
+  width: 156px !important;
+  max-width: 156px !important;
+  margin: 0 !important;
+  border-radius: 0 !important;
+  filter: none !important;
+}
+
+body.tenant-shell .bv-brand-meta {
+  margin: 9px 0 0 2px !important;
+  color: var(--bv-2026-muted) !important;
+  font-size: 10px;
+  letter-spacing: .11em;
+  text-align: left;
+}
+
+body.tenant-shell .left-sidebar .menu.main-sidebar {
+  padding: 10px 8px 12px !important;
+  scrollbar-color: #c8d2e1 transparent;
+}
+
+body.tenant-shell .main-sidebar .list {
+  padding: 0 0 118px !important;
+}
+
+body.tenant-shell .main-sidebar .list .bv-menu-group .bv-group-toggle,
+body.tenant-shell .main-sidebar .list .nav-item .nav-link {
+  min-height: 40px;
+  margin: 0;
+  padding: 9px 11px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--menu-text) !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  font-size: 14px;
+  font-weight: 720;
+  letter-spacing: 0;
+}
+
+body.tenant-shell .main-sidebar .list .bv-menu-group .bv-group-toggle {
+  font-size: 12px;
+  font-weight: 850;
+  letter-spacing: .035em;
+  text-transform: uppercase;
+}
+
+body.tenant-shell .main-sidebar .list .nav-item .nav-link:hover,
+body.tenant-shell .main-sidebar .list .bv-submenu-link:hover,
+body.tenant-shell .main-sidebar .list .bv-menu-group.open > .bv-group-toggle {
+  color: var(--bv-2026-blue) !important;
+  background: var(--menu-hover-bg) !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+
+body.tenant-shell .main-sidebar .list .nav-item.active > .nav-link,
+body.tenant-shell .main-sidebar .list .bv-submenu li.is-active > .bv-submenu-link,
+body.tenant-shell .main-sidebar .list .bv-submenu .bv-menu-group.active > .bv-group-toggle {
+  color: var(--menu-active-text) !important;
+  background: var(--menu-active-bg) !important;
+  border-color: #d7e4ff !important;
+  box-shadow: inset 3px 0 0 var(--bv-2026-blue) !important;
+}
+
+body.tenant-shell .main-sidebar .list .bv-menu-group .bv-group-toggle .sidemenu-icon,
+body.tenant-shell .main-sidebar .list .nav-link .sidemenu-icon,
+body.tenant-shell .main-sidebar .list .bv-submenu-link i:not(.bv-group-arrow) {
+  width: 18px;
+  min-width: 18px;
+  color: currentColor !important;
+  opacity: .88;
+  text-align: center;
+}
+
+body.tenant-shell .main-sidebar .list .bv-submenu {
+  margin: 4px 0 8px 18px !important;
+  padding: 3px 0 3px 9px;
+  border-left: 1px solid var(--bv-2026-line) !important;
+}
+
+body.tenant-shell .main-sidebar .list .bv-submenu-link {
+  min-height: 34px;
+  padding: 7px 9px;
+  border-radius: 8px;
+  color: var(--menu-text) !important;
+  font-size: 13px;
+  font-weight: 680;
+}
+
+body.tenant-shell .sidebar-foot {
+  margin: 10px 8px 12px !important;
+  border-top: 1px solid var(--bv-2026-line) !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+
+body.tenant-shell .bottom-meta-item {
+  justify-content: flex-start;
+  color: var(--bv-2026-muted) !important;
+  border-color: var(--bv-2026-line) !important;
+}
+
+body.tenant-shell .bottom-meta-item strong {
+  color: var(--bv-2026-ink) !important;
+}
+
+body.tenant-shell .content.home {
+  padding: 18px 24px 30px !important;
+  background: transparent !important;
+}
+
+body.tenant-shell .topbar {
+  top: 12px;
+  min-height: 56px;
+  margin-bottom: 20px;
+  border-radius: 10px;
+  background: var(--topbar-bg) !important;
+  border: 1px solid var(--bv-2026-line) !important;
+  box-shadow: var(--bv-2026-shadow) !important;
+  backdrop-filter: blur(12px) saturate(145%);
+}
+
+body.tenant-shell .topbar .icon-btn {
+  width: 38px;
+  min-width: 38px;
+  height: 38px;
+  background: #ffffff !important;
+  border-color: var(--bv-2026-line-strong) !important;
+  color: var(--bv-2026-text) !important;
+  box-shadow: none !important;
+}
+
+body.tenant-shell .topbar .icon-btn:hover {
+  transform: none;
+  color: var(--bv-2026-blue) !important;
+  border-color: #b9cbef !important;
+  background: var(--bv-2026-blue-soft) !important;
+  box-shadow: none !important;
+}
+
+body.tenant-shell .bv-topbar-kicker {
+  color: var(--bv-2026-muted);
+  font-size: 9px;
+  font-weight: 900;
+}
+
+body.tenant-shell .bv-topbar-title {
+  color: var(--bv-2026-ink);
+  font-size: .94rem;
+  font-weight: 850;
+}
+
+body.tenant-shell .topbar .btn-primary,
+body.tenant-shell #globalDateRangeBtn {
+  min-height: 38px;
+  border: 1px solid var(--bv-2026-blue) !important;
+  background: var(--bv-2026-blue) !important;
+  color: #ffffff !important;
+  box-shadow: 0 6px 16px rgba(37, 99, 235, .18) !important;
+}
+
+body.tenant-shell .topbar .sync-chip {
+  min-height: 38px;
+  padding: 6px 10px;
+  background: transparent !important;
+  border: 1px solid transparent !important;
+  color: var(--bv-2026-muted);
+}
+
+body.tenant-shell .dashboard-shell {
+  max-width: none !important;
+  padding: 2px 0 28px;
+}
+
+body.tenant-shell .bv-page-title,
+body.tenant-shell .dashboard-shell .bv-page-head h3,
+body.tenant-shell .dashboard-shell h3:first-child {
+  font-size: clamp(1.35rem, 1.55vw, 1.75rem);
+  font-weight: 880;
+}
+
+body.tenant-shell .bv-page-subtitle,
+body.tenant-shell .dashboard-shell .bv-page-head p {
+  color: var(--bv-2026-muted);
+  font-size: .9rem;
+  font-weight: 520;
+}
+
+body.tenant-shell .card,
+body.tenant-shell .content-card,
+body.tenant-shell .filter-card,
+body.tenant-shell .bv-metric-card,
+body.tenant-shell .bv-stat-strip,
+body.tenant-shell .eshop-kpi-card,
+body.tenant-shell .eshop-panel,
+body.tenant-shell .branch-month-row,
+body.tenant-shell .decision-insight-item,
+body.tenant-shell .bv-kpi-help-block,
+body.tenant-shell .modal-content {
+  border: 1px solid var(--bv-2026-line) !important;
+  border-radius: 10px !important;
+  background: #ffffff !important;
+  box-shadow: var(--bv-2026-shadow) !important;
+  backdrop-filter: none !important;
+}
+
+body.tenant-shell .card:hover,
+body.tenant-shell .content-card:hover,
+body.tenant-shell .filter-card:hover,
+body.tenant-shell .bv-metric-card:hover,
+body.tenant-shell .bv-stat-strip:hover,
+body.tenant-shell .eshop-kpi-card:hover {
+  border-color: #cbd8eb !important;
+  box-shadow: var(--bv-2026-shadow-hover) !important;
+}
+
+body.tenant-shell .card-header,
+body.tenant-shell .content-card > .card-header,
+body.tenant-shell .modal-header,
+body.tenant-shell .modal-footer {
+  background: #ffffff !important;
+  border-color: var(--bv-2026-line) !important;
+  border-top-left-radius: 10px !important;
+  border-top-right-radius: 10px !important;
+}
+
+body.tenant-shell .bv-metric-card,
+body.tenant-shell .bv-stat-strip.bv-kpi-style,
+body.tenant-shell .bv-kpi-box,
+body.tenant-shell .eshop-kpi-card {
+  min-height: 112px;
+  overflow: hidden;
+  transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease;
+}
+
+body.tenant-shell .bv-metric-card:hover,
+body.tenant-shell .bv-stat-strip.bv-kpi-style:hover,
+body.tenant-shell .bv-kpi-box:hover {
+  transform: translateY(-1px);
+}
+
+body.tenant-shell .bv-metric-card::before,
+body.tenant-shell .bv-stat-strip.bv-kpi-style::before,
+body.tenant-shell .bv-kpi-box::before {
+  width: 3px;
+  background: var(--mc-color, var(--bv-2026-blue));
+}
+
+body.tenant-shell .bv-metric-card .mc-icon,
+body.tenant-shell .bv-kpi-box .kpi-icon,
+body.tenant-shell .bv-stat-strip.bv-kpi-style .kpi-icon,
+body.tenant-shell .eshop-kpi-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--mc-color, var(--bv-2026-blue)) 10%, white) !important;
+  border: 1px solid color-mix(in srgb, var(--mc-color, var(--bv-2026-blue)) 24%, var(--bv-2026-line)) !important;
+  color: var(--mc-color, var(--bv-2026-blue)) !important;
+  box-shadow: none !important;
+}
+
+body.tenant-shell .mc-label,
+body.tenant-shell .kpi-title,
+body.tenant-shell .bv-stat-strip .label,
+body.tenant-shell .eshop-kpi-label {
+  color: #65748b !important;
+  font-size: .72rem !important;
+  font-weight: 850 !important;
+  letter-spacing: .035em;
+}
+
+body.tenant-shell .mc-value,
+body.tenant-shell .kpi-value,
+body.tenant-shell .bv-stat-strip .value,
+body.tenant-shell .eshop-kpi-value {
+  color: var(--bv-2026-ink) !important;
+  font-size: clamp(1.32rem, 1.55vw, 1.72rem) !important;
+  font-weight: 900 !important;
+  line-height: 1.05;
+}
+
+body.tenant-shell .mc-meta,
+body.tenant-shell .mc-delta,
+body.tenant-shell .kpi-meta,
+body.tenant-shell .bv-stat-strip .small,
+body.tenant-shell .eshop-kpi-meta {
+  color: var(--bv-2026-muted) !important;
+  font-size: .78rem;
+  font-weight: 650;
+}
+
+body.tenant-shell .table thead th,
+body.tenant-shell .bv-unified-table thead th {
+  background: #fbfdff !important;
+  color: #5f6f86 !important;
+  font-size: .7rem;
+  font-weight: 850;
+  border-bottom: 1px solid var(--bv-2026-line) !important;
+}
+
+body.tenant-shell .table tbody td,
+body.tenant-shell .bv-unified-table tbody td {
+  border-color: #edf2f8 !important;
+  color: var(--bv-2026-text);
+  font-size: .86rem;
+  font-weight: 520;
+}
+
+body.tenant-shell .table tbody tr:hover td,
+body.tenant-shell .bv-unified-table tbody tr:hover td {
+  background: #f8fbff !important;
+}
+
+body.tenant-shell .form-control,
+body.tenant-shell .form-select,
+body.tenant-shell textarea,
+body.tenant-shell .bv-multi-toggle {
+  min-height: 38px;
+  border-radius: 8px !important;
+  border-color: var(--bv-2026-line) !important;
+  background: #ffffff !important;
+  color: var(--bv-2026-text) !important;
+  box-shadow: none !important;
+}
+
+body.tenant-shell .form-control:focus,
+body.tenant-shell .form-select:focus,
+body.tenant-shell textarea:focus,
+body.tenant-shell .bv-multi-toggle:focus {
+  border-color: #a9bfeb !important;
+  box-shadow: 0 0 0 .18rem rgba(37, 99, 235, .10) !important;
+}
+
+body.tenant-shell .btn:not(.btn-link) {
+  border-radius: 8px !important;
+  font-weight: 760;
+}
+
+body.tenant-shell .btn-primary,
+body.tenant-shell .btn-purple {
+  border-color: var(--bv-2026-blue) !important;
+  background: var(--bv-2026-blue) !important;
+  color: #ffffff !important;
+}
+
+body.tenant-shell .bv-profile-dropdown,
+body.tenant-shell .bv-multi-menu,
+body.tenant-shell .dropdown-menu,
+body.tenant-shell .popover {
+  border-radius: 10px !important;
+  border-color: var(--bv-2026-line) !important;
+  background: #ffffff !important;
+  box-shadow: 0 16px 40px rgba(15, 23, 42, .12) !important;
+  backdrop-filter: none !important;
+}
+
+body.tenant-shell.admin-sidebar-collapsed .sidebar .admin-image .brand-logo.bv-logo-asset,
+body.tenant-shell.sidebar-icon-only .sidebar .admin-image .brand-logo.bv-logo-asset {
+  width: 42px !important;
+  max-width: 42px !important;
+  content: url('/static/brand/boxvisio-mark.svg?v=20260528logo1');
+  border-radius: 10px !important;
+}
+
+body.tenant-shell.admin-sidebar-collapsed .main-sidebar .list .nav-item.active > .nav-link,
+body.tenant-shell.sidebar-icon-only .main-sidebar .list .nav-item.active > .nav-link {
+  box-shadow: none !important;
+}
+
+@media (max-width: 991.98px) {
+  body.tenant-shell .content.home {
+    padding: 12px !important;
+  }
+
+  body.tenant-shell .topbar {
+    top: 8px;
+    border-radius: 10px;
+  }
+}
