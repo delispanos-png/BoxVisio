@@ -2244,23 +2244,63 @@ const BRANCH_PALETTE = [
   '#ef4444','#eab308','#ec4899','#14b8a6','#a855f7',
 ];
 
+function showDashboardKpiModal(modalEl, existingController, triggerEl) {
+  if (!modalEl) return existingController || null;
+  let controller = existingController || null;
+  if (!controller) {
+    try {
+      if (window.BVModalSystem?.create) {
+        controller = window.BVModalSystem.create(modalEl, { closeOnBackdrop: true, keyboard: true, focusTrap: true, restoreFocus: true });
+      } else if (window.bootstrap?.Modal) {
+        controller = window.bootstrap.Modal.getOrCreateInstance(modalEl, { backdrop: true, keyboard: true, focus: true });
+      }
+    } catch (err) {
+      console.warn('Dashboard KPI modal controller init failed', err);
+      controller = null;
+    }
+  }
+  if (controller?.show) {
+    try {
+      controller.show(triggerEl || document.activeElement);
+      return controller;
+    } catch (err) {
+      console.warn('Dashboard KPI modal controller show failed', err);
+    }
+  }
+  modalEl.style.display = 'block';
+  modalEl.classList.add('show');
+  modalEl.removeAttribute('aria-hidden');
+  modalEl.setAttribute('aria-modal', 'true');
+  document.body.classList.add('modal-open');
+  let backdrop = document.querySelector(`.modal-backdrop[data-dashboard-kpi-backdrop="${modalEl.id}"]`);
+  if (!backdrop) {
+    backdrop = document.createElement('div');
+    backdrop.className = 'modal-backdrop fade show';
+    backdrop.dataset.dashboardKpiBackdrop = modalEl.id;
+    document.body.appendChild(backdrop);
+  }
+  const closeManual = () => {
+    modalEl.classList.remove('show');
+    modalEl.style.display = 'none';
+    modalEl.setAttribute('aria-hidden', 'true');
+    modalEl.removeAttribute('aria-modal');
+    document.body.classList.remove('modal-open');
+    document.querySelector(`.modal-backdrop[data-dashboard-kpi-backdrop="${modalEl.id}"]`)?.remove();
+  };
+  modalEl.querySelectorAll('[data-bs-dismiss="modal"], .btn-close').forEach((btn) => {
+    if (btn.dataset.dashboardKpiManualClose === '1') return;
+    btn.dataset.dashboardKpiManualClose = '1';
+    btn.addEventListener('click', closeManual);
+  });
+  backdrop.addEventListener('click', closeManual, { once: true });
+  return controller;
+}
+
 let _intradayModal = null;
 function openIntradayModal() {
   const el = document.getElementById('intradayModal');
   if (!el) { console.error('intradayModal not found'); return; }
-  if (!_intradayModal) {
-    if (window.BVModalSystem?.create) {
-      _intradayModal = window.BVModalSystem.create(el, { closeOnBackdrop: true, keyboard: true });
-    } else if (window.bootstrap?.Modal) {
-      _intradayModal = window.bootstrap.Modal.getOrCreateInstance(el);
-    } else {
-      el.style.display = 'flex';
-      el.classList.add('show');
-      document.body.classList.add('modal-open');
-      return;
-    }
-  }
-  _intradayModal.show();
+  _intradayModal = showDashboardKpiModal(el, _intradayModal, document.querySelector('[data-intraday]'));
   loadIntradayChart();
 }
 
@@ -2380,19 +2420,7 @@ let _weeklyModal = null;
 function openWeeklyModal() {
   const el = document.getElementById('weeklyModal');
   if (!el) return;
-  if (!_weeklyModal) {
-    if (window.BVModalSystem?.create) {
-      _weeklyModal = window.BVModalSystem.create(el, { closeOnBackdrop: true, keyboard: true });
-    } else if (window.bootstrap?.Modal) {
-      _weeklyModal = window.bootstrap.Modal.getOrCreateInstance(el);
-    } else {
-      el.style.display = 'flex';
-      el.classList.add('show');
-      document.body.classList.add('modal-open');
-      return;
-    }
-  }
-  _weeklyModal.show();
+  _weeklyModal = showDashboardKpiModal(el, _weeklyModal, document.querySelector('[data-weekly]'));
   loadWeeklyChart();
 }
 
@@ -2526,17 +2554,7 @@ let _monthlyModal = null;
 function openMonthlyModal() {
   const el = document.getElementById('monthlyModal');
   if (!el) return;
-  if (!_monthlyModal) {
-    if (window.BVModalSystem?.create) {
-      _monthlyModal = window.BVModalSystem.create(el, { closeOnBackdrop: true, keyboard: true });
-    } else if (window.bootstrap?.Modal) {
-      _monthlyModal = window.bootstrap.Modal.getOrCreateInstance(el);
-    } else {
-      el.style.display = 'flex'; el.classList.add('show');
-      document.body.classList.add('modal-open'); return;
-    }
-  }
-  _monthlyModal.show();
+  _monthlyModal = showDashboardKpiModal(el, _monthlyModal, document.querySelector('[data-monthly]'));
   loadMonthlyChart();
 }
 
@@ -2661,17 +2679,7 @@ let _ytdModal = null;
 function openYtdModal(which) {
   const el = document.getElementById('ytdModal');
   if (!el) return;
-  if (!_ytdModal) {
-    if (window.BVModalSystem?.create) {
-      _ytdModal = window.BVModalSystem.create(el, { closeOnBackdrop: true, keyboard: true });
-    } else if (window.bootstrap?.Modal) {
-      _ytdModal = window.bootstrap.Modal.getOrCreateInstance(el);
-    } else {
-      el.style.display = 'flex'; el.classList.add('show');
-      document.body.classList.add('modal-open'); return;
-    }
-  }
-  _ytdModal.show();
+  _ytdModal = showDashboardKpiModal(el, _ytdModal, document.querySelector(`[data-ytd="${which || 'curr'}"]`) || document.querySelector('[data-ytd]'));
   loadYtdChart(which);
 }
 
