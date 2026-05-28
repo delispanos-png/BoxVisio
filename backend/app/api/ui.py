@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 import httpx
 from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
@@ -164,6 +165,7 @@ templates.env.globals.setdefault('app_version', settings.app_version)
 templates.env.globals.setdefault('project_name', settings.project_name)
 celery_client = make_celery_sender('ui_sender')
 logger = logging.getLogger(__name__)
+GREECE_TZ = ZoneInfo('Europe/Athens')
 
 _CONTROL_ENV_PATH = Path(__file__).resolve().parents[3] / '.env'
 _MAIL_ENV_KEYS = (
@@ -2106,6 +2108,7 @@ async def _tenant_navigation_context(tenant: Tenant) -> dict[str, bool | int | s
     branch_count = 0
     last_sync_at: datetime | None = None
     last_sync_utc: datetime | None = None
+    last_sync_greece: datetime | None = None
     try:
         async for tenant_db in get_tenant_db_session(
             tenant_key=str(tenant.id),
@@ -2154,17 +2157,18 @@ async def _tenant_navigation_context(tenant: Tenant) -> dict[str, bool | int | s
             if last_sync_at.tzinfo is None
             else last_sync_at.astimezone(timezone.utc)
         )
-    last_sync_display = last_sync_at.strftime('%d/%m/%Y %H:%M') if last_sync_at else 'Μη διαθέσιμο'
+        last_sync_greece = last_sync_utc.astimezone(GREECE_TZ)
+    last_sync_display = last_sync_greece.strftime('%d/%m/%Y %H:%M') if last_sync_greece else 'Μη διαθέσιμο'
     last_sync_title = (
-        f'Τελευταίος συγχρονισμός: {last_sync_at.strftime("%d/%m/%Y %H:%M:%S")}'
-        if last_sync_at
+        f'Τελευταίος συγχρονισμός: {last_sync_greece.strftime("%d/%m/%Y %H:%M:%S")} (ώρα Ελλάδας)'
+        if last_sync_greece
         else 'Δεν έχει καταγραφεί ακόμη συγχρονισμός'
     )
     return {
         **_tenant_feature_flags(tenant),
         'tenant_branch_count': branch_count,
         'tenant_has_multiple_branches': branch_count > 1,
-        'tenant_softone_last_sync_at': last_sync_at,
+        'tenant_softone_last_sync_at': last_sync_greece,
         'tenant_softone_last_sync_iso': last_sync_utc.isoformat() if last_sync_utc else None,
         'tenant_softone_last_sync_display': last_sync_display,
         'tenant_softone_last_sync_title': last_sync_title,

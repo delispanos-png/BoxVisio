@@ -2183,6 +2183,7 @@
             hour: '2-digit',
             minute: '2-digit',
             hour12: false,
+            timeZone: 'Europe/Athens',
           }).format(parsed);
           const tooltip = new Intl.DateTimeFormat(locale, {
             day: '2-digit',
@@ -2192,9 +2193,10 @@
             minute: '2-digit',
             second: '2-digit',
             hour12: false,
+            timeZone: 'Europe/Athens',
           }).format(parsed);
           lastSyncValue.textContent = display;
-          lastSyncChip.title = `Τελευταίος συγχρονισμός: ${tooltip}`;
+          lastSyncChip.title = `Τελευταίος συγχρονισμός: ${tooltip} (ώρα Ελλάδας)`;
         }
       }
 
