@@ -1,29 +1,51 @@
 {% extends "base_admin.html" %}
 {% block content %}
 <div class="bv-admin-page">
-  <div class="bv-admin-hero">
-    <div>
+  {% set total_subscriptions = status_breakdown.values() | sum %}
+  {% set active_ratio = ((active_tenants / total_tenants * 100) if total_tenants else 0) %}
+  {% set cpu_pct = server_info.cpu.percent or 0 %}
+  {% set ram_pct = server_info.ram.percent or 0 %}
+  {% set disk_pct = server_info.disk.percent or 0 %}
+  {% set infra_score = 100 - ([cpu_pct, ram_pct, disk_pct] | max) %}
+  <div class="bv-admin-command-hero">
+    <div class="bv-admin-command-copy">
+      <span class="bv-admin-eyebrow">CloudOn Control Plane</span>
       <h4>Κέντρο Διαχείρισης BoxVisio</h4>
-      <p>Συνοπτική εικόνα πελατών, χρηστών, συνδρομών και υποδομής για καθημερινό operational έλεγχο.</p>
+      <p>Συνοπτική operational εικόνα για tenants, συνδρομές, connectors και υποδομή, με γρήγορες ενέργειες για καθημερινό έλεγχο.</p>
+      <div class="bv-admin-hero-chips">
+        <span><i class="fe fe-check-circle"></i>{{ active_tenants }} ενεργοί tenants</span>
+        <span><i class="fe fe-link"></i>{{ total_connections }} συνδέσεις</span>
+        <span><i class="fe fe-shield"></i>Admin only</span>
+      </div>
+    </div>
+    <div class="bv-admin-command-score">
+      <div class="bv-admin-score-ring" style="--score: {{ '%.0f'|format(infra_score) }};">
+        <span>{{ '%.0f'|format(infra_score) }}</span>
+      </div>
+      <div>
+        <strong>Platform posture</strong>
+        <p>{{ 'Healthy' if infra_score >= 35 else 'Needs attention' }}</p>
+      </div>
     </div>
     <div class="bv-admin-hero-actions">
+      <a class="btn btn-outline-secondary" href="/admin/overview/tenant-health"><i class="fe fe-heart me-1"></i>Health</a>
       <a class="btn btn-outline-secondary" href="/admin/tenants"><i class="fe fe-users me-1"></i>Tenants</a>
       <a class="btn btn-primary" href="/admin/subscriptions"><i class="fe fe-credit-card me-1"></i>Συνδρομές</a>
     </div>
   </div>
 
-  <div class="bv-admin-kpi-grid">
-    <div class="bv-admin-kpi-card">
+  <div class="bv-admin-kpi-grid bv-admin-kpi-grid--executive">
+    <div class="bv-admin-kpi-card bv-admin-kpi-card--blue">
       <div class="bv-admin-kpi-card-head">
         <p class="bv-admin-kpi-label">{{ tt(request, 'total_tenants') }}</p>
         <span class="bv-admin-kpi-icon"><i class="fe fe-users"></i></span>
       </div>
       <div>
         <div class="bv-admin-kpi-value">{{ total_tenants }}</div>
-        <p class="bv-admin-kpi-meta">Συνολικοί πελάτες στο control plane</p>
+        <p class="bv-admin-kpi-meta">{{ '%.1f'|format(active_ratio) }}% ενεργοί στο control plane</p>
       </div>
     </div>
-    <div class="bv-admin-kpi-card">
+    <div class="bv-admin-kpi-card bv-admin-kpi-card--green">
       <div class="bv-admin-kpi-card-head">
         <p class="bv-admin-kpi-label">{{ tt(request, 'active_tenants') }}</p>
         <span class="bv-admin-kpi-icon"><i class="fe fe-check-circle"></i></span>
@@ -33,7 +55,7 @@
         <p class="bv-admin-kpi-meta">Tenants με ενεργή πρόσβαση</p>
       </div>
     </div>
-    <div class="bv-admin-kpi-card">
+    <div class="bv-admin-kpi-card bv-admin-kpi-card--violet">
       <div class="bv-admin-kpi-card-head">
         <p class="bv-admin-kpi-label">{{ tt(request, 'users') }}</p>
         <span class="bv-admin-kpi-icon"><i class="fe fe-user"></i></span>
@@ -43,7 +65,7 @@
         <p class="bv-admin-kpi-meta">Λογαριασμοί portal και admin</p>
       </div>
     </div>
-    <div class="bv-admin-kpi-card">
+    <div class="bv-admin-kpi-card bv-admin-kpi-card--amber">
       <div class="bv-admin-kpi-card-head">
         <p class="bv-admin-kpi-label">{{ tt(request, 'connections') }}</p>
         <span class="bv-admin-kpi-icon"><i class="fe fe-link"></i></span>
@@ -55,12 +77,12 @@
     </div>
   </div>
 
-  <div class="bv-admin-card-grid-2">
+  <div class="bv-admin-intel-grid">
     <div class="bv-admin-panel">
       <div class="bv-admin-panel-head">
         <div>
           <h5>{{ tt(request, 'subscription_distribution') }}</h5>
-          <p>Κατανομή συνδρομών ανά κατάσταση.</p>
+          <p>{{ total_subscriptions }} subscriptions ταξινομημένες ανά lifecycle κατάσταση.</p>
         </div>
         <span id="subChartLoading" class="text-muted"><span class="spinner-border spinner-border-sm"></span> {{ tt(request, 'loading') }}</span>
       </div>
@@ -73,7 +95,7 @@
       <div class="bv-admin-panel-head">
         <div>
           <h5>Lifecycle</h5>
-          <p>Ποσοστά ανά κατάσταση συνδρομής.</p>
+          <p>Γρήγορη εικόνα κινδύνου συνδρομών.</p>
         </div>
       </div>
       <div class="bv-admin-panel-body">
@@ -97,6 +119,34 @@
         </div>
       </div>
     </div>
+
+    <div class="bv-admin-panel">
+      <div class="bv-admin-panel-head">
+        <div>
+          <h5>Critical Actions</h5>
+          <p>Οι βασικές κινήσεις πριν ξεκινήσει παραγωγική δουλειά.</p>
+        </div>
+      </div>
+      <div class="bv-admin-panel-body">
+        <div class="bv-admin-action-list">
+          <a href="/admin/overview/tenant-health">
+            <span class="is-warning"><i class="fe fe-heart"></i></span>
+            <strong>Έλεγχος tenant health</strong>
+            <small>Sync ηλικία, connectors, subscription status</small>
+          </a>
+          <a href="/admin/user-sessions">
+            <span class="is-info"><i class="fe fe-monitor"></i></span>
+            <strong>Sessions & πρόσβαση</strong>
+            <small>Online χρήστες και ενεργές συνεδρίες</small>
+          </a>
+          <a href="/admin/connections">
+            <span class="is-success"><i class="fe fe-link"></i></span>
+            <strong>Connectors</strong>
+            <small>Credentials, discovery, backfill και sync</small>
+          </a>
+        </div>
+      </div>
+    </div>
   </div>
 
   <div class="bv-admin-panel">
@@ -105,9 +155,10 @@
         <h5>{{ tt(request, 'server_info') }}</h5>
         <p>Live ένδειξη πόρων του server.</p>
       </div>
+      <span class="bv-admin-chip">Live telemetry</span>
     </div>
     <div class="bv-admin-panel-body">
-      <div class="bv-admin-kpi-grid">
+      <div class="bv-admin-kpi-grid bv-admin-kpi-grid--infra">
         <div class="bv-admin-kpi-card">
           <div class="bv-admin-kpi-card-head">
             <p class="bv-admin-kpi-label">{{ tt(request, 'cpu_usage') }}</p>
@@ -152,7 +203,7 @@
           </div>
         </div>
       </div>
-      <div class="mt-3 p-3 border rounded bg-light">
+      <div class="bv-admin-maintenance-card mt-3">
         <div class="d-flex flex-column flex-lg-row justify-content-between gap-2 align-items-lg-center">
           <div>
             <h6 class="mb-1">Καθαρισμός Docker cache</h6>

@@ -419,17 +419,21 @@
 
   <section class="content home">
     <div class="container-fluid p-0">
-      <div class="topbar d-flex align-items-center justify-content-between px-3">
-        <div class="d-flex align-items-center gap-2 flex-grow-1">
+      <div class="topbar bv-admin-topbar d-flex align-items-center justify-content-between px-3">
+        <div class="bv-admin-topbar-left d-flex align-items-center gap-2">
           <button class="icon-btn" id="adminSidebarToggleBtn" type="button" title="{{ tt(request, 'menu') if tt(request, 'menu') != 'menu' else 'Menu' }}">
             <i class="fe fe-menu"></i>
           </button>
-          <div class="search-wrap d-none d-md-block">
-            <i class="fe fe-search"></i>
-            <input id="adminNavSearch" type="search" placeholder="{{ tt(request, 'search_placeholder') if tt(request, 'search_placeholder') != 'search_placeholder' else 'Αναζήτηση στο μενού...' }}" autocomplete="off">
+          <div class="bv-admin-topbar-title">
+            <span>BoxVisio Admin</span>
+            <strong>{{ tt(request, title) if title else tt(request, 'admin_panel') }}</strong>
           </div>
         </div>
-        <div class="d-flex align-items-center gap-2">
+        <div class="search-wrap bv-admin-topbar-search d-none d-md-block">
+          <i class="fe fe-search"></i>
+          <input id="adminNavSearch" type="search" placeholder="{{ tt(request, 'search_placeholder') if tt(request, 'search_placeholder') != 'search_placeholder' else 'Αναζήτηση στο μενού...' }}" autocomplete="off">
+        </div>
+        <div class="bv-admin-topbar-actions d-flex align-items-center gap-2">
           {% set _lang = request.cookies.get('lang', 'el') %}
           {% set _target_lang = 'en' if _lang != 'en' else 'el' %}
           {% set _theme = request.cookies.get('theme', 'light') %}
