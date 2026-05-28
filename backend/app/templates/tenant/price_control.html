@@ -489,6 +489,7 @@
   const fmtPct = (n)=>`${new Intl.NumberFormat('el-GR',{minimumFractionDigits:2,maximumFractionDigits:2}).format(Number(n||0))}%`;
 
   const form = document.getElementById('pcFiltersForm');
+  const initialQuery = new URLSearchParams(window.location.search);
   const errEl = document.getElementById('pcError');
   const fromEl = document.getElementById('pcFrom');
   const toEl = document.getElementById('pcTo');
@@ -616,6 +617,8 @@
     selectedValues(itemsEl).forEach(v=>qs.append('item_codes', v));
     qs.set('target_margin_pct', String(targetMarginEl.value || 35));
     qs.set('discount_pct', String(discountEl.value || 0));
+    const pricePosition = (initialQuery.get('price_position') || '').trim();
+    if(pricePosition) qs.set('price_position', pricePosition);
     qs.set('limit', '2000');
     return qs;
   }
@@ -758,6 +761,19 @@
     });
   });
 
+  function applyDeepLinkFilters(){
+    ['from', 'to'].forEach((key)=>{
+      const value = initialQuery.get(key);
+      const el = key === 'from' ? fromEl : toEl;
+      if(value && el) el.value = window.bvToDmyDate ? window.bvToDmyDate(value) : value;
+    });
+    if(initialQuery.get('target_margin_pct')) targetMarginEl.value = initialQuery.get('target_margin_pct');
+    if(initialQuery.get('discount_pct')) discountEl.value = initialQuery.get('discount_pct');
+    if(initialQuery.get('supplier_ext_id')) supplierEl.value = initialQuery.get('supplier_ext_id');
+    if(initialQuery.get('target_id')) targetEl.value = initialQuery.get('target_id');
+  }
+
+  applyDeepLinkFilters();
   refreshAndLoad();
 })();
 </script>

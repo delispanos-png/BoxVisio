@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 from typing import Any, Awaitable, Callable
+from urllib.parse import urlencode
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -50,6 +51,18 @@ def _fmt_pct(value: float | None) -> str:
     if value is None:
         return 'χωρίς βάση σύγκρισης'
     return f'{value:+.2f}%'.replace('.', ',')
+
+
+def _tenant_url(path: str, date_from: date, date_to: date, **params: object) -> str:
+    query: list[tuple[str, str]] = [('from', date_from.isoformat()), ('to', date_to.isoformat())]
+    for key, value in params.items():
+        if value is None or value == '':
+            continue
+        if isinstance(value, (list, tuple, set)):
+            query.extend((key, str(item)) for item in value if item not in (None, ''))
+        else:
+            query.append((key, str(value)))
+    return f'{path}?{urlencode(query, doseq=True)}'
 
 
 def _item(
@@ -403,6 +416,37 @@ async def business_advisor_report(
     effective_target_margin_pct = _num((pricing.get('summary') or {}).get('target_margin_pct'), target_margin_pct)
     branch_rows_list = list(branch_rows or []) if isinstance(branch_rows, list) else []
     category_rows_list = list(category_rows or []) if isinstance(category_rows, list) else []
+    common_url_filters = {
+        'branches': branches or [],
+        'warehouses': warehouses or [],
+        'brands': brands or [],
+        'categories': categories or [],
+        'groups': groups or [],
+    }
+    sales_url = _tenant_url('/tenant/sales', date_from, date_to, **common_url_filters)
+    purchases_url = _tenant_url('/tenant/purchases', date_from, date_to, **common_url_filters)
+    inventory_url = _tenant_url('/tenant/inventory', date_from, date_to, **common_url_filters)
+    cashflow_url = _tenant_url('/tenant/cashflow', date_from, date_to, branches=branches or [])
+    finance_url = _tenant_url('/tenant/finance-dashboard', date_from, date_to, branches=branches or [])
+    suppliers_url = _tenant_url('/tenant/suppliers', date_from, date_to, branches=branches or [])
+    price_control_below_url = _tenant_url(
+        '/tenant/price-control',
+        date_from,
+        date_to,
+        categories=categories or [],
+        groups=groups or [],
+        target_margin_pct=effective_target_margin_pct,
+        price_position='below',
+    )
+    price_control_above_url = _tenant_url(
+        '/tenant/price-control',
+        date_from,
+        date_to,
+        categories=categories or [],
+        groups=groups or [],
+        target_margin_pct=effective_target_margin_pct,
+        price_position='above',
+    )
     branch_diagnosis = _build_dimension_diagnosis(
         title='Διάγνωση φυσικών σημείων',
         mode='branches',
@@ -411,7 +455,7 @@ async def business_advisor_report(
         name_key='branch',
         code_key='branch_code',
         total_sales_net=sales_net,
-        href='/tenant/sales',
+        href=sales_url,
     )
     category_diagnosis = _build_dimension_diagnosis(
         title='Διάγνωση κατηγοριών',
@@ -421,7 +465,7 @@ async def business_advisor_report(
         name_key='category',
         code_key='category_code',
         total_sales_net=sales_net,
-        href='/tenant/sales',
+        href=sales_url,
     )
     dimension_mode = 'branches' if len([r for r in branch_rows_list if _num(r.get('net_value')) != 0]) > 1 else 'categories'
 
@@ -439,7 +483,7 @@ async def business_advisor_report(
                 text=f'Ο καθαρός τζίρος είναι {_fmt_money(sales_net)} με μεταβολή {_fmt_pct(sales_delta_pct)} έναντι της προηγούμενης ίδιας διάρκειας.',
                 impact=min(12.0, sales_delta_pct / 2),
                 severity='success',
-                href='/tenant/sales',
+                href=sales_url,
             )
         )
         score += min(8.0, sales_delta_pct / 3)
@@ -453,7 +497,7 @@ async def business_advisor_report(
                 impact=abs(sales_delta_pct),
                 severity='danger' if sales_delta_pct <= -15 else 'warning',
                 action='Άνοιξε ανάλυση ανά κατάστημα, brand και κατηγορία και απομόνωσε τις πηγές απώλειας.',
-                href='/tenant/sales',
+                href=sales_url,
             )
         )
         score -= 18.0 if sales_delta_pct <= -15 else 10.0
@@ -481,7 +525,7 @@ async def business_advisor_report(
                 impact=gap,
                 severity='danger' if gap >= 10 else 'warning',
                 action='Έλεγξε τιμές κτήσης, εκπτώσεις και προϊόντα κάτω από την τιμή στόχο.',
-                href='/tenant/price-control',
+                href=price_control_below_url,
             )
         )
         score -= 16.0 if gap >= 10 else 8.0
@@ -496,7 +540,7 @@ async def business_advisor_report(
                 impact=purchases_to_sales_pct,
                 severity='warning',
                 action='Δες προμηθευτές υψηλής συγκέντρωσης και αγορές χωρίς ανάλογη απόδοση πωλήσεων.',
-                href='/tenant/purchases',
+                href=purchases_url,
             )
         )
         score -= 8.0
@@ -509,7 +553,7 @@ async def business_advisor_report(
                 text=f'Οι αγορές μειώνονται {_fmt_pct(purchases_delta_pct)} ενώ οι πωλήσεις δεν υποχωρούν.',
                 impact=abs(purchases_delta_pct),
                 severity='success',
-                href='/tenant/purchases',
+                href=purchases_url,
             )
         )
 
@@ -523,7 +567,7 @@ async def business_advisor_report(
                 impact=abs(cash_net),
                 severity='danger',
                 action='Προτεραιότητα σε εισπράξεις και έλεγχο πληρωμών προς προμηθευτές.',
-                href='/tenant/cashflow',
+                href=cashflow_url,
             )
         )
         score -= 12.0
@@ -536,7 +580,7 @@ async def business_advisor_report(
                 text=f'Το καθαρό ταμειακό αποτέλεσμα της περιόδου είναι {_fmt_money(cash_net)}.',
                 impact=cash_net,
                 severity='success',
-                href='/tenant/cashflow',
+                href=cashflow_url,
             )
         )
         score += 4.0
@@ -551,7 +595,7 @@ async def business_advisor_report(
                 impact=overdue_receivables_pct,
                 severity='danger' if overdue_receivables_pct > 35 else 'warning',
                 action='Φτιάξε λίστα είσπραξης με τους μεγαλύτερους πελάτες και όριο ημερών καθυστέρησης.',
-                href='/tenant/finance-dashboard',
+                href=finance_url,
             )
         )
         score -= 14.0 if overdue_receivables_pct > 35 else 8.0
@@ -566,7 +610,7 @@ async def business_advisor_report(
                 impact=supplier_overdue_pct,
                 severity='warning',
                 action='Ιεράρχησε πληρωμές ανά κρίσιμο προμηθευτή και έλεγξε αν υπάρχουν ανοιχτές πιστώσεις.',
-                href='/tenant/suppliers',
+                href=suppliers_url,
             )
         )
         score -= 8.0
@@ -581,7 +625,7 @@ async def business_advisor_report(
                 impact=inventory_to_sales_days,
                 severity='warning',
                 action='Εντόπισε αργοκίνητα είδη και brands με υψηλή αξία χωρίς αντίστοιχη κίνηση.',
-                href='/tenant/inventory',
+                href=inventory_url,
             )
         )
         score -= 8.0
@@ -596,7 +640,7 @@ async def business_advisor_report(
                 impact=len(price_below_target),
                 severity='danger' if len(price_below_target) > 20 else 'warning',
                 action='Άνοιξε τον Έλεγχο Τιμών και αναπροσάρμοσε έκπτωση ή λιανική στα είδη με μεγαλύτερη διαφορά.',
-                href='/tenant/price-control',
+                href=price_control_below_url,
             )
         )
         score -= 10.0
@@ -609,7 +653,7 @@ async def business_advisor_report(
                 text=f'{len(price_above_target)} προϊόντα βρίσκονται πάνω από την τιμή στόχο και μπορούν να στηρίξουν προωθητικές ενέργειες.',
                 impact=len(price_above_target),
                 severity='success',
-                href='/tenant/price-control',
+                href=price_control_above_url,
             )
         )
 
@@ -626,7 +670,7 @@ async def business_advisor_report(
                 text=f'Αν το περιθώριο φτάσει τον σταθμισμένο στόχο {effective_target_margin_pct:.2f}%, η περίοδος έχει θεωρητικό περιθώριο βελτίωσης περίπου {_fmt_money(margin_gap_value)}.'.replace('.', ','),
                 action='Ξεκίνα από προϊόντα κάτω από την τιμή στόχο και από κατηγορίες με μεγάλη πώληση αλλά χαμηλή απόδοση.',
                 severity='danger' if margin_gap_pct >= 10 else 'warning',
-                href='/tenant/price-control',
+                href=price_control_below_url,
             )
         )
     if overdue_receivables > 0:
@@ -639,7 +683,7 @@ async def business_advisor_report(
                 text=f'Υπάρχουν {_fmt_money(overdue_receivables)} ληξιπρόθεσμες απαιτήσεις που επηρεάζουν άμεσα τη ρευστότητα.',
                 action='Βγάλε λίστα είσπραξης ανά πελάτη με προτεραιότητα στα μεγαλύτερα ανοίγματα.',
                 severity='danger' if overdue_receivables_pct > 35 else 'warning',
-                href='/tenant/finance-dashboard',
+                href=finance_url,
             )
         )
     if inventory_to_sales_days > inventory_coverage_target_days:
@@ -654,7 +698,7 @@ async def business_advisor_report(
                 text=f'Το απόθεμα αντιστοιχεί σε {inventory_to_sales_days:.0f} ημέρες πωλήσεων. Ο στόχος του tenant είναι {inventory_coverage_target_days} ημέρες, άρα το υπερβάλλον μέρος δείχνει κεφάλαιο που μπορεί να απελευθερωθεί.',
                 action='Δούλεψε αργοκίνητα είδη, επιστροφές σε προμηθευτές και στοχευμένες προσφορές.',
                 severity='warning',
-                href='/tenant/inventory',
+                href=inventory_url,
             )
         )
     if price_below_target:
@@ -667,7 +711,7 @@ async def business_advisor_report(
                 text=f'{len(price_below_target)} προϊόντα έχουν λιανική κάτω από την τιμή στόχο και τραβούν το περιθώριο προς τα κάτω.',
                 action='Ομαδοποίησε ανά brand/κατηγορία και αποφάσισε αύξηση λιανικής ή μείωση έκπτωσης.',
                 severity='danger' if len(price_below_target) > 20 else 'warning',
-                href='/tenant/price-control',
+                href=price_control_below_url,
             )
         )
     if cash_net < 0:
@@ -680,7 +724,7 @@ async def business_advisor_report(
                 text=f'Η περίοδος έχει αρνητική καθαρή ροή {_fmt_money(cash_net)}.',
                 action='Πάγωσε μη κρίσιμες εκροές και συνέδεσε πληρωμές με εισπράξεις επόμενων ημερών.',
                 severity='danger',
-                href='/tenant/cashflow',
+                href=cashflow_url,
             )
         )
     levers = sorted(levers, key=lambda item: abs(float(item.get('value') or 0)), reverse=True)[:5]
@@ -745,14 +789,14 @@ async def business_advisor_report(
             'Διόρθωση εμπορικής πολιτικής',
             'Εμπορική Διεύθυνση',
             'Επανέλεγξε τιμές, εκπτώσεις και αγορές σε κατηγορίες που έχουν τζίρο αλλά χαμηλή απόδοση.',
-            '/tenant/price-control',
+            price_control_below_url,
         ),
         _plan_item(
             '30+ ημέρες',
             'Σταθερό μοντέλο παρακολούθησης',
             'Διοίκηση',
             'Κάνε εβδομαδιαίο έλεγχο score, κινδύνων και ενεργειών ώστε η απόφαση να γίνεται πριν φανεί το πρόβλημα στα σύνολα.',
-            '/tenant/business-advisor',
+            _tenant_url('/tenant/business-advisor', date_from, date_to, target_margin_pct=effective_target_margin_pct),
         ),
     ]
 

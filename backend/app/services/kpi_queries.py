@@ -14882,6 +14882,7 @@ async def price_control_items(
     item_codes: list[str] | None = None,
     target_margin_pct: float = 35.0,
     discount_pct: float = 0.0,
+    price_position: str | None = None,
     limit: int = 500,
     price_margin_targets: dict | None = None,
 ):
@@ -15190,6 +15191,12 @@ async def price_control_items(
                 'recommended_extra_discount_pct': recommended_extra_discount_pct,
             }
         )
+
+    price_position_norm = (price_position or '').strip().lower()
+    if price_position_norm == 'below':
+        rows = [row for row in rows if float(row.get('price_gap_value') or 0) < 0]
+    elif price_position_norm == 'above':
+        rows = [row for row in rows if float(row.get('price_gap_value') or 0) >= 0]
 
     rows.sort(key=lambda x: float(x.get('sales_value', 0) or 0), reverse=True)
     rows = rows[: max(1, min(limit, 2000))]

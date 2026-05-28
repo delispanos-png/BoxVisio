@@ -3213,6 +3213,7 @@ async def get_price_control_items(
     item_codes: list[str] | None = Query(default=None),
     target_margin_pct: float = Query(default=35.0, ge=0, le=95),
     discount_pct: float = Query(default=0.0, ge=0, le=99),
+    price_position: str | None = Query(default=None, pattern='^(above|below|)$'),
     limit: int = Query(default=500, ge=1, le=2000),
     tenant_db: AsyncSession = Depends(get_tenant_db),
 ):
@@ -3227,6 +3228,7 @@ async def get_price_control_items(
         item_codes=item_codes,
         target_margin_pct=target_margin_pct,
         discount_pct=discount_pct,
+        price_position=price_position,
         limit=limit,
         price_margin_targets=_tenant_price_margin_targets_from_request(request),
     )

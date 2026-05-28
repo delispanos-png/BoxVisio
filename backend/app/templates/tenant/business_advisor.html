@@ -11,12 +11,12 @@
     <input id="baTo" type="text" class="form-control" data-date-format="dmy" value="{{ default_to.strftime('%d/%m/%Y') if default_to else '' }}" placeholder="ηη/μμ/εεεε" inputmode="numeric">
   </div>
   <div class="col-xl-3 col-md-6">
-    <label class="form-label">Στόχος μικτού περιθωρίου %</label>
+    <label class="form-label">{{ tt(request, 'target_margin') }}</label>
     <input id="baTargetMargin" type="number" min="0" max="95" step="0.1" class="form-control" value="{{ default_target_margin }}">
   </div>
   <div class="col-xl-3 col-md-6 d-flex align-items-end gap-2">
-    <button type="submit" class="btn btn-primary flex-fill"><i class="fe fe-compass me-1"></i>Ανάλυση</button>
-    <button id="baResetBtn" type="button" class="btn btn-outline-secondary">Καθαρισμός</button>
+    <button type="submit" class="btn btn-primary flex-fill"><i class="fe fe-compass me-1"></i>{{ tt(request, 'analysis') if tt(request, 'analysis') != 'analysis' else 'Ανάλυση' }}</button>
+    <button id="baResetBtn" type="button" class="btn btn-outline-secondary">{{ tt(request, 'clear') }}</button>
   </div>
 </form>
 {% endblock %}
@@ -484,6 +484,64 @@
     font-weight: 800;
   }
 
+  body.tenant-shell[data-theme='dark'] .ba-score-card,
+  body.tenant-shell[data-theme='dark'] .ba-panel,
+  body.tenant-shell[data-theme='dark'] .ba-module,
+  body.tenant-shell[data-theme='dark'] .ba-item,
+  body.tenant-shell[data-theme='dark'] .ba-plan-item,
+  body.tenant-shell[data-theme='dark'] .ba-decision-fact,
+  body.tenant-shell[data-theme='dark'] .ba-focus-chip {
+    background: #111827;
+    border-color: #334155;
+    color: #e5e7eb;
+  }
+
+  body.tenant-shell[data-theme='dark'] .ba-score-card::before {
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.20), rgba(16, 185, 129, 0.14) 48%, rgba(245, 158, 11, 0.11));
+  }
+
+  body.tenant-shell[data-theme='dark'] .ba-score-value,
+  body.tenant-shell[data-theme='dark'] .ba-score-label,
+  body.tenant-shell[data-theme='dark'] .ba-brief h4,
+  body.tenant-shell[data-theme='dark'] .ba-panel h4,
+  body.tenant-shell[data-theme='dark'] .ba-thesis,
+  body.tenant-shell[data-theme='dark'] .ba-decision-fact-value,
+  body.tenant-shell[data-theme='dark'] .ba-item-title,
+  body.tenant-shell[data-theme='dark'] .ba-lever-value,
+  body.tenant-shell[data-theme='dark'] .ba-plan-title,
+  body.tenant-shell[data-theme='dark'] .ba-module-value,
+  body.tenant-shell[data-theme='dark'] .ba-diagnosis-summary,
+  body.tenant-shell[data-theme='dark'] .ba-mini-table td {
+    color: #f8fafc;
+  }
+
+  body.tenant-shell[data-theme='dark'] .ba-eyebrow,
+  body.tenant-shell[data-theme='dark'] .ba-score-max,
+  body.tenant-shell[data-theme='dark'] .ba-item p,
+  body.tenant-shell[data-theme='dark'] .ba-confidence-text,
+  body.tenant-shell[data-theme='dark'] .ba-diagnosis-action,
+  body.tenant-shell[data-theme='dark'] .ba-plan-owner,
+  body.tenant-shell[data-theme='dark'] .ba-plan-text,
+  body.tenant-shell[data-theme='dark'] .ba-module-title,
+  body.tenant-shell[data-theme='dark'] .ba-module-sub,
+  body.tenant-shell[data-theme='dark'] .ba-decision-fact-label,
+  body.tenant-shell[data-theme='dark'] .ba-mini-table th {
+    color: #cbd5e1;
+  }
+
+  body.tenant-shell[data-theme='dark'] .ba-pill,
+  body.tenant-shell[data-theme='dark'] .ba-mini-table th {
+    background: #1e293b;
+    border-color: #334155;
+  }
+
+  body.tenant-shell[data-theme='dark'] .ba-mini-table,
+  body.tenant-shell[data-theme='dark'] .ba-mini-table th,
+  body.tenant-shell[data-theme='dark'] .ba-mini-table td,
+  body.tenant-shell[data-theme='dark'] .ba-diagnosis-secondary {
+    border-color: #334155;
+  }
+
   @media (max-width: 1199px) {
     body.tenant-shell .ba-overview,
     body.tenant-shell .ba-command-grid,
@@ -520,24 +578,24 @@
   <div class="ba-overview">
     <article class="ba-score-card">
       <div class="ba-score-content">
-        <div class="ba-eyebrow">Business Advisor</div>
+        <div class="ba-eyebrow">{{ tt(request, 'business_advisor') }}</div>
         <div class="ba-score">
           <div id="baScoreValue" class="ba-score-value">--</div>
           <div class="ba-score-max">/ 100</div>
         </div>
         <div class="ba-score-bar"><div id="baScoreFill" class="ba-score-fill"></div></div>
-        <div id="baScoreLabel" class="ba-score-label">Ανάγνωση επιχείρησης</div>
-        <p id="baScoreSummary" class="text-muted fw-semibold mt-2 mb-0">Συνθέτουμε τα KPI σε μία επιχειρησιακή εικόνα.</p>
+        <div id="baScoreLabel" class="ba-score-label">{{ tt(request, 'business_reading') if tt(request, 'business_reading') != 'business_reading' else 'Ανάγνωση επιχείρησης' }}</div>
+        <p id="baScoreSummary" class="text-muted fw-semibold mt-2 mb-0">{{ tt(request, 'business_advisor_score_hint') if tt(request, 'business_advisor_score_hint') != 'business_advisor_score_hint' else 'Συνθέτουμε τα KPI σε μία επιχειρησιακή εικόνα.' }}</p>
       </div>
     </article>
 
     <article class="ba-panel ba-brief">
       <div class="ba-panel-head">
-        <h4>Συμπυκνωμένη εικόνα</h4>
-        <span id="baPeriodBadge" class="ba-pill"><i class="fe fe-calendar"></i>Περίοδος</span>
+        <h4>{{ tt(request, 'condensed_view') if tt(request, 'condensed_view') != 'condensed_view' else 'Συμπυκνωμένη εικόνα' }}</h4>
+        <span id="baPeriodBadge" class="ba-pill"><i class="fe fe-calendar"></i>{{ tt(request, 'period') }}</span>
       </div>
       <ul id="baBriefList" class="ba-brief-list">
-        <li><i class="fe fe-loader"></i><span>Φόρτωση ανάλυσης...</span></li>
+        <li><i class="fe fe-loader"></i><span>{{ tt(request, 'loading_analysis') if tt(request, 'loading_analysis') != 'loading_analysis' else 'Φόρτωση ανάλυσης...' }}</span></li>
       </ul>
     </article>
   </div>
@@ -545,10 +603,10 @@
   <div class="ba-command-grid">
     <article class="ba-panel ba-panel-tight ba-command-summary">
       <div class="ba-panel-head">
-        <h4>Συμπέρασμα Διοίκησης</h4>
-        <span id="baConfidenceBadge" class="ba-pill"><i class="fe fe-shield"></i>Βεβαιότητα</span>
+        <h4>{{ tt(request, 'management_conclusion') if tt(request, 'management_conclusion') != 'management_conclusion' else 'Συμπέρασμα Διοίκησης' }}</h4>
+        <span id="baConfidenceBadge" class="ba-pill"><i class="fe fe-shield"></i>{{ tt(request, 'confidence') if tt(request, 'confidence') != 'confidence' else 'Βεβαιότητα' }}</span>
       </div>
-      <p id="baThesis" class="ba-thesis">Συνθέτουμε τη στρατηγική ανάγνωση...</p>
+      <p id="baThesis" class="ba-thesis">{{ tt(request, 'loading_strategy_reading') if tt(request, 'loading_strategy_reading') != 'loading_strategy_reading' else 'Συνθέτουμε τη στρατηγική ανάγνωση...' }}</p>
       <div id="baFocusStrip" class="ba-focus-strip"></div>
       <div id="baDecisionFacts" class="ba-decision-facts"></div>
       <div id="baConfidenceText" class="ba-confidence-text"></div>
@@ -556,7 +614,7 @@
 
     <article class="ba-panel ba-panel-tight">
       <div class="ba-panel-head">
-        <h4>Μοχλοί Βελτίωσης</h4>
+        <h4>{{ tt(request, 'improvement_levers') if tt(request, 'improvement_levers') != 'improvement_levers' else 'Μοχλοί Βελτίωσης' }}</h4>
         <span id="baLeversCount" class="ba-pill">0</span>
       </div>
       <div id="baLevers" class="ba-list"></div>
@@ -566,7 +624,7 @@
   <div class="ba-grid">
     <article class="ba-panel">
       <div class="ba-panel-head">
-        <h4>Θετικά σήματα</h4>
+        <h4>{{ tt(request, 'positive_signals') if tt(request, 'positive_signals') != 'positive_signals' else 'Θετικά σήματα' }}</h4>
         <span id="baPositiveCount" class="ba-pill">0</span>
       </div>
       <div id="baPositives" class="ba-list"></div>
@@ -574,7 +632,7 @@
 
     <article class="ba-panel">
       <div class="ba-panel-head">
-        <h4>Κίνδυνοι</h4>
+        <h4>{{ tt(request, 'risks') if tt(request, 'risks') != 'risks' else 'Κίνδυνοι' }}</h4>
         <span id="baRiskCount" class="ba-pill">0</span>
       </div>
       <div id="baRisks" class="ba-list"></div>
@@ -582,7 +640,7 @@
 
     <article class="ba-panel">
       <div class="ba-panel-head">
-        <h4>Προτεινόμενες ενέργειες</h4>
+        <h4>{{ tt(request, 'recommended_actions') }}</h4>
         <span id="baActionCount" class="ba-pill">0</span>
       </div>
       <div id="baActions" class="ba-list"></div>
@@ -591,24 +649,24 @@
 
   <article class="ba-panel">
     <div class="ba-panel-head">
-      <h4>Πλάνο 7 / 30 ημερών</h4>
-      <span class="ba-pill"><i class="fe fe-flag"></i>Execution</span>
+      <h4>{{ tt(request, 'action_plan_7_30') if tt(request, 'action_plan_7_30') != 'action_plan_7_30' else 'Πλάνο 7 / 30 ημερών' }}</h4>
+      <span class="ba-pill"><i class="fe fe-flag"></i>{{ tt(request, 'execution') if tt(request, 'execution') != 'execution' else 'Execution' }}</span>
     </div>
     <div id="baActionPlan" class="ba-plan"></div>
   </article>
 
   <article class="ba-panel">
     <div class="ba-panel-head">
-      <h4 id="baDimensionTitle">Διάγνωση φυσικών σημείων / κατηγοριών</h4>
-      <span id="baDimensionBadge" class="ba-pill"><i class="fe fe-map-pin"></i>Ανάλυση</span>
+      <h4 id="baDimensionTitle">{{ tt(request, 'branch_category_diagnosis') if tt(request, 'branch_category_diagnosis') != 'branch_category_diagnosis' else 'Διάγνωση φυσικών σημείων / κατηγοριών' }}</h4>
+      <span id="baDimensionBadge" class="ba-pill"><i class="fe fe-map-pin"></i>{{ tt(request, 'analysis') if tt(request, 'analysis') != 'analysis' else 'Ανάλυση' }}</span>
     </div>
     <div id="baDimensionDiagnosis" class="ba-diagnosis-grid"></div>
   </article>
 
   <article class="ba-panel">
     <div class="ba-panel-head">
-      <h4>Ανά κύκλωμα</h4>
-      <span class="ba-pill"><i class="fe fe-layers"></i>Πηγή KPI</span>
+      <h4>{{ tt(request, 'by_module') if tt(request, 'by_module') != 'by_module' else 'Ανά κύκλωμα' }}</h4>
+      <span class="ba-pill"><i class="fe fe-layers"></i>{{ tt(request, 'kpi_source') if tt(request, 'kpi_source') != 'kpi_source' else 'Πηγή KPI' }}</span>
     </div>
     <div id="baModules" class="ba-modules"></div>
   </article>
@@ -618,6 +676,116 @@
 
 <script>
 (() => {
+  const LANG = "{{ request.cookies.get('lang', 'el') }}";
+  const I18N = {
+    el: {
+      action: 'Ενέργεια:',
+      move: 'Κίνηση:',
+      openCircuit: 'Άνοιγμα κυκλώματος',
+      openAnalysis: 'Άνοιγμα ανάλυσης',
+      open: 'Άνοιγμα',
+      noDiagnosis: 'Δεν υπάρχουν αρκετά δεδομένα για διάγνωση.',
+      metric: 'Μέτρηση',
+      turnover: 'Τζίρος',
+      change: 'Μεταβολή',
+      share: 'Συμμ.',
+      branchCategoryDiagnosis: 'Διάγνωση φυσικών σημείων / κατηγοριών',
+      branches: 'Φυσικά σημεία',
+      categories: 'Κατηγορίες',
+      goodMovement: 'Κινείται σωστά',
+      pressure: 'Δημιουργεί πίεση',
+      secondReading: 'Δεύτερη ανάγνωση:',
+      businessReading: 'Ανάγνωση επιχείρησης',
+      confidence: 'Βεβαιότητα',
+      noConclusion: 'Δεν υπάρχει ακόμη αρκετή εικόνα για συμπέρασμα διοίκησης.',
+      below: 'κάτω',
+      pieces: 'τεμάχια',
+      days: 'ημ.',
+      score: 'Score',
+      marginTarget: 'Περιθώριο / Στόχος',
+      belowTarget: 'Κάτω από στόχο',
+      netFlow: 'Καθαρή ροή',
+      grossProfit: 'Μικτό κέρδος',
+      avgPriceTarget: 'Μέσος στόχος τιμών',
+      stockCoverage: 'Κάλυψη αποθέματος',
+      analysisCategories: 'Ανάλυση κατηγοριών',
+      changePrefix: 'Μεταβολή',
+      purchasesToSales: 'Αγορές/πωλήσεις',
+      targetPrefix: 'Στόχος',
+      inflows: 'Εισροές',
+      outflows: 'Εκροές',
+      overdue: 'Ληξιπρόθεσμα',
+      aboveTarget: 'πάνω από στόχο',
+      loadingAnalysis: 'Φόρτωση ανάλυσης...',
+      readingPositives: 'Ανάγνωση θετικών σημάτων...',
+      readingRisks: 'Ανάγνωση κινδύνων...',
+      composingActions: 'Σύνθεση ενεργειών...',
+      calculatingLevers: 'Υπολογισμός μοχλών βελτίωσης...',
+      buildingPlan: 'Δόμηση πλάνου...',
+      emptyPositive: 'Δεν εντοπίστηκε έντονο θετικό σήμα για την επιλεγμένη περίοδο.',
+      emptyRisk: 'Δεν εντοπίστηκε σοβαρός κίνδυνος για την επιλεγμένη περίοδο.',
+      emptyAction: 'Δεν απαιτείται συγκεκριμένη διορθωτική ενέργεια.',
+      emptyLever: 'Δεν εντοπίστηκε μετρήσιμος μοχλός βελτίωσης για την περίοδο.',
+      diagnosticNote: 'Διαγνωστική σημείωση:',
+      circuitsNeedCheck: 'κύκλωμα/τα χρειάζονται τεχνικό έλεγχο ανάγνωσης.',
+      loadFailed: 'Δεν ήταν δυνατή η φόρτωση:',
+      noData: 'Δεν υπάρχουν δεδομένα.',
+    },
+    en: {
+      action: 'Action:',
+      move: 'Move:',
+      openCircuit: 'Open module',
+      openAnalysis: 'Open analysis',
+      open: 'Open',
+      noDiagnosis: 'There is not enough data for a reliable diagnosis.',
+      metric: 'Metric',
+      turnover: 'Turnover',
+      change: 'Change',
+      share: 'Share',
+      branchCategoryDiagnosis: 'Branch / category diagnosis',
+      branches: 'Branches',
+      categories: 'Categories',
+      goodMovement: 'Performing well',
+      pressure: 'Creating pressure',
+      secondReading: 'Second reading:',
+      businessReading: 'Business reading',
+      confidence: 'Confidence',
+      noConclusion: 'There is not enough information yet for a management conclusion.',
+      below: 'below',
+      pieces: 'units',
+      days: 'days',
+      score: 'Score',
+      marginTarget: 'Margin / Target',
+      belowTarget: 'Below target',
+      netFlow: 'Net flow',
+      grossProfit: 'Gross profit',
+      avgPriceTarget: 'Average price target',
+      stockCoverage: 'Stock coverage',
+      analysisCategories: 'Category analysis',
+      changePrefix: 'Change',
+      purchasesToSales: 'Purchases/sales',
+      targetPrefix: 'Target',
+      inflows: 'Inflows',
+      outflows: 'Outflows',
+      overdue: 'Overdue',
+      aboveTarget: 'above target',
+      loadingAnalysis: 'Loading analysis...',
+      readingPositives: 'Reading positive signals...',
+      readingRisks: 'Reading risks...',
+      composingActions: 'Composing actions...',
+      calculatingLevers: 'Calculating improvement levers...',
+      buildingPlan: 'Building action plan...',
+      emptyPositive: 'No strong positive signal was detected for the selected period.',
+      emptyRisk: 'No serious risk was detected for the selected period.',
+      emptyAction: 'No specific corrective action is required.',
+      emptyLever: 'No measurable improvement lever was detected for the period.',
+      diagnosticNote: 'Diagnostic note:',
+      circuitsNeedCheck: 'module(s) need a technical reading check.',
+      loadFailed: 'Could not load:',
+      noData: 'No data.',
+    },
+  };
+  const t = (key) => (I18N[LANG] && I18N[LANG][key]) || I18N.el[key] || key;
   const defaults = {
     from: "{{ default_from.strftime('%d/%m/%Y') if default_from else '' }}",
     to: "{{ default_to.strftime('%d/%m/%Y') if default_to else '' }}",
@@ -661,10 +829,10 @@
   function itemHtml(item, includeAction = false) {
     const severity = item.severity || 'info';
     const action = includeAction && item.action
-      ? `<p><strong>Ενέργεια:</strong> ${escapeHtml(item.action)}</p>`
+      ? `<p><strong>${t('action')}</strong> ${escapeHtml(item.action)}</p>`
       : '';
     const link = item.href
-      ? `<a class="ba-action-link" href="${escapeHtml(item.href)}">Άνοιγμα κυκλώματος</a>`
+      ? `<a class="ba-action-link" href="${escapeHtml(item.href)}">${t('openCircuit')}</a>`
       : '';
     return `
       <div class="ba-item">
@@ -678,7 +846,7 @@
 
   function leverHtml(item) {
     const severity = item.severity || 'info';
-    const href = item.href ? `<a class="ba-action-link" href="${escapeHtml(item.href)}">Άνοιγμα ανάλυσης</a>` : '';
+    const href = item.href ? `<a class="ba-action-link" href="${escapeHtml(item.href)}">${t('openAnalysis')}</a>` : '';
     const value = item.unit && item.unit.startsWith('€')
       ? money.format(item.value || 0)
       : `${number.format(item.value || 0)} ${escapeHtml(item.unit || '')}`;
@@ -687,14 +855,14 @@
         <div class="ba-item-title"><span class="ba-dot ${severity}"></span><i class="fe ${severityIcon(severity)}"></i>${escapeHtml(item.title || '')}</div>
         <div class="ba-lever-value">${value}</div>
         <p>${escapeHtml(item.text || '')}</p>
-        <p><strong>Κίνηση:</strong> ${escapeHtml(item.action || '')}</p>
+        <p><strong>${t('move')}</strong> ${escapeHtml(item.action || '')}</p>
         ${href}
       </div>
     `;
   }
 
   function planHtml(item) {
-    const href = item.href ? `<a class="ba-action-link mt-2" href="${escapeHtml(item.href)}">Άνοιγμα</a>` : '';
+    const href = item.href ? `<a class="ba-action-link mt-2" href="${escapeHtml(item.href)}">${t('open')}</a>` : '';
     return `
       <div class="ba-plan-item">
         <div class="ba-plan-range">${escapeHtml(item.range || '')}</div>
@@ -713,10 +881,10 @@
   }
 
   function dimensionTable(rows) {
-    if (!rows || !rows.length) return emptyHtml('Δεν υπάρχουν αρκετά δεδομένα για διάγνωση.');
+    if (!rows || !rows.length) return emptyHtml(t('noDiagnosis'));
     return `
       <table class="ba-mini-table">
-        <thead><tr><th>Μέτρηση</th><th class="text-end">Τζίρος</th><th class="text-end">Μεταβολή</th><th class="text-end">Συμμ.</th></tr></thead>
+        <thead><tr><th>${t('metric')}</th><th class="text-end">${t('turnover')}</th><th class="text-end">${t('change')}</th><th class="text-end">${t('share')}</th></tr></thead>
         <tbody>
           ${rows.map((row) => `
             <tr>
@@ -734,24 +902,24 @@
   function renderDimensionDiagnosis(data) {
     const diagnosis = data?.primary || {};
     const secondary = data?.secondary || null;
-    $('baDimensionTitle').textContent = diagnosis.title || 'Διάγνωση φυσικών σημείων / κατηγοριών';
-    $('baDimensionBadge').innerHTML = `<i class="fe ${data?.mode === 'branches' ? 'fe-map-pin' : 'fe-layers'}"></i>${data?.mode === 'branches' ? 'Φυσικά σημεία' : 'Κατηγορίες'}`;
+    $('baDimensionTitle').textContent = diagnosis.title || t('branchCategoryDiagnosis');
+    $('baDimensionBadge').innerHTML = `<i class="fe ${data?.mode === 'branches' ? 'fe-map-pin' : 'fe-layers'}"></i>${data?.mode === 'branches' ? t('branches') : t('categories')}`;
     const best = diagnosis.best;
     const worst = diagnosis.worst;
     const cards = `
       <div>
-        <div class="ba-diagnosis-summary">${escapeHtml(diagnosis.summary || 'Δεν υπάρχουν αρκετά δεδομένα για διάγνωση.')}</div>
-        ${best ? itemHtml({ title: `Κινείται σωστά: ${best.name}`, text: `Τζίρος ${money.format(best.net_value || 0)}, μεταβολή ${deltaText(best.delta_pct)}, συμμετοχή ${number.format(best.share_pct || 0)}%.`, severity: 'success', href: diagnosis.href }) : ''}
-        ${worst ? itemHtml({ title: `Δημιουργεί πίεση: ${worst.name}`, text: `Τζίρος ${money.format(worst.net_value || 0)}, μεταβολή ${deltaText(worst.delta_pct)}, συμμετοχή ${number.format(worst.share_pct || 0)}%.`, severity: 'warning', href: diagnosis.href }) : ''}
-        <div class="ba-diagnosis-action"><strong>Κίνηση:</strong> ${escapeHtml(diagnosis.action || '')}</div>
-        ${secondary ? `<div class="ba-diagnosis-action mt-3"><strong>Δεύτερη ανάγνωση:</strong> ${escapeHtml(secondary.summary || '')}</div>` : ''}
+        <div class="ba-diagnosis-summary">${escapeHtml(diagnosis.summary || t('noDiagnosis'))}</div>
+        ${best ? itemHtml({ title: `${t('goodMovement')}: ${best.name}`, text: `${t('turnover')} ${money.format(best.net_value || 0)}, ${t('change').toLowerCase()} ${deltaText(best.delta_pct)}, ${t('share').toLowerCase()} ${number.format(best.share_pct || 0)}%.`, severity: 'success', href: diagnosis.href }) : ''}
+        ${worst ? itemHtml({ title: `${t('pressure')}: ${worst.name}`, text: `${t('turnover')} ${money.format(worst.net_value || 0)}, ${t('change').toLowerCase()} ${deltaText(worst.delta_pct)}, ${t('share').toLowerCase()} ${number.format(worst.share_pct || 0)}%.`, severity: 'warning', href: diagnosis.href }) : ''}
+        <div class="ba-diagnosis-action"><strong>${t('move')}</strong> ${escapeHtml(diagnosis.action || '')}</div>
+        ${secondary ? `<div class="ba-diagnosis-action mt-3"><strong>${t('secondReading')}</strong> ${escapeHtml(secondary.summary || '')}</div>` : ''}
       </div>
     `;
     const secondaryBlock = secondary ? `
       <div class="ba-diagnosis-secondary">
         <div class="ba-diagnosis-secondary-head">
-          <h5>${escapeHtml(secondary.title || 'Ανάλυση κατηγοριών')}</h5>
-          <span class="ba-pill"><i class="fe fe-layers"></i>${secondary.mode === 'branches' ? 'Φυσικά σημεία' : 'Κατηγορίες'}</span>
+          <h5>${escapeHtml(secondary.title || t('analysisCategories'))}</h5>
+          <span class="ba-pill"><i class="fe fe-layers"></i>${secondary.mode === 'branches' ? t('branches') : t('categories')}</span>
         </div>
         <div class="ba-diagnosis-summary mb-3">${escapeHtml(secondary.summary || '')}</div>
         <div class="ba-diagnosis-table-wrap">${dimensionTable(secondary.rows || [])}</div>
@@ -778,19 +946,19 @@
     if (key === 'receivables') return money.format(data.total || 0);
     if (key === 'suppliers') return money.format(data.open_balance || 0);
     if (key === 'inventory') return money.format(data.value_amount || 0);
-    if (key === 'pricing') return `${number.format(data.below_target || 0)} κάτω`;
+    if (key === 'pricing') return `${number.format(data.below_target || 0)} ${t('below')}`;
     return number.format(data.value || 0);
   }
 
   function moduleSub(key, data) {
-    if (key === 'sales') return `Μεταβολή ${data.delta_pct == null ? '-' : number.format(data.delta_pct) + '%'}`;
-    if (key === 'purchases') return `Αγορές/πωλήσεις ${number.format(data.purchases_to_sales_pct || 0)}%`;
-    if (key === 'profitability') return `Στόχος ${number.format(data.target_margin_pct || 0)}%`;
-    if (key === 'cashflow') return `Εισροές ${money.format(data.inflows || 0)} / Εκροές ${money.format(data.outflows || 0)}`;
-    if (key === 'receivables') return `Ληξιπρόθεσμα ${number.format(data.overdue_ratio_pct || 0)}%`;
-    if (key === 'suppliers') return `Ληξιπρόθεσμα ${number.format(data.overdue_ratio_pct || 0)}%`;
-    if (key === 'inventory') return `${number.format(data.qty_on_hand || 0)} τεμάχια / ${number.format(data.sales_days_equivalent || 0)} ημ. με στόχο ${number.format(data.target_coverage_days || 0)}`;
-    if (key === 'pricing') return `${number.format(data.above_target || 0)} πάνω από στόχο`;
+    if (key === 'sales') return `${t('changePrefix')} ${data.delta_pct == null ? '-' : number.format(data.delta_pct) + '%'}`;
+    if (key === 'purchases') return `${t('purchasesToSales')} ${number.format(data.purchases_to_sales_pct || 0)}%`;
+    if (key === 'profitability') return `${t('targetPrefix')} ${number.format(data.target_margin_pct || 0)}%`;
+    if (key === 'cashflow') return `${t('inflows')} ${money.format(data.inflows || 0)} / ${t('outflows')} ${money.format(data.outflows || 0)}`;
+    if (key === 'receivables') return `${t('overdue')} ${number.format(data.overdue_ratio_pct || 0)}%`;
+    if (key === 'suppliers') return `${t('overdue')} ${number.format(data.overdue_ratio_pct || 0)}%`;
+    if (key === 'inventory') return `${number.format(data.qty_on_hand || 0)} ${t('pieces')} / ${number.format(data.sales_days_equivalent || 0)} ${t('days')}`;
+    if (key === 'pricing') return `${number.format(data.above_target || 0)} ${t('aboveTarget')}`;
     return '';
   }
 
@@ -816,13 +984,13 @@
     const cashflow = modules?.cashflow || {};
     const pricing = modules?.pricing || {};
     const facts = [
-      { label: 'Score', value: `${number.format(score || 0)}/100` },
-      { label: 'Περιθώριο / Στόχος', value: `${number.format(profitability.margin_pct || 0)}% / ${number.format(profitability.target_margin_pct || 0)}%` },
-      { label: 'Κάτω από στόχο', value: `${number.format(pricing.below_target || 0)} είδη` },
-      { label: 'Καθαρή ροή', value: money.format(cashflow.net || 0) },
-      { label: 'Μικτό κέρδος', value: money.format(profitability.gross_profit || 0) },
-      { label: 'Μέσος στόχος τιμών', value: `${number.format(pricing.avg_target_margin_pct || profitability.target_margin_pct || 0)}%` },
-      { label: 'Κάλυψη αποθέματος', value: `${number.format(modules?.inventory?.sales_days_equivalent || 0)} / ${number.format(modules?.inventory?.target_coverage_days || 0)} ημ.` },
+      { label: t('score'), value: `${number.format(score || 0)}/100` },
+      { label: t('marginTarget'), value: `${number.format(profitability.margin_pct || 0)}% / ${number.format(profitability.target_margin_pct || 0)}%` },
+      { label: t('belowTarget'), value: `${number.format(pricing.below_target || 0)} ${t('pieces')}` },
+      { label: t('netFlow'), value: money.format(cashflow.net || 0) },
+      { label: t('grossProfit'), value: money.format(profitability.gross_profit || 0) },
+      { label: t('avgPriceTarget'), value: `${number.format(pricing.avg_target_margin_pct || profitability.target_margin_pct || 0)}%` },
+      { label: t('stockCoverage'), value: `${number.format(modules?.inventory?.sales_days_equivalent || 0)} / ${number.format(modules?.inventory?.target_coverage_days || 0)} ${t('days')}` },
     ];
     $('baDecisionFacts').innerHTML = facts.map((fact) => `
       <div class="ba-decision-fact">
@@ -833,12 +1001,12 @@
   }
 
   function setLoading() {
-    $('baBriefList').innerHTML = '<li><i class="fe fe-loader"></i><span>Φόρτωση ανάλυσης...</span></li>';
-    $('baPositives').innerHTML = '<div class="ba-loading">Ανάγνωση θετικών σημάτων...</div>';
-    $('baRisks').innerHTML = '<div class="ba-loading">Ανάγνωση κινδύνων...</div>';
-    $('baActions').innerHTML = '<div class="ba-loading">Σύνθεση ενεργειών...</div>';
-    $('baLevers').innerHTML = '<div class="ba-loading">Υπολογισμός μοχλών βελτίωσης...</div>';
-    $('baActionPlan').innerHTML = '<div class="ba-loading">Δόμηση πλάνου...</div>';
+    $('baBriefList').innerHTML = `<li><i class="fe fe-loader"></i><span>${t('loadingAnalysis')}</span></li>`;
+    $('baPositives').innerHTML = `<div class="ba-loading">${t('readingPositives')}</div>`;
+    $('baRisks').innerHTML = `<div class="ba-loading">${t('readingRisks')}</div>`;
+    $('baActions').innerHTML = `<div class="ba-loading">${t('composingActions')}</div>`;
+    $('baLevers').innerHTML = `<div class="ba-loading">${t('calculatingLevers')}</div>`;
+    $('baActionPlan').innerHTML = `<div class="ba-loading">${t('buildingPlan')}</div>`;
     $('baModules').innerHTML = '';
   }
 
@@ -857,14 +1025,14 @@
     const scoreValue = Number(score.value || 0);
     $('baScoreValue').textContent = String(scoreValue);
     $('baScoreFill').style.width = `${Math.max(0, Math.min(100, scoreValue))}%`;
-    $('baScoreLabel').textContent = score.label || 'Ανάγνωση επιχείρησης';
+    $('baScoreLabel').textContent = score.label || t('businessReading');
     $('baScoreSummary').textContent = score.summary || '';
     $('baPeriodBadge').innerHTML = `<i class="fe fe-calendar"></i>${escapeHtml(isoToDmy(data.period?.from))} - ${escapeHtml(isoToDmy(data.period?.to))}`;
     $('baBriefList').innerHTML = (data.executive_brief || []).map((line) => `<li><i class="fe fe-check"></i><span>${escapeHtml(line)}</span></li>`).join('');
     const advisor = data.advisor || {};
     const confidence = advisor.confidence || {};
-    $('baThesis').textContent = advisor.thesis || 'Δεν υπάρχει ακόμη αρκετή εικόνα για συμπέρασμα διοίκησης.';
-    $('baConfidenceBadge').innerHTML = `<i class="fe fe-shield"></i>${escapeHtml(confidence.label || 'Βεβαιότητα')}`;
+    $('baThesis').textContent = advisor.thesis || t('noConclusion');
+    $('baConfidenceBadge').innerHTML = `<i class="fe fe-shield"></i>${escapeHtml(confidence.label || t('confidence'))}`;
     $('baConfidenceText').textContent = confidence.text || '';
     $('baFocusStrip').innerHTML = (advisor.focus_order || []).map((label, idx) => (
       `<span class="ba-focus-chip"><i class="fe fe-crosshair"></i>${idx + 1}. ${escapeHtml(label)}</span>`
@@ -874,12 +1042,12 @@
     $('baRiskCount').textContent = String((data.risks || []).length);
     $('baActionCount').textContent = String((data.actions || []).length);
     $('baLeversCount').textContent = String((data.levers || []).length);
-    renderList('baPositives', data.positives || [], 'Δεν εντοπίστηκε έντονο θετικό σήμα για την επιλεγμένη περίοδο.');
-    renderList('baRisks', data.risks || [], 'Δεν εντοπίστηκε σοβαρός κίνδυνος για την επιλεγμένη περίοδο.');
-    renderList('baActions', data.actions || [], 'Δεν απαιτείται συγκεκριμένη διορθωτική ενέργεια.', true);
+    renderList('baPositives', data.positives || [], t('emptyPositive'));
+    renderList('baRisks', data.risks || [], t('emptyRisk'));
+    renderList('baActions', data.actions || [], t('emptyAction'), true);
     $('baLevers').innerHTML = (data.levers || []).length
       ? data.levers.map(leverHtml).join('')
-      : emptyHtml('Δεν εντοπίστηκε μετρήσιμος μοχλός βελτίωσης για την περίοδο.');
+      : emptyHtml(t('emptyLever'));
     $('baActionPlan').innerHTML = (data.action_plan || []).map(planHtml).join('');
     renderDimensionDiagnosis(data.dimension_diagnosis || {});
     renderModules(data.modules || {});
@@ -888,7 +1056,7 @@
     const diagnostics = $('baDiagnostics');
     if (warnings.length) {
       diagnostics.classList.remove('d-none');
-      diagnostics.textContent = `Διαγνωστική σημείωση: ${warnings.length} κύκλωμα/τα χρειάζονται τεχνικό έλεγχο ανάγνωσης.`;
+      diagnostics.textContent = `${t('diagnosticNote')} ${warnings.length} ${t('circuitsNeedCheck')}`;
     } else {
       diagnostics.classList.add('d-none');
       diagnostics.textContent = '';
@@ -898,7 +1066,7 @@
   $('baFiltersForm')?.addEventListener('submit', (event) => {
     event.preventDefault();
     loadAdvisor().catch((error) => {
-      $('baBriefList').innerHTML = `<li><i class="fe fe-alert-triangle"></i><span>Δεν ήταν δυνατή η φόρτωση: ${escapeHtml(error.message)}</span></li>`;
+      $('baBriefList').innerHTML = `<li><i class="fe fe-alert-triangle"></i><span>${t('loadFailed')} ${escapeHtml(error.message)}</span></li>`;
     });
   });
 
@@ -910,13 +1078,13 @@
   });
 
   loadAdvisor().catch((error) => {
-    $('baBriefList').innerHTML = `<li><i class="fe fe-alert-triangle"></i><span>Δεν ήταν δυνατή η φόρτωση: ${escapeHtml(error.message)}</span></li>`;
-    renderList('baPositives', [], 'Δεν υπάρχουν δεδομένα.');
-    renderList('baRisks', [], 'Δεν υπάρχουν δεδομένα.');
-    renderList('baActions', [], 'Δεν υπάρχουν δεδομένα.', true);
-    $('baLevers').innerHTML = emptyHtml('Δεν υπάρχουν δεδομένα.');
+    $('baBriefList').innerHTML = `<li><i class="fe fe-alert-triangle"></i><span>${t('loadFailed')} ${escapeHtml(error.message)}</span></li>`;
+    renderList('baPositives', [], t('noData'));
+    renderList('baRisks', [], t('noData'));
+    renderList('baActions', [], t('noData'), true);
+    $('baLevers').innerHTML = emptyHtml(t('noData'));
     $('baActionPlan').innerHTML = '';
-    $('baDimensionDiagnosis').innerHTML = emptyHtml('Δεν υπάρχουν δεδομένα.');
+    $('baDimensionDiagnosis').innerHTML = emptyHtml(t('noData'));
   });
 })();
 </script>
