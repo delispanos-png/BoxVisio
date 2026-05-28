@@ -412,6 +412,8 @@ async def business_advisor_report(
     pricing_rows = list(pricing.get('rows') or [])
     price_above_target = [row for row in pricing_rows if _num(row.get('price_gap_value')) >= 0]
     price_below_target = [row for row in pricing_rows if _num(row.get('price_gap_value')) < 0]
+    price_above_codes = [str(row.get('item_code')) for row in price_above_target if row.get('item_code')]
+    price_below_codes = [str(row.get('item_code')) for row in price_below_target if row.get('item_code')]
     avg_price_margin = _num((pricing.get('summary') or {}).get('avg_margin_pct'))
     effective_target_margin_pct = _num((pricing.get('summary') or {}).get('target_margin_pct'), target_margin_pct)
     branch_rows_list = list(branch_rows or []) if isinstance(branch_rows, list) else []
@@ -435,6 +437,7 @@ async def business_advisor_report(
         date_to,
         categories=categories or [],
         groups=groups or [],
+        item_codes=price_below_codes,
         target_margin_pct=effective_target_margin_pct,
         price_position='below',
     )
@@ -444,6 +447,7 @@ async def business_advisor_report(
         date_to,
         categories=categories or [],
         groups=groups or [],
+        item_codes=price_above_codes,
         target_margin_pct=effective_target_margin_pct,
         price_position='above',
     )

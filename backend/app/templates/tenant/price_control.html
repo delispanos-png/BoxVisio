@@ -517,6 +517,7 @@
   const tbody = document.querySelector('#pcTable tbody');
   let currentRows = [];
   let priceCategoryModal = null;
+  let deepLinkSelectionsApplied = false;
 
   function esc(value){
     return String(value ?? '')
@@ -725,6 +726,7 @@
   async function refreshAndLoad(){
     try{
       await loadFilterOptions();
+      applyDeepLinkSelections();
       await loadTable();
     }catch(err){
       setError(err?.message || 'Internal Server Error');
@@ -761,7 +763,7 @@
     });
   });
 
-  function applyDeepLinkFilters(){
+  function applyDeepLinkDateFilters(){
     ['from', 'to'].forEach((key)=>{
       const value = initialQuery.get(key);
       const el = key === 'from' ? fromEl : toEl;
@@ -769,11 +771,33 @@
     });
     if(initialQuery.get('target_margin_pct')) targetMarginEl.value = initialQuery.get('target_margin_pct');
     if(initialQuery.get('discount_pct')) discountEl.value = initialQuery.get('discount_pct');
-    if(initialQuery.get('supplier_ext_id')) supplierEl.value = initialQuery.get('supplier_ext_id');
-    if(initialQuery.get('target_id')) targetEl.value = initialQuery.get('target_id');
   }
 
-  applyDeepLinkFilters();
+  function setSelectValues(el, values){
+    const wanted = new Set((values || []).map((v)=>String(v)));
+    if(!wanted.size) return;
+    Array.from(el?.options || []).forEach((opt)=>{ opt.selected = wanted.has(String(opt.value)); });
+  }
+
+  function applyDeepLinkSelections(){
+    if(deepLinkSelectionsApplied) return;
+    if(initialQuery.get('supplier_ext_id')) supplierEl.value = initialQuery.get('supplier_ext_id');
+    if(initialQuery.get('target_id')) targetEl.value = initialQuery.get('target_id');
+    multiDefs.forEach((def)=>{
+      const paramName = def.id === 'pcItems' ? 'item_codes' : (def.id === 'pcCategories' ? 'categories' : 'groups');
+      const selected = initialQuery.getAll(paramName);
+      if(!selected.length) return;
+      if(window.BvMultiSelect?.setSelected){
+        window.BvMultiSelect.setSelected(def.id, selected, { label: def.label });
+      }else{
+        const el = document.getElementById(def.id);
+        setSelectValues(el, selected);
+      }
+    });
+    deepLinkSelectionsApplied = true;
+  }
+
+  applyDeepLinkDateFilters();
   refreshAndLoad();
 })();
 </script>

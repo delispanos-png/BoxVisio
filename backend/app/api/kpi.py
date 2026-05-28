@@ -3326,6 +3326,7 @@ async def get_business_advisor_report(
         groups=groups,
     )
     params['target_margin_pct'] = round(float(target_margin_pct), 2)
+    params['drilldown_version'] = 2
     params['price_margin_targets'] = _tenant_price_margin_targets_from_request(request)
     params['business_advisor_targets'] = _tenant_business_advisor_targets_from_request(request)
     params['fulfillment'] = _tenant_eshop_fulfillment_from_request(request)
