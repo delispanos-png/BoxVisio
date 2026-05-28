@@ -687,6 +687,13 @@
       }
     }
     document.addEventListener('DOMContentLoaded', () => {
+      document.querySelectorAll('[data-feather]').forEach((icon) => {
+        const name = icon.getAttribute('data-feather');
+        if (!name) return;
+        icon.classList.add('fe', `fe-${name}`);
+        icon.removeAttribute('data-feather');
+      });
+
       const sidebarToggle = document.getElementById('adminSidebarToggleBtn');
       if (sidebarToggle && sidebarToggle.dataset.bound !== '1') {
         sidebarToggle.dataset.bound = '1';

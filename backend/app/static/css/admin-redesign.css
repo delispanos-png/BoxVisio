@@ -275,6 +275,7 @@ body.bv-admin-shell .bv-page-head {
   display: grid;
   place-items: center;
   border-radius: 10px;
+  grid-row: 1 / span 2;
 }
 
 .bv-admin-action-list .is-warning { color: #b45309; background: #fffbeb; }
@@ -284,6 +285,7 @@ body.bv-admin-shell .bv-page-head {
 .bv-admin-action-list strong,
 .bv-admin-action-list small {
   display: block;
+  grid-column: 2;
   min-width: 0;
 }
 
@@ -297,6 +299,8 @@ body.bv-admin-shell .bv-page-head {
   color: var(--bv-admin-muted);
   font-size: .76rem;
   font-weight: 750;
+  overflow-wrap: normal;
+  word-break: normal;
 }
 
 .bv-admin-maintenance-card {
@@ -658,6 +662,27 @@ body.bv-admin-shell .form-select:focus,
 body.bv-admin-shell textarea:focus {
   border-color: var(--bv-admin-accent) !important;
   box-shadow: 0 0 0 3px rgba(49, 86, 211, 0.12) !important;
+}
+
+body.bv-admin-shell .input-group > .form-control:not(:last-child),
+body.bv-admin-shell .input-group > .form-select:not(:last-child) {
+  border-top-right-radius: 0 !important;
+  border-bottom-right-radius: 0 !important;
+}
+
+body.bv-admin-shell .input-group > .btn {
+  width: 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-top-left-radius: 0 !important;
+  border-bottom-left-radius: 0 !important;
+}
+
+body.bv-admin-shell .input-group > .btn svg {
+  width: 14px;
+  height: 14px;
+  stroke: currentColor;
 }
 
 body.bv-admin-shell .btn:not(.btn-link) {
@@ -3352,13 +3377,27 @@ body.bv-admin-shell .bv-admin-panel {
     transform: translateX(-264px) !important;
   }
 
-  body.bv-admin-shell:not(.admin-sidebar-collapsed) .left-sidebar {
+  body.bv-admin-shell.admin-sidebar-collapsed .left-sidebar {
     transform: translateX(0) !important;
+    box-shadow: 0 24px 60px rgba(15, 23, 42, .18);
   }
 
   body.bv-admin-shell .content.home,
   body.bv-admin-shell.admin-sidebar-collapsed .content.home {
     margin-left: 0 !important;
     width: 100% !important;
+  }
+
+  body.bv-admin-shell.admin-sidebar-collapsed .content.home {
+    pointer-events: none;
+  }
+
+  body.bv-admin-shell .bv-admin-action-list a {
+    grid-template-columns: 42px minmax(0, 1fr);
+  }
+
+  body.bv-admin-shell .bv-admin-action-list small {
+    overflow-wrap: normal;
+    word-break: normal;
   }
 }
