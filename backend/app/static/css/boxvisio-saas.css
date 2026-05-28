@@ -1,0 +1,775 @@
+/* BoxVisio Soft Modern SaaS UI layer.
+   Additive and backwards-compatible: no business behavior, endpoints or data flow live here. */
+
+:root {
+  --bv-saas-font: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --bv-saas-bg: #f7f9fd;
+  --bv-saas-bg-rgb: 247, 249, 253;
+  --bv-saas-surface: #ffffff;
+  --bv-saas-surface-2: #fbfcff;
+  --bv-saas-surface-3: #f3f6fb;
+  --bv-saas-ink: #111827;
+  --bv-saas-text: #1f2a44;
+  --bv-saas-muted: #64748b;
+  --bv-saas-soft: #8a99ae;
+  --bv-saas-line: #e2e8f2;
+  --bv-saas-line-strong: #cfdae9;
+  --bv-saas-primary: #2563eb;
+  --bv-saas-primary-strong: #1d4ed8;
+  --bv-saas-primary-soft: #eef4ff;
+  --bv-saas-violet: #6554f2;
+  --bv-saas-violet-soft: #f1efff;
+  --bv-saas-green: #13b981;
+  --bv-saas-green-soft: #e9fbf4;
+  --bv-saas-amber: #f59e0b;
+  --bv-saas-amber-soft: #fff7e6;
+  --bv-saas-red: #ef4444;
+  --bv-saas-red-soft: #fff0f0;
+  --bv-saas-cyan: #06a6d9;
+  --bv-saas-cyan-soft: #e9faff;
+  --bv-saas-radius-sm: 8px;
+  --bv-saas-radius: 12px;
+  --bv-saas-radius-lg: 16px;
+  --bv-saas-shadow-card: 0 1px 2px rgba(15, 23, 42, .04), 0 14px 34px rgba(15, 23, 42, .055);
+  --bv-saas-shadow-float: 0 18px 48px rgba(15, 23, 42, .13);
+  --bv-saas-sidebar-width: 280px;
+  --bv-saas-sidebar-collapsed: 78px;
+  --bv-saas-ease: cubic-bezier(.2, .8, .2, 1);
+}
+
+body.bv-shell {
+  font-family: var(--bv-saas-font);
+}
+
+body.bv-shell[data-theme='dark'] {
+  --bv-saas-bg: #0f172a;
+  --bv-saas-bg-rgb: 15, 23, 42;
+  --bv-saas-surface: #111827;
+  --bv-saas-surface-2: #152033;
+  --bv-saas-surface-3: #1b2638;
+  --bv-saas-ink: #f8fafc;
+  --bv-saas-text: #e5edf7;
+  --bv-saas-muted: #a3b1c5;
+  --bv-saas-soft: #7f8ca2;
+  --bv-saas-line: #263247;
+  --bv-saas-line-strong: #34445c;
+  --bv-saas-primary-soft: rgba(37, 99, 235, .18);
+  --bv-saas-violet-soft: rgba(101, 84, 242, .18);
+  --bv-saas-green-soft: rgba(19, 185, 129, .14);
+  --bv-saas-amber-soft: rgba(245, 158, 11, .15);
+  --bv-saas-red-soft: rgba(239, 68, 68, .14);
+  --bv-saas-cyan-soft: rgba(6, 166, 217, .14);
+}
+
+body.tenant-shell {
+  --tenant-sidebar-width: var(--bv-saas-sidebar-width);
+  --tenant-sidebar-collapsed-width: var(--bv-saas-sidebar-collapsed);
+  --shell-bg: var(--bv-saas-bg);
+  --panel-bg: var(--bv-saas-surface);
+  --panel-border: var(--bv-saas-line);
+  --menu-text: #485872;
+  --menu-muted: #8795aa;
+  --menu-active-bg: var(--bv-saas-primary-soft);
+  --menu-active-text: var(--bv-saas-primary);
+  --menu-hover-bg: #f3f7ff;
+  --topbar-bg: rgba(255, 255, 255, .84);
+  --topbar-border: var(--bv-saas-line);
+  min-height: 100vh;
+  overflow-x: hidden;
+  background:
+    radial-gradient(circle at 32% -12%, rgba(37, 99, 235, .09), transparent 34%),
+    linear-gradient(180deg, #fbfdff 0%, var(--bv-saas-bg) 330px, var(--bv-saas-bg) 100%) !important;
+  color: var(--bv-saas-text);
+  letter-spacing: 0;
+}
+
+body.tenant-shell[data-theme='dark'] {
+  --menu-text: #c5d0df;
+  --menu-muted: #8190a3;
+  --menu-hover-bg: rgba(148, 163, 184, .10);
+  --topbar-bg: rgba(17, 24, 39, .86);
+  background:
+    radial-gradient(circle at 30% -12%, rgba(37, 99, 235, .18), transparent 34%),
+    #0f172a !important;
+}
+
+body.tenant-shell::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    linear-gradient(90deg, rgba(148, 163, 184, .10) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(148, 163, 184, .08) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: linear-gradient(180deg, rgba(0,0,0,.34), transparent 54%);
+}
+
+body.tenant-shell #leftsidebar.sidebar,
+body.tenant-shell .left-sidebar {
+  background: rgba(255, 255, 255, .92) !important;
+  border-right: 1px solid var(--bv-saas-line) !important;
+  box-shadow: none !important;
+  backdrop-filter: blur(18px) saturate(150%);
+}
+
+body.tenant-shell[data-theme='dark'] #leftsidebar.sidebar,
+body.tenant-shell[data-theme='dark'] .left-sidebar {
+  background: rgba(17, 24, 39, .92) !important;
+}
+
+body.tenant-shell .sidebar .admin-image {
+  padding: 22px 22px 16px !important;
+  border-bottom: 1px solid var(--bv-saas-line);
+}
+
+body.tenant-shell .sidebar .admin-image .brand-logo.bv-logo-asset {
+  width: 176px !important;
+  max-width: 176px !important;
+  margin: 0 !important;
+  border-radius: 0 !important;
+  filter: none !important;
+}
+
+body.tenant-shell .bv-brand-meta {
+  display: block;
+  margin: 10px 0 0 2px !important;
+  color: var(--bv-saas-muted) !important;
+  font-size: 10px;
+  font-weight: 850;
+  letter-spacing: .13em;
+  line-height: 1.2;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+body.tenant-shell .left-sidebar .menu.main-sidebar {
+  padding: 14px 10px 12px !important;
+  scrollbar-color: #cbd7e7 transparent;
+}
+
+body.tenant-shell .main-sidebar .list {
+  padding: 0 0 126px !important;
+}
+
+body.tenant-shell .main-sidebar .list .nav-item,
+body.tenant-shell .main-sidebar .list .bv-menu-group {
+  margin: 2px 0;
+}
+
+body.tenant-shell .main-sidebar .list .nav-item .nav-link,
+body.tenant-shell .main-sidebar .list .bv-menu-group .bv-group-toggle {
+  min-height: 42px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent !important;
+  color: var(--menu-text) !important;
+  box-shadow: none !important;
+  font-size: 14px;
+  font-weight: 720;
+  letter-spacing: 0;
+  transition: background-color .16s var(--bv-saas-ease), color .16s var(--bv-saas-ease), border-color .16s var(--bv-saas-ease);
+}
+
+body.tenant-shell .main-sidebar .list .bv-menu-group .bv-group-toggle {
+  color: var(--menu-muted) !important;
+  font-size: 11px;
+  font-weight: 850;
+  letter-spacing: .055em;
+  text-transform: uppercase;
+}
+
+body.tenant-shell .main-sidebar .list .nav-item .nav-link:hover,
+body.tenant-shell .main-sidebar .list .bv-submenu-link:hover,
+body.tenant-shell .main-sidebar .list .bv-menu-group.open > .bv-group-toggle {
+  color: var(--bv-saas-primary) !important;
+  background: var(--menu-hover-bg) !important;
+}
+
+body.tenant-shell .main-sidebar .list .nav-item.active > .nav-link,
+body.tenant-shell .main-sidebar .list .bv-submenu li.is-active > .bv-submenu-link,
+body.tenant-shell .main-sidebar .list .bv-submenu .bv-menu-group.active > .bv-group-toggle {
+  color: var(--menu-active-text) !important;
+  background: var(--menu-active-bg) !important;
+  border-color: #d9e5ff !important;
+  box-shadow: inset 3px 0 0 var(--bv-saas-primary) !important;
+}
+
+body.tenant-shell .main-sidebar .list .nav-link .sidemenu-icon,
+body.tenant-shell .main-sidebar .list .bv-group-toggle .sidemenu-icon,
+body.tenant-shell .main-sidebar .list .bv-submenu-link i:not(.bv-group-arrow) {
+  width: 18px;
+  min-width: 18px;
+  color: currentColor !important;
+  opacity: .9;
+  text-align: center;
+}
+
+body.tenant-shell .main-sidebar .list .bv-submenu {
+  margin: 5px 0 10px 18px !important;
+  padding: 3px 0 3px 10px;
+  border-left: 1px solid var(--bv-saas-line) !important;
+}
+
+body.tenant-shell .main-sidebar .list .bv-submenu-link {
+  min-height: 34px;
+  margin: 1px 0;
+  padding: 7px 10px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  color: var(--menu-text) !important;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+body.tenant-shell .sidebar-foot {
+  margin: 10px 10px 14px !important;
+  padding-top: 10px;
+  border-top: 1px solid var(--bv-saas-line) !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+
+body.tenant-shell .bottom-meta {
+  position: static;
+  inset: auto;
+  width: auto;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+body.tenant-shell .bottom-meta-item {
+  justify-content: flex-start;
+  min-height: 30px;
+  color: var(--bv-saas-muted) !important;
+  border-color: var(--bv-saas-line) !important;
+  font-size: 11px;
+}
+
+body.tenant-shell .bottom-meta-item strong {
+  color: var(--bv-saas-ink) !important;
+}
+
+body.tenant-shell .content.home {
+  padding: 18px 24px 34px !important;
+  background: transparent !important;
+}
+
+body.tenant-shell .topbar {
+  position: sticky;
+  top: 14px;
+  z-index: 1025;
+  min-height: 60px;
+  margin-bottom: 22px;
+  border: 1px solid var(--bv-saas-line) !important;
+  border-radius: 16px;
+  background: var(--topbar-bg) !important;
+  box-shadow: var(--bv-saas-shadow-card) !important;
+  backdrop-filter: blur(18px) saturate(150%);
+}
+
+body.tenant-shell .topbar .icon-btn,
+body.tenant-shell .topbar .btn,
+body.tenant-shell .topbar .sync-chip,
+body.tenant-shell .bv-profile-toggle {
+  border-radius: 10px !important;
+}
+
+body.tenant-shell .topbar .icon-btn {
+  width: 40px;
+  min-width: 40px;
+  height: 40px;
+  border-color: var(--bv-saas-line) !important;
+  background: var(--bv-saas-surface) !important;
+  color: var(--bv-saas-text) !important;
+  box-shadow: none !important;
+}
+
+body.tenant-shell .topbar .icon-btn:hover {
+  transform: none;
+  color: var(--bv-saas-primary) !important;
+  border-color: #c9d9f7 !important;
+  background: var(--bv-saas-primary-soft) !important;
+}
+
+body.tenant-shell .bv-topbar-kicker {
+  color: var(--bv-saas-muted);
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: .15em;
+  line-height: 1.1;
+}
+
+body.tenant-shell .bv-topbar-title {
+  color: var(--bv-saas-ink);
+  font-size: .98rem;
+  font-weight: 850;
+  line-height: 1.16;
+}
+
+body.tenant-shell #globalDateRangeBtn,
+body.tenant-shell .btn-primary,
+body.tenant-shell .btn-purple {
+  border: 1px solid var(--bv-saas-primary) !important;
+  background: var(--bv-saas-primary) !important;
+  color: #ffffff !important;
+  box-shadow: 0 8px 18px rgba(37, 99, 235, .18) !important;
+}
+
+body.tenant-shell #globalDateRangeBtn {
+  min-height: 40px;
+  padding-inline: 14px;
+}
+
+body.tenant-shell .topbar .sync-chip {
+  min-height: 40px;
+  padding: 6px 10px;
+  border: 1px solid transparent !important;
+  background: transparent !important;
+  color: var(--bv-saas-muted);
+}
+
+body.tenant-shell .sync-chip i {
+  color: var(--bv-saas-green) !important;
+}
+
+body.tenant-shell .dashboard-shell {
+  max-width: none !important;
+  padding: 0 0 30px;
+}
+
+body.tenant-shell .bv-page-head {
+  align-items: flex-start;
+  margin: 0 0 20px;
+  padding: 2px 2px 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+body.tenant-shell .bv-page-breadcrumb {
+  margin-bottom: 8px;
+  color: var(--bv-saas-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+body.tenant-shell .bv-page-title,
+body.tenant-shell .dashboard-shell .bv-page-head h3,
+body.tenant-shell .dashboard-shell h3:first-child {
+  color: var(--bv-saas-ink);
+  font-size: clamp(1.55rem, 1.8vw, 2rem);
+  font-weight: 850;
+  letter-spacing: -.015em;
+  line-height: 1.08;
+}
+
+body.tenant-shell .bv-page-subtitle,
+body.tenant-shell .dashboard-shell .bv-page-head p {
+  margin-top: 6px;
+  color: var(--bv-saas-muted);
+  font-size: .95rem;
+  font-weight: 520;
+}
+
+body.tenant-shell .bv-page-meta .badge {
+  border-color: var(--bv-saas-line) !important;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .74) !important;
+  color: var(--bv-saas-text) !important;
+  padding: 8px 12px;
+  font-weight: 760;
+}
+
+body.tenant-shell .card,
+body.tenant-shell .content-card,
+body.tenant-shell .filter-card,
+body.tenant-shell .bv-metric-card,
+body.tenant-shell .bv-stat-strip,
+body.tenant-shell .eshop-kpi-card,
+body.tenant-shell .eshop-panel,
+body.tenant-shell .branch-month-row,
+body.tenant-shell .decision-insight-item,
+body.tenant-shell .bv-kpi-help-block,
+body.tenant-shell .modal-content {
+  border: 1px solid var(--bv-saas-line) !important;
+  border-radius: 16px !important;
+  background: rgba(255, 255, 255, .94) !important;
+  box-shadow: var(--bv-saas-shadow-card) !important;
+  backdrop-filter: none !important;
+}
+
+body.tenant-shell[data-theme='dark'] .card,
+body.tenant-shell[data-theme='dark'] .content-card,
+body.tenant-shell[data-theme='dark'] .filter-card,
+body.tenant-shell[data-theme='dark'] .bv-metric-card,
+body.tenant-shell[data-theme='dark'] .bv-stat-strip,
+body.tenant-shell[data-theme='dark'] .eshop-kpi-card,
+body.tenant-shell[data-theme='dark'] .modal-content {
+  background: var(--bv-saas-surface) !important;
+}
+
+body.tenant-shell .card:hover,
+body.tenant-shell .content-card:hover,
+body.tenant-shell .filter-card:hover,
+body.tenant-shell .bv-metric-card:hover,
+body.tenant-shell .bv-stat-strip:hover,
+body.tenant-shell .eshop-kpi-card:hover {
+  border-color: #ccd9ec !important;
+  box-shadow: 0 2px 4px rgba(15, 23, 42, .05), 0 18px 44px rgba(37, 99, 235, .10) !important;
+}
+
+body.tenant-shell .card-header,
+body.tenant-shell .content-card > .card-header,
+body.tenant-shell .filter-card > .card-header,
+body.tenant-shell .modal-header,
+body.tenant-shell .modal-footer {
+  min-height: 58px;
+  border-color: var(--bv-saas-line) !important;
+  border-top-left-radius: 16px !important;
+  border-top-right-radius: 16px !important;
+  background: linear-gradient(180deg, rgba(255,255,255,.98), rgba(251,252,255,.94)) !important;
+}
+
+body.tenant-shell[data-theme='dark'] .card-header,
+body.tenant-shell[data-theme='dark'] .modal-header,
+body.tenant-shell[data-theme='dark'] .modal-footer {
+  background: var(--bv-saas-surface-2) !important;
+}
+
+body.tenant-shell .card-header h5,
+body.tenant-shell .content-card h5,
+body.tenant-shell .filter-card h5 {
+  color: var(--bv-saas-ink);
+  font-size: .98rem;
+  font-weight: 850;
+  letter-spacing: -.005em;
+}
+
+body.tenant-shell .bv-metric-card,
+body.tenant-shell .bv-stat-strip.bv-kpi-style,
+body.tenant-shell .bv-kpi-box,
+body.tenant-shell .eshop-kpi-card {
+  position: relative;
+  min-height: 118px;
+  overflow: hidden;
+  padding: 18px 18px 16px !important;
+  transition: transform .16s var(--bv-saas-ease), border-color .16s var(--bv-saas-ease), box-shadow .16s var(--bv-saas-ease);
+}
+
+body.tenant-shell .bv-metric-card:hover,
+body.tenant-shell .bv-stat-strip.bv-kpi-style:hover,
+body.tenant-shell .bv-kpi-box:hover {
+  transform: translateY(-1px);
+}
+
+body.tenant-shell .bv-metric-card::before,
+body.tenant-shell .bv-stat-strip.bv-kpi-style::before,
+body.tenant-shell .bv-kpi-box::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  border-top-left-radius: inherit;
+  border-bottom-left-radius: inherit;
+  background: var(--mc-color, var(--bv-saas-primary));
+}
+
+body.tenant-shell .bv-metric-card .mc-icon,
+body.tenant-shell .bv-kpi-box .kpi-icon,
+body.tenant-shell .bv-stat-strip.bv-kpi-style .kpi-icon,
+body.tenant-shell .eshop-kpi-icon {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid color-mix(in srgb, var(--mc-color, var(--bv-saas-primary)) 28%, var(--bv-saas-line)) !important;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--mc-color, var(--bv-saas-primary)) 13%, white) !important;
+  color: var(--mc-color, var(--bv-saas-primary)) !important;
+  box-shadow: none !important;
+}
+
+body.tenant-shell .mc-label,
+body.tenant-shell .kpi-title,
+body.tenant-shell .bv-stat-strip .label,
+body.tenant-shell .eshop-kpi-label {
+  max-width: calc(100% - 54px);
+  color: #66758e !important;
+  font-size: .72rem !important;
+  font-weight: 850 !important;
+  letter-spacing: .035em;
+  line-height: 1.18;
+  text-transform: uppercase;
+}
+
+body.tenant-shell .mc-value,
+body.tenant-shell .kpi-value,
+body.tenant-shell .bv-stat-strip .value,
+body.tenant-shell .eshop-kpi-value {
+  margin-top: 8px;
+  color: var(--bv-saas-ink) !important;
+  font-size: clamp(1.48rem, 1.7vw, 2rem) !important;
+  font-weight: 850 !important;
+  letter-spacing: -.015em;
+  line-height: 1.02;
+}
+
+body.tenant-shell .mc-meta,
+body.tenant-shell .mc-delta,
+body.tenant-shell .kpi-meta,
+body.tenant-shell .bv-stat-strip .small,
+body.tenant-shell .eshop-kpi-meta {
+  margin-top: 6px;
+  color: var(--bv-saas-muted) !important;
+  font-size: .79rem;
+  font-weight: 620;
+}
+
+body.tenant-shell .mc-delta-up,
+body.tenant-shell .text-success {
+  color: var(--bv-saas-green) !important;
+}
+
+body.tenant-shell .mc-delta-down,
+body.tenant-shell .text-danger {
+  color: var(--bv-saas-red) !important;
+}
+
+body.tenant-shell .filter-card {
+  overflow: hidden;
+}
+
+body.tenant-shell .filter-card .card-header {
+  padding: 14px 16px;
+}
+
+body.tenant-shell .filter-card .card-body {
+  padding: 16px;
+}
+
+body.tenant-shell .form-label {
+  color: var(--bv-saas-muted);
+  font-size: .77rem;
+  font-weight: 760;
+}
+
+body.tenant-shell .form-control,
+body.tenant-shell .form-select,
+body.tenant-shell textarea,
+body.tenant-shell .bv-multi-toggle {
+  min-height: 40px;
+  border-radius: 10px !important;
+  border-color: var(--bv-saas-line) !important;
+  background: var(--bv-saas-surface) !important;
+  color: var(--bv-saas-text) !important;
+  box-shadow: none !important;
+}
+
+body.tenant-shell .form-control:focus,
+body.tenant-shell .form-select:focus,
+body.tenant-shell textarea:focus,
+body.tenant-shell .bv-multi-toggle:focus {
+  border-color: #aac2f4 !important;
+  box-shadow: 0 0 0 .18rem rgba(37, 99, 235, .12) !important;
+}
+
+body.tenant-shell .btn:not(.btn-link) {
+  border-radius: 10px !important;
+  font-weight: 760;
+}
+
+body.tenant-shell .btn-outline-secondary,
+body.tenant-shell .btn-light {
+  border-color: var(--bv-saas-line) !important;
+  background: var(--bv-saas-surface) !important;
+  color: var(--bv-saas-text) !important;
+}
+
+body.tenant-shell .btn-outline-secondary:hover,
+body.tenant-shell .btn-light:hover {
+  border-color: #cbd8ec !important;
+  background: var(--bv-saas-surface-3) !important;
+}
+
+body.tenant-shell .table,
+body.tenant-shell .bv-unified-table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+body.tenant-shell .table thead th,
+body.tenant-shell .bv-unified-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  border-bottom: 1px solid var(--bv-saas-line) !important;
+  background: var(--bv-saas-surface-2) !important;
+  color: #5f7088 !important;
+  font-size: .7rem;
+  font-weight: 850;
+  letter-spacing: .055em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+body.tenant-shell .table tbody td,
+body.tenant-shell .bv-unified-table tbody td {
+  border-color: #edf2f8 !important;
+  color: var(--bv-saas-text);
+  font-size: .86rem;
+  font-weight: 520;
+  vertical-align: middle;
+}
+
+body.tenant-shell .table-striped > tbody > tr:nth-of-type(odd) > *,
+body.tenant-shell .bv-unified-table tbody tr:nth-child(odd) td {
+  background: rgba(248, 251, 255, .62) !important;
+}
+
+body.tenant-shell .table tbody tr:hover td,
+body.tenant-shell .bv-unified-table tbody tr:hover td {
+  background: var(--bv-saas-primary-soft) !important;
+}
+
+body.tenant-shell .modal.bv-modal {
+  backdrop-filter: none;
+}
+
+body.tenant-shell .modal.bv-modal .modal-content {
+  overflow: hidden;
+  border-radius: 18px !important;
+  box-shadow: var(--bv-saas-shadow-float) !important;
+}
+
+body.tenant-shell .modal.bv-modal .modal-title {
+  color: var(--bv-saas-ink);
+  font-weight: 850;
+}
+
+body.tenant-shell .bv-profile-dropdown,
+body.tenant-shell .bv-multi-menu,
+body.tenant-shell .dropdown-menu,
+body.tenant-shell .popover {
+  border: 1px solid var(--bv-saas-line) !important;
+  border-radius: 14px !important;
+  background: var(--bv-saas-surface) !important;
+  box-shadow: var(--bv-saas-shadow-float) !important;
+  backdrop-filter: none !important;
+}
+
+body.tenant-shell .executive-kpi-summary,
+body.tenant-shell .executive-kpi-branch-row,
+body.tenant-shell .executive-kpi-view-switch {
+  border-color: var(--bv-saas-line) !important;
+  border-radius: 14px !important;
+  background: var(--bv-saas-surface-2) !important;
+}
+
+body.tenant-shell .executive-kpi-view-switch button {
+  border-radius: 10px !important;
+}
+
+body.tenant-shell.admin-sidebar-collapsed .sidebar .admin-image .brand-logo.bv-logo-asset,
+body.tenant-shell.sidebar-icon-only .sidebar .admin-image .brand-logo.bv-logo-asset {
+  width: 42px !important;
+  max-width: 42px !important;
+  content: url('/static/brand/boxvisio-mark.svg?v=20260528logo1');
+  border-radius: 10px !important;
+}
+
+body.tenant-shell.admin-sidebar-collapsed .bv-brand-meta,
+body.tenant-shell.sidebar-icon-only .bv-brand-meta {
+  display: none !important;
+}
+
+body.tenant-shell.admin-sidebar-collapsed .main-sidebar .list .nav-item.active > .nav-link,
+body.tenant-shell.sidebar-icon-only .main-sidebar .list .nav-item.active > .nav-link {
+  box-shadow: none !important;
+}
+
+body.tenant-shell .bv-sidebar-backdrop.active {
+  background: rgba(15, 23, 42, .42);
+  backdrop-filter: blur(4px);
+}
+
+body.tenant-shell *:focus-visible {
+  outline: 3px solid rgba(37, 99, 235, .25);
+  outline-offset: 2px;
+}
+
+@media (max-width: 1199.98px) {
+  body.tenant-shell {
+    --tenant-sidebar-width: 260px;
+  }
+
+  body.tenant-shell .content.home {
+    padding: 14px 16px 28px !important;
+  }
+}
+
+@media (max-width: 991.98px) {
+  body.tenant-shell .content.home,
+  body.tenant-shell.admin-sidebar-collapsed .content.home {
+    padding: 12px !important;
+  }
+
+  body.tenant-shell .topbar {
+    top: 8px;
+    min-height: 56px;
+    border-radius: 14px;
+  }
+
+  body.tenant-shell .topbar > .d-flex:last-child {
+    gap: 6px !important;
+  }
+
+  body.tenant-shell #globalDateRangeBtn {
+    max-width: 46vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  body.tenant-shell .bv-metric-card,
+  body.tenant-shell .bv-stat-strip.bv-kpi-style,
+  body.tenant-shell .bv-kpi-box,
+  body.tenant-shell .eshop-kpi-card {
+    min-height: 108px;
+    padding: 16px !important;
+  }
+}
+
+@media (max-width: 575.98px) {
+  body.tenant-shell .topbar {
+    align-items: flex-start !important;
+    padding-block: 10px;
+  }
+
+  body.tenant-shell .sync-chip,
+  body.tenant-shell .topbar .btn-outline-secondary {
+    display: none !important;
+  }
+
+  body.tenant-shell .bv-page-title,
+  body.tenant-shell .dashboard-shell .bv-page-head h3,
+  body.tenant-shell .dashboard-shell h3:first-child {
+    font-size: 1.35rem;
+  }
+
+  body.tenant-shell .mc-value,
+  body.tenant-shell .kpi-value,
+  body.tenant-shell .bv-stat-strip .value,
+  body.tenant-shell .eshop-kpi-value {
+    font-size: 1.42rem !important;
+  }
+}

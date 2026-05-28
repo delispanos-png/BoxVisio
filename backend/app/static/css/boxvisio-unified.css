@@ -5,6 +5,7 @@
 @import url('/static/css/admin-redesign.css?v=20260528elegant1');
 @import url('/static/css/tenant-shell.css?v=20260528unified3');
 @import url('/static/css/boxvisio-2026.css?v=20260528elegant1');
+@import url('/static/css/boxvisio-saas.css?v=20260528saas1');
 
 body.bv-shell {
   min-height: 100vh;
