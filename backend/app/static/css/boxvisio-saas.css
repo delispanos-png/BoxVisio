@@ -1478,7 +1478,20 @@ body.tenant-shell .bv-metric-card,
 body.tenant-shell .bv-stat-strip.bv-kpi-style,
 body.tenant-shell .bv-kpi-box,
 body.tenant-shell .eshop-kpi-card {
+  display: flex !important;
+  flex-direction: column;
+  justify-content: center;
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 146px !important;
   text-align: center !important;
+}
+
+body.tenant-shell .row > [class*="col-"] > .bv-metric-card,
+body.tenant-shell .row > [class*="col-"] > .bv-stat-strip.bv-kpi-style,
+body.tenant-shell .row > [class*="col-"] > .bv-kpi-box,
+body.tenant-shell .row > [class*="col-"] > .eshop-kpi-card {
+  align-self: stretch;
 }
 
 body.tenant-shell .mc-label,

@@ -2178,6 +2178,8 @@ async function reloadCentralDashboard(e){
   }catch(err){
     renderDecisionInsights([]);
     setError(err.message || '{{ tt(request, "dashboard_load_failed") }}');
+  } finally {
+    window.bvRefreshDmyDateInputs?.(document.getElementById('centralFilters') || document);
   }
 }
 
