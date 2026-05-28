@@ -453,6 +453,16 @@ body.bv-admin-shell .main-sidebar .list {
   padding: 12px 0 96px;
 }
 
+body.bv-admin-shell .left-sidebar .menu.main-sidebar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+body.bv-admin-shell .left-sidebar .menu.main-sidebar::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
 body.bv-admin-shell .main-sidebar .list .bv-menu-group {
   margin: 3px 0;
 }
