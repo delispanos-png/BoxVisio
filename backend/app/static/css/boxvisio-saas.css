@@ -1474,6 +1474,33 @@ body.tenant-shell .bv-date-trigger:hover {
   color: #ffffff;
 }
 
+body.tenant-shell .bv-metric-card,
+body.tenant-shell .bv-stat-strip.bv-kpi-style,
+body.tenant-shell .bv-kpi-box,
+body.tenant-shell .eshop-kpi-card {
+  text-align: center !important;
+}
+
+body.tenant-shell .mc-label,
+body.tenant-shell .kpi-title,
+body.tenant-shell .bv-stat-strip .label,
+body.tenant-shell .eshop-kpi-label,
+body.tenant-shell .mc-value,
+body.tenant-shell .kpi-value,
+body.tenant-shell .bv-stat-strip .value,
+body.tenant-shell .eshop-kpi-value,
+body.tenant-shell .mc-meta,
+body.tenant-shell .mc-delta,
+body.tenant-shell .kpi-meta,
+body.tenant-shell .bv-stat-strip .small,
+body.tenant-shell .eshop-kpi-meta {
+  display: block;
+  max-width: 100% !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+  text-align: center !important;
+}
+
 body.tenant-shell.admin-sidebar-collapsed #leftsidebar.sidebar,
 body.tenant-shell.admin-sidebar-collapsed .left-sidebar,
 body.tenant-shell.sidebar-icon-only #leftsidebar.sidebar,

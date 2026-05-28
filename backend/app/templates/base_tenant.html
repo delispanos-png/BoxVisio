@@ -6,7 +6,7 @@
   <title>{{ tt(request, title) if title else tt(request, 'app_tenant_title') }}</title>
   <link rel="icon" href="/static/brand/boxvisio-mark.svg?v=20260528logo1" type="image/svg+xml">
   <link href="/static/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
-  <link href="/static/css/boxvisio-unified.css?v=20260528saas5" rel="stylesheet">
+  <link href="/static/css/boxvisio-unified.css?v=20260528saas6" rel="stylesheet">
   <script src="/static/js/bv-unified-ui.js?v=20260513multi"></script>
 </head>
 <body class="bv-shell tenant-shell" data-theme="{{ request.cookies.get('theme', 'light') }}">
@@ -509,10 +509,9 @@
         <div class="d-flex align-items-center gap-2">
           {% set _lang = request.cookies.get('lang', 'el') %}
           {% set _theme = request.cookies.get('theme', 'light') %}
-          <button class="icon-btn" id="themeToggleBtn" data-theme-toggle title="{{ tt(request, 'theme_toggle') }}" data-theme="{{ _theme }}"><i class="fe fe-moon"></i></button>
+          <button class="icon-btn" id="themeToggleBtn" data-theme-toggle title="{{ tt(request, 'theme_toggle') }}" data-theme="{{ _theme }}"><i class="fe {{ 'fe-sun' if _theme == 'dark' else 'fe-moon' }}"></i></button>
           <button class="icon-btn" id="fullscreenToggleBtn" type="button" title="{{ tt(request, 'full_screen') }}"><i class="fe fe-maximize"></i></button>
           <a class="btn btn-outline-secondary btn-sm" href="/set-language/{{ 'en' if _lang != 'en' else 'el' }}?next={{ request.url.path }}">{{ tt(request, 'lang_en') if _lang == 'en' else tt(request, 'lang_el') }}</a>
-          <button class="btn btn-primary btn-sm" id="globalDateRangeBtn" type="button"><i class="fe fe-calendar"></i> {{ tt(request, 'search_by_date') }}</button>
           <div
             class="sync-chip"
             title="{{ tenant_softone_last_sync_title if tenant_softone_last_sync_title is defined else 'Δεν έχει καταγραφεί ακόμη συγχρονισμός' }}"
@@ -521,7 +520,7 @@
           >
             <i class="fe fe-refresh-cw"></i>
             <div>
-              <span class="sync-chip-label">Τελευταίος συγχρονισμός</span>
+              <span class="sync-chip-label">{{ tt(request, 'last_sync') }}</span>
               <span class="sync-chip-value" data-last-sync-value>{{ tenant_softone_last_sync_display if tenant_softone_last_sync_display is defined else 'Μη διαθέσιμο' }}</span>
             </div>
           </div>
@@ -533,14 +532,14 @@
             <div class="bv-profile-dropdown" data-profile-dropdown hidden>
               <div class="bv-profile-head">
                 <div class="bv-profile-name">BoxVisio User</div>
-                <div class="bv-profile-role">Tenant Portal · {{ request.state.professional_profile_name if request.state.professional_profile_name is defined else 'Manager' }}</div>
+                <div class="bv-profile-role">{{ tt(request, 'tenant_portal_title') }} · {{ request.state.professional_profile_name if request.state.professional_profile_name is defined else tt(request, 'manager') }}</div>
               </div>
-              <a class="bv-profile-item" href="/tenant/profile"><i class="fe fe-user"></i> Profile</a>
+              <a class="bv-profile-item" href="/tenant/profile"><i class="fe fe-user"></i> {{ tt(request, 'profile') }}</a>
               {% if request.state.user_role is defined and request.state.user_role == 'tenant_admin' %}
               <a class="bv-profile-item" href="/tenant/users"><i class="fe fe-user-check"></i> Χρήστες &amp; Άδειες</a>
               {% endif %}
-              <a class="bv-profile-item" href="/tenant/settings"><i class="fe fe-settings"></i> Settings</a>
-              <a class="bv-profile-item" href="/tenant/messages"><i class="fe fe-message-circle"></i> Messages</a>
+              <a class="bv-profile-item" href="/tenant/settings"><i class="fe fe-settings"></i> {{ tt(request, 'settings') }}</a>
+              <a class="bv-profile-item" href="/tenant/messages"><i class="fe fe-message-circle"></i> {{ tt(request, 'messages') }}</a>
               <form method="post" action="/logout" class="mb-0">
                 <button class="bv-profile-item bv-signout" type="submit"><i class="fe fe-log-out"></i> {{ tt(request, 'logout') }}</button>
               </form>
@@ -1628,6 +1627,35 @@
       window.bvToDmyDate = bvToDmyDate;
       window.bvInitDmyDateInputs = bvInitDmyDateInputs;
 
+      function applyTheme(mode) {
+        const next = mode === 'dark' ? 'dark' : 'light';
+        document.body.setAttribute('data-theme', next);
+        document.querySelectorAll('[data-theme-toggle]').forEach((btn) => {
+          btn.dataset.theme = next;
+          const icon = btn.querySelector('i');
+          if (icon) {
+            icon.classList.remove('fe-moon', 'fe-sun');
+            icon.classList.add(next === 'dark' ? 'fe-sun' : 'fe-moon');
+          }
+        });
+      }
+
+      document.querySelectorAll('[data-theme-toggle]').forEach((btn) => {
+        if (btn.dataset.bound === '1') return;
+        btn.dataset.bound = '1';
+        btn.addEventListener('click', (event) => {
+          event.preventDefault();
+          const current = document.body.getAttribute('data-theme') || btn.dataset.theme || 'light';
+          const next = current === 'dark' ? 'light' : 'dark';
+          document.cookie = `theme=${next}; Path=/; Max-Age=${365 * 24 * 60 * 60}; SameSite=Lax`;
+          try { localStorage.setItem('theme', next); } catch (_err) {}
+          applyTheme(next);
+          fetch(`/set-theme/${next}?next=${encodeURIComponent(window.location.pathname + window.location.search)}`, {
+            credentials: 'same-origin'
+          }).catch(() => {});
+        });
+      });
+
       function ensureMultiSelectSearch(root = document) {
         root.querySelectorAll?.('.bv-multi-menu').forEach((menu) => {
           const options = menu.querySelector('.bv-multi-options');
@@ -1649,15 +1677,6 @@
           });
         });
       }
-
-      document.addEventListener('submit', (e) => {
-        const form = e.target;
-        if (!form || !form.querySelectorAll) return;
-        form.querySelectorAll('input[data-date-format="dmy"]').forEach((el) => {
-          const iso = bvToIsoDate(el.value);
-          if (iso && /^\d{4}-\d{2}-\d{2}$/.test(iso)) el.value = iso;
-        });
-      });
 
       document.addEventListener('click', (event) => {
         const popover = document.getElementById('bvInlineDatePicker');
