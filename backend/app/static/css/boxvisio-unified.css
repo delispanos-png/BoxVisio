@@ -1,8 +1,9 @@
-@import url('/static/css/boxvisio-ui.css?v=20260528unified1');
-@import url('/static/css/bv-modal-system.css?v=20260528unified1');
-@import url('/static/css/bv-unified-ui.css?v=20260528unified1');
-@import url('/static/css/admin-redesign.css?v=20260528unified1');
-@import url('/static/css/tenant-shell.css?v=20260528unified1');
+@import url('/static/vendor/feather/feather.css?v=20260528vendor1');
+@import url('/static/css/boxvisio-ui.css?v=20260528unified2');
+@import url('/static/css/bv-modal-system.css?v=20260528unified2');
+@import url('/static/css/bv-unified-ui.css?v=20260528unified2');
+@import url('/static/css/admin-redesign.css?v=20260528unified2');
+@import url('/static/css/tenant-shell.css?v=20260528unified2');
 
 body.bv-shell {
   min-height: 100vh;
@@ -37,43 +38,6 @@ body.bv-shell {
   max-width: 210px;
 }
 
-.fe,
-[class^="fe-"],
-[class*=" fe-"] {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 1em;
-  height: 1em;
-  font-style: normal;
-  line-height: 1;
-  vertical-align: -0.125em;
-}
-
-.fe::before,
-[class^="fe-"]::before,
-[class*=" fe-"]::before {
-  content: '';
-  display: inline-block;
-  width: .86em;
-  height: .86em;
-  border: 1.8px solid currentColor;
-  border-radius: 3px;
-  box-sizing: border-box;
-}
-
-.fe-menu::before { border-radius: 0; border-width: 2px 0; height: .7em; box-shadow: inset 0 2px 0 currentColor; }
-.fe-chevron-down::before { border-width: 0 2px 2px 0; width: .55em; height: .55em; transform: rotate(45deg); }
-.fe-chevron-up::before { border-width: 2px 0 0 2px; width: .55em; height: .55em; transform: rotate(45deg); }
-.fe-arrow-right::before,
-.fe-arrow-right-circle::before,
-.fe-arrow-up-right::before { border-width: 2px 2px 0 0; width: .58em; height: .58em; transform: rotate(45deg); }
-.fe-x::before { border: 0; width: .9em; height: .9em; background: linear-gradient(45deg, transparent 45%, currentColor 45%, currentColor 55%, transparent 55%), linear-gradient(-45deg, transparent 45%, currentColor 45%, currentColor 55%, transparent 55%); }
-.fe-check-circle::before { border-radius: 50%; }
-.fe-alert-triangle::before { border-radius: 2px; transform: rotate(45deg); }
-.fe-lock::before { border-radius: 2px; border-top-left-radius: 6px; border-top-right-radius: 6px; }
-
 body.bv-shell[data-theme='dark'] .bv-logo-wordmark {
   color: #f8fafc;
 }
-
