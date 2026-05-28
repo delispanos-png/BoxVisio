@@ -625,7 +625,18 @@ function renderTableRows(rows){
     tbody.appendChild(tr);
   });
   if (window.bootstrap?.Popover) {
-    document.querySelectorAll('[data-bs-toggle="popover"]').forEach(el => window.bootstrap.Popover.getOrCreateInstance(el));
+    document.querySelectorAll('[data-bs-toggle="popover"]').forEach((el) => {
+      if (typeof window.bootstrap.Popover.getOrCreateInstance === 'function') {
+        window.bootstrap.Popover.getOrCreateInstance(el);
+        return;
+      }
+      if (typeof window.bootstrap.Popover.getInstance === 'function' && window.bootstrap.Popover.getInstance(el)) {
+        return;
+      }
+      try {
+        new window.bootstrap.Popover(el);
+      } catch (_err) {}
+    });
   }
 }
 function rerenderInsightsTable(){
