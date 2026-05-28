@@ -6,7 +6,7 @@
   <title>{{ tt(request, title) if title else tt(request, 'app_tenant_title') }}</title>
   <link rel="icon" href="/static/brand/boxvisio-mark.svg?v=20260528logo1" type="image/svg+xml">
   <link href="/static/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
-  <link href="/static/css/boxvisio-unified.css?v=20260528saas3" rel="stylesheet">
+  <link href="/static/css/boxvisio-unified.css?v=20260528saas4" rel="stylesheet">
   <script src="/static/js/bv-unified-ui.js?v=20260513multi"></script>
 </head>
 <body class="bv-shell tenant-shell" data-theme="{{ request.cookies.get('theme', 'light') }}">
@@ -1240,6 +1240,88 @@
         }
         bvNormalizeDmyInput(el);
       });
+      bvEnhanceDmyDatePickers(rootNode);
+    }
+
+    function bvEnsureDatePickerPopover() {
+      let popover = document.getElementById('bvInlineDatePicker');
+      if (popover) return popover;
+      popover = document.createElement('div');
+      popover.id = 'bvInlineDatePicker';
+      popover.className = 'bv-inline-date-picker';
+      popover.hidden = true;
+      popover.innerHTML = `
+        <div class="bv-inline-date-head">
+          <button type="button" class="btn btn-sm btn-light" data-bv-date-nav="-1"><i class="fe fe-chevron-left"></i></button>
+          <strong data-bv-date-title></strong>
+          <button type="button" class="btn btn-sm btn-light" data-bv-date-nav="1"><i class="fe fe-chevron-right"></i></button>
+        </div>
+        <div class="bv-inline-date-weekdays"><span>Δ</span><span>Τ</span><span>Τ</span><span>Π</span><span>Π</span><span>Σ</span><span>Κ</span></div>
+        <div class="bv-inline-date-grid" data-bv-date-grid></div>
+      `;
+      document.body.appendChild(popover);
+      return popover;
+    }
+
+    function bvRenderInlineDatePicker(popover, input, baseDate) {
+      const monthNames = ['Ιαν', 'Φεβ', 'Μαρ', 'Απρ', 'Μαι', 'Ιουν', 'Ιουλ', 'Αυγ', 'Σεπ', 'Οκτ', 'Νοε', 'Δεκ'];
+      const year = baseDate.getFullYear();
+      const month = baseDate.getMonth();
+      popover.dataset.year = String(year);
+      popover.dataset.month = String(month);
+      popover.dataset.inputId = input.id || '';
+      popover.querySelector('[data-bv-date-title]').textContent = `${monthNames[month]} ${year}`;
+      const grid = popover.querySelector('[data-bv-date-grid]');
+      const selectedIso = bvToIsoDate(input.value);
+      const first = new Date(year, month, 1);
+      const mondayOffset = (first.getDay() + 6) % 7;
+      const start = new Date(year, month, 1 - mondayOffset);
+      const cells = [];
+      for (let i = 0; i < 42; i += 1) {
+        const d = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i);
+        const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        const classes = ['bv-inline-date-day'];
+        if (d.getMonth() !== month) classes.push('is-muted');
+        if (iso === selectedIso) classes.push('is-selected');
+        cells.push(`<button type="button" class="${classes.join(' ')}" data-bv-date-value="${iso}">${d.getDate()}</button>`);
+      }
+      grid.innerHTML = cells.join('');
+    }
+
+    function bvOpenInlineDatePicker(input, trigger) {
+      if (!input) return;
+      if (!input.id) input.id = `bvDateInput${Math.random().toString(36).slice(2)}`;
+      const popover = bvEnsureDatePickerPopover();
+      const selected = bvToIsoDate(input.value);
+      const base = selected ? new Date(`${selected}T00:00:00`) : new Date();
+      bvRenderInlineDatePicker(popover, input, base);
+      const rect = (trigger || input).getBoundingClientRect();
+      popover.hidden = false;
+      popover.style.left = `${Math.min(window.innerWidth - 292, Math.max(8, rect.left + window.scrollX))}px`;
+      popover.style.top = `${rect.bottom + window.scrollY + 8}px`;
+    }
+
+    function bvEnhanceDmyDatePickers(rootNode = document) {
+      rootNode.querySelectorAll('input[data-date-format="dmy"]').forEach((input) => {
+        if (input.dataset.bvCalendarBound === '1') return;
+        input.dataset.bvCalendarBound = '1';
+        input.classList.add('bv-date-input');
+        const wrapper = document.createElement('span');
+        wrapper.className = 'bv-date-input-wrap';
+        input.parentNode.insertBefore(wrapper, input);
+        wrapper.appendChild(input);
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'bv-date-trigger';
+        btn.setAttribute('aria-label', 'Άνοιγμα ημερολογίου');
+        btn.innerHTML = '<i class="fe fe-calendar"></i>';
+        wrapper.appendChild(btn);
+        btn.addEventListener('click', (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          bvOpenInlineDatePicker(input, btn);
+        });
+      });
     }
 
     function applyDateFormatGlobal(rootNode = document.body) {
@@ -1477,6 +1559,36 @@
           const iso = bvToIsoDate(el.value);
           if (iso && /^\d{4}-\d{2}-\d{2}$/.test(iso)) el.value = iso;
         });
+      });
+
+      document.addEventListener('click', (event) => {
+        const popover = document.getElementById('bvInlineDatePicker');
+        if (!popover || popover.hidden) return;
+        const nav = event.target.closest?.('[data-bv-date-nav]');
+        if (nav && popover.contains(nav)) {
+          event.preventDefault();
+          const input = document.getElementById(popover.dataset.inputId || '');
+          if (!input) return;
+          const current = new Date(Number(popover.dataset.year || new Date().getFullYear()), Number(popover.dataset.month || new Date().getMonth()), 1);
+          current.setMonth(current.getMonth() + Number(nav.dataset.bvDateNav || 0));
+          bvRenderInlineDatePicker(popover, input, current);
+          return;
+        }
+        const day = event.target.closest?.('[data-bv-date-value]');
+        if (day && popover.contains(day)) {
+          event.preventDefault();
+          const input = document.getElementById(popover.dataset.inputId || '');
+          if (!input) return;
+          input.value = bvToDmyDate(day.dataset.bvDateValue || '');
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          input.dispatchEvent(new Event('change', { bubbles: true }));
+          popover.hidden = true;
+          input.focus({ preventScroll: true });
+          return;
+        }
+        if (!event.target.closest?.('.bv-inline-date-picker, .bv-date-trigger')) {
+          popover.hidden = true;
+        }
       });
 
       applyDateFormatGlobal();

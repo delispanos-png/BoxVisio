@@ -1351,6 +1351,99 @@ body.tenant-shell .modal.bv-modal .modal-content {
   border-radius: 18px !important;
 }
 
+body.tenant-shell .bv-date-input-wrap {
+  position: relative;
+  display: block;
+}
+
+body.tenant-shell .bv-date-input-wrap .bv-date-input {
+  padding-right: 42px !important;
+}
+
+body.tenant-shell .bv-date-trigger {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #64748b;
+  transform: translateY(-50%);
+}
+
+body.tenant-shell .bv-date-trigger:hover {
+  background: #eef4ff;
+  color: #2563eb;
+}
+
+.bv-inline-date-picker {
+  position: absolute;
+  z-index: 3000;
+  width: 284px;
+  padding: 12px;
+  border: 1px solid #dce5f1;
+  border-radius: 14px;
+  background: #ffffff;
+  box-shadow: 0 20px 52px rgba(16, 24, 40, .16);
+}
+
+.bv-inline-date-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.bv-inline-date-head strong {
+  color: #0f172a;
+  font-size: .9rem;
+}
+
+.bv-inline-date-weekdays,
+.bv-inline-date-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+
+.bv-inline-date-weekdays span {
+  color: #8491a5;
+  font-size: 11px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.bv-inline-date-day {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #26344d;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.bv-inline-date-day:hover {
+  background: #eef4ff;
+  color: #2563eb;
+}
+
+.bv-inline-date-day.is-muted {
+  color: #b2bdcc;
+}
+
+.bv-inline-date-day.is-selected {
+  background: #2563eb;
+  color: #ffffff;
+}
+
 body.tenant-shell.admin-sidebar-collapsed #leftsidebar.sidebar,
 body.tenant-shell.admin-sidebar-collapsed .left-sidebar,
 body.tenant-shell.sidebar-icon-only #leftsidebar.sidebar,
