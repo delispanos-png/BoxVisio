@@ -29,6 +29,27 @@ STORE_NAMES = {
     'SPA': 'Σπάτα',
     'LOGICA': 'Logica',
 }
+AVAILABILITY_STORE_LABELS = {
+    'LOGICA': 'Logica',
+    'AGD': 'Αγ. Δημ.',
+    'KAS': 'Κασσαβέτη',
+    'ELL': 'Ελληνικού',
+    'SPA': 'Σπατών',
+    'PER': 'Περιστερίου',
+}
+FNR_OUTPUT_COLUMNS = [
+    'Κωδικός', 'Περιγραφή', 'Κατηγορία 1', 'Κατηγορία 2', 'Κατηγορία 3', 'Status 1', 'Status 2',
+    'Min Stock', 'Repl MOQ', 'Vendor MOQ',
+    'MO1 ΚΑΣ', 'MO1 ΑΓΔ', 'MO1 ΠΕΡ', 'MO1 ΕΛΛ', 'MO1 ΣΠΑ', 'MO1 Logica',
+    'MO2 ΚΑΣ', 'MO2 ΑΓΔ', 'MO2 ΠΕΡ', 'MO2 ΕΛΛ', 'MO2 ΣΠΑ', 'MO2 Logica',
+    'Stock ΚΑΣ', 'Stock ΑΓΔ', 'Stock ΠΕΡ', 'Stock ΕΛΛ', 'Stock ΣΠΑ', 'Stock Logica',
+    'Weeks ΚΑΣ', 'Weeks ΑΓΔ', 'Weeks ΠΕΡ', 'Weeks ΕΛΛ', 'Weeks ΣΠΑ', 'Weeks Logica',
+    'Expected ΚΑΣ', 'Expected ΑΓΔ', 'Expected ΠΕΡ', 'Expected ΕΛΛ', 'Expected ΣΠΑ', 'Expected Logica',
+    'Target ΚΑΣ', 'Target ΑΓΔ', 'Target ΠΕΡ', 'Target ΕΛΛ', 'Target ΣΠΑ', 'Target Logica',
+    'Need ΚΑΣ', 'Need ΑΓΔ', 'Need ΠΕΡ', 'Need ΕΛΛ', 'Need ΣΠΑ', 'Need Logica',
+    'Overstock ΚΑΣ', 'Overstock ΑΓΔ', 'Overstock ΠΕΡ', 'Overstock ΕΛΛ', 'Overstock ΣΠΑ', 'Overstock Logica',
+    'Παρ Προμ', 'Weeks Total', 'Τιμή αγοράς', 'Αξία Παραγγελίας',
+]
 FIELD_COLUMNS = {
     'item_code': 'A',
     'item_name': 'B',
@@ -744,6 +765,1234 @@ async def build_replenishment_from_facts(
     }
 
 
+def _fnr_store_code(label: object) -> str:
+    text_value = str(label or '').strip().casefold()
+    text_value = text_value.translate(str.maketrans({
+        'ά': 'α',
+        'έ': 'ε',
+        'ή': 'η',
+        'ί': 'ι',
+        'ό': 'ο',
+        'ύ': 'υ',
+        'ώ': 'ω',
+        'ϊ': 'ι',
+        'ΐ': 'ι',
+        'ϋ': 'υ',
+        'ΰ': 'υ',
+        'ς': 'σ',
+    }))
+    compact = re.sub(r'[^a-zα-ω0-9]+', '', text_value)
+    if compact in {'10011002', '1002'}:
+        return 'KAS'
+    if compact in {'10017', '7'}:
+        return 'AGD'
+    if compact in {'10018000', '8000'}:
+        return 'PER'
+    if compact in {'10011003', '1003'}:
+        return 'ELL'
+    if compact in {'10012000', '2000'}:
+        return 'SPA'
+    if compact in {'10011000', '1000'}:
+        return 'LOGICA'
+    if any(token in compact for token in ('κασ', 'kass', 'kasav', 'kassav')):
+        return 'KAS'
+    if any(token in compact for token in ('αγιοσδημητριοσ', 'αγδ', 'agiosdimitrios', 'agd')):
+        return 'AGD'
+    if any(token in compact for token in ('περιστερι', 'perister', 'per')):
+        return 'PER'
+    if any(token in compact for token in ('ελληνικο', 'ellin', 'ell')):
+        return 'ELL'
+    if any(token in compact for token in ('σπατα', 'spata', 'spa')):
+        return 'SPA'
+    if any(token in compact for token in ('logica', 'λογικα')):
+        return 'LOGICA'
+    return ''
+
+
+def _fnr_allowed(value: str, selected: list[str]) -> bool:
+    if not selected:
+        return True
+    folded = value.casefold()
+    return any(item.casefold() == folded for item in selected)
+
+
+def _fnr_status_code(value: object) -> str:
+    text_value = str(value or '').strip().upper()
+    if text_value in {'A', 'B', 'C', 'D', 'S'}:
+        return text_value
+    folded = str(value or '').strip().casefold()
+    folded = folded.translate(str.maketrans({
+        'ά': 'α',
+        'έ': 'ε',
+        'ή': 'η',
+        'ί': 'ι',
+        'ό': 'ο',
+        'ύ': 'υ',
+        'ώ': 'ω',
+        'ϊ': 'ι',
+        'ΐ': 'ι',
+        'ϋ': 'υ',
+        'ΰ': 'υ',
+        'ς': 'σ',
+    }))
+    if not folded or folded in {'χωρισ fnr status', 'χωρισ status', 'null'}:
+        return ''
+    if folded in {'τρεχον', 'new launch', 'αναμενομενο', 'παρακαταθηκη'}:
+        return 'A'
+    if folded in {'check'} or folded.startswith('check to return'):
+        return 'B'
+    if folded in {'seasonal status'}:
+        return 'S'
+    if folded in {'μεχρι εξαντλησεωσ', 'χωρισ αποθεμα'}:
+        return 'C'
+    if folded in {
+        'καταργημενο',
+        'επιστροφη',
+        'ληγμενο',
+        'tester',
+        'πιστωτικα',
+        'store consumables',
+        'no agreement',
+    }:
+        return 'D'
+    return 'A'
+
+
+def _fnr_list(raw: object) -> list[str]:
+    return [part.strip() for part in str(raw or '').replace('\n', ',').split(',') if part.strip()]
+
+
+def _fnr_round(value: float) -> float:
+    if abs(value) < 0.000001:
+        return 0.0
+    return float(round(value, 4))
+
+
+async def build_fnr_excel_from_facts(
+    db: AsyncSession,
+    *,
+    as_of: date | None = None,
+    pharmacies: list[str] | None = None,
+    category_1: list[str] | None = None,
+    category_2: list[str] | None = None,
+    category_3: list[str] | None = None,
+    suppliers: list[str] | None = None,
+    search: str | None = None,
+    target_stock_weeks: float = 4.0,
+    overstock_weeks: float = 12.0,
+    sales_avg_period_1_weeks: int = 4,
+    sales_avg_period_2_weeks: int = 12,
+    limit: int = 5000,
+) -> dict[str, object]:
+    """Build the FNR worksheet using the same column logic as the provided Excel."""
+    as_of = as_of or date.today()
+    period_1 = await build_availability_foundation(
+        db,
+        as_of=as_of,
+        target_stock_weeks=target_stock_weeks,
+        overstock_weeks=overstock_weeks,
+        sales_window_days=max(int(sales_avg_period_1_weeks or 4), 1) * 7,
+        include_detail_rows=True,
+        detail_limit=max(limit * len(STORE_CODES), 1000),
+    )
+    period_2_days = max(int(sales_avg_period_2_weeks or 12), 1) * 7
+    period_2_start = as_of - timedelta(days=period_2_days - 1)
+    period_2_result = await db.execute(
+        text(
+            """
+            SELECT item_code,
+                   COALESCE(branch_ext_id, '') AS branch_ext_id,
+                   SUM(COALESCE(qty, 0)) AS sales_qty
+            FROM fact_sales
+            WHERE doc_date >= :period_start
+              AND doc_date <= :as_of
+              AND COALESCE(item_code, '') <> ''
+            GROUP BY item_code, COALESCE(branch_ext_id, '')
+            """
+        ),
+        {'period_start': period_2_start, 'as_of': as_of},
+    )
+    sales2_by_key: dict[tuple[str, str], float] = {}
+    for row in period_2_result.mappings().all():
+        store_code = _fnr_store_code(row.get('branch_ext_id'))
+        if store_code:
+            sales2_by_key[(str(row.get('item_code') or ''), store_code)] = _as_float(row.get('sales_qty')) / max(period_2_days / 7.0, 1.0)
+
+    selected_pharmacies = {_fnr_store_code(item) for item in pharmacies or []}
+    selected_pharmacies.discard('')
+    category_1_filter = category_1 or []
+    category_2_filter = category_2 or []
+    category_3_filter = category_3 or []
+    supplier_filter = suppliers or []
+    search_filter = str(search or '').strip().casefold()
+    items: dict[str, dict[str, object]] = {}
+    options = {
+        'pharmacies': [STORE_NAMES[code] for code in STORE_CODES],
+        'category_1': set(),
+        'category_2': set(),
+        'category_3': set(),
+        'suppliers': set(),
+    }
+    for detail in period_1.get('detail_rows') or []:
+        if not isinstance(detail, dict):
+            continue
+        item_code = str(detail.get('item_code') or '').strip()
+        store_code = _fnr_store_code(detail.get('store'))
+        if not item_code or not store_code:
+            continue
+        if selected_pharmacies and store_code not in selected_pharmacies:
+            continue
+        c1 = str(detail.get('category_1') or detail.get('category') or '').strip()
+        c2 = str(detail.get('category_2') or '').strip()
+        c3 = str(detail.get('category_3') or '').strip()
+        supplier = str(detail.get('vendor') or '').strip()
+        item_name = str(detail.get('item_name') or item_code)
+        options['category_1'].add(c1)
+        if c2:
+            options['category_2'].add(c2)
+        if c3:
+            options['category_3'].add(c3)
+        if supplier:
+            options['suppliers'].add(supplier)
+        if not _fnr_allowed(c1, category_1_filter):
+            continue
+        if category_2_filter and not _fnr_allowed(c2, category_2_filter):
+            continue
+        if category_3_filter and not _fnr_allowed(c3, category_3_filter):
+            continue
+        if supplier_filter and not _fnr_allowed(supplier, supplier_filter):
+            continue
+        if search_filter:
+            haystack = ' '.join([item_code, item_name, c1, c2, c3, supplier]).casefold()
+            if search_filter not in haystack:
+                continue
+        item = items.setdefault(
+            item_code,
+            {
+                'item_code': item_code,
+                'item_name': item_name,
+                'category_1': c1,
+                'category_2': c2,
+                'category_3': c3,
+                'status_1': str(detail.get('status') or '').strip(),
+                'status_2': str(detail.get('commercial_status') or '').strip(),
+                'supplier': supplier,
+                'min_stock': max(_as_float(detail.get('min_stock'), 1.0), 0.0),
+                'repl_moq': max(_as_float(detail.get('repl_moq'), 1.0), 1.0),
+                'vendor_moq': max(_as_float(detail.get('vendor_moq'), 1.0), 1.0),
+                'purchase_price': _as_float(detail.get('latest_purchase_price') or detail.get('avg_purchase_price')),
+                'stores': {code: {'sales_avg_1': 0.0, 'sales_avg_2': 0.0, 'stock_qty': 0.0, 'expected_qty': 0.0} for code in STORE_CODES},
+            },
+        )
+        store = item['stores'][store_code]  # type: ignore[index]
+        store['sales_avg_1'] = _as_float(detail.get('weekly_sales'))
+        store['sales_avg_2'] = sales2_by_key.get((item_code, store_code), store['sales_avg_1'])
+        store['stock_qty'] = max(_as_float(detail.get('stock_qty')), 0.0)
+        # Current BI expected order quantities are item-level vendor incoming quantities.
+        # Match the Excel note by assigning vendor expected quantities to Logica only.
+        if store_code == 'LOGICA':
+            store['expected_qty'] = max(_as_float(detail.get('expected_qty')), 0.0)
+
+    output_rows: list[dict[str, object]] = []
+    order_rows: list[dict[str, object]] = []
+    for item in items.values():
+        stores = item['stores']  # type: ignore[assignment]
+        status_1 = _fnr_status_code(item.get('status_1'))
+        min_stock = _as_float(item.get('min_stock'), 1.0)
+        repl_moq = max(_as_float(item.get('repl_moq'), 1.0), 1.0)
+        vendor_moq = max(_as_float(item.get('vendor_moq'), 1.0), 1.0)
+        purchase_price = _as_float(item.get('purchase_price'))
+        target: dict[str, float] = {}
+        need: dict[str, float] = {}
+        overstock: dict[str, float] = {}
+        weeks: dict[str, float] = {}
+        for code in STORE_CODES:
+            metric = stores[code]
+            sales = max(_as_float(metric.get('sales_avg_1')), _as_float(metric.get('sales_avg_2')))
+            stock = max(_as_float(metric.get('stock_qty')), 0.0)
+            expected = max(_as_float(metric.get('expected_qty')), 0.0)
+            weeks[code] = 0.0 if stock <= 0 else (999.0 if sales <= 0 else stock / sales)
+            if code in ('KAS', 'AGD'):
+                active = status_1 in {'A', 'B', 'S'}
+            elif code in ('PER', 'ELL', 'SPA'):
+                active = status_1 in {'A', 'S'}
+            else:
+                active = status_1 in {'A', 'B', 'S', 'C'}
+            target[code] = max(target_stock_weeks * sales, min_stock) if active else 0.0
+            if code == 'LOGICA':
+                need[code] = max(target[code], repl_moq) if target[code] > 0 else 0.0
+            else:
+                diff = target[code] - stock - expected
+                need[code] = max(diff, repl_moq) if diff > 0 else 0.0
+            if code in ('KAS', 'AGD'):
+                inactive_overstock = status_1 in {'C', 'D'}
+            elif code in ('PER', 'ELL', 'SPA'):
+                inactive_overstock = status_1 in {'B', 'C', 'D'}
+            else:
+                inactive_overstock = status_1 == 'D'
+            if inactive_overstock:
+                overstock[code] = -stock if stock > 0 else 0.0
+            elif code == 'LOGICA':
+                overstock[code] = 0.0
+            elif need[code] > 0:
+                overstock[code] = 0.0
+            elif weeks[code] > overstock_weeks:
+                overstock[code] = min(target[code] - stock - expected, 0.0)
+            else:
+                overstock[code] = 0.0
+        logica_stock = _as_float(stores['LOGICA'].get('stock_qty'))
+        logica_expected = max(_as_float(stores['LOGICA'].get('expected_qty')), 0.0)
+        total_need = sum(need.values())
+        supplier_order_qty = max(total_need - logica_stock - logica_expected, vendor_moq) if total_need > (logica_stock + logica_expected) else 0.0
+        total_sales2 = sum(_as_float(stores[code].get('sales_avg_2')) for code in STORE_CODES)
+        total_stock = sum(_as_float(stores[code].get('stock_qty')) for code in STORE_CODES)
+        weeks_total = 999.0 if total_sales2 <= 0 and total_stock > 0 else (total_stock / total_sales2 if total_sales2 > 0 else 0.0)
+        row = {
+            'item_code': item['item_code'],
+            'item_name': item['item_name'],
+            'category_1': item.get('category_1') or '',
+            'category_2': item.get('category_2') or '',
+            'category_3': item.get('category_3') or '',
+            'status_1': item.get('status_1') or '',
+            'status_2': item.get('status_2') or '',
+            'supplier': item.get('supplier') or '',
+            'min_stock': min_stock,
+            'repl_moq': repl_moq,
+            'vendor_moq': vendor_moq,
+            'stores': stores,
+            'stock_weeks': weeks,
+            'target_stock': target,
+            'need_qty': need,
+            'overstock_qty': overstock,
+            'supplier_order_qty': _fnr_round(supplier_order_qty),
+            'weeks_of_stock_total': _fnr_round(weeks_total),
+            'purchase_price': _fnr_round(purchase_price),
+            'supplier_order_value': _fnr_round(supplier_order_qty * purchase_price),
+            'total_need_qty': _fnr_round(total_need),
+            'total_overstock_qty': _fnr_round(sum(overstock.values())),
+        }
+        output_rows.append(row)
+        if supplier_order_qty > 0:
+            order_rows.append(row)
+    output_rows = sorted(output_rows, key=lambda row: (-_as_float(row.get('supplier_order_qty')), str(row.get('item_name') or '')))[:limit]
+    order_rows = sorted(order_rows, key=lambda row: (-_as_float(row.get('supplier_order_qty')), str(row.get('item_name') or '')))
+    summary = {
+        'source': 'facts',
+        'source_label': 'Live BI facts',
+        'as_of': (as_of or date.today()).isoformat(),
+        'rows_count': len(output_rows),
+        'order_rows_count': len(order_rows),
+        'total_supplier_order_qty': sum(_as_float(row.get('supplier_order_qty')) for row in order_rows),
+        'total_supplier_order_value': sum(_as_float(row.get('supplier_order_value')) for row in order_rows),
+        'products_with_need': sum(1 for row in output_rows if _as_float(row.get('total_need_qty')) > 0),
+        'products_with_overstock': sum(1 for row in output_rows if _as_float(row.get('total_overstock_qty')) < 0),
+    }
+    return {
+        'parameters': {
+            'target_stock_weeks': target_stock_weeks,
+            'overstock_weeks': overstock_weeks,
+            'sales_avg_period_1_weeks': sales_avg_period_1_weeks,
+            'sales_avg_period_2_weeks': sales_avg_period_2_weeks,
+        },
+        'summary': summary,
+        'rows': output_rows,
+        'order_rows': order_rows,
+        'columns': FNR_OUTPUT_COLUMNS,
+        'store_codes': STORE_CODES,
+        'store_names': STORE_NAMES,
+        'options': {key: sorted(value) if isinstance(value, set) else value for key, value in options.items()},
+        'filters': {
+            'pharmacies': pharmacies or [],
+            'category_1': category_1 or [],
+            'category_2': category_2 or [],
+            'category_3': category_3 or [],
+            'suppliers': suppliers or [],
+            'search': search or '',
+        },
+    }
+
+
+def _availability_filter_list(raw: object) -> list[str]:
+    return [part.strip() for part in str(raw or '').replace('\n', ',').split(',') if part.strip()]
+
+
+def _availability_match(value: str, selected: list[str]) -> bool:
+    if not selected:
+        return True
+    folded = value.casefold()
+    return any(item.casefold() == folded for item in selected)
+
+
+def _availability_step_start(value: date, step: str) -> date:
+    if step == 'week':
+        return value - timedelta(days=value.weekday())
+    if step == 'quarter':
+        month = ((value.month - 1) // 3) * 3 + 1
+        return date(value.year, month, 1)
+    return date(value.year, value.month, 1)
+
+
+def _availability_add_step(value: date, step: str) -> date:
+    if step == 'week':
+        return value + timedelta(days=7)
+    if step == 'quarter':
+        month = value.month + 3
+    else:
+        month = value.month + 1
+    year = value.year + (month - 1) // 12
+    month = ((month - 1) % 12) + 1
+    return date(year, month, 1)
+
+
+def _availability_previous_year(value: date) -> date:
+    try:
+        return value.replace(year=value.year - 1)
+    except ValueError:
+        return value.replace(year=value.year - 1, day=28)
+
+
+def _availability_periods(start: date, end: date, step: str) -> list[tuple[str, date, date]]:
+    out: list[tuple[str, date, date]] = []
+    cursor = _availability_step_start(start, step)
+    month_labels = ['Ιαν', 'Φεβ', 'Μαρ', 'Απρ', 'Μαι', 'Ιουν', 'Ιουλ', 'Αυγ', 'Σεπ', 'Οκτ', 'Νοε', 'Δεκ']
+    while cursor <= end:
+        next_cursor = _availability_add_step(cursor, step)
+        period_end = min(next_cursor - timedelta(days=1), end)
+        period_start = max(cursor, start)
+        if step == 'week':
+            label = f'W{period_start.isocalendar().week}'
+        elif step == 'quarter':
+            label = f'Q{((period_start.month - 1) // 3) + 1}'
+        else:
+            label = month_labels[period_start.month - 1]
+        out.append((label, period_start, period_end))
+        cursor = next_cursor
+    return out
+
+
+def _availability_group_sort_key(row: dict[str, object]) -> tuple[int, str]:
+    status = str(row.get('status_abcd') or '')
+    order = {'A': 1, 'B': 2, 'C': 3, 'D': 4, 'S': 5, '': 99}
+    return (order.get(status, 90), str(row.get('commercial_status') or ''))
+
+
+async def build_availability_brief_from_facts(
+    db: AsyncSession,
+    *,
+    pharmacies: list[str] | None = None,
+    category_1: list[str] | None = None,
+    category_2: list[str] | None = None,
+    category_3: list[str] | None = None,
+    suppliers: list[str] | None = None,
+    status_abcd: list[str] | None = None,
+    commercial_status: list[str] | None = None,
+    period_from: date | None = None,
+    period_to: date | None = None,
+    stock_date_1: date | None = None,
+    stock_date_2: date | None = None,
+    step: str = 'month',
+) -> dict[str, object]:
+    """Build the Availability brief worksheets from BI facts, following the Excel structure."""
+    today = date.today()
+    period_to = period_to or today
+    period_from = period_from or date(period_to.year, max(period_to.month - 3, 1), 1)
+    stock_date_1 = stock_date_1 or period_to
+    stock_date_2 = stock_date_2 or date(period_to.year - 1, 12, 31)
+    period_days = max((period_to - period_from).days + 1, 1)
+    selected_pharmacies = {_fnr_store_code(item) for item in pharmacies or []}
+    selected_pharmacies.discard('')
+    category_1_filter = category_1 or []
+    category_2_filter = category_2 or []
+    category_3_filter = category_3 or []
+    supplier_filter = suppliers or []
+    status_abcd_filter = [str(item).strip().upper() for item in status_abcd or [] if str(item).strip()]
+    commercial_filter = commercial_status or []
+    sql = text(
+        """
+        WITH stock_snapshot_quality AS (
+            SELECT snapshot_date, SUM(COALESCE(stock_value, 0)) AS stock_value
+            FROM agg_stock_aging
+            GROUP BY snapshot_date
+        ),
+        stock1_date AS (
+            SELECT COALESCE(
+                (SELECT MAX(snapshot_date) FROM stock_snapshot_quality WHERE snapshot_date <= :stock_date_1 AND stock_value > 0),
+                (SELECT MAX(snapshot_date) FROM stock_snapshot_quality WHERE stock_value > 0),
+                (SELECT MAX(snapshot_date) FROM stock_snapshot_quality WHERE snapshot_date <= :stock_date_1),
+                (SELECT MAX(snapshot_date) FROM stock_snapshot_quality)
+            ) AS snapshot_date
+        ),
+        stock2_date AS (
+            SELECT COALESCE(
+                (SELECT MAX(snapshot_date) FROM stock_snapshot_quality WHERE snapshot_date <= :stock_date_2 AND stock_value > 0),
+                (SELECT MAX(snapshot_date) FROM stock_snapshot_quality WHERE stock_value > 0),
+                (SELECT MAX(snapshot_date) FROM stock_snapshot_quality WHERE snapshot_date <= :stock_date_2),
+                (SELECT MAX(snapshot_date) FROM stock_snapshot_quality)
+            ) AS snapshot_date
+        ),
+        stock1 AS (
+            SELECT asa.item_external_id AS item_code, COALESCE(asa.branch_ext_id, '') AS branch_ext_id,
+                   SUM(COALESCE(asa.qty_on_hand, 0)) AS qty, SUM(COALESCE(asa.stock_value, 0)) AS value
+            FROM agg_stock_aging asa
+            JOIN stock1_date ON asa.snapshot_date = stock1_date.snapshot_date
+            GROUP BY asa.item_external_id, COALESCE(asa.branch_ext_id, '')
+        ),
+        stock1_total AS (
+            SELECT item_code, SUM(qty) AS qty, SUM(value) AS value
+            FROM stock1
+            GROUP BY item_code
+        ),
+        stock1_branch AS (
+            SELECT item_code, jsonb_object_agg(branch_ext_id, qty) AS stock_by_branch
+            FROM stock1
+            GROUP BY item_code
+        ),
+        stock2 AS (
+            SELECT asa.item_external_id AS item_code, COALESCE(asa.branch_ext_id, '') AS branch_ext_id,
+                   SUM(COALESCE(asa.qty_on_hand, 0)) AS qty, SUM(COALESCE(asa.stock_value, 0)) AS value
+            FROM agg_stock_aging asa
+            JOIN stock2_date ON asa.snapshot_date = stock2_date.snapshot_date
+            GROUP BY asa.item_external_id, COALESCE(asa.branch_ext_id, '')
+        ),
+        stock2_total AS (
+            SELECT item_code, SUM(qty) AS qty, SUM(value) AS value
+            FROM stock2
+            GROUP BY item_code
+        ),
+        sales AS (
+            SELECT item_code, COALESCE(branch_ext_id, '') AS branch_ext_id,
+                   SUM(COALESCE(qty, 0)) AS qty,
+                   SUM(COALESCE(net_value, 0)) AS value,
+                   SUM(COALESCE(profit_amount, 0)) AS profit
+            FROM fact_sales
+            WHERE doc_date >= :period_from AND doc_date <= :period_to AND COALESCE(item_code, '') <> ''
+            GROUP BY item_code, COALESCE(branch_ext_id, '')
+        ),
+        sales_total AS (
+            SELECT item_code, SUM(qty) AS qty, SUM(value) AS value, SUM(profit) AS profit
+            FROM sales
+            GROUP BY item_code
+        ),
+        purchases AS (
+            SELECT item_code,
+                   SUM(COALESCE(qty, 0)) AS qty,
+                   SUM(COALESCE(net_value, 0)) AS value
+            FROM fact_purchases
+            WHERE doc_date >= :period_from AND doc_date <= :period_to AND COALESCE(item_code, '') <> ''
+            GROUP BY item_code
+        ),
+        supplier_rank AS (
+            SELECT *
+            FROM (
+                SELECT
+                    fp.item_code,
+                    COALESCE(ds.name, ds_ext.name, fp.supplier_ext_id, 'Χωρίς προμηθευτή') AS supplier_name,
+                    ROW_NUMBER() OVER (PARTITION BY fp.item_code ORDER BY ABS(SUM(COALESCE(fp.net_value, 0))) DESC) AS rn
+                FROM fact_purchases fp
+                LEFT JOIN dim_suppliers ds ON ds.id = fp.supplier_id
+                LEFT JOIN dim_suppliers ds_ext ON ds_ext.external_id = fp.supplier_ext_id
+                WHERE fp.doc_date >= :purchase_rank_start
+                  AND fp.doc_date <= :period_to
+                  AND COALESCE(fp.item_code, '') <> ''
+                GROUP BY fp.item_code, COALESCE(ds.name, ds_ext.name, fp.supplier_ext_id, 'Χωρίς προμηθευτή')
+            ) ranked
+            WHERE rn = 1
+        ),
+        scope AS (
+            SELECT item_code FROM stock1
+            UNION SELECT item_code FROM stock2
+            UNION SELECT item_code FROM sales_total
+            UNION SELECT item_code FROM purchases
+        )
+        SELECT
+            scope.item_code,
+            COALESCE(di.name, scope.item_code) AS item_name,
+            COALESCE(NULLIF(di.category_1, ''), 'Χωρίς κατηγορία') AS category_1,
+            COALESCE(NULLIF(di.category_2, ''), '') AS category_2,
+            COALESCE(NULLIF(di.category_3, ''), '') AS category_3,
+            COALESCE(NULLIF(di.replenishment_status_1, ''), NULLIF(di.commercial_status, ''), '') AS raw_status,
+            COALESCE(NULLIF(di.commercial_status, ''), 'Χωρίς status') AS commercial_status,
+            COALESCE(NULLIF(supplier_rank.supplier_name, ''), 'Χωρίς προμηθευτή') AS supplier_name,
+            COALESCE(purchases.qty, 0) AS purchase_qty,
+            COALESCE(purchases.value, 0) AS purchase_value,
+            COALESCE(sales_total.qty, 0) AS sales_qty,
+            COALESCE(sales_total.value, 0) AS sales_value,
+            COALESCE(sales_total.profit, 0) AS sales_profit,
+            COALESCE(stock1_total.qty, 0) AS stock1_qty,
+            COALESCE(stock1_total.value, 0) AS stock1_value,
+            COALESCE(stock2_total.qty, 0) AS stock2_qty,
+            COALESCE(stock2_total.value, 0) AS stock2_value,
+            stock1_branch.stock_by_branch AS stock_by_branch
+        FROM scope
+        LEFT JOIN dim_items di ON di.external_id = scope.item_code
+        LEFT JOIN supplier_rank ON supplier_rank.item_code = scope.item_code
+        LEFT JOIN purchases ON purchases.item_code = scope.item_code
+        LEFT JOIN sales_total ON sales_total.item_code = scope.item_code
+        LEFT JOIN stock1_total ON stock1_total.item_code = scope.item_code
+        LEFT JOIN stock1_branch ON stock1_branch.item_code = scope.item_code
+        LEFT JOIN stock2_total ON stock2_total.item_code = scope.item_code
+        WHERE COALESCE(di.softone_sotype, 51) = 51 AND COALESCE(di.is_active_source, true) = true
+        """
+    )
+    rows = (await db.execute(
+        sql,
+        {
+            'period_from': period_from,
+            'period_to': period_to,
+            'stock_date_1': stock_date_1,
+            'stock_date_2': stock_date_2,
+            'purchase_rank_start': period_to - timedelta(days=365),
+        },
+    )).mappings().all()
+    groups: dict[tuple[str, str], dict[str, object]] = {}
+    vendor_location: dict[tuple[str, str, str, str], dict[str, object]] = {}
+    selected_item_codes: list[str] = []
+    options = {'pharmacies': [STORE_NAMES[code] for code in STORE_CODES], 'category_1': set(), 'category_2': set(), 'category_3': set(), 'suppliers': set(), 'status_abcd': set(), 'commercial_status': set()}
+    total_sku = 0
+    for row in rows:
+        status_code = _fnr_status_code(row.get('raw_status'))
+        comm = str(row.get('commercial_status') or 'Χωρίς status')
+        c1 = str(row.get('category_1') or 'Χωρίς κατηγορία')
+        c2 = str(row.get('category_2') or '')
+        c3 = str(row.get('category_3') or '')
+        supplier = str(row.get('supplier_name') or 'Χωρίς προμηθευτή')
+        options['category_1'].add(c1)
+        if c2:
+            options['category_2'].add(c2)
+        if c3:
+            options['category_3'].add(c3)
+        options['suppliers'].add(supplier)
+        if status_code:
+            options['status_abcd'].add(status_code)
+        options['commercial_status'].add(comm)
+        if not _availability_match(c1, category_1_filter) or not _availability_match(c2, category_2_filter) or not _availability_match(c3, category_3_filter):
+            continue
+        if not _availability_match(supplier, supplier_filter) or not _availability_match(comm, commercial_filter):
+            continue
+        if status_abcd_filter and status_code not in status_abcd_filter:
+            continue
+        stock_by_branch = row.get('stock_by_branch') if isinstance(row.get('stock_by_branch'), dict) else {}
+        store_stock = {code: 0.0 for code in STORE_CODES}
+        for raw_branch, qty in stock_by_branch.items():
+            code = _fnr_store_code(raw_branch)
+            if code:
+                store_stock[code] += _as_float(qty)
+        if selected_pharmacies and not any(store_stock.get(code, 0) > 0 for code in selected_pharmacies):
+            continue
+        selected_item_codes.append(str(row.get('item_code') or ''))
+        key = (status_code, comm)
+        group = groups.setdefault(
+            key,
+            {
+                'status_abcd': status_code,
+                'commercial_status': comm,
+                'sku_count': 0,
+                'sku_live_online': 0,
+                'sales_units': 0.0,
+                'sales_value': 0.0,
+                'sales_profit': 0.0,
+                'purchase_units': 0.0,
+                'purchase_value': 0.0,
+                'stock_units_1': 0.0,
+                'stock_value_1': 0.0,
+                'stock_units_2': 0.0,
+                'stock_value_2': 0.0,
+                'availability_counts': {code: 0 for code in STORE_CODES},
+            },
+        )
+        group['sku_count'] = int(group['sku_count']) + 1
+        total_sku += 1
+        stock1_qty = _as_float(row.get('stock1_qty'))
+        if stock1_qty >= 1:
+            group['sku_live_online'] = int(group['sku_live_online']) + 1
+        for code, qty in store_stock.items():
+            if qty >= 1:
+                group['availability_counts'][code] = int(group['availability_counts'][code]) + 1  # type: ignore[index]
+        for target_key, source_key in (
+            ('sales_units', 'sales_qty'), ('sales_value', 'sales_value'), ('sales_profit', 'sales_profit'),
+            ('purchase_units', 'purchase_qty'), ('purchase_value', 'purchase_value'),
+            ('stock_units_1', 'stock1_qty'), ('stock_value_1', 'stock1_value'),
+            ('stock_units_2', 'stock2_qty'), ('stock_value_2', 'stock2_value'),
+        ):
+            group[target_key] = _as_float(group.get(target_key)) + _as_float(row.get(source_key))
+        for code in STORE_CODES:
+            avail = 1.0 if store_stock.get(code, 0.0) >= 1 else 0.0
+            rec_key = (supplier, code, status_code, comm)
+            rec = vendor_location.setdefault(rec_key, {'vendor': supplier, 'location': AVAILABILITY_STORE_LABELS.get(code, code), 'status_abcd': status_code, 'commercial_status': comm, 'sku_count': 0, 'available': 0, 'sales_value': 0.0})
+            rec['sku_count'] = int(rec['sku_count']) + 1
+            rec['available'] = int(rec['available']) + (1 if avail else 0)
+            rec['sales_value'] = _as_float(rec.get('sales_value')) + _as_float(row.get('sales_value'))
+    table_rows: list[dict[str, object]] = []
+    total = {'status_abcd': 'Grand Total', 'commercial_status': '', 'sku_count': 0, 'sku_live_online': 0, 'sales_units': 0.0, 'sales_value': 0.0, 'sales_profit': 0.0, 'purchase_units': 0.0, 'purchase_value': 0.0, 'stock_units_1': 0.0, 'stock_value_1': 0.0, 'stock_units_2': 0.0, 'stock_value_2': 0.0, 'availability_counts': {code: 0 for code in STORE_CODES}}
+    for group in groups.values():
+        sku_count = max(int(group.get('sku_count') or 0), 1)
+        sales_units = _as_float(group.get('sales_units'))
+        row = dict(group)
+        row['web_availability'] = int(group.get('sku_live_online') or 0) / sku_count
+        row['margin_pct'] = _as_float(group.get('sales_profit')) / _as_float(group.get('sales_value')) if _as_float(group.get('sales_value')) else 0.0
+        row['dio'] = _as_float(group.get('stock_units_1')) / (sales_units / period_days) if sales_units else '-'
+        row['availability'] = {code: int(group['availability_counts'].get(code, 0)) / sku_count for code in STORE_CODES}  # type: ignore[index]
+        table_rows.append(row)
+        for key in total:
+            if key == 'availability_counts':
+                for code in STORE_CODES:
+                    total['availability_counts'][code] = int(total['availability_counts'][code]) + int(group['availability_counts'].get(code, 0))  # type: ignore[index]
+            elif isinstance(total[key], (int, float)):
+                total[key] = total[key] + group.get(key, 0)  # type: ignore[operator]
+    total_sku_safe = max(int(total['sku_count'] or 0), 1)
+    total['web_availability'] = int(total['sku_live_online'] or 0) / total_sku_safe
+    total['margin_pct'] = _as_float(total.get('sales_profit')) / _as_float(total.get('sales_value')) if _as_float(total.get('sales_value')) else 0.0
+    total['dio'] = _as_float(total.get('stock_units_1')) / (_as_float(total.get('sales_units')) / period_days) if _as_float(total.get('sales_units')) else '-'
+    total['availability'] = {code: int(total['availability_counts'].get(code, 0)) / total_sku_safe for code in STORE_CODES}  # type: ignore[index]
+    table_rows = sorted(table_rows, key=_availability_group_sort_key)
+    table_rows.append(total)
+    recommendations = []
+    for rec in vendor_location.values():
+        sku_count = max(int(rec.get('sku_count') or 0), 1)
+        cur = int(rec.get('available') or 0) / sku_count
+        target = 1.0
+        if cur >= 0.98 or _as_float(rec.get('sales_value')) <= 0:
+            continue
+        recommendations.append({
+            'action': 'Improve availability',
+            'status_abcd': rec.get('status_abcd') or '',
+            'commercial_status': rec.get('commercial_status') or '',
+            'vendor': rec.get('vendor') or 'Χωρίς προμηθευτή',
+            'location': rec.get('location') or '',
+            'cur_availability': cur,
+            'target_availability': target,
+            'monthly_revenue_potential': (target - cur) * _as_float(rec.get('sales_value')) / max(period_days / 30.0, 1.0),
+        })
+    recommendations = sorted(recommendations, key=lambda item: -_as_float(item.get('monthly_revenue_potential')))[:50]
+    trend_periods = _availability_periods(period_from, period_to, step if step in {'week', 'month', 'quarter'} else 'month')[:18]
+    trend_labels = [label for label, _, _ in trend_periods]
+    series_seed = [('TOTAL', 'Total'), *[(code, AVAILABILITY_STORE_LABELS.get(code, code)) for code in STORE_CODES]]
+    trend_series = {code: {'name': label, 'values': []} for code, label in series_seed}
+    correlation_series = {code: {'name': label, 'availability': [], 'sales_vs_py': []} for code, label in series_seed}
+    if selected_item_codes:
+        trend_sql = text(
+            """
+            WITH latest_stock AS (
+                SELECT MAX(snapshot_date) AS snapshot_date
+                FROM agg_stock_aging
+                WHERE snapshot_date <= :period_end
+            ),
+            stock AS (
+                SELECT COALESCE(asa.branch_ext_id, '') AS branch_ext_id,
+                       COUNT(DISTINCT asa.item_external_id) AS available_count
+                FROM agg_stock_aging asa
+                JOIN latest_stock ON asa.snapshot_date = latest_stock.snapshot_date
+                WHERE asa.item_external_id = ANY(:item_codes)
+                  AND COALESCE(asa.qty_on_hand, 0) >= 1
+                GROUP BY COALESCE(asa.branch_ext_id, '')
+            ),
+            sales_current AS (
+                SELECT COALESCE(branch_ext_id, '') AS branch_ext_id, SUM(COALESCE(net_value, 0)) AS value
+                FROM fact_sales
+                WHERE doc_date >= :period_start AND doc_date <= :period_end
+                  AND item_code = ANY(:item_codes)
+                GROUP BY COALESCE(branch_ext_id, '')
+            ),
+            sales_py AS (
+                SELECT COALESCE(branch_ext_id, '') AS branch_ext_id, SUM(COALESCE(net_value, 0)) AS value
+                FROM fact_sales
+                WHERE doc_date >= :py_start AND doc_date <= :py_end
+                  AND item_code = ANY(:item_codes)
+                GROUP BY COALESCE(branch_ext_id, '')
+            )
+            SELECT 'stock' AS metric, branch_ext_id, available_count::numeric AS value FROM stock
+            UNION ALL
+            SELECT 'sales_current' AS metric, branch_ext_id, value FROM sales_current
+            UNION ALL
+            SELECT 'sales_py' AS metric, branch_ext_id, value FROM sales_py
+            """
+        )
+        denominator = max(len(set(selected_item_codes)), 1)
+        for _label, start_date, end_date in trend_periods:
+            py_start = _availability_previous_year(start_date)
+            py_end = _availability_previous_year(end_date)
+            result = await db.execute(
+                trend_sql,
+                {
+                    'period_start': start_date,
+                    'period_end': end_date,
+                    'py_start': py_start,
+                    'py_end': py_end,
+                    'item_codes': list(set(selected_item_codes)),
+                },
+            )
+            stock_counts = {code: 0.0 for code in STORE_CODES}
+            sales_current = {code: 0.0 for code in STORE_CODES}
+            sales_py = {code: 0.0 for code in STORE_CODES}
+            for trend_row in result.mappings().all():
+                code = _fnr_store_code(trend_row.get('branch_ext_id'))
+                if code not in STORE_CODES:
+                    continue
+                metric = str(trend_row.get('metric') or '')
+                if metric == 'stock':
+                    stock_counts[code] += _as_float(trend_row.get('value'))
+                elif metric == 'sales_current':
+                    sales_current[code] += _as_float(trend_row.get('value'))
+                elif metric == 'sales_py':
+                    sales_py[code] += _as_float(trend_row.get('value'))
+            total_available = 0.0
+            total_current = 0.0
+            total_py = 0.0
+            for code in STORE_CODES:
+                availability_value = stock_counts[code] / denominator
+                current_value = sales_current[code]
+                previous_value = sales_py[code]
+                sales_delta = ((current_value - previous_value) / abs(previous_value)) if previous_value else (1.0 if current_value > 0 else 0.0)
+                trend_series[code]['values'].append(_fnr_round(availability_value))
+                correlation_series[code]['availability'].append(_fnr_round(availability_value))
+                correlation_series[code]['sales_vs_py'].append(_fnr_round(sales_delta))
+                total_available += stock_counts[code]
+                total_current += current_value
+                total_py += previous_value
+            total_availability = min(total_available / denominator, 1.0)
+            total_delta = ((total_current - total_py) / abs(total_py)) if total_py else (1.0 if total_current > 0 else 0.0)
+            trend_series['TOTAL']['values'].append(_fnr_round(total_availability))
+            correlation_series['TOTAL']['availability'].append(_fnr_round(total_availability))
+            correlation_series['TOTAL']['sales_vs_py'].append(_fnr_round(total_delta))
+    else:
+        for code, _label in series_seed:
+            trend_series[code]['values'] = [0.0 for _ in trend_periods]
+            correlation_series[code]['availability'] = [0.0 for _ in trend_periods]
+            correlation_series[code]['sales_vs_py'] = [0.0 for _ in trend_periods]
+    trends = {'periods': trend_labels, 'series': list(trend_series.values())}
+    correlation_items = list(correlation_series.values())
+    correlation = {
+        'periods': trend_labels,
+        'series': correlation_items,
+        'availability': correlation_items[0]['availability'] if correlation_items else [],
+        'sales_vs_py': correlation_items[0]['sales_vs_py'] if correlation_items else [],
+    }
+    return {
+        'parameters': {'period_from': period_from.isoformat(), 'period_to': period_to.isoformat(), 'stock_date_1': stock_date_1.isoformat(), 'stock_date_2': stock_date_2.isoformat(), 'step': step},
+        'filters': {'pharmacies': pharmacies or [], 'category_1': category_1 or [], 'category_2': category_2 or [], 'category_3': category_3 or [], 'suppliers': suppliers or [], 'status_abcd': status_abcd or [], 'commercial_status': commercial_status or []},
+        'options': {key: sorted(value) if isinstance(value, set) else value for key, value in options.items()},
+        'store_codes': STORE_CODES,
+        'store_labels': AVAILABILITY_STORE_LABELS,
+        'table_rows': table_rows,
+        'trends': trends,
+        'correlation': correlation,
+        'recommendations': recommendations,
+        'summary': {'rows_count': len(table_rows), 'sku_count': total.get('sku_count', 0), 'sku_live_online': total.get('sku_live_online', 0), 'web_availability': total.get('web_availability', 0), 'sales_value': total.get('sales_value', 0), 'stock_value_1': total.get('stock_value_1', 0), 'recommendations_count': len(recommendations)},
+    }
+
+
+async def build_destocking_brief_from_facts(
+    db: AsyncSession,
+    *,
+    pharmacies: list[str] | None = None,
+    category_1: list[str] | None = None,
+    category_2: list[str] | None = None,
+    category_3: list[str] | None = None,
+    suppliers: list[str] | None = None,
+    status_abcd: list[str] | None = None,
+    commercial_status: list[str] | None = None,
+    period_from: date | None = None,
+    period_to: date | None = None,
+    stock_date_1: date | None = None,
+    stock_date_2: date | None = None,
+    threshold_weeks: float = 8.0,
+    step: str = 'month',
+) -> dict[str, object]:
+    """Build the Destocking brief worksheets from BI facts, following the Excel structure."""
+    today = date.today()
+    period_to = period_to or today
+    period_from = period_from or date(period_to.year, max(period_to.month - 3, 1), 1)
+    stock_date_1 = stock_date_1 or period_to
+    stock_date_2 = stock_date_2 or date(period_to.year - 1, 12, 31)
+    period_days = max((period_to - period_from).days + 1, 1)
+    selected_pharmacies = {_fnr_store_code(item) for item in pharmacies or []}
+    selected_pharmacies.discard('')
+    status_filter = [str(item).strip().upper() for item in status_abcd or [] if str(item).strip()]
+    sql = text(
+        """
+        WITH stock_snapshot_quality AS (
+            SELECT snapshot_date, SUM(COALESCE(stock_value, 0)) AS stock_value
+            FROM agg_stock_aging
+            GROUP BY snapshot_date
+        ),
+        stock1_date AS (
+            SELECT COALESCE(
+                (SELECT MAX(snapshot_date) FROM stock_snapshot_quality WHERE snapshot_date <= :stock_date_1 AND stock_value > 0),
+                (SELECT MAX(snapshot_date) FROM stock_snapshot_quality WHERE stock_value > 0),
+                (SELECT MAX(snapshot_date) FROM stock_snapshot_quality WHERE snapshot_date <= :stock_date_1),
+                (SELECT MAX(snapshot_date) FROM stock_snapshot_quality)
+            ) AS snapshot_date
+        ),
+        stock2_date AS (
+            SELECT COALESCE(
+                (SELECT MAX(snapshot_date) FROM stock_snapshot_quality WHERE snapshot_date <= :stock_date_2 AND stock_value > 0),
+                (SELECT MAX(snapshot_date) FROM stock_snapshot_quality WHERE stock_value > 0),
+                (SELECT MAX(snapshot_date) FROM stock_snapshot_quality WHERE snapshot_date <= :stock_date_2),
+                (SELECT MAX(snapshot_date) FROM stock_snapshot_quality)
+            ) AS snapshot_date
+        ),
+        stock1 AS (
+            SELECT asa.item_external_id AS item_code, COALESCE(asa.branch_ext_id, '') AS branch_ext_id,
+                   SUM(COALESCE(asa.qty_on_hand, 0)) AS qty, SUM(COALESCE(asa.stock_value, 0)) AS value
+            FROM agg_stock_aging asa JOIN stock1_date ON asa.snapshot_date = stock1_date.snapshot_date
+            GROUP BY asa.item_external_id, COALESCE(asa.branch_ext_id, '')
+        ),
+        stock1_total AS (
+            SELECT item_code, SUM(qty) AS qty, SUM(value) AS value FROM stock1 GROUP BY item_code
+        ),
+        stock1_branch AS (
+            SELECT item_code, jsonb_object_agg(branch_ext_id, jsonb_build_object('qty', qty, 'value', value)) AS stock_by_branch
+            FROM stock1 GROUP BY item_code
+        ),
+        stock2 AS (
+            SELECT asa.item_external_id AS item_code, SUM(COALESCE(asa.qty_on_hand, 0)) AS qty, SUM(COALESCE(asa.stock_value, 0)) AS value
+            FROM agg_stock_aging asa JOIN stock2_date ON asa.snapshot_date = stock2_date.snapshot_date
+            GROUP BY asa.item_external_id
+        ),
+        sales AS (
+            SELECT item_code, COALESCE(branch_ext_id, '') AS branch_ext_id,
+                   SUM(COALESCE(qty, 0)) AS qty,
+                   SUM(COALESCE(net_value, 0)) AS value,
+                   SUM(COALESCE(profit_amount, 0)) AS profit
+            FROM fact_sales
+            WHERE doc_date >= :period_from AND doc_date <= :period_to AND COALESCE(item_code, '') <> ''
+            GROUP BY item_code, COALESCE(branch_ext_id, '')
+        ),
+        sales_total AS (
+            SELECT item_code, SUM(qty) AS qty, SUM(value) AS value, SUM(profit) AS profit FROM sales GROUP BY item_code
+        ),
+        sales_branch AS (
+            SELECT item_code, jsonb_object_agg(branch_ext_id, jsonb_build_object('qty', qty, 'value', value, 'profit', profit)) AS sales_by_branch
+            FROM sales GROUP BY item_code
+        ),
+        supplier_rank AS (
+            SELECT *
+            FROM (
+                SELECT fp.item_code, COALESCE(ds.name, ds_ext.name, fp.supplier_ext_id, 'Χωρίς προμηθευτή') AS supplier_name,
+                       ROW_NUMBER() OVER (PARTITION BY fp.item_code ORDER BY ABS(SUM(COALESCE(fp.net_value, 0))) DESC) AS rn
+                FROM fact_purchases fp
+                LEFT JOIN dim_suppliers ds ON ds.id = fp.supplier_id
+                LEFT JOIN dim_suppliers ds_ext ON ds_ext.external_id = fp.supplier_ext_id
+                WHERE fp.doc_date >= :purchase_rank_start AND fp.doc_date <= :period_to AND COALESCE(fp.item_code, '') <> ''
+                GROUP BY fp.item_code, COALESCE(ds.name, ds_ext.name, fp.supplier_ext_id, 'Χωρίς προμηθευτή')
+            ) ranked WHERE rn = 1
+        ),
+        scope AS (
+            SELECT item_code FROM stock1_total
+            UNION SELECT item_code FROM stock2
+            UNION SELECT item_code FROM sales_total
+        )
+        SELECT
+            scope.item_code,
+            COALESCE(di.name, scope.item_code) AS item_name,
+            COALESCE(NULLIF(di.category_1, ''), 'Χωρίς κατηγορία') AS category_1,
+            COALESCE(NULLIF(di.category_2, ''), '') AS category_2,
+            COALESCE(NULLIF(di.category_3, ''), '') AS category_3,
+            COALESCE(NULLIF(di.replenishment_status_1, ''), NULLIF(di.commercial_status, ''), '') AS raw_status,
+            COALESCE(NULLIF(di.commercial_status, ''), 'Χωρίς status') AS commercial_status,
+            COALESCE(NULLIF(supplier_rank.supplier_name, ''), 'Χωρίς προμηθευτή') AS supplier_name,
+            COALESCE(stock1_total.qty, 0) AS stock1_qty,
+            COALESCE(stock1_total.value, 0) AS stock1_value,
+            COALESCE(stock2.qty, 0) AS stock2_qty,
+            COALESCE(stock2.value, 0) AS stock2_value,
+            COALESCE(sales_total.qty, 0) AS sales_qty,
+            COALESCE(sales_total.value, 0) AS sales_value,
+            COALESCE(sales_total.profit, 0) AS sales_profit,
+            stock1_branch.stock_by_branch,
+            sales_branch.sales_by_branch
+        FROM scope
+        LEFT JOIN dim_items di ON di.external_id = scope.item_code
+        LEFT JOIN stock1_total ON stock1_total.item_code = scope.item_code
+        LEFT JOIN stock1_branch ON stock1_branch.item_code = scope.item_code
+        LEFT JOIN stock2 ON stock2.item_code = scope.item_code
+        LEFT JOIN sales_total ON sales_total.item_code = scope.item_code
+        LEFT JOIN sales_branch ON sales_branch.item_code = scope.item_code
+        LEFT JOIN supplier_rank ON supplier_rank.item_code = scope.item_code
+        WHERE COALESCE(di.softone_sotype, 51) = 51 AND COALESCE(di.is_active_source, true) = true
+        """
+    )
+    rows = (await db.execute(
+        sql,
+        {
+            'period_from': period_from,
+            'period_to': period_to,
+            'stock_date_1': stock_date_1,
+            'stock_date_2': stock_date_2,
+            'purchase_rank_start': period_to - timedelta(days=365),
+        },
+    )).mappings().all()
+    filters = {
+        'category_1': category_1 or [],
+        'category_2': category_2 or [],
+        'category_3': category_3 or [],
+        'suppliers': suppliers or [],
+        'commercial_status': commercial_status or [],
+    }
+    groups: dict[tuple[str, str], dict[str, object]] = {}
+    options = {'pharmacies': [STORE_NAMES[code] for code in STORE_CODES], 'category_1': set(), 'category_2': set(), 'category_3': set(), 'suppliers': set(), 'status_abcd': set(), 'commercial_status': set()}
+    recommendations_by_key: dict[tuple[str, str, str, str], dict[str, object]] = {}
+    selected_item_codes: list[str] = []
+    destocking_buckets = ('A over', 'B over', 'C', 'D', 'D3')
+    trend_base = {code: {bucket: 0.0 for bucket in destocking_buckets} for code in ('TOTAL', *STORE_CODES)}
+    total_margin_profit = 0.0
+    total_margin_sales = 0.0
+    threshold = max(_as_float(threshold_weeks, 8.0), 0.0)
+    period_weeks = max(period_days / 7.0, 1.0)
+    for row in rows:
+        status_code = _fnr_status_code(row.get('raw_status'))
+        raw_status = str(row.get('raw_status') or '').casefold()
+        if 'καταργη' in raw_status:
+            status_code = 'D3'
+        comm = str(row.get('commercial_status') or 'Χωρίς status')
+        c1 = str(row.get('category_1') or 'Χωρίς κατηγορία')
+        c2 = str(row.get('category_2') or '')
+        c3 = str(row.get('category_3') or '')
+        supplier = str(row.get('supplier_name') or 'Χωρίς προμηθευτή')
+        options['category_1'].add(c1)
+        if c2:
+            options['category_2'].add(c2)
+        if c3:
+            options['category_3'].add(c3)
+        options['suppliers'].add(supplier)
+        options['status_abcd'].add(status_code)
+        options['commercial_status'].add(comm)
+        if status_filter and status_code not in status_filter:
+            continue
+        if not _availability_match(c1, filters['category_1']) or not _availability_match(c2, filters['category_2']) or not _availability_match(c3, filters['category_3']):
+            continue
+        if not _availability_match(supplier, filters['suppliers']) or not _availability_match(comm, filters['commercial_status']):
+            continue
+        stock_by_branch = row.get('stock_by_branch') if isinstance(row.get('stock_by_branch'), dict) else {}
+        sales_by_branch = row.get('sales_by_branch') if isinstance(row.get('sales_by_branch'), dict) else {}
+        branch_values = {code: {'qty': 0.0, 'value': 0.0, 'sales_qty': 0.0, 'sales_value': 0.0, 'profit': 0.0} for code in STORE_CODES}
+        for branch, payload in stock_by_branch.items():
+            code = _fnr_store_code(branch)
+            if code and isinstance(payload, dict):
+                branch_values[code]['qty'] += _as_float(payload.get('qty'))
+                branch_values[code]['value'] += _as_float(payload.get('value'))
+        for branch, payload in sales_by_branch.items():
+            code = _fnr_store_code(branch)
+            if code and isinstance(payload, dict):
+                branch_values[code]['sales_qty'] += _as_float(payload.get('qty'))
+                branch_values[code]['sales_value'] += _as_float(payload.get('value'))
+                branch_values[code]['profit'] += _as_float(payload.get('profit'))
+        if selected_pharmacies and not any(branch_values[code]['value'] > 0 for code in selected_pharmacies):
+            continue
+        selected_item_codes.append(str(row.get('item_code') or ''))
+        group = groups.setdefault((status_code, comm), {'status_abcd': status_code, 'commercial_status': comm, 'sku_count': 0, 'stock_units_1': 0.0, 'stock_value_1': 0.0, 'stock_units_2': 0.0, 'stock_value_2': 0.0, 'sales_units': 0.0})
+        group['sku_count'] = int(group['sku_count']) + 1
+        for key, source in (('stock_units_1', 'stock1_qty'), ('stock_value_1', 'stock1_value'), ('stock_units_2', 'stock2_qty'), ('stock_value_2', 'stock2_value'), ('sales_units', 'sales_qty')):
+            group[key] = _as_float(group.get(key)) + _as_float(row.get(source))
+        total_margin_profit += _as_float(row.get('sales_profit'))
+        total_margin_sales += _as_float(row.get('sales_value'))
+        for code, metric in branch_values.items():
+            stock_value = metric['value']
+            if stock_value <= 0:
+                continue
+            weekly_sales_qty = metric['sales_qty'] / period_weeks
+            unit_value = stock_value / metric['qty'] if metric['qty'] > 0 else 0.0
+            over_value = max(metric['qty'] - (threshold * weekly_sales_qty), 0.0) * unit_value if status_code in {'A', 'B', 'C'} else stock_value
+            if status_code == 'A':
+                bucket = 'A over'
+            elif status_code == 'B':
+                bucket = 'B over'
+            elif status_code == 'C':
+                bucket = 'C'
+                over_value = stock_value if code != 'LOGICA' else over_value
+            elif status_code == 'D3':
+                bucket = 'D3'
+                over_value = stock_value
+            elif status_code.startswith('D'):
+                bucket = 'D'
+                over_value = stock_value
+            else:
+                continue
+            trend_base[code][bucket] += over_value
+            trend_base['TOTAL'][bucket] += over_value
+            rec_key = (bucket, supplier, code, comm)
+            rec = recommendations_by_key.setdefault(rec_key, {'action': 'Reduce street prices' if code != 'LOGICA' else 'Reduce web prices', 'status_abcd': status_code, 'commercial_status': comm, 'vendor': supplier, 'location': AVAILABILITY_STORE_LABELS.get(code, code), 'cur_overstock': 0.0, 'target_overstock': 0.0, 'sku_codes': []})
+            rec['cur_overstock'] = _as_float(rec.get('cur_overstock')) + over_value
+            if len(rec['sku_codes']) < 8:
+                rec['sku_codes'].append(str(row.get('item_code') or ''))
+    table_rows: list[dict[str, object]] = []
+    total = {'status_abcd': 'Grand Total', 'commercial_status': '', 'sku_count': 0, 'stock_units_1': 0.0, 'stock_value_1': 0.0, 'stock_units_2': 0.0, 'stock_value_2': 0.0, 'sales_units': 0.0}
+    for group in groups.values():
+        sales_units = _as_float(group.get('sales_units'))
+        group['dio'] = _as_float(group.get('stock_units_1')) / (sales_units / period_days) if sales_units else '-'
+        table_rows.append(group)
+        for key in total:
+            if isinstance(total[key], (int, float)):
+                total[key] = total[key] + group.get(key, 0)  # type: ignore[operator]
+    total['dio'] = _as_float(total.get('stock_units_1')) / (_as_float(total.get('sales_units')) / period_days) if _as_float(total.get('sales_units')) else '-'
+    table_rows = sorted(table_rows, key=_availability_group_sort_key)
+    table_rows.append(total)
+    trend_periods = _availability_periods(period_from, period_to, step if step in {'week', 'month', 'quarter'} else 'month')[:18]
+    period_labels = [label for label, _, _ in trend_periods]
+    total_overstock = sum(_as_float(trend_base['TOTAL'][bucket]) for bucket in destocking_buckets)
+    margin = total_margin_profit / total_margin_sales if total_margin_sales else 0.0
+    trend_series = {code: {'name': label, 'lines': {bucket: [] for bucket in destocking_buckets}, 'margin': [], 'overstock': [], 'd3_overstock': []} for code, label in [('TOTAL', 'Total'), *[(store, AVAILABILITY_STORE_LABELS.get(store, store)) for store in STORE_CODES]]}
+    if selected_item_codes and trend_periods:
+        trend_sql = text(
+            """
+            WITH stock_snapshot_quality AS (
+                SELECT snapshot_date, SUM(COALESCE(stock_value, 0)) AS stock_value
+                FROM agg_stock_aging
+                GROUP BY snapshot_date
+            ),
+            latest_stock AS (
+                SELECT COALESCE(
+                    (SELECT MAX(snapshot_date) FROM stock_snapshot_quality WHERE snapshot_date <= :period_end AND stock_value > 0),
+                    (SELECT MAX(snapshot_date) FROM stock_snapshot_quality WHERE stock_value > 0),
+                    (SELECT MAX(snapshot_date) FROM stock_snapshot_quality WHERE snapshot_date <= :period_end),
+                    (SELECT MAX(snapshot_date) FROM stock_snapshot_quality)
+                ) AS snapshot_date
+            ),
+            stock AS (
+                SELECT asa.item_external_id AS item_code,
+                       COALESCE(asa.branch_ext_id, '') AS branch_ext_id,
+                       SUM(COALESCE(asa.qty_on_hand, 0)) AS qty,
+                       SUM(COALESCE(asa.stock_value, 0)) AS value
+                FROM agg_stock_aging asa
+                JOIN latest_stock ON asa.snapshot_date = latest_stock.snapshot_date
+                WHERE asa.item_external_id = ANY(:item_codes)
+                GROUP BY asa.item_external_id, COALESCE(asa.branch_ext_id, '')
+            ),
+            sales AS (
+                SELECT item_code,
+                       COALESCE(branch_ext_id, '') AS branch_ext_id,
+                       SUM(COALESCE(qty, 0)) AS qty,
+                       SUM(COALESCE(net_value, 0)) AS value,
+                       SUM(COALESCE(profit_amount, 0)) AS profit
+                FROM fact_sales
+                WHERE doc_date >= :period_start
+                  AND doc_date <= :period_end
+                  AND item_code = ANY(:item_codes)
+                GROUP BY item_code, COALESCE(branch_ext_id, '')
+            ),
+            scope AS (
+                SELECT item_code, branch_ext_id FROM stock
+                UNION
+                SELECT item_code, branch_ext_id FROM sales
+            )
+            SELECT
+                scope.item_code,
+                COALESCE(scope.branch_ext_id, '') AS branch_ext_id,
+                COALESCE(NULLIF(di.replenishment_status_1, ''), NULLIF(di.commercial_status, ''), '') AS raw_status,
+                COALESCE(stock.qty, 0) AS stock_qty,
+                COALESCE(stock.value, 0) AS stock_value,
+                COALESCE(sales.qty, 0) AS sales_qty,
+                COALESCE(sales.value, 0) AS sales_value,
+                COALESCE(sales.profit, 0) AS sales_profit
+            FROM scope
+            LEFT JOIN stock ON stock.item_code = scope.item_code AND stock.branch_ext_id = scope.branch_ext_id
+            LEFT JOIN sales ON sales.item_code = scope.item_code AND sales.branch_ext_id = scope.branch_ext_id
+            LEFT JOIN dim_items di ON di.external_id = scope.item_code
+            WHERE COALESCE(di.softone_sotype, 51) = 51
+              AND COALESCE(di.is_active_source, true) = true
+            """
+        )
+        item_code_list = sorted({code for code in selected_item_codes if code})
+        for _label, period_start, period_end in trend_periods:
+            period_len_days = max((period_end - period_start).days + 1, 1)
+            period_len_weeks = max(period_len_days / 7.0, 1.0)
+            period_base = {code: {**{bucket: 0.0 for bucket in destocking_buckets}, 'sales_value': 0.0, 'sales_profit': 0.0} for code in ('TOTAL', *STORE_CODES)}
+            result = await db.execute(
+                trend_sql,
+                {
+                    'period_start': period_start,
+                    'period_end': period_end,
+                    'item_codes': item_code_list,
+                },
+            )
+            for trend_row in result.mappings().all():
+                code = _fnr_store_code(trend_row.get('branch_ext_id'))
+                if code not in STORE_CODES:
+                    continue
+                if selected_pharmacies and code not in selected_pharmacies:
+                    continue
+                status_code = _fnr_status_code(trend_row.get('raw_status'))
+                raw_status = str(trend_row.get('raw_status') or '').casefold()
+                if 'καταργη' in raw_status:
+                    status_code = 'D3'
+                sales_qty = _as_float(trend_row.get('sales_qty'))
+                sales_value = _as_float(trend_row.get('sales_value'))
+                sales_profit = _as_float(trend_row.get('sales_profit'))
+                stock_qty = _as_float(trend_row.get('stock_qty'))
+                stock_value = _as_float(trend_row.get('stock_value'))
+                period_base[code]['sales_value'] += sales_value
+                period_base[code]['sales_profit'] += sales_profit
+                period_base['TOTAL']['sales_value'] += sales_value
+                period_base['TOTAL']['sales_profit'] += sales_profit
+                if stock_value <= 0:
+                    continue
+                weekly_sales_qty = sales_qty / period_len_weeks
+                unit_value = stock_value / stock_qty if stock_qty > 0 else 0.0
+                over_value = max(stock_qty - (threshold * weekly_sales_qty), 0.0) * unit_value if status_code in {'A', 'B', 'C'} else stock_value
+                if status_code == 'A':
+                    bucket = 'A over'
+                elif status_code == 'B':
+                    bucket = 'B over'
+                elif status_code == 'C':
+                    bucket = 'C'
+                    over_value = stock_value if code != 'LOGICA' else over_value
+                elif status_code == 'D3':
+                    bucket = 'D3'
+                    over_value = stock_value
+                elif status_code.startswith('D'):
+                    bucket = 'D'
+                    over_value = stock_value
+                else:
+                    continue
+                period_base[code][bucket] += over_value
+                period_base['TOTAL'][bucket] += over_value
+            for code in trend_series:
+                period_overstock = sum(_as_float(period_base[code][bucket]) for bucket in destocking_buckets)
+                period_margin = _as_float(period_base[code]['sales_profit']) / _as_float(period_base[code]['sales_value']) if _as_float(period_base[code]['sales_value']) else 0.0
+                for bucket in destocking_buckets:
+                    trend_series[code]['lines'][bucket].append(_fnr_round(_as_float(period_base[code][bucket])))
+                trend_series[code]['overstock'].append(_fnr_round(period_overstock))
+                trend_series[code]['d3_overstock'].append(_fnr_round(_as_float(period_base[code]['D3'])))
+                trend_series[code]['margin'].append(_fnr_round(period_margin))
+    else:
+        for code in trend_series:
+            for bucket in destocking_buckets:
+                trend_series[code]['lines'][bucket] = [0.0 for _ in trend_periods]
+            trend_series[code]['overstock'] = [0.0 for _ in trend_periods]
+            trend_series[code]['d3_overstock'] = [0.0 for _ in trend_periods]
+            trend_series[code]['margin'] = [0.0 for _ in trend_periods]
+    trends = {'periods': period_labels, 'series': []}
+    for entry in trend_series.values():
+        trends['series'].append({
+            'name': entry['name'],
+            'lines': [{'name': bucket, 'values': entry['lines'][bucket]} for bucket in destocking_buckets],
+        })
+    correlation = {'periods': period_labels, 'series': []}
+    for entry in trend_series.values():
+        correlation['series'].append({'name': entry['name'], 'overstock': entry['overstock'], 'd3_overstock': entry['d3_overstock'], 'margin': entry['margin']})
+    recommendations = sorted(
+        [
+            {
+                **rec,
+                'destocking_potential': max(_as_float(rec.get('cur_overstock')) - _as_float(rec.get('target_overstock')), 0.0),
+                'show_sku': ', '.join(rec.get('sku_codes') or []),
+            }
+            for rec in recommendations_by_key.values()
+            if _as_float(rec.get('cur_overstock')) > 0
+        ],
+        key=lambda item: -_as_float(item.get('destocking_potential')),
+    )[:50]
+    return {
+        'parameters': {'period_from': period_from.isoformat(), 'period_to': period_to.isoformat(), 'stock_date_1': stock_date_1.isoformat(), 'stock_date_2': stock_date_2.isoformat(), 'threshold_weeks': threshold, 'step': step},
+        'filters': {'pharmacies': pharmacies or [], 'category_1': category_1 or [], 'category_2': category_2 or [], 'category_3': category_3 or [], 'suppliers': suppliers or [], 'status_abcd': status_abcd or [], 'commercial_status': commercial_status or []},
+        'options': {key: sorted(value) if isinstance(value, set) else value for key, value in options.items()},
+        'table_rows': table_rows,
+        'trends': trends,
+        'correlation': correlation,
+        'recommendations': recommendations,
+        'summary': {'rows_count': len(table_rows), 'sku_count': total.get('sku_count', 0), 'stock_value_1': total.get('stock_value_1', 0), 'stock_value_2': total.get('stock_value_2', 0), 'total_overstock': total_overstock, 'margin_pct': margin, 'recommendations_count': len(recommendations)},
+    }
+
+
 async def build_availability_foundation(
     db: AsyncSession,
     *,
@@ -902,6 +2151,8 @@ async def build_availability_foundation(
             COALESCE(sales.sales_value_previous, 0) AS sales_value_previous,
             COALESCE(expected.expected_qty, 0) AS expected_qty,
             COALESCE(di.min_stock, 1) AS min_stock,
+            COALESCE(di.replenishment_moq, 1) AS repl_moq,
+            COALESCE(di.vendor_moq, 1) AS vendor_moq,
             COALESCE(
                 NULLIF(latest_purchase_price.purchase_price, 0),
                 NULLIF(di.current_purchase_price, 0),
@@ -1074,6 +2325,9 @@ async def build_availability_foundation(
                     'abc_category': abc_category,
                     'commercial_status': commercial_status,
                     'category': category,
+                    'category_1': category,
+                    'category_2': str(row.get('category_2') or ''),
+                    'category_3': str(row.get('category_3') or ''),
                     'vendor': vendor,
                     'stock_qty': stock_qty,
                     'stock_value': stock_value,
@@ -1084,6 +2338,9 @@ async def build_availability_foundation(
                     if previous_value > 0 else (100.0 if current_value > 0 else 0.0),
                     'weekly_sales': weekly_sales,
                     'target_stock': target_stock,
+                    'min_stock': _as_float(row.get('min_stock'), 1.0),
+                    'repl_moq': max(_as_float(row.get('repl_moq'), 1.0), 1.0),
+                    'vendor_moq': max(_as_float(row.get('vendor_moq'), 1.0), 1.0),
                     'shortage_qty': shortage_qty,
                     'shortage_value': shortage_value,
                     'latest_purchase_price': purchase_price,

@@ -317,6 +317,13 @@
     font-weight: 600;
   }
 
+  body.tenant-shell .ba-item-context {
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 750;
+    line-height: 1.4;
+  }
+
   body.tenant-shell .ba-action-link {
     width: fit-content;
     color: #4f46e5;
@@ -379,6 +386,15 @@
     margin-top: 10px;
     color: #64748b;
     font-weight: 650;
+    line-height: 1.45;
+  }
+
+  body.tenant-shell .ba-missing-data {
+    margin: 8px 0 0;
+    padding-left: 18px;
+    color: #64748b;
+    font-size: 13px;
+    font-weight: 700;
     line-height: 1.45;
   }
 
@@ -828,6 +844,9 @@
 
   function itemHtml(item, includeAction = false) {
     const severity = item.severity || 'info';
+    const context = item.context
+      ? `<div class="ba-item-context">${escapeHtml(item.context)}</div>`
+      : '';
     const action = includeAction && item.action
       ? `<p><strong>${t('action')}</strong> ${escapeHtml(item.action)}</p>`
       : '';
@@ -837,6 +856,7 @@
     return `
       <div class="ba-item">
         <div class="ba-item-title"><span class="ba-dot ${severity}"></span><i class="fe ${severityIcon(severity)}"></i>${escapeHtml(item.title || '')}</div>
+        ${context}
         <p>${escapeHtml(item.text || '')}</p>
         ${action}
         ${link}
@@ -906,15 +926,30 @@
     $('baDimensionBadge').innerHTML = `<i class="fe ${data?.mode === 'branches' ? 'fe-map-pin' : 'fe-layers'}"></i>${data?.mode === 'branches' ? t('branches') : t('categories')}`;
     const best = diagnosis.best;
     const worst = diagnosis.worst;
+    const missing = Array.isArray(diagnosis.missing_data) ? diagnosis.missing_data : [];
+    const missingHtml = missing.length
+      ? `<ul class="ba-missing-data">${missing.map((line) => `<li>${escapeHtml(line)}</li>`).join('')}</ul>`
+      : '';
+    const actionHtml = diagnosis.action
+      ? `<div class="ba-diagnosis-action"><strong>${t('move')}</strong> ${escapeHtml(diagnosis.action || '')}</div>`
+      : '';
     const cards = `
       <div>
         <div class="ba-diagnosis-summary">${escapeHtml(diagnosis.summary || t('noDiagnosis'))}</div>
+        ${missingHtml}
         ${best ? itemHtml({ title: `${t('goodMovement')}: ${best.name}`, text: `${t('turnover')} ${money.format(best.net_value || 0)}, ${t('change').toLowerCase()} ${deltaText(best.delta_pct)}, ${t('share').toLowerCase()} ${number.format(best.share_pct || 0)}%.`, severity: 'success', href: diagnosis.href }) : ''}
         ${worst ? itemHtml({ title: `${t('pressure')}: ${worst.name}`, text: `${t('turnover')} ${money.format(worst.net_value || 0)}, ${t('change').toLowerCase()} ${deltaText(worst.delta_pct)}, ${t('share').toLowerCase()} ${number.format(worst.share_pct || 0)}%.`, severity: 'warning', href: diagnosis.href }) : ''}
-        <div class="ba-diagnosis-action"><strong>${t('move')}</strong> ${escapeHtml(diagnosis.action || '')}</div>
+        ${actionHtml}
         ${secondary ? `<div class="ba-diagnosis-action mt-3"><strong>${t('secondReading')}</strong> ${escapeHtml(secondary.summary || '')}</div>` : ''}
       </div>
     `;
+    const secondaryMissing = secondary && Array.isArray(secondary.missing_data) ? secondary.missing_data : [];
+    const secondaryMissingHtml = secondaryMissing.length
+      ? `<ul class="ba-missing-data">${secondaryMissing.map((line) => `<li>${escapeHtml(line)}</li>`).join('')}</ul>`
+      : '';
+    const secondaryActionHtml = secondary?.action
+      ? `<div class="ba-diagnosis-action"><strong>${t('move')}</strong> ${escapeHtml(secondary.action || '')}</div>`
+      : '';
     const secondaryBlock = secondary ? `
       <div class="ba-diagnosis-secondary">
         <div class="ba-diagnosis-secondary-head">
@@ -922,6 +957,8 @@
           <span class="ba-pill"><i class="fe fe-layers"></i>${secondary.mode === 'branches' ? t('branches') : t('categories')}</span>
         </div>
         <div class="ba-diagnosis-summary mb-3">${escapeHtml(secondary.summary || '')}</div>
+        ${secondaryMissingHtml}
+        ${secondaryActionHtml}
         <div class="ba-diagnosis-table-wrap">${dimensionTable(secondary.rows || [])}</div>
       </div>
     ` : '';
@@ -1016,7 +1053,10 @@
     params.set('from', dmyToIso($('baFrom').value));
     params.set('to', dmyToIso($('baTo').value));
     params.set('target_margin_pct', $('baTargetMargin').value || '35');
-    const response = await fetch(`/v1/kpi/business-advisor?${params.toString()}`, { headers: { Accept: 'application/json' } });
+    const response = await fetch(`/v1/kpi/business-advisor?${params.toString()}`, {
+      cache: 'no-store',
+      headers: { Accept: 'application/json' },
+    });
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
     }

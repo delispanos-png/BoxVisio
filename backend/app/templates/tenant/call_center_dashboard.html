@@ -14,7 +14,7 @@
     <input type="hidden" name="period" value="{{ selected_period }}">
     <input class="form-control" type="text" name="from" value="{{ default_from.strftime('%d/%m/%Y') if default_from else '' }}" data-date-format="dmy" placeholder="Από" inputmode="numeric">
     <input class="form-control" type="text" name="to" value="{{ default_to.strftime('%d/%m/%Y') if default_to else '' }}" data-date-format="dmy" placeholder="Έως" inputmode="numeric">
-    <input class="form-control" type="text" name="queues" value="{{ call_center_3cx.queue_ids or '' }}" placeholder="Queue / extension">
+    <input class="form-control" type="text" name="queues" value="{{ request.query_params.get('queues') or '' }}" placeholder="Queue / extension">
     <button class="btn btn-primary" type="submit"><i class="fe fe-filter"></i> {{ tt(request, 'apply') }}</button>
   </div>
 </form>
@@ -26,6 +26,10 @@
 {% set answered_calls = cc_stats.answered_calls or 0 %}
 {% set missed_calls = cc_stats.missed_calls or 0 %}
 {% set outbound_calls = cc_stats.outbound_calls or 0 %}
+{% set inbound_answered_calls = cc_stats.inbound_answered_calls or 0 %}
+{% set outbound_answered_calls = cc_stats.outbound_answered_calls or 0 %}
+{% set inbound_missed_calls = cc_stats.inbound_missed_calls or 0 %}
+{% set outbound_missed_calls = cc_stats.outbound_missed_calls or 0 %}
 {% set answer_rate = cc_stats.answer_rate_pct or 0 %}
 {% set avg_wait = cc_stats.avg_wait_seconds or 0 %}
 {% set sla_target = call_center_3cx.answer_sla_seconds or 30 %}
@@ -141,9 +145,117 @@
   .cc-mini-list { display:grid; gap:.4rem; }
   .cc-mini-row { border:1px solid #e6edf6; border-radius:7px; background:#fff; padding:.5rem .6rem; display:flex; justify-content:space-between; gap:.75rem; align-items:center; font-weight:800; }
   .cc-mini-row span { color:#64748b; font-size:.74rem; }
-  @media (max-width: 1399.98px) { .cc-kpis { grid-template-columns:repeat(3, minmax(0,1fr)); } .cc-grid-main { grid-template-columns:1fr; } }
-  @media (max-width: 991.98px) { .cc-source-item summary { grid-template-columns:32px minmax(0,1fr) 72px; } .cc-source-metric.optional { display:none; } .cc-source-detail { grid-template-columns:1fr; } }
-  @media (max-width: 767.98px) { .cc-topbar { flex-direction:column; } .cc-kpis { grid-template-columns:1fr; } .cc-date-filter { grid-template-columns:1fr; width:100%; } .cc-day-row { grid-template-columns:74px minmax(0,1fr) 54px; } .cc-modal-grid { grid-template-columns:1fr; } .cc-agent-detail-grid { grid-template-columns:repeat(2, minmax(0,1fr)); } .cc-agent-recent-row { grid-template-columns:40px minmax(0,1fr) 56px; } .cc-agent-recent-row span:last-child { display:none; } }
+  .cc-journey-toolbar { display:grid; grid-template-columns:minmax(220px, 1fr) auto auto auto; gap:.65rem; align-items:center; padding:1rem 1.1rem; border-bottom:1px solid #e6edf6; background:#fbfdff; }
+  .cc-journey-search { border:1px solid #dbe3ef; border-radius:8px; padding:.62rem .75rem; font-weight:800; color:#0f172a; background:#fff; min-width:0; }
+  .cc-journey-search:focus { outline:3px solid rgba(49,87,246,.18); border-color:#9db4ff; }
+  .cc-journey-list { display:grid; gap:.75rem; padding:1rem 1.1rem; }
+  .cc-journey-card { border:1px solid #dfe7f2; border-radius:8px; background:#fff; overflow:hidden; box-shadow:0 8px 18px rgba(15,23,42,.035); }
+  .cc-journey-card[hidden] { display:none; }
+  .cc-journey-card summary { list-style:none; cursor:pointer; padding:0; }
+  .cc-journey-card summary::-webkit-details-marker { display:none; }
+  .cc-journey-head { display:grid; grid-template-columns:36px minmax(0, 1.2fr) minmax(0, 1.6fr) repeat(4, minmax(72px, auto)); gap:.75rem; align-items:center; padding:.9rem 1rem; }
+  .cc-journey-card[open] .cc-journey-head { border-bottom:1px solid #e6edf6; background:#fbfdff; }
+  .cc-journey-route { min-width:0; }
+  .cc-journey-title { color:#0f172a; font-weight:950; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .cc-journey-sub { color:#64748b; font-size:.72rem; font-weight:750; margin-top:.15rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .cc-journey-path { display:flex; align-items:center; gap:.42rem; min-width:0; overflow:hidden; }
+  .cc-path-chip { border:1px solid #dbe3ef; border-radius:999px; background:#fff; color:#334155; padding:.28rem .52rem; font-size:.68rem; font-weight:900; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:180px; }
+  .cc-path-chip.is-source { border-color:#bfdbfe; background:#eff6ff; color:#1d4ed8; }
+  .cc-path-chip.is-agent { border-color:#bbf7d0; background:#f0fdf4; color:#166534; }
+  .cc-path-chip.is-missed { border-color:#fecaca; background:#fff7f7; color:#991b1b; }
+  .cc-path-arrow { color:#94a3b8; font-weight:950; }
+  .cc-journey-metric { text-align:right; color:#0f172a; font-weight:950; white-space:nowrap; }
+  .cc-journey-metric span { display:block; color:#64748b; font-size:.64rem; font-weight:850; margin-top:.08rem; }
+  .cc-journey-body { padding:1rem; display:grid; gap:1rem; background:#fff; }
+  .cc-journey-diagnosis { display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:.6rem; }
+  .cc-journey-fact { border:1px solid #e6edf6; border-radius:8px; background:#f8fafc; padding:.65rem .7rem; }
+  .cc-journey-fact span { display:block; color:#64748b; font-size:.64rem; font-weight:850; text-transform:uppercase; }
+  .cc-journey-fact strong { display:block; color:#0f172a; font-size:.86rem; font-weight:950; margin-top:.1rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .cc-hop-timeline { position:relative; display:grid; gap:.7rem; }
+  .cc-hop { display:grid; grid-template-columns:34px minmax(0,1fr); gap:.7rem; align-items:start; }
+  .cc-hop-index { position:relative; z-index:1; width:30px; height:30px; border-radius:999px; display:grid; place-items:center; background:#eff6ff; border:1px solid #bfdbfe; color:#1d4ed8; font-weight:950; font-size:.72rem; }
+  .cc-hop:not(:last-child) .cc-hop-index::after { content:""; position:absolute; top:30px; bottom:-.72rem; left:50%; width:2px; transform:translateX(-50%); background:#dbeafe; }
+  .cc-hop-card { border:1px solid #e6edf6; border-radius:8px; background:#fff; padding:.72rem .8rem; }
+  .cc-hop-main { display:flex; justify-content:space-between; gap:.85rem; align-items:flex-start; }
+  .cc-hop-route { min-width:0; font-weight:950; color:#0f172a; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .cc-hop-meta { display:flex; gap:.4rem; flex-wrap:wrap; margin-top:.42rem; }
+  .cc-hop-note { margin-top:.45rem; color:#64748b; font-size:.72rem; font-weight:750; }
+  .cc-hop-time { color:#64748b; font-size:.7rem; font-weight:850; white-space:nowrap; }
+  .cc-report-tabs { display:flex; gap:.45rem; flex-wrap:wrap; margin:0 0 1rem; padding:.45rem; border:1px solid #dfe7f2; border-radius:8px; background:#fff; box-shadow:0 8px 18px rgba(15,23,42,.045); }
+  .cc-report-tab { border:1px solid transparent; background:transparent; color:#475569; border-radius:7px; padding:.55rem .78rem; font-weight:950; font-size:.78rem; display:flex; align-items:center; gap:.38rem; }
+  .cc-report-tab.is-active { border-color:#bfdbfe; background:#eff6ff; color:#1d4ed8; }
+  .cc-report-sheet { display:none; }
+  .cc-report-sheet.is-active { display:block; }
+  .cc-sheet-intro { display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; margin-bottom:1rem; padding:1rem 1.1rem; border:1px solid #dfe7f2; border-radius:8px; background:#fff; box-shadow:0 8px 18px rgba(15,23,42,.045); }
+  .cc-sheet-intro h2 { margin:0; font-size:1.05rem; font-weight:950; color:#0f172a; letter-spacing:0; }
+  .cc-sheet-intro p { margin:.25rem 0 0; color:#64748b; font-weight:750; }
+  .cc-report-grid { display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:.85rem; margin-bottom:1rem; }
+  .cc-report-grid.two { grid-template-columns:repeat(2, minmax(0,1fr)); }
+  .cc-report-card { border:1px solid #dfe7f2; border-radius:8px; background:#fff; padding:1rem; box-shadow:0 8px 18px rgba(15,23,42,.045); }
+  .cc-report-card h4 { margin:0 0 .45rem; font-size:.9rem; font-weight:950; color:#0f172a; display:flex; align-items:center; gap:.4rem; }
+  .cc-report-card p { margin:0; color:#64748b; font-size:.75rem; font-weight:750; }
+  .cc-report-value { display:block; margin:.35rem 0; color:#0f172a; font-size:1.35rem; font-weight:950; line-height:1.1; }
+  .cc-exec-hero { display:grid; grid-template-columns:minmax(0, 1.25fr) minmax(420px, .75fr); gap:1rem; margin-bottom:1rem; }
+  .cc-exec-story { border:1px solid #dfe7f2; border-radius:8px; background:#fff; padding:1.15rem; box-shadow:0 10px 24px rgba(15,23,42,.055); display:grid; gap:1rem; }
+  .cc-exec-story-top { display:flex; justify-content:space-between; gap:1rem; align-items:flex-start; }
+  .cc-exec-story h2 { margin:0; color:#0f172a; font-size:1.25rem; font-weight:950; letter-spacing:0; }
+  .cc-exec-story p { margin:.28rem 0 0; color:#64748b; font-weight:750; max-width:760px; }
+  .cc-exec-primary { display:grid; grid-template-columns:1.15fr repeat(3, minmax(0, .8fr)); gap:.75rem; align-items:stretch; }
+  .cc-exec-metric { border:1px solid #e2e8f0; border-radius:8px; background:#f8fafc; padding:.85rem; min-width:0; }
+  .cc-exec-metric.is-main { background:#0f172a; border-color:#0f172a; color:#fff; }
+  .cc-exec-metric span { display:block; color:#64748b; font-size:.68rem; font-weight:900; text-transform:uppercase; }
+  .cc-exec-metric.is-main span { color:#cbd5e1; }
+  .cc-exec-metric strong { display:block; margin:.2rem 0; color:#0f172a; font-size:1.35rem; font-weight:950; line-height:1.05; }
+  .cc-exec-metric.is-main strong { color:#fff; font-size:2rem; }
+  .cc-exec-metric em { display:block; color:#64748b; font-style:normal; font-size:.72rem; font-weight:750; }
+  .cc-exec-metric.is-main em { color:#dbeafe; }
+  .cc-exec-health { border:1px solid #dfe7f2; border-radius:8px; background:#fff; padding:1.15rem; box-shadow:0 10px 24px rgba(15,23,42,.055); display:grid; gap:.75rem; }
+  .cc-exec-health h3 { margin:0; font-size:.95rem; font-weight:950; color:#0f172a; display:flex; align-items:center; gap:.45rem; }
+  .cc-health-row { display:grid; grid-template-columns:88px minmax(0,1fr) 54px; gap:.65rem; align-items:center; }
+  .cc-health-label { color:#475569; font-size:.72rem; font-weight:900; }
+  .cc-health-value { text-align:right; color:#0f172a; font-size:.72rem; font-weight:950; }
+  .cc-health-bar { height:9px; border-radius:999px; background:#edf2f7; overflow:hidden; }
+  .cc-health-fill { display:block; height:100%; width:min(var(--pct), 100%); background:var(--bar); border-radius:999px; }
+  .cc-exec-strip { display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:.75rem; margin-bottom:1rem; }
+  .cc-exec-tile { border:1px solid #dfe7f2; border-radius:8px; background:#fff; padding:.9rem; box-shadow:0 8px 18px rgba(15,23,42,.045); display:flex; justify-content:space-between; gap:.75rem; align-items:flex-start; }
+  .cc-exec-tile span { display:block; color:#64748b; font-size:.7rem; font-weight:900; text-transform:uppercase; }
+  .cc-exec-tile strong { display:block; color:#0f172a; font-size:1.2rem; font-weight:950; margin-top:.18rem; }
+  .cc-exec-tile i { width:30px; height:30px; display:grid; place-items:center; border-radius:8px; background:#eff6ff; color:#1d4ed8; }
+  .cc-exec-grid { display:grid; grid-template-columns:minmax(0,1.2fr) minmax(360px,.8fr); gap:1rem; align-items:start; }
+  .cc-exec-stack { display:grid; gap:1rem; }
+  .cc-exec-queue { display:grid; grid-template-columns:minmax(0,1fr) 90px 90px 90px; gap:.75rem; align-items:center; padding:.72rem 1rem; border-bottom:1px solid #edf2f7; }
+  .cc-exec-queue:last-child { border-bottom:0; }
+  .cc-exec-queue-name { min-width:0; font-weight:950; color:#0f172a; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .cc-exec-queue small { display:block; color:#64748b; font-size:.68rem; font-weight:800; margin-top:.1rem; }
+  .cc-exec-num { text-align:right; font-weight:950; color:#0f172a; }
+  .cc-exec-num span { display:block; color:#64748b; font-size:.64rem; font-weight:850; }
+  .cc-exec-agents { display:grid; gap:.55rem; padding:1rem; }
+  .cc-exec-agent { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:.75rem; align-items:center; border:1px solid #e6edf6; border-radius:8px; padding:.65rem .75rem; background:#fff; }
+  .cc-exec-agent strong { display:block; color:#0f172a; font-size:.78rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .cc-exec-agent span { display:block; color:#64748b; font-size:.68rem; font-weight:800; margin-top:.12rem; }
+  .cc-exec-agent b { color:#0f172a; font-size:.95rem; }
+  .cc-exec-source { padding:1rem; display:grid; gap:.5rem; }
+  .cc-exec-source-row { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:.75rem; align-items:center; border-bottom:1px solid #edf2f7; padding:.5rem 0; }
+  .cc-exec-source-row:last-child { border-bottom:0; }
+  .cc-exec-source-row strong { display:block; color:#0f172a; font-size:.76rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .cc-exec-source-row span { color:#64748b; font-size:.68rem; font-weight:800; }
+  .cc-rule-list { display:grid; gap:.55rem; }
+  .cc-rule { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:.75rem; align-items:center; padding:.7rem .75rem; border:1px solid #e6edf6; border-radius:8px; background:#fff; }
+  .cc-rule strong { display:block; color:#0f172a; font-size:.8rem; }
+  .cc-rule span { display:block; color:#64748b; font-size:.72rem; font-weight:750; margin-top:.12rem; }
+  .cc-status-badge { border:1px solid #dbe3ef; border-radius:999px; padding:.28rem .55rem; color:#334155; background:#f8fafc; font-size:.68rem; font-weight:950; white-space:nowrap; }
+  .cc-status-badge.ok { border-color:#bbf7d0; color:#166534; background:#f0fdf4; }
+  .cc-status-badge.warn { border-color:#fed7aa; color:#9a3412; background:#fff7ed; }
+  .cc-status-badge.danger { border-color:#fecaca; color:#991b1b; background:#fff7f7; }
+  .cc-data-gap { border:1px dashed #cbd5e1; border-radius:8px; background:#f8fafc; padding:.75rem; color:#64748b; font-size:.74rem; font-weight:750; }
+  .cc-model-list { display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:.65rem; }
+  .cc-model-item { border:1px solid #e6edf6; border-radius:8px; padding:.75rem; background:#fff; }
+  .cc-model-item strong { display:block; color:#0f172a; font-size:.8rem; margin-bottom:.15rem; }
+  .cc-model-item span { color:#64748b; font-size:.72rem; font-weight:750; }
+  @media (max-width: 1399.98px) { .cc-kpis { grid-template-columns:repeat(3, minmax(0,1fr)); } .cc-grid-main, .cc-exec-hero, .cc-exec-grid { grid-template-columns:1fr; } .cc-exec-primary { grid-template-columns:repeat(2, minmax(0,1fr)); } }
+  @media (max-width: 1199.98px) { .cc-journey-head { grid-template-columns:36px minmax(0,1fr) repeat(3, minmax(70px, auto)); } .cc-journey-path, .cc-journey-metric.optional { display:none; } }
+  @media (max-width: 991.98px) { .cc-source-item summary { grid-template-columns:32px minmax(0,1fr) 72px; } .cc-source-metric.optional { display:none; } .cc-source-detail { grid-template-columns:1fr; } .cc-report-grid, .cc-report-grid.two, .cc-model-list, .cc-journey-diagnosis, .cc-exec-strip { grid-template-columns:1fr; } .cc-journey-toolbar { grid-template-columns:1fr; } }
+  @media (max-width: 767.98px) { .cc-topbar { flex-direction:column; } .cc-kpis, .cc-exec-primary { grid-template-columns:1fr; } .cc-date-filter { grid-template-columns:1fr; width:100%; } .cc-day-row { grid-template-columns:74px minmax(0,1fr) 54px; } .cc-modal-grid { grid-template-columns:1fr; } .cc-agent-detail-grid { grid-template-columns:repeat(2, minmax(0,1fr)); } .cc-agent-recent-row { grid-template-columns:40px minmax(0,1fr) 56px; } .cc-agent-recent-row span:last-child { display:none; } .cc-sheet-intro { flex-direction:column; } .cc-journey-head { grid-template-columns:32px minmax(0,1fr) 64px; } .cc-journey-metric.mobile-hide { display:none; } .cc-hop-main { display:block; } .cc-hop-time { margin-top:.25rem; } .cc-exec-queue { grid-template-columns:minmax(0,1fr) 64px; } .cc-exec-queue .optional { display:none; } }
 </style>
 
 <div class="cc-shell">
@@ -171,269 +283,650 @@
   <div class="cc-alert is-info"><i class="fe fe-info"></i><span>{{ call_center_3cx.last_test_error }}</span></div>
   {% endif %}
 
-  <div class="cc-kpis">
-    <button class="cc-kpi" style="--tone:#3157f6" type="button" data-cc-modal-target="ccCallsModal">
-      <div class="cc-kpi-top"><span>Κλήσεις</span><span class="cc-ico"><i class="fe fe-phone-call"></i></span></div>
-      <div>
-        <div class="cc-kpi-value">{{ total_calls if has_data else '—' }}</div>
-        <div class="cc-kpi-split">
-          <div class="cc-split-chip"><span>Εισερχ.</span><strong>{{ inbound_calls if has_data else '—' }}</strong></div>
-          <div class="cc-split-chip"><span>Εξερχ.</span><strong>{{ outbound_calls if has_data else '—' }}</strong></div>
-        </div>
-      </div>
-    </button>
-    <button class="cc-kpi" style="--tone:#22c55e" type="button" data-cc-modal-target="ccAnsweredModal">
-      <div class="cc-kpi-top"><span>Απάντηση</span><span class="cc-ico"><i class="fe fe-check-circle"></i></span></div>
-      <div><div class="cc-kpi-value">{{ answer_rate if has_data else '—' }}{% if has_data %}%{% endif %}</div><div class="cc-kpi-note">{{ answered_calls }} απαντημένες</div></div>
-    </button>
-    <button class="cc-kpi is-accent" style="--tone:#ef4444" type="button" data-cc-modal-target="ccMissedModal">
-      <div class="cc-kpi-top"><span>Χαμένες</span><span class="cc-ico"><i class="fe fe-alert-circle"></i></span></div>
-      <div><div class="cc-kpi-value">{{ missed_calls if has_data else '—' }}</div><div class="cc-kpi-note">{{ missed_rate|round(1) }}% επί του συνόλου</div></div>
-    </button>
-    <button class="cc-kpi" style="--tone:#14b8a6" type="button" data-cc-modal-target="ccWaitModal">
-      <div class="cc-kpi-top"><span>Μ.Ο. Αναμονής</span><span class="cc-ico"><i class="fe fe-clock"></i></span></div>
-      <div><div class="cc-kpi-value">{{ avg_wait if has_data else '—' }}{% if has_data %}s{% endif %}</div><div class="cc-kpi-note">Σύγκριση με SLA {{ sla_target }}s</div></div>
-    </button>
-    <button class="cc-kpi" style="--tone:#f97316" type="button" data-cc-modal-target="ccOutboundModal">
-      <div class="cc-kpi-top"><span>Outbound</span><span class="cc-ico"><i class="fe fe-phone-forwarded"></i></span></div>
-      <div><div class="cc-kpi-value">{{ outbound_calls if has_data else '—' }}</div><div class="cc-kpi-note">Εξερχόμενες κλήσεις</div></div>
-    </button>
-    <button class="cc-kpi" style="--tone:#8b5cf6" type="button" data-cc-modal-target="ccAgentModal">
-      <div class="cc-kpi-top"><span>Κλήσεις / Agent</span><span class="cc-ico"><i class="fe fe-users"></i></span></div>
-      <div><div class="cc-kpi-value">{{ avg_calls_per_agent|round(1) if has_data else '—' }}</div><div class="cc-kpi-note">Στόχος {{ agent_target }} / agent</div></div>
-    </button>
+  <div class="cc-report-tabs" aria-label="Call center worksheets">
+    <button class="cc-report-tab is-active" type="button" data-cc-report-tab="summary"><i class="fe fe-grid"></i> Executive</button>
+    <button class="cc-report-tab" type="button" data-cc-report-tab="traffic"><i class="fe fe-activity"></i> Traffic</button>
+    <button class="cc-report-tab" type="button" data-cc-report-tab="inbound"><i class="fe fe-phone-incoming"></i> Εισερχόμενες</button>
+    <button class="cc-report-tab" type="button" data-cc-report-tab="outbound"><i class="fe fe-phone-forwarded"></i> Εξερχόμενες</button>
+    <button class="cc-report-tab" type="button" data-cc-report-tab="queues"><i class="fe fe-list"></i> Queues</button>
+    <button class="cc-report-tab" type="button" data-cc-report-tab="agents"><i class="fe fe-users"></i> Agents</button>
+    <button class="cc-report-tab" type="button" data-cc-report-tab="journeys"><i class="fe fe-git-branch"></i> Διαδρομές</button>
+    <button class="cc-report-tab" type="button" data-cc-report-tab="service"><i class="fe fe-target"></i> KPIs</button>
+    <button class="cc-report-tab" type="button" data-cc-report-tab="cost"><i class="fe fe-credit-card"></i> Cost</button>
+    <button class="cc-report-tab" type="button" data-cc-report-tab="risk"><i class="fe fe-alert-triangle"></i> Risk</button>
+    <button class="cc-report-tab" type="button" data-cc-report-tab="alerts"><i class="fe fe-bell"></i> Alerts</button>
+    <button class="cc-report-tab" type="button" data-cc-report-tab="forecast"><i class="fe fe-trending-up"></i> Forecast</button>
+    <button class="cc-report-tab" type="button" data-cc-report-tab="model"><i class="fe fe-layers"></i> BI Model</button>
   </div>
 
-  {% if not has_data %}
-  <div class="cc-panel">
-    <div class="cc-empty">
-      <div class="cc-empty-card">
-        <div class="cc-empty-icon"><i class="fe fe-upload-cloud"></i></div>
-        <h3>Το dashboard είναι έτοιμο για δεδομένα 3CX</h3>
-        <p>Ανεβάζουμε 3CX CSV/CDR report από το adminpanel και γεμίζουν αυτόματα KPIs, agents, queues και ημερήσια απόδοση.</p>
-      </div>
-    </div>
-  </div>
-  {% endif %}
-
-  <div class="cc-grid-main mt-3">
-    <div>
-      <div class="cc-panel">
-        <div class="cc-head">
+  <section class="cc-report-sheet is-active" data-cc-report-sheet="summary">
+    <div class="cc-exec-hero">
+      <div class="cc-exec-story">
+        <div class="cc-exec-story-top">
           <div>
-            <h3><i class="fe fe-list"></i> Κατάταξη Queues / Γραμμών</h3>
-            <div class="cc-muted">{{ queue_count }} ομάδες στην επιλεγμένη περίοδο</div>
+            <h2>Executive Summary</h2>
+            <p>Συμπυκνωμένη εικόνα λειτουργίας τηλεφωνικού κέντρου για την επιλεγμένη περίοδο, με έμφαση σε όγκο, απαντήσεις, χαμένες και πίεση SLA.</p>
           </div>
-          <span class="cc-pill">Performance</span>
+          <span class="cc-pill">{{ call_center_3cx.manual_import.rows or 0 }} imported rows</span>
         </div>
-        <div class="table-responsive">
-          <table class="cc-table">
-            <thead>
-              <tr>
-                <th style="width:54px;">#</th>
-                <th>Queue / Ομάδα</th>
-                <th class="text-end">Κλήσεις</th>
-                <th class="text-end">Απαντ.</th>
-                <th class="text-end">Χαμένες</th>
-                <th class="text-end">SLA</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% if call_center_3cx.queue_rows %}
-              {% for row in call_center_3cx.queue_rows[:12] %}
-              <tr>
-                <td><span class="cc-rank">{{ loop.index }}</span></td>
-                <td>{{ row.queue }}</td>
-                <td class="text-end">{{ row.calls }}</td>
-                <td class="text-end">{{ row.answered }}</td>
-                <td class="text-end">{{ row.missed }}</td>
-                <td class="text-end">{{ row.sla_pct }}%</td>
-              </tr>
-              {% endfor %}
-              {% else %}
-              <tr><td colspan="6" class="text-center text-muted py-4">Δεν υπάρχουν ακόμη γραμμές queue.</td></tr>
-              {% endif %}
-            </tbody>
-          </table>
+        <div class="cc-exec-primary">
+          <button class="cc-exec-metric is-main" type="button" data-cc-modal-target="ccCallsModal">
+            <span>Total calls</span>
+            <strong>{{ total_calls if has_data else '—' }}</strong>
+            <em>{{ inbound_calls }} inbound · {{ outbound_calls }} outbound</em>
+          </button>
+          <button class="cc-exec-metric" type="button" data-cc-modal-target="ccAnsweredModal">
+            <span>Answer rate</span>
+            <strong>{{ answer_rate if has_data else '—' }}{% if has_data %}%{% endif %}</strong>
+            <em>{{ answered_calls }} απαντημένες</em>
+          </button>
+          <button class="cc-exec-metric" type="button" data-cc-modal-target="ccMissedModal">
+            <span>Missed rate</span>
+            <strong>{{ missed_rate|round(1) if has_data else '—' }}{% if has_data %}%{% endif %}</strong>
+            <em>{{ missed_calls }} χαμένες</em>
+          </button>
+          <button class="cc-exec-metric" type="button" data-cc-modal-target="ccWaitModal">
+            <span>Avg wait</span>
+            <strong>{{ avg_wait if has_data else '—' }}{% if has_data %}s{% endif %}</strong>
+            <em>SLA {{ sla_target }}s</em>
+          </button>
         </div>
       </div>
 
-      <div class="cc-panel">
-        <div class="cc-head">
-          <div>
-            <h3><i class="fe fe-phone-incoming"></i> Αριθμοί / Πηγές</h3>
-            <div class="cc-muted">Από ποιον αριθμό ή DID ήρθαν οι κλήσεις και ποιος agent τις χειρίστηκε</div>
-          </div>
-          <span class="cc-pill">{{ call_center_3cx.source_rows|length }} πηγές</span>
+      <div class="cc-exec-health">
+        <h3><i class="fe fe-activity"></i> Operational Health</h3>
+        {% set answer_pct = answer_rate if has_data else 0 %}
+        {% set missed_pct = missed_rate if has_data else 0 %}
+        {% set wait_pct = ((avg_wait / sla_target) * 100) if has_data and sla_target else 0 %}
+        <div class="cc-health-row">
+          <div class="cc-health-label">Answers</div>
+          <div class="cc-health-bar"><span class="cc-health-fill" style="--pct:{{ answer_pct }}%; --bar:#22c55e"></span></div>
+          <div class="cc-health-value">{{ answer_pct|round(1) }}%</div>
         </div>
-        <div class="cc-source-list">
-          {% if call_center_3cx.source_rows %}
-          {% for row in call_center_3cx.source_rows[:12] %}
-          <details class="cc-source-item" {% if loop.first %}open{% endif %}>
-            <summary>
-              <span class="cc-rank">{{ loop.index }}</span>
-              <div class="cc-source-main">
-                <div class="cc-source-title">{{ row.source }}</div>
-                <div class="cc-source-sub">{{ row.did or 'χωρίς DID' }} · {{ row.queue or 'χωρίς queue' }}</div>
-              </div>
-              <div class="cc-source-metric">{{ row.calls or 0 }}<span>Κλήσεις</span></div>
-              <div class="cc-source-metric optional">{{ row.talk_seconds or 0 }}s<span>Συν. χρόνος</span></div>
-              <div class="cc-source-metric optional">{{ row.avg_talk_seconds or 0 }}s<span>Μ.Ο.</span></div>
-              <div class="cc-source-metric optional">{{ row.missed or 0 }}<span>Χαμένες</span></div>
-            </summary>
-            <div class="cc-source-detail">
-              <div>
-                <h6 class="fw-bold mb-2">Εξυπηρετήθηκε από</h6>
-                <div class="cc-mini-list">
-                  {% if row.agents %}
-                  {% for agent_row in row.agents[:5] %}
-                  <div class="cc-mini-row"><strong>{{ agent_row.agent }}</strong><span>{{ agent_row.calls }} κλ. · {{ (agent_row.avg_talk_seconds ~ 's μ.ο.') if agent_row.avg_talk_seconds else 'χωρίς χρόνο' }}</span></div>
-                  {% endfor %}
-                  {% else %}
-                  <div class="cc-mini-row"><strong>Δεν υπάρχει agent breakdown</strong><span>στο τρέχον CSV</span></div>
-                  {% endif %}
-                </div>
-              </div>
-              <div>
-                <h6 class="fw-bold mb-2">Πρόσφατες κλήσεις</h6>
-                <div class="cc-mini-list">
-                  {% if row.recent %}
-                  {% for call_row in row.recent[:5] %}
-                  <div class="cc-mini-row"><strong>{{ call_row.date or '-' }} · {{ call_row.direction }}</strong><span>{{ call_row.agent }} · {{ call_row.duration_seconds or 0 }}s</span></div>
-                  {% endfor %}
-                  {% else %}
-                  <div class="cc-mini-row"><strong>Δεν υπάρχουν πρόσφατες κλήσεις</strong><span>στο import</span></div>
-                  {% endif %}
-                </div>
-              </div>
-            </div>
-          </details>
-          {% endfor %}
-          {% else %}
-          <div class="cc-empty"><div class="cc-empty-card"><h3>Δεν υπάρχουν αριθμοί / πηγές</h3><p>Στο επόμενο CSV import θα εμφανιστούν αν το export έχει Caller ID, DID, Called Number ή Line.</p></div></div>
-          {% endif %}
+        <div class="cc-health-row">
+          <div class="cc-health-label">Missed</div>
+          <div class="cc-health-bar"><span class="cc-health-fill" style="--pct:{{ missed_pct }}%; --bar:{{ '#ef4444' if missed_pct >= 10 else '#f97316' if missed_pct >= 5 else '#22c55e' }}"></span></div>
+          <div class="cc-health-value">{{ missed_pct|round(1) }}%</div>
         </div>
-      </div>
-
-      <div class="cc-panel">
-        <div class="cc-head">
-          <div>
-            <h3><i class="fe fe-user-check"></i> Agents</h3>
-            <div class="cc-muted">Παραγωγικότητα ομάδας και πρόοδος στόχου</div>
-          </div>
-          <span class="cc-pill">{{ agent_count }} agents</span>
+        <div class="cc-health-row">
+          <div class="cc-health-label">Wait</div>
+          <div class="cc-health-bar"><span class="cc-health-fill" style="--pct:{{ wait_pct }}%; --bar:{{ '#ef4444' if avg_wait > sla_target else '#14b8a6' }}"></span></div>
+          <div class="cc-health-value">{{ avg_wait }}s</div>
         </div>
-        <div class="cc-agent-line">
-          {% if call_center_3cx.agent_rows %}
-          {% for row in call_center_3cx.agent_rows[:12] %}
-          {% set target_pct = row.target_pct or 0 %}
-          {% set agent_total = row.calls or ((row.inbound or 0) + (row.outbound or 0)) %}
-          {% set agent_inbound = row.inbound if row.inbound is defined else (agent_total - (row.outbound or 0) if agent_total >= (row.outbound or 0) else 0) %}
-          <div class="cc-agent-card" data-cc-agent-card>
-            <button class="cc-agent-toggle" type="button" data-cc-agent-toggle aria-expanded="false">
-              <div class="cc-agent-top">
-                <div class="cc-agent-name">
-                  <span class="cc-avatar">{{ (row.extension or row.agent or '?')[:3] }}</span>
-                  <span>{{ row.agent }}</span>
-                </div>
-                <div class="cc-agent-meta">{{ row.answered }} κλ. · {{ (row.avg_talk_seconds ~ 's μ.ο.') if row.avg_talk_seconds else 'χωρίς χρόνο ομιλίας' }}</div>
-              </div>
-              <div class="cc-progress" style="--pct:{{ target_pct }}%; --bar:{{ '#22c55e' if target_pct >= 80 else '#f97316' if target_pct >= 45 else '#ef4444' }}"><span></span></div>
-              <div class="cc-agent-stats">
-                <span>Ext. {{ row.extension or '-' }}</span>
-                <span>{{ agent_inbound }} inbound</span>
-                <span>{{ row.outbound or 0 }} outbound</span>
-                <span>{{ target_pct }}% στόχου</span>
-              </div>
-            </button>
-            <div class="cc-agent-details">
-              <div class="cc-agent-detail-grid">
-                <div class="cc-agent-detail-stat"><span>Σύνολο</span><strong>{{ agent_total }}</strong></div>
-                <div class="cc-agent-detail-stat"><span>Εισερχ.</span><strong>{{ agent_inbound }}</strong></div>
-                <div class="cc-agent-detail-stat"><span>Απαντ.</span><strong>{{ row.answered or 0 }}</strong></div>
-                <div class="cc-agent-detail-stat"><span>Χαμένες</span><strong>{{ row.missed or 0 }}</strong></div>
-                <div class="cc-agent-detail-stat"><span>Outbound</span><strong>{{ row.outbound or 0 }}</strong></div>
-              </div>
-              <div class="cc-agent-recent">
-                {% for recent in row.recent[:5] if row.recent %}
-                <div class="cc-agent-recent-row">
-                  <span>{{ recent.direction }}</span>
-                  <strong>{{ recent.source or recent.queue or '-' }}</strong>
-                  <span>{{ recent.status }}</span>
-                  <span class="text-end">{{ recent.duration_seconds or 0 }}s</span>
-                </div>
-                {% else %}
-                <div class="cc-muted">Δεν υπάρχουν πρόσφατες κλήσεις για drill-down στο τρέχον import.</div>
-                {% endfor %}
-              </div>
-            </div>
-          </div>
-          {% endfor %}
-          {% else %}
-          <div class="cc-empty"><div class="cc-empty-card"><h3>Δεν υπάρχουν agents</h3><p>Θα εμφανιστούν μόλις περάσει report με agent/extension στήλες.</p></div></div>
-          {% endif %}
-        </div>
+        <div class="cc-data-gap"><strong>Executive read:</strong> πρώτα κοιτάμε αν αυξάνεται το missed rate και μετά σε ποιες queues/ημέρες συγκεντρώνεται η πίεση.</div>
       </div>
     </div>
 
-    <aside>
-      <div class="cc-panel">
-        <div class="cc-head">
-          <div>
-            <h3><i class="fe fe-activity"></i> Απόδοση & Πίεση</h3>
-            <div class="cc-muted">Ημερήσια εικόνα κλήσεων</div>
-          </div>
+    <div class="cc-exec-strip">
+      <button class="cc-exec-tile" type="button" data-cc-modal-target="ccCallsModal"><div><span>Inbound</span><strong>{{ inbound_calls }}</strong></div><i class="fe fe-phone-incoming"></i></button>
+      <button class="cc-exec-tile" type="button" data-cc-modal-target="ccOutboundModal"><div><span>Outbound</span><strong>{{ outbound_calls }}</strong></div><i class="fe fe-phone-forwarded"></i></button>
+      <button class="cc-exec-tile" type="button" data-cc-modal-target="ccAgentModal"><div><span>Agents</span><strong>{{ agent_count }}</strong></div><i class="fe fe-users"></i></button>
+      <button class="cc-exec-tile" type="button" data-cc-modal-target="ccAnsweredModal"><div><span>Calls / agent</span><strong>{{ avg_calls_per_agent|round(1) if has_data else '—' }}</strong></div><i class="fe fe-user-check"></i></button>
+    </div>
+
+    {% if not has_data %}
+    <div class="cc-panel">
+      <div class="cc-empty">
+        <div class="cc-empty-card">
+          <div class="cc-empty-icon"><i class="fe fe-upload-cloud"></i></div>
+          <h3>Το dashboard είναι έτοιμο για δεδομένα 3CX</h3>
+          <p>Ανεβάζουμε 3CX CSV/CDR report από το adminpanel και γεμίζουν αυτόματα KPIs, agents, queues και ημερήσια απόδοση.</p>
         </div>
-        <div class="cc-pressure">
-          <div class="cc-pressure-hero">
+      </div>
+    </div>
+    {% endif %}
+
+    <div class="cc-exec-grid">
+      <div class="cc-exec-stack">
+        <div class="cc-panel">
+          <div class="cc-head">
             <div>
-              <strong>{{ 'Προσοχή στις χαμένες' if missed_calls else 'Κανονική ροή' }}</strong>
-              <span class="cc-muted">{{ missed_calls }} χαμένες σε {{ total_calls }} κλήσεις</span>
+              <h3><i class="fe fe-list"></i> Queue Performance</h3>
+              <div class="cc-muted">Οι queues που σηκώνουν το μεγαλύτερο φορτίο στην επιλεγμένη περίοδο</div>
             </div>
-            <div class="cc-pressure-number">{{ missed_rate|round(1) }}%</div>
+            <span class="cc-pill">{{ queue_count }} queues</span>
           </div>
-          {% if call_center_3cx.daily_rows %}
-          {% for row in call_center_3cx.daily_rows[-10:] %}
-          {% set day_calls = row.calls or 0 %}
-          {% set ok_pct = ((row.answered or 0) / day_calls * 100) if day_calls else 0 %}
-          {% set bad_pct = ((row.missed or 0) / day_calls * 100) if day_calls else 0 %}
-          <div class="cc-day-row">
-            <div class="cc-day-label">{{ row.date }}</div>
-            <div class="cc-stack" style="--ok:{{ ok_pct }}%; --bad:{{ bad_pct }}%">
-              <span class="cc-stack-ok"></span>
-              <span class="cc-stack-bad"></span>
-            </div>
-            <div class="cc-day-count">{{ day_calls }}</div>
+          {% if call_center_3cx.queue_rows %}
+          {% for row in call_center_3cx.queue_rows[:8] %}
+          <div class="cc-exec-queue">
+            <div class="cc-exec-queue-name">{{ row.queue }}<small>{{ row.sla_pct }}% SLA</small></div>
+            <div class="cc-exec-num">{{ row.calls }}<span>Calls</span></div>
+            <div class="cc-exec-num optional">{{ row.answered }}<span>Answered</span></div>
+            <div class="cc-exec-num optional">{{ row.missed }}<span>Missed</span></div>
           </div>
           {% endfor %}
           {% else %}
-          <div class="cc-empty"><div class="cc-empty-card"><h3>Αναμονή ιστορικού</h3><p>Το ημερήσιο trend θα εμφανιστεί μετά το πρώτο CSV/CDR import.</p></div></div>
+          <div class="cc-empty"><div class="cc-empty-card"><h3>Δεν υπάρχουν ακόμη γραμμές queue</h3><p>Θα εμφανιστούν μόλις το import περιέχει queue ή destination.</p></div></div>
           {% endif %}
+        </div>
+
+        <div class="cc-panel">
+          <div class="cc-head">
+            <div>
+              <h3><i class="fe fe-user-check"></i> Top Agents</h3>
+              <div class="cc-muted">Οι agents με τη μεγαλύτερη συμμετοχή σε απαντημένες και outbound κλήσεις</div>
+            </div>
+            <span class="cc-pill">{{ agent_count }} agents</span>
+          </div>
+          <div class="cc-exec-agents">
+            {% if call_center_3cx.agent_rows %}
+            {% for row in call_center_3cx.agent_rows[:8] %}
+            {% set agent_total = row.calls or ((row.inbound or 0) + (row.outbound or 0)) %}
+            {% set agent_inbound = row.inbound if row.inbound is defined else (agent_total - (row.outbound or 0) if agent_total >= (row.outbound or 0) else 0) %}
+            <div class="cc-exec-agent">
+              <div><strong>{{ row.agent }}</strong><span>Ext. {{ row.extension or '-' }} · {{ agent_inbound }} inbound · {{ row.outbound or 0 }} outbound</span></div>
+              <b>{{ row.answered or 0 }}</b>
+            </div>
+            {% endfor %}
+            {% else %}
+            <div class="cc-empty"><div class="cc-empty-card"><h3>Δεν υπάρχουν agents</h3><p>Θα εμφανιστούν μόλις περάσει report με agent/extension στήλες.</p></div></div>
+            {% endif %}
+          </div>
         </div>
       </div>
 
-      <div class="cc-panel">
-        <div class="cc-head">
-          <div>
-            <h3><i class="fe fe-database"></i> Πηγή δεδομένων</h3>
-            <div class="cc-muted">3CX / CSV feed</div>
+      <aside class="cc-exec-stack">
+        <div class="cc-panel">
+          <div class="cc-head">
+            <div>
+              <h3><i class="fe fe-activity"></i> Daily Pressure</h3>
+              <div class="cc-muted">Τελευταίες ημέρες με answered/missed σχέση</div>
+            </div>
+          </div>
+          <div class="cc-pressure">
+            <div class="cc-pressure-hero">
+              <div>
+                <strong>{{ 'Προσοχή στις χαμένες' if missed_calls else 'Κανονική ροή' }}</strong>
+                <span class="cc-muted">{{ missed_calls }} χαμένες σε {{ total_calls }} κλήσεις</span>
+              </div>
+              <div class="cc-pressure-number">{{ missed_rate|round(1) }}%</div>
+            </div>
+            {% if call_center_3cx.daily_rows %}
+            {% for row in call_center_3cx.daily_rows[-8:] %}
+            {% set day_calls = row.calls or 0 %}
+            {% set ok_pct = ((row.answered or 0) / day_calls * 100) if day_calls else 0 %}
+            {% set bad_pct = ((row.missed or 0) / day_calls * 100) if day_calls else 0 %}
+            <div class="cc-day-row">
+              <div class="cc-day-label">{{ row.date }}</div>
+              <div class="cc-stack" style="--ok:{{ ok_pct }}%; --bad:{{ bad_pct }}%">
+                <span class="cc-stack-ok"></span>
+                <span class="cc-stack-bad"></span>
+              </div>
+              <div class="cc-day-count">{{ day_calls }}</div>
+            </div>
+            {% endfor %}
+            {% else %}
+            <div class="cc-empty"><div class="cc-empty-card"><h3>Αναμονή ιστορικού</h3><p>Το ημερήσιο trend θα εμφανιστεί μετά το πρώτο CSV/CDR import.</p></div></div>
+            {% endif %}
           </div>
         </div>
-        <div class="cc-pressure">
-          <div class="cc-day-row"><div class="cc-day-label">FQDN</div><div class="cc-muted">{{ call_center_3cx.fqdn }}</div><div></div></div>
-          <div class="cc-day-row"><div class="cc-day-label">Import</div><div class="cc-muted">{{ call_center_3cx.manual_import.filename or 'Δεν έχει ανέβει αρχείο' }}</div><div></div></div>
-          <div class="cc-day-row"><div class="cc-day-label">Rows</div><div class="cc-muted">{{ call_center_3cx.manual_import.rows or 0 }}</div><div></div></div>
-          {% if call_center_3cx.client_id %}
-          <div class="cc-actions">
-            <form method="post" action="/tenant/call-center/sync-now">
-              <button class="btn btn-primary btn-sm" type="submit"><i class="fe fe-refresh-cw me-1"></i> Έλεγχος 3CX API</button>
-            </form>
+
+        <div class="cc-panel">
+          <div class="cc-head">
+            <div>
+              <h3><i class="fe fe-phone-incoming"></i> Top Sources</h3>
+              <div class="cc-muted">Αριθμοί ή DID με τη μεγαλύτερη κίνηση</div>
+            </div>
+            <span class="cc-pill">{{ call_center_3cx.source_rows|length }} sources</span>
           </div>
-          {% endif %}
+          <div class="cc-exec-source">
+            {% if call_center_3cx.source_rows %}
+            {% for row in call_center_3cx.source_rows[:8] %}
+            <div class="cc-exec-source-row">
+              <div><strong>{{ row.source }}</strong><span>{{ row.did or 'χωρίς DID' }} · {{ row.queue or 'χωρίς queue' }}</span></div>
+              <span>{{ row.calls or 0 }} calls</span>
+            </div>
+            {% endfor %}
+            {% else %}
+            <div class="cc-data-gap">Δεν υπάρχουν ακόμη caller/source fields στο import.</div>
+            {% endif %}
+          </div>
+        </div>
+
+        <div class="cc-panel">
+          <div class="cc-head">
+            <div>
+              <h3><i class="fe fe-database"></i> Data Source</h3>
+              <div class="cc-muted">3CX / CSV feed</div>
+            </div>
+          </div>
+          <div class="cc-pressure">
+            <div class="cc-day-row"><div class="cc-day-label">FQDN</div><div class="cc-muted">{{ call_center_3cx.fqdn }}</div><div></div></div>
+            <div class="cc-day-row"><div class="cc-day-label">Import</div><div class="cc-muted">{{ call_center_3cx.manual_import.filename or 'Δεν έχει ανέβει αρχείο' }}</div><div></div></div>
+            <div class="cc-day-row"><div class="cc-day-label">Rows</div><div class="cc-muted">{{ call_center_3cx.manual_import.rows or 0 }}</div><div></div></div>
+            {% if call_center_3cx.client_id %}
+            <div class="cc-actions">
+              <form method="post" action="/tenant/call-center/sync-now">
+                <button class="btn btn-primary btn-sm" type="submit"><i class="fe fe-refresh-cw me-1"></i> Έλεγχος 3CX API</button>
+              </form>
+            </div>
+            {% endif %}
+          </div>
+        </div>
+      </aside>
+    </div>
+  </section>
+
+  <section class="cc-report-sheet" data-cc-report-sheet="traffic">
+    <div class="cc-sheet-intro">
+      <div><h2>Call Traffic</h2><p>Κατανομή κίνησης ανά ημέρα, κατεύθυνση και περίοδο αιχμής.</p></div>
+      <span class="cc-pill">{{ total_calls }} calls</span>
+    </div>
+    <div class="cc-report-grid">
+      <div class="cc-report-card">
+        <h4><i class="fe fe-phone"></i> Total Calls</h4>
+        <span class="cc-report-value">{{ total_calls }}</span>
+        <p>Όλες οι εξωτερικές κλήσεις της επιλεγμένης περιόδου, χωρίς internal-only hops.</p>
+      </div>
+      <div class="cc-report-card">
+        <h4><i class="fe fe-phone-incoming"></i> Inbound Share</h4>
+        <span class="cc-report-value">{{ ((inbound_calls / total_calls) * 100)|round(1) if total_calls else 0 }}%</span>
+        <p>{{ inbound_calls }} εισερχόμενες σε σχέση με το συνολικό φορτίο.</p>
+      </div>
+      <div class="cc-report-card">
+        <h4><i class="fe fe-phone-forwarded"></i> Outbound Share</h4>
+        <span class="cc-report-value">{{ ((outbound_calls / total_calls) * 100)|round(1) if total_calls else 0 }}%</span>
+        <p>{{ outbound_calls }} εξερχόμενες σε σχέση με το συνολικό φορτίο.</p>
+      </div>
+    </div>
+    <div class="cc-panel">
+      <div class="cc-head"><h3><i class="fe fe-calendar"></i> Calls Per Day</h3><span class="cc-pill">{{ call_center_3cx.daily_rows|length }} days</span></div>
+      <div class="table-responsive">
+        <table class="cc-table">
+          <thead><tr><th>Ημέρα</th><th class="text-end">Calls</th><th class="text-end">Inbound</th><th class="text-end">Outbound</th><th class="text-end">Answered</th><th class="text-end">Missed</th></tr></thead>
+          <tbody>
+            {% for row in call_center_3cx.daily_rows[-45:] %}
+            {% set day_outbound = row.outbound or 0 %}
+            {% set day_inbound = row.calls - day_outbound if row.calls >= day_outbound else row.calls %}
+            <tr><td>{{ row.date }}</td><td class="text-end">{{ row.calls }}</td><td class="text-end">{{ day_inbound }}</td><td class="text-end">{{ day_outbound }}</td><td class="text-end">{{ row.answered }}</td><td class="text-end">{{ row.missed }}</td></tr>
+            {% else %}
+            <tr><td colspan="6" class="text-center text-muted py-4">Δεν υπάρχει ημερήσιο ιστορικό.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="cc-report-grid two">
+      <div class="cc-data-gap"><strong>Calls Per Hour / Heatmap:</strong> χρειάζεται αξιόπιστο timestamp ανά Call ID ή CDR rows με ώρα έναρξης. Όταν υπάρχει, το worksheet θα γεμίσει DimTime, peak hours και heatmap ανά ώρα/ημέρα.</div>
+      <div class="cc-data-gap"><strong>Calls Per Month:</strong> για μηνιαία τάση κρατάμε το ίδιο fact σε επίπεδο ημέρας και ομαδοποιούμε σε DimDate Month/Year χωρίς νέο import format.</div>
+    </div>
+  </section>
+
+  <section class="cc-report-sheet" data-cc-report-sheet="inbound">
+    <div class="cc-sheet-intro">
+      <div><h2>Εισερχόμενες Κλήσεις</h2><p>Ποιος κάλεσε, σε ποια ουρά/γραμμή μπήκε και ποιος agent το χειρίστηκε.</p></div>
+      <span class="cc-pill">{{ inbound_calls }} εισερχόμενες</span>
+    </div>
+    <div class="cc-panel">
+      <div class="cc-head"><h3><i class="fe fe-phone-incoming"></i> Εισερχόμενες ανά agent</h3><span class="cc-pill">{{ inbound_answered_calls }} απαντ. εισ.</span></div>
+      <div class="table-responsive">
+        <table class="cc-table">
+          <thead><tr><th>Agent</th><th>Ext.</th><th class="text-end">Εισερχ.</th><th class="text-end">Απαντ. εισ.</th><th class="text-end">Χαμένες εισ.</th><th class="text-end">Outbound</th></tr></thead>
+          <tbody>
+            {% for row in call_center_3cx.agent_rows[:50] %}
+            {% set agent_total = row.calls or ((row.inbound or 0) + (row.outbound or 0)) %}
+            {% set agent_inbound = row.inbound if row.inbound is defined else (agent_total - (row.outbound or 0) if agent_total >= (row.outbound or 0) else 0) %}
+            {% set agent_in_answered = row.inbound_answered if row.inbound_answered is defined else (row.answered or 0) %}
+            {% set agent_in_missed = row.inbound_missed if row.inbound_missed is defined else (row.missed or 0) %}
+            <tr><td>{{ row.agent }}</td><td>{{ row.extension or '-' }}</td><td class="text-end">{{ agent_inbound }}</td><td class="text-end">{{ agent_in_answered }}</td><td class="text-end">{{ agent_in_missed }}</td><td class="text-end">{{ row.outbound or 0 }}</td></tr>
+            {% else %}
+            <tr><td colspan="6" class="text-center text-muted py-4">Δεν υπάρχουν εισερχόμενες ανά agent στο report.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="cc-panel">
+      <div class="cc-head"><h3><i class="fe fe-calendar"></i> Ημερήσια ροή</h3><span class="cc-pill">{{ call_center_3cx.daily_rows|length }} ημέρες</span></div>
+      <div class="table-responsive">
+        <table class="cc-table">
+          <thead><tr><th>Ημέρα</th><th class="text-end">Κλήσεις</th><th class="text-end">Απαντ.</th><th class="text-end">Χαμένες</th><th class="text-end">Outbound</th></tr></thead>
+          <tbody>
+            {% for row in call_center_3cx.daily_rows[-31:] %}
+            <tr><td>{{ row.date }}</td><td class="text-end">{{ row.calls }}</td><td class="text-end">{{ row.answered }}</td><td class="text-end">{{ row.missed }}</td><td class="text-end">{{ row.outbound or 0 }}</td></tr>
+            {% else %}
+            <tr><td colspan="5" class="text-center text-muted py-4">Δεν υπάρχει ημερήσιο ιστορικό.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="cc-report-sheet" data-cc-report-sheet="outbound">
+    <div class="cc-sheet-intro">
+      <div><h2>Εξερχόμενες Κλήσεις</h2><p>Το Outbound είναι κατεύθυνση. Οι απαντήσεις χωρίζονται σε εισερχόμενες και εξερχόμενες για να κλείνουν σωστά οι αριθμοί.</p></div>
+      <span class="cc-pill">{{ outbound_calls }} εξερχόμενες</span>
+    </div>
+    <div class="cc-panel">
+      <div class="cc-head"><h3><i class="fe fe-phone-forwarded"></i> Outbound ανά agent</h3><span class="cc-pill">{{ agent_count }} agents</span></div>
+      <div class="table-responsive">
+        <table class="cc-table">
+          <thead><tr><th>Agent</th><th>Ext.</th><th class="text-end">Inbound</th><th class="text-end">Outbound</th><th class="text-end">Απαντ. εισ.</th><th class="text-end">Απαντ. out</th><th class="text-end">Χαμένες</th><th class="text-end">Σύνολο</th></tr></thead>
+          <tbody>
+            {% for row in call_center_3cx.agent_rows[:50] %}
+            {% set agent_total = row.calls or ((row.answered or 0) + (row.outbound or 0)) %}
+            {% set agent_inbound = row.inbound if row.inbound is defined else (agent_total - (row.outbound or 0) if agent_total >= (row.outbound or 0) else 0) %}
+            {% set agent_in_answered = row.inbound_answered if row.inbound_answered is defined else 0 %}
+            {% set agent_out_answered = row.outbound_answered if row.outbound_answered is defined else 0 %}
+            <tr><td>{{ row.agent }}</td><td>{{ row.extension or '-' }}</td><td class="text-end">{{ agent_inbound }}</td><td class="text-end">{{ row.outbound or 0 }}</td><td class="text-end">{{ agent_in_answered }}</td><td class="text-end">{{ agent_out_answered }}</td><td class="text-end">{{ row.missed or 0 }}</td><td class="text-end">{{ agent_total }}</td></tr>
+            {% else %}
+            <tr><td colspan="8" class="text-center text-muted py-4">Δεν υπάρχουν εξερχόμενες ανά agent στο report.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="cc-data-gap" style="margin:0 1.1rem 1rem;"><strong>Λογιστική ανάγνωσης:</strong> `Inbound + Outbound = Σύνολο`. Οι απαντημένες σπάνε σε `Απαντ. εισ.` και `Απαντ. out`, ώστε να μη φαίνεται ότι οι απαντημένες εισερχόμενες ξεπερνούν τις εισερχόμενες.</div>
+    </div>
+  </section>
+
+  <section class="cc-report-sheet" data-cc-report-sheet="queues">
+    <div class="cc-sheet-intro">
+      <div><h2>Queues / Γραμμές</h2><p>Απόδοση κάθε queue ή γραμμής: σύνολο, απαντημένες, χαμένες και SLA.</p></div>
+      <span class="cc-pill">{{ queue_count }} queues</span>
+    </div>
+    <div class="cc-panel">
+      <div class="table-responsive">
+        <table class="cc-table">
+          <thead><tr><th>#</th><th>Queue / Ομάδα</th><th class="text-end">Κλήσεις</th><th class="text-end">Απαντ.</th><th class="text-end">Χαμένες</th><th class="text-end">SLA</th></tr></thead>
+          <tbody>
+            {% for row in call_center_3cx.queue_rows %}
+            <tr><td>{{ loop.index }}</td><td>{{ row.queue }}</td><td class="text-end">{{ row.calls }}</td><td class="text-end">{{ row.answered }}</td><td class="text-end">{{ row.missed }}</td><td class="text-end">{{ row.sla_pct }}%</td></tr>
+            {% else %}
+            <tr><td colspan="6" class="text-center text-muted py-4">Δεν υπάρχουν queues στο report.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="cc-report-sheet" data-cc-report-sheet="agents">
+    <div class="cc-sheet-intro">
+      <div><h2>Agents</h2><p>Απόδοση ανά εσωτερικό/agent, inbound, outbound και στόχος παραγωγικότητας.</p></div>
+      <span class="cc-pill">{{ agent_count }} agents</span>
+    </div>
+    <div class="cc-panel">
+      <div class="cc-agent-line">
+        {% if call_center_3cx.agent_rows %}
+        {% for row in call_center_3cx.agent_rows %}
+        {% set target_pct = row.target_pct or 0 %}
+        {% set agent_total = row.calls or ((row.inbound or 0) + (row.outbound or 0)) %}
+        {% set agent_inbound = row.inbound if row.inbound is defined else (agent_total - (row.outbound or 0) if agent_total >= (row.outbound or 0) else 0) %}
+        <div class="cc-agent-card" data-cc-agent-card>
+          <button class="cc-agent-toggle" type="button" data-cc-agent-toggle aria-expanded="false">
+            <div class="cc-agent-top"><div class="cc-agent-name"><span class="cc-avatar">{{ (row.extension or row.agent or '?')[:3] }}</span><span>{{ row.agent }}</span></div><div class="cc-agent-meta">{{ row.answered }} απαντ. · {{ row.outbound or 0 }} outbound</div></div>
+            <div class="cc-progress" style="--pct:{{ target_pct }}%; --bar:{{ '#22c55e' if target_pct >= 80 else '#f97316' if target_pct >= 45 else '#ef4444' }}"><span></span></div>
+            <div class="cc-agent-stats"><span>Ext. {{ row.extension or '-' }}</span><span>{{ agent_inbound }} inbound</span><span>{{ row.outbound or 0 }} outbound</span><span>{{ target_pct }}% στόχου</span></div>
+          </button>
+        </div>
+        {% endfor %}
+        {% else %}
+        <div class="cc-empty"><div class="cc-empty-card"><h3>Δεν υπάρχουν agents</h3><p>Θα εμφανιστούν μόλις περάσει report με agent/extension στήλες.</p></div></div>
+        {% endif %}
+      </div>
+    </div>
+  </section>
+
+  <section class="cc-report-sheet" data-cc-report-sheet="journeys">
+    <div class="cc-sheet-intro">
+      <div><h2>Διαδρομές Κλήσεων</h2><p>Οπτική ανάγνωση της πορείας κάθε κλήσης: είσοδος, queue/ring group, πρώτο answer, transfers, τελική κατάληξη.</p></div>
+      <span class="cc-pill">{{ call_center_3cx.call_rows|length }} calls · {{ call_center_3cx.journey_rows|length }} hops</span>
+    </div>
+    <div class="cc-panel">
+      {% if call_center_3cx.manual_import.master_report and call_center_3cx.call_rows %}
+      <div class="cc-journey-toolbar">
+        <input class="cc-journey-search" type="search" placeholder="Αναζήτηση Call ID, καλούντα, queue ή agent" data-cc-journey-search>
+        <span class="cc-pill is-blue">{{ answered_calls }} απαντημένες</span>
+        <span class="cc-pill {{ 'is-warn' if missed_calls else 'is-ok' }}">{{ missed_calls }} χαμένες</span>
+        <span class="cc-pill">{{ (call_center_3cx.journey_rows|length / call_center_3cx.call_rows|length)|round(1) if call_center_3cx.call_rows|length else 0 }} hops / call</span>
+      </div>
+      <div class="cc-journey-list">
+        {% for call in call_center_3cx.call_rows[:80] %}
+        {% set call_id = call.call_id or call.fingerprint %}
+        {% set legs = call_center_3cx.journey_rows|selectattr('call_id', 'equalto', call_id)|list %}
+        {% set journey_status = 'danger' if call.is_missed else 'ok' %}
+        {% set transfer_count = legs|length - 1 if legs|length > 1 else 0 %}
+        <details class="cc-journey-card" {% if loop.first %}open{% endif %} data-cc-journey-card data-search="{{ (call_id ~ ' ' ~ call.source ~ ' ' ~ call.queue ~ ' ' ~ call.agent ~ ' ' ~ call.final_destination ~ ' ' ~ call.status_label)|lower }}">
+          <summary>
+            <div class="cc-journey-head">
+              <span class="cc-rank">{{ loop.index }}</span>
+              <div class="cc-journey-route">
+                <div class="cc-journey-title">{{ call.source }} → {{ call.queue }}</div>
+                <div class="cc-journey-sub">{{ call.raw_call_time or call.date }} · Call ID {{ call_id }} · {{ call.direction_label }}</div>
+              </div>
+              <div class="cc-journey-path">
+                <span class="cc-path-chip is-source">{{ call.source }}</span>
+                <span class="cc-path-arrow">→</span>
+                <span class="cc-path-chip">{{ call.queue }}</span>
+                <span class="cc-path-arrow">→</span>
+                <span class="cc-path-chip {{ 'is-missed' if call.is_missed else 'is-agent' }}">{{ call.agent if not call.is_missed else 'Χωρίς απάντηση' }}</span>
+                {% if call.final_destination and call.final_destination != call.agent and call.final_destination != call.queue %}
+                <span class="cc-path-arrow">→</span>
+                <span class="cc-path-chip">{{ call.final_destination }}</span>
+                {% endif %}
+              </div>
+              <div class="cc-journey-metric"><span class="cc-status-badge {{ journey_status }}">{{ call.status_label }}</span><span>Τελικό</span></div>
+              <div class="cc-journey-metric mobile-hide">{{ legs|length }}<span>Hops</span></div>
+              <div class="cc-journey-metric optional">{{ transfer_count }}<span>Transfers</span></div>
+              <div class="cc-journey-metric mobile-hide">{{ call.wait_seconds or 0 }}s<span>Ring/Wait</span></div>
+            </div>
+          </summary>
+          <div class="cc-journey-body">
+            <div class="cc-journey-diagnosis">
+              <div class="cc-journey-fact"><span>Πρώτη είσοδος</span><strong>{{ call.did or call.queue or '-' }}</strong></div>
+              <div class="cc-journey-fact"><span>Πρώτη απάντηση</span><strong>{{ call.agent if not call.is_missed else 'Δεν απαντήθηκε' }}</strong></div>
+              <div class="cc-journey-fact"><span>Τελικός προορισμός</span><strong>{{ call.final_destination or '-' }}</strong></div>
+              <div class="cc-journey-fact"><span>Χρόνοι</span><strong>{{ call.wait_seconds or 0 }}s wait · {{ call.duration_seconds or 0 }}s talk</strong></div>
+            </div>
+            <div class="cc-hop-timeline">
+              {% for leg in legs[:24] %}
+              {% set leg_status = 'danger' if leg.status|lower in ['missed', 'not answered', 'no answer', 'failed'] else 'ok' if leg.status|lower == 'answered' else 'warn' %}
+              <div class="cc-hop">
+                <div class="cc-hop-index">{{ leg.seq }}</div>
+                <div class="cc-hop-card">
+                  <div class="cc-hop-main">
+                    <div class="cc-hop-route">{{ leg.from }} <span class="cc-path-arrow">→</span> {{ leg.to }}</div>
+                    <div class="cc-hop-time">{{ leg.time or leg.date or '-' }}</div>
+                  </div>
+                  <div class="cc-hop-meta">
+                    <span class="cc-status-badge {{ leg_status }}">{{ leg.status or 'Unknown' }}</span>
+                    <span class="cc-status-badge">{{ leg.direction or 'Direction n/a' }}</span>
+                    <span class="cc-status-badge">{{ leg.ringing_seconds or 0 }}s ring</span>
+                    <span class="cc-status-badge">{{ leg.talking_seconds or 0 }}s talk</span>
+                    {% if leg.is_internal_leg %}<span class="cc-status-badge warn">Internal hop</span>{% endif %}
+                  </div>
+                  {% if leg.activity %}
+                  <div class="cc-hop-note">{{ leg.activity }}</div>
+                  {% endif %}
+                </div>
+              </div>
+              {% else %}
+              <div class="cc-data-gap">Δεν υπάρχουν hops για αυτό το Call ID. Χρειάζεται master Call Reports CSV με Call ID και Call Activity Details.</div>
+              {% endfor %}
+            </div>
+          </div>
+        </details>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="cc-journey-list">
+        <div class="cc-empty"><div class="cc-empty-card"><h3>Δεν υπάρχουν ακόμη διαδρομές</h3><p>Ανεβάστε Master Call Reports CSV με Call ID για να εμφανιστούν τα hops της κλήσης.</p></div></div>
+      </div>
+      {% endif %}
+    </div>
+  </section>
+
+  <section class="cc-report-sheet" data-cc-report-sheet="service">
+    <div class="cc-sheet-intro">
+      <div><h2>KPI Catalogue</h2><p>Ορισμοί, τύποι, στόχοι και τρέχουσα κατάσταση για το τηλεφωνικό κέντρο.</p></div>
+      <span class="cc-pill">SLA target {{ sla_target }}s</span>
+    </div>
+    <div class="cc-panel">
+      <div class="table-responsive">
+        <table class="cc-table">
+          <thead><tr><th>KPI</th><th>Ορισμός</th><th>Formula</th><th class="text-end">Τώρα</th><th>Target</th></tr></thead>
+          <tbody>
+            <tr><td>Total Calls</td><td>Εξωτερικές κλήσεις, χωρίς internal-only hops.</td><td>COUNT(DISTINCT Call ID)</td><td class="text-end">{{ total_calls }}</td><td>Παρακολούθηση trend</td></tr>
+            <tr><td>Inbound Calls</td><td>Κλήσεις από εξωτερικό αριθμό προς εσωτερική δομή.</td><td>Total - Outbound</td><td class="text-end">{{ inbound_calls }}</td><td>Capacity ανά queue</td></tr>
+            <tr><td>Outbound Calls</td><td>Κλήσεις από agent/extension προς εξωτερικό αριθμό.</td><td>COUNT(Direction = Outbound)</td><td class="text-end">{{ outbound_calls }}</td><td>Σύγκριση ανά agent</td></tr>
+            <tr><td>Service Level %</td><td>Κλήσεις που απαντήθηκαν εντός SLA.</td><td>Answered within {{ sla_target }}s / Offered</td><td class="text-end">{{ answer_rate }}%</td><td>&gt; 85%</td></tr>
+            <tr><td>Average Speed of Answer</td><td>Μέσος χρόνος μέχρι την πρώτη απάντηση.</td><td>SUM(wait seconds) / answered calls</td><td class="text-end">{{ avg_wait }}s</td><td>&lt;= {{ sla_target }}s</td></tr>
+            <tr><td>Missed Call Rate</td><td>Ποσοστό κλήσεων που χάθηκαν.</td><td>Missed / Total Calls</td><td class="text-end">{{ missed_rate|round(1) }}%</td><td>&lt; 5%</td></tr>
+            <tr><td>Agent Productivity</td><td>Φορτίο και απαντήσεις ανά agent.</td><td>Calls / active agents</td><td class="text-end">{{ avg_calls_per_agent|round(1) }}</td><td>Στόχος ανά ομάδα</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="cc-report-grid two">
+      <div class="cc-data-gap"><strong>AHT / Talk Time / Ring Time:</strong> εμφανίζονται πλήρως όταν το master Call Reports έχει duration, talking και ringing σε κάθε hop.</div>
+      <div class="cc-data-gap"><strong>Abandonment / Queue Occupancy:</strong> χρειάζονται queue event semantics από 3CX ή CDR events για να ξεχωρίζουμε εγκατάλειψη από missed/no answer.</div>
+    </div>
+  </section>
+
+  <section class="cc-report-sheet" data-cc-report-sheet="cost">
+    <div class="cc-sheet-intro">
+      <div><h2>Cost Analytics</h2><p>Πλαίσιο κόστους ανά κλήση, agent, queue και department.</p></div>
+      <span class="cc-pill">Cost model pending</span>
+    </div>
+    <div class="cc-report-grid">
+      <div class="cc-report-card"><h4><i class="fe fe-credit-card"></i> Total Cost</h4><span class="cc-report-value">—</span><p>Δεν υπάρχει ακόμη rate card ή κόστος trunk στο 3CX import.</p></div>
+      <div class="cc-report-card"><h4><i class="fe fe-phone"></i> Cost Per Call</h4><span class="cc-report-value">—</span><p>Υπολογίζεται ως Total Cost / Total Calls μόλις περαστούν rates.</p></div>
+      <div class="cc-report-card"><h4><i class="fe fe-users"></i> Cost Per Agent</h4><span class="cc-report-value">—</span><p>Θα συνδέεται με DimAgent, payroll band ή hourly cost.</p></div>
+    </div>
+    <div class="cc-panel">
+      <div class="cc-head"><h3><i class="fe fe-list"></i> Cost Allocation Readiness</h3><span class="cc-pill">{{ queue_count }} queues</span></div>
+      <div class="table-responsive">
+        <table class="cc-table">
+          <thead><tr><th>Queue / Agent</th><th>Driver</th><th class="text-end">Volume</th><th>Status</th></tr></thead>
+          <tbody>
+            {% for row in call_center_3cx.queue_rows[:20] %}
+            <tr><td>{{ row.queue }}</td><td>Calls handled by queue</td><td class="text-end">{{ row.calls }}</td><td><span class="cc-status-badge warn">Needs rate</span></td></tr>
+            {% else %}
+            <tr><td colspan="4" class="text-center text-muted py-4">Δεν υπάρχουν queues για cost allocation.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="cc-report-sheet" data-cc-report-sheet="risk">
+    <div class="cc-sheet-intro">
+      <div><h2>Operational Risk</h2><p>Σημεία πίεσης: χαμένες κλήσεις, SLA failures, congestion και capacity signals.</p></div>
+      <span class="cc-pill">{{ missed_calls }} missed</span>
+    </div>
+    {% set missed_status = 'danger' if missed_rate >= 10 else 'warn' if missed_rate >= 5 else 'ok' %}
+    {% set wait_status = 'danger' if avg_wait > (sla_target * 2) else 'warn' if avg_wait > sla_target else 'ok' %}
+    {% set answer_status = 'danger' if answer_rate < 80 else 'warn' if answer_rate < 90 else 'ok' %}
+    <div class="cc-report-grid">
+      <div class="cc-report-card"><h4><i class="fe fe-alert-circle"></i> Missed Call Risk</h4><span class="cc-report-value">{{ missed_rate|round(1) }}%</span><p><span class="cc-status-badge {{ missed_status }}">{{ missed_status|upper }}</span> Target κάτω από 5%.</p></div>
+      <div class="cc-report-card"><h4><i class="fe fe-clock"></i> Wait Risk</h4><span class="cc-report-value">{{ avg_wait }}s</span><p><span class="cc-status-badge {{ wait_status }}">{{ wait_status|upper }}</span> SLA {{ sla_target }}s.</p></div>
+      <div class="cc-report-card"><h4><i class="fe fe-check-circle"></i> Answer Risk</h4><span class="cc-report-value">{{ answer_rate }}%</span><p><span class="cc-status-badge {{ answer_status }}">{{ answer_status|upper }}</span> Target πάνω από 90%.</p></div>
+    </div>
+    <div class="cc-panel">
+      <div class="cc-head"><h3><i class="fe fe-layers"></i> Queue Bottlenecks</h3><span class="cc-pill">Top pressure</span></div>
+      <div class="table-responsive">
+        <table class="cc-table">
+          <thead><tr><th>Queue</th><th class="text-end">Calls</th><th class="text-end">Missed</th><th class="text-end">Missed %</th><th>Status</th></tr></thead>
+          <tbody>
+            {% for row in call_center_3cx.queue_rows[:30] %}
+            {% set q_missed_pct = ((row.missed / row.calls) * 100) if row.calls else 0 %}
+            {% set q_status = 'danger' if q_missed_pct >= 15 else 'warn' if q_missed_pct >= 7 else 'ok' %}
+            <tr><td>{{ row.queue }}</td><td class="text-end">{{ row.calls }}</td><td class="text-end">{{ row.missed }}</td><td class="text-end">{{ q_missed_pct|round(1) }}%</td><td><span class="cc-status-badge {{ q_status }}">{{ q_status|upper }}</span></td></tr>
+            {% else %}
+            <tr><td colspan="5" class="text-center text-muted py-4">Δεν υπάρχουν queue risks.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="cc-report-sheet" data-cc-report-sheet="alerts">
+    <div class="cc-sheet-intro">
+      <div><h2>Alerting Framework</h2><p>Κανόνες παρακολούθησης με severity, trigger logic και ενέργεια.</p></div>
+      <span class="cc-pill">Operational alerts</span>
+    </div>
+    <div class="cc-rule-list">
+      <div class="cc-rule"><div><strong>SLA Below Target</strong><span>Trigger: ASA &gt; {{ sla_target }}s ή Service Level &lt; 85%. Action: ενίσχυση agents στις ουρές με πίεση.</span></div><span class="cc-status-badge {{ wait_status }}">Current {{ wait_status|upper }}</span></div>
+      <div class="cc-rule"><div><strong>High Missed Calls</strong><span>Trigger: Missed Call Rate &gt; 5% warning, &gt; 10% critical. Action: callback list και έλεγχος routing.</span></div><span class="cc-status-badge {{ missed_status }}">Current {{ missed_status|upper }}</span></div>
+      <div class="cc-rule"><div><strong>Queue Congestion</strong><span>Trigger: συγκεκριμένη queue με missed πάνω από 7% ή μεγάλο wait. Action: αλλαγή overflow/ring strategy.</span></div><span class="cc-status-badge warn">Queue monitor</span></div>
+      <div class="cc-rule"><div><strong>Agent Availability Problem</strong><span>Trigger: απότομη πτώση answered calls ανά active agent. Action: supervisor check και schedule adjustment.</span></div><span class="cc-status-badge warn">Needs status feed</span></div>
+      <div class="cc-rule"><div><strong>Call Volume Spike</strong><span>Trigger: ημερήσιο volume πάνω από 130% του rolling average. Action: capacity alert σε supervisor.</span></div><span class="cc-status-badge ok">Ready with history</span></div>
+    </div>
+  </section>
+
+  <section class="cc-report-sheet" data-cc-report-sheet="forecast">
+    <div class="cc-sheet-intro">
+      <div><h2>Forecast & Capacity</h2><p>Πρόβλεψη όγκου κλήσεων, queue load και ανάγκης στελέχωσης.</p></div>
+      <span class="cc-pill">{{ call_center_3cx.daily_rows|length }} history days</span>
+    </div>
+    <div class="cc-report-grid">
+      <div class="cc-report-card"><h4><i class="fe fe-trending-up"></i> Call Volume Forecast</h4><span class="cc-report-value">{{ (total_calls / (call_center_3cx.daily_rows|length))|round(0) if call_center_3cx.daily_rows|length else 0 }}</span><p>Μέσος ημερήσιος όγκος ως baseline μέχρι να υπάρξει αρκετό ιστορικό.</p></div>
+      <div class="cc-report-card"><h4><i class="fe fe-list"></i> Queue Load Forecast</h4><span class="cc-report-value">{{ queue_count }}</span><p>Οι ουρές θα προβλέπονται ξεχωριστά με ιστορικό ανά queue/day/hour.</p></div>
+      <div class="cc-report-card"><h4><i class="fe fe-users"></i> Staffing Forecast</h4><span class="cc-report-value">{{ agent_count }}</span><p>Capacity model με ASA, AHT, SLA και διαθέσιμους agents.</p></div>
+    </div>
+    <div class="cc-panel">
+      <div class="cc-head"><h3><i class="fe fe-map"></i> Methodology</h3><span class="cc-pill">BI roadmap</span></div>
+      <div class="cc-model-list">
+        <div class="cc-model-item"><strong>Minimum history</strong><span>8-12 εβδομάδες ημερήσιων δεδομένων και ιδανικά hourly CDR για seasonality.</span></div>
+        <div class="cc-model-item"><strong>Peak load</strong><span>Rolling average, percentile 90/95 και heatmap ανά ώρα για understaffed periods.</span></div>
+        <div class="cc-model-item"><strong>Capacity</strong><span>Agents needed = forecast calls × AHT / available productive seconds.</span></div>
+        <div class="cc-model-item"><strong>Risk</strong><span>Forecasted missed/SLA failures ανά queue με thresholds supervisor alerts.</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="cc-report-sheet" data-cc-report-sheet="model">
+    <div class="cc-sheet-intro">
+      <div><h2>BI Model & Governance</h2><p>Το reporting blueprint σε πρακτική μορφή: facts, dimensions, Power BI, security και management reports.</p></div>
+      <span class="cc-pill">Enterprise model</span>
+    </div>
+    <div class="cc-report-grid two">
+      <div class="cc-report-card">
+        <h4><i class="fe fe-database"></i> Fact Tables</h4>
+        <div class="cc-model-list">
+          <div class="cc-model-item"><strong>FactCalls</strong><span>1 row ανά εξωτερικό Call ID με direction, result, wait, talk, DID, trunk, first answer.</span></div>
+          <div class="cc-model-item"><strong>FactQueueEvents</strong><span>Queue offered/answered/missed/abandoned events ανά hop.</span></div>
+          <div class="cc-model-item"><strong>FactAgentActivity</strong><span>Agent-level handled, talk, wait, availability και productivity.</span></div>
+          <div class="cc-model-item"><strong>FactOutboundCalls</strong><span>Outbound attempts, answered, duration, agent, trunk και destination.</span></div>
+          <div class="cc-model-item"><strong>FactMissedCalls</strong><span>Missed/abandoned root cause, queue, caller και callback status.</span></div>
         </div>
       </div>
-    </aside>
-  </div>
+      <div class="cc-report-card">
+        <h4><i class="fe fe-layers"></i> Dimensions</h4>
+        <div class="cc-model-list">
+          <div class="cc-model-item"><strong>DimDate / DimTime</strong><span>Ημέρα, εβδομάδα, μήνας, ώρα, business calendar.</span></div>
+          <div class="cc-model-item"><strong>DimAgent / DimExtension</strong><span>Agent, extension, department, store, active period.</span></div>
+          <div class="cc-model-item"><strong>DimQueue / DimDepartment / DimStore</strong><span>Ring groups, queues, menus και οργανωτική δομή.</span></div>
+          <div class="cc-model-item"><strong>DimCaller / DimDID / DimTrunk</strong><span>Caller identity, DID route και τηλεπικοινωνιακό trunk.</span></div>
+          <div class="cc-model-item"><strong>DimStatus / DimDirection</strong><span>Answered, missed, abandoned, inbound, outbound, internal hop.</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="cc-panel">
+      <div class="cc-head"><h3><i class="fe fe-book-open"></i> Data Dictionary</h3><span class="cc-pill">Current mapping</span></div>
+      <div class="table-responsive">
+        <table class="cc-table">
+          <thead><tr><th>Field</th><th>Meaning</th><th>Type</th><th>Quality rule</th></tr></thead>
+          <tbody>
+            <tr><td>Call ID</td><td>Κοινό αναγνωριστικό για hops της ίδιας κλήσης.</td><td>Text</td><td>Deduplicate σε external call level.</td></tr>
+            <tr><td>Source / Caller</td><td>Εξωτερικός καλών ή αρχικό extension.</td><td>Text</td><td>Internal-only source/destination δεν μετράει στα KPIs.</td></tr>
+            <tr><td>Destination / Queue</td><td>Queue, ring group, menu ή extension που δέχθηκε το hop.</td><td>Text</td><td>Map από extensions.csv και manual structure.</td></tr>
+            <tr><td>Agent / Answered By</td><td>Το πρώτο extension που απάντησε ή χειρίστηκε την κλήση.</td><td>Text</td><td>Null όταν missed ή δεν υπάρχει στο CSV.</td></tr>
+            <tr><td>Duration / Ring / Talk</td><td>Χρόνοι αναμονής, ringing και ομιλίας.</td><td>Seconds</td><td>Normalize σε seconds για ASA/AHT/SLA.</td></tr>
+            <tr><td>Status / Direction</td><td>Τελικό αποτέλεσμα και κατεύθυνση κλήσης.</td><td>Category</td><td>Conformed DimStatus/DimDirection.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="cc-report-grid">
+      <div class="cc-report-card"><h4><i class="fe fe-bar-chart-2"></i> Power BI</h4><p>Star schema, incremental refresh σε FactCalls by date, drillthrough από executive σε queue, agent και call journey. DAX: Total Calls, SLA %, ASA, AHT, Missed Rate, Cost Per Call.</p></div>
+      <div class="cc-report-card"><h4><i class="fe fe-shield"></i> Security</h4><p>RLS ανά tenant, department/store και supervisor scope. Τα raw caller numbers μπορούν να masked για non-admin roles.</p></div>
+      <div class="cc-report-card"><h4><i class="fe fe-file-text"></i> Management Reports</h4><p>Daily operations, weekly management, monthly executive, quarterly performance review και annual capacity planning με scheduled delivery.</p></div>
+    </div>
+  </section>
 </div>
 
 <div class="modal fade bv-modal bv-modal--responsive bv-modal--lg" id="ccCallsModal" tabindex="-1" aria-hidden="true" data-bv-modal="true" data-bv-close-on-backdrop="true">
@@ -455,24 +948,25 @@
         <section class="cc-call-page is-active" data-cc-call-page="inbound">
           <div class="cc-modal-grid">
             <div class="cc-modal-stat"><span>Εισερχόμενες</span><strong>{{ inbound_calls }}</strong></div>
-            <div class="cc-modal-stat"><span>Απαντημένες</span><strong>{{ answered_calls }}</strong></div>
-            <div class="cc-modal-stat"><span>Χαμένες</span><strong>{{ missed_calls }}</strong></div>
+            <div class="cc-modal-stat"><span>Απαντ. εισερχ.</span><strong>{{ inbound_answered_calls }}</strong></div>
+            <div class="cc-modal-stat"><span>Χαμένες εισερχ.</span><strong>{{ inbound_missed_calls }}</strong></div>
           </div>
           <h6 class="fw-bold">Εισερχόμενες ανά agent</h6>
           <div class="table-responsive mb-3">
             <table class="table cc-modal-table">
-              <thead><tr><th>Agent</th><th>Ext.</th><th class="text-end">Εισερχόμενες</th><th class="text-end">Απαντ.</th><th class="text-end">Χαμένες</th></tr></thead>
+              <thead><tr><th>Agent</th><th>Ext.</th><th class="text-end">Εισερχόμενες</th><th class="text-end">Απαντ. εισ.</th><th class="text-end">Χαμένες εισ.</th></tr></thead>
               <tbody>
                 {% for row in call_center_3cx.agent_rows[:40] %}
                 {% set agent_total = row.calls or ((row.answered or 0) + (row.outbound or 0)) %}
                 {% set agent_inbound = agent_total - (row.outbound or 0) if agent_total >= (row.outbound or 0) else 0 %}
-                {% set agent_missed = agent_inbound - (row.answered or 0) if agent_inbound >= (row.answered or 0) else 0 %}
+                {% set agent_in_answered = row.inbound_answered if row.inbound_answered is defined else (row.answered or 0) %}
+                {% set agent_in_missed = row.inbound_missed if row.inbound_missed is defined else (row.missed or 0) %}
                 <tr>
                   <td>{{ row.agent }}</td>
                   <td>{{ row.extension or '-' }}</td>
                   <td class="text-end">{{ agent_inbound }}</td>
-                  <td class="text-end">{{ row.answered or 0 }}</td>
-                  <td class="text-end">{{ agent_missed }}</td>
+                  <td class="text-end">{{ agent_in_answered }}</td>
+                  <td class="text-end">{{ agent_in_missed }}</td>
                 </tr>
                 {% else %}
                 <tr><td colspan="5" class="text-center text-muted py-4">Δεν υπάρχουν εισερχόμενες ανά agent στο report.</td></tr>
@@ -504,22 +998,30 @@
           <h6 class="fw-bold">Εξερχόμενες ανά agent</h6>
           <div class="table-responsive mb-3">
             <table class="table cc-modal-table">
-              <thead><tr><th>Agent</th><th>Ext.</th><th class="text-end">Εξερχόμενες</th><th class="text-end">Σύνολο agent</th></tr></thead>
+              <thead><tr><th>Agent</th><th>Ext.</th><th class="text-end">Inbound</th><th class="text-end">Εξερχόμενες</th><th class="text-end">Απαντ. εισ.</th><th class="text-end">Απαντ. out</th><th class="text-end">Χαμένες</th><th class="text-end">Σύνολο agent</th></tr></thead>
               <tbody>
                 {% for row in call_center_3cx.agent_rows[:40] %}
                 {% set agent_total = row.calls or ((row.answered or 0) + (row.outbound or 0)) %}
+                {% set agent_inbound = row.inbound if row.inbound is defined else (agent_total - (row.outbound or 0) if agent_total >= (row.outbound or 0) else 0) %}
+                {% set agent_in_answered = row.inbound_answered if row.inbound_answered is defined else 0 %}
+                {% set agent_out_answered = row.outbound_answered if row.outbound_answered is defined else 0 %}
                 <tr>
                   <td>{{ row.agent }}</td>
                   <td>{{ row.extension or '-' }}</td>
+                  <td class="text-end">{{ agent_inbound }}</td>
                   <td class="text-end">{{ row.outbound or 0 }}</td>
+                  <td class="text-end">{{ agent_in_answered }}</td>
+                  <td class="text-end">{{ agent_out_answered }}</td>
+                  <td class="text-end">{{ row.missed or 0 }}</td>
                   <td class="text-end">{{ agent_total }}</td>
                 </tr>
                 {% else %}
-                <tr><td colspan="4" class="text-center text-muted py-4">Δεν υπάρχουν εξερχόμενες ανά agent στο report.</td></tr>
+                <tr><td colspan="8" class="text-center text-muted py-4">Δεν υπάρχουν εξερχόμενες ανά agent στο report.</td></tr>
                 {% endfor %}
               </tbody>
             </table>
           </div>
+          <div class="cc-data-gap mb-3"><strong>Σημείωση:</strong> Το Outbound δεν αθροίζεται με τις απαντημένες. Είναι άλλη διάσταση: κατεύθυνση κλήσης έναντι αποτελέσματος.</div>
           <h6 class="fw-bold">3CX users directory</h6>
           <div class="table-responsive">
             <table class="table cc-modal-table">
@@ -604,14 +1106,15 @@
         <h6 class="fw-bold">Ανά agent</h6>
         <div class="table-responsive mb-3">
           <table class="table cc-modal-table">
-            <thead><tr><th>Agent</th><th>Ext.</th><th class="text-end">Εισερχ.</th><th class="text-end">Απαντ.</th><th class="text-end">Χαμένες</th></tr></thead>
+            <thead><tr><th>Agent</th><th>Ext.</th><th class="text-end">Εισερχ.</th><th class="text-end">Απαντ. εισ.</th><th class="text-end">Χαμένες εισ.</th></tr></thead>
             <tbody>
               {% for row in call_center_3cx.agent_rows[:40] %}
               {% set agent_total = row.calls or ((row.answered or 0) + (row.outbound or 0)) %}
               {% set agent_inbound = agent_total - (row.outbound or 0) if agent_total >= (row.outbound or 0) else 0 %}
-              {% set agent_missed = agent_inbound - (row.answered or 0) if agent_inbound >= (row.answered or 0) else 0 %}
-              {% if agent_missed > 0 %}
-              <tr><td>{{ row.agent }}</td><td>{{ row.extension or '-' }}</td><td class="text-end">{{ agent_inbound }}</td><td class="text-end">{{ row.answered or 0 }}</td><td class="text-end">{{ agent_missed }}</td></tr>
+              {% set agent_in_answered = row.inbound_answered if row.inbound_answered is defined else (row.answered or 0) %}
+              {% set agent_in_missed = row.inbound_missed if row.inbound_missed is defined else (row.missed or 0) %}
+              {% if agent_in_missed > 0 %}
+              <tr><td>{{ row.agent }}</td><td>{{ row.extension or '-' }}</td><td class="text-end">{{ agent_inbound }}</td><td class="text-end">{{ agent_in_answered }}</td><td class="text-end">{{ agent_in_missed }}</td></tr>
               {% endif %}
               {% else %}
               <tr><td colspan="5" class="text-center text-muted py-4">Δεν υπάρχουν agents στο report.</td></tr>
@@ -695,13 +1198,14 @@
         <h6 class="fw-bold">Επίδραση ανά agent</h6>
         <div class="table-responsive mb-3">
           <table class="table cc-modal-table">
-            <thead><tr><th>Agent</th><th>Ext.</th><th class="text-end">Εισερχ.</th><th class="text-end">Απαντ.</th><th class="text-end">Χαμένες</th></tr></thead>
+            <thead><tr><th>Agent</th><th>Ext.</th><th class="text-end">Εισερχ.</th><th class="text-end">Απαντ. εισ.</th><th class="text-end">Χαμένες εισ.</th></tr></thead>
             <tbody>
               {% for row in call_center_3cx.agent_rows[:40] %}
               {% set agent_total = row.calls or ((row.answered or 0) + (row.outbound or 0)) %}
               {% set agent_inbound = agent_total - (row.outbound or 0) if agent_total >= (row.outbound or 0) else 0 %}
-              {% set agent_missed = agent_inbound - (row.answered or 0) if agent_inbound >= (row.answered or 0) else 0 %}
-              <tr><td>{{ row.agent }}</td><td>{{ row.extension or '-' }}</td><td class="text-end">{{ agent_inbound }}</td><td class="text-end">{{ row.answered or 0 }}</td><td class="text-end">{{ agent_missed }}</td></tr>
+              {% set agent_in_answered = row.inbound_answered if row.inbound_answered is defined else (row.answered or 0) %}
+              {% set agent_in_missed = row.inbound_missed if row.inbound_missed is defined else (row.missed or 0) %}
+              <tr><td>{{ row.agent }}</td><td>{{ row.extension or '-' }}</td><td class="text-end">{{ agent_inbound }}</td><td class="text-end">{{ agent_in_answered }}</td><td class="text-end">{{ agent_in_missed }}</td></tr>
               {% else %}
               <tr><td colspan="5" class="text-center text-muted py-4">Δεν υπάρχουν agent rows.</td></tr>
               {% endfor %}
@@ -758,13 +1262,16 @@
         <h6 class="fw-bold">Εξερχόμενες ανά agent</h6>
         <div class="table-responsive mb-3">
           <table class="table cc-modal-table">
-            <thead><tr><th>Agent</th><th>Ext.</th><th class="text-end">Outbound</th><th class="text-end">Απαντ.</th><th class="text-end">Σύνολο</th></tr></thead>
+            <thead><tr><th>Agent</th><th>Ext.</th><th class="text-end">Inbound</th><th class="text-end">Outbound</th><th class="text-end">Απαντ. εισ.</th><th class="text-end">Απαντ. out</th><th class="text-end">Χαμένες</th><th class="text-end">Σύνολο</th></tr></thead>
             <tbody>
               {% for row in call_center_3cx.agent_rows[:30] %}
               {% set agent_total = row.calls or ((row.answered or 0) + (row.outbound or 0)) %}
-              <tr><td>{{ row.agent }}</td><td>{{ row.extension or '-' }}</td><td class="text-end">{{ row.outbound }}</td><td class="text-end">{{ row.answered }}</td><td class="text-end">{{ agent_total }}</td></tr>
+              {% set agent_inbound = row.inbound if row.inbound is defined else (agent_total - (row.outbound or 0) if agent_total >= (row.outbound or 0) else 0) %}
+              {% set agent_in_answered = row.inbound_answered if row.inbound_answered is defined else 0 %}
+              {% set agent_out_answered = row.outbound_answered if row.outbound_answered is defined else 0 %}
+              <tr><td>{{ row.agent }}</td><td>{{ row.extension or '-' }}</td><td class="text-end">{{ agent_inbound }}</td><td class="text-end">{{ row.outbound }}</td><td class="text-end">{{ agent_in_answered }}</td><td class="text-end">{{ agent_out_answered }}</td><td class="text-end">{{ row.missed or 0 }}</td><td class="text-end">{{ agent_total }}</td></tr>
               {% else %}
-              <tr><td colspan="5" class="text-center text-muted py-4">Δεν υπάρχουν outbound rows.</td></tr>
+              <tr><td colspan="8" class="text-center text-muted py-4">Δεν υπάρχουν outbound rows.</td></tr>
               {% endfor %}
             </tbody>
           </table>
@@ -818,19 +1325,22 @@
         </div>
         <div class="table-responsive mb-3">
           <table class="table cc-modal-table">
-            <thead><tr><th>Agent</th><th>Ext.</th><th class="text-end">Εισερχ.</th><th class="text-end">Απαντ.</th><th class="text-end">Χαμένες</th><th class="text-end">Outbound</th><th class="text-end">Στόχος</th></tr></thead>
+            <thead><tr><th>Agent</th><th>Ext.</th><th class="text-end">Σύνολο</th><th class="text-end">Εισερχ.</th><th class="text-end">Απαντ. εισ.</th><th class="text-end">Χαμένες εισ.</th><th class="text-end">Outbound</th><th class="text-end">Απαντ. out</th></tr></thead>
             <tbody>
               {% for row in call_center_3cx.agent_rows[:50] %}
               {% set agent_total = row.calls or ((row.answered or 0) + (row.outbound or 0)) %}
               {% set agent_inbound = agent_total - (row.outbound or 0) if agent_total >= (row.outbound or 0) else 0 %}
-              {% set agent_missed = agent_inbound - (row.answered or 0) if agent_inbound >= (row.answered or 0) else 0 %}
-              <tr><td>{{ row.agent }}</td><td>{{ row.extension or '-' }}</td><td class="text-end">{{ agent_inbound }}</td><td class="text-end">{{ row.answered }}</td><td class="text-end">{{ agent_missed }}</td><td class="text-end">{{ row.outbound }}</td><td class="text-end">{{ row.target_pct }}%</td></tr>
+              {% set agent_in_answered = row.inbound_answered if row.inbound_answered is defined else (row.answered or 0) %}
+              {% set agent_in_missed = row.inbound_missed if row.inbound_missed is defined else (row.missed or 0) %}
+              {% set agent_out_answered = row.outbound_answered if row.outbound_answered is defined else 0 %}
+              <tr><td>{{ row.agent }}</td><td>{{ row.extension or '-' }}</td><td class="text-end">{{ agent_total }}</td><td class="text-end">{{ agent_inbound }}</td><td class="text-end">{{ agent_in_answered }}</td><td class="text-end">{{ agent_in_missed }}</td><td class="text-end">{{ row.outbound }}</td><td class="text-end">{{ agent_out_answered }}</td></tr>
               {% else %}
-              <tr><td colspan="7" class="text-center text-muted py-4">Δεν υπάρχουν agent results.</td></tr>
+              <tr><td colspan="8" class="text-center text-muted py-4">Δεν υπάρχουν agent results.</td></tr>
               {% endfor %}
             </tbody>
           </table>
         </div>
+        <div class="cc-data-gap mb-3"><strong>Πώς διαβάζεται:</strong> οι `Απαντ. εισ.` συγκρίνονται μόνο με τις `Εισερχ.`. Οι `Απαντ. out` είναι answered εξερχόμενες και δεν πρέπει να προστίθενται πάνω στις εισερχόμενες.</div>
         <h6 class="fw-bold">Queues που επηρεάζουν την ομάδα</h6>
         <div class="table-responsive mb-3">
           <table class="table cc-modal-table">
@@ -973,6 +1483,28 @@
         });
         modalEl.querySelectorAll('[data-cc-call-page]').forEach(function (page) {
           page.classList.toggle('is-active', page.getAttribute('data-cc-call-page') === target);
+        });
+      });
+    });
+
+    document.querySelectorAll('[data-cc-report-tab]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var target = btn.getAttribute('data-cc-report-tab');
+        document.querySelectorAll('[data-cc-report-tab]').forEach(function (item) {
+          item.classList.toggle('is-active', item === btn);
+        });
+        document.querySelectorAll('[data-cc-report-sheet]').forEach(function (sheet) {
+          sheet.classList.toggle('is-active', sheet.getAttribute('data-cc-report-sheet') === target);
+        });
+      });
+    });
+
+    document.querySelectorAll('[data-cc-journey-search]').forEach(function (input) {
+      input.addEventListener('input', function () {
+        var value = input.value.trim().toLowerCase();
+        document.querySelectorAll('[data-cc-journey-card]').forEach(function (card) {
+          var haystack = card.getAttribute('data-search') || '';
+          card.hidden = value.length > 0 && haystack.indexOf(value) === -1;
         });
       });
     });

@@ -53,6 +53,62 @@ def _fmt_pct(value: float | None) -> str:
     return f'{value:+.2f}%'.replace('.', ',')
 
 
+def _fmt_date(value: date) -> str:
+    return value.strftime('%d/%m/%Y')
+
+
+def _filter_part(label: str, values: list[str] | None) -> str:
+    clean = [str(value).strip() for value in (values or []) if str(value).strip()]
+    if not clean:
+        return ''
+    if len(clean) <= 3:
+        return f'{label}: {", ".join(clean)}'
+    return f'{label}: {", ".join(clean[:3])} +{len(clean) - 3} ακόμη'
+
+
+def _filters_label(
+    *,
+    branches: list[str] | None,
+    warehouses: list[str] | None,
+    brands: list[str] | None,
+    categories: list[str] | None,
+    groups: list[str] | None,
+) -> str:
+    parts = [
+        _filter_part('φυσικά σημεία', branches),
+        _filter_part('αποθήκες', warehouses),
+        _filter_part('brands', brands),
+        _filter_part('κατηγορίες', categories),
+        _filter_part('ομάδες', groups),
+    ]
+    active = [part for part in parts if part]
+    if not active:
+        return 'Φίλτρα: όλη η επιχείρηση, χωρίς επιπλέον περιορισμό.'
+    return f'Φίλτρα: {" | ".join(active)}.'
+
+
+def _same_day_previous_year(value: date) -> date:
+    try:
+        return value.replace(year=value.year - 1)
+    except ValueError:
+        # 29/02 -> 28/02 on non-leap previous years.
+        return value.replace(year=value.year - 1, day=28)
+
+
+def _has_fulfillment_rules(config: dict | None) -> bool:
+    if not isinstance(config, dict):
+        return False
+    keys = (
+        'pickup_warehouses',
+        'store_warehouses',
+        'pure_eshop_warehouses',
+        'three_pl_warehouses',
+        'shipping_method_labels',
+        'sales_series_channel_labels',
+    )
+    return any(bool(config.get(key)) for key in keys)
+
+
 def _tenant_url(path: str, date_from: date, date_to: date, **params: object) -> str:
     query: list[tuple[str, str]] = [('from', date_from.isoformat()), ('to', date_to.isoformat())]
     for key, value in params.items():
@@ -75,12 +131,14 @@ def _item(
     severity: str = 'info',
     action: str | None = None,
     href: str | None = None,
+    context: str | None = None,
 ) -> dict[str, Any]:
     return {
         'kind': kind,
         'module': module,
         'title': title,
         'text': text,
+        'context': context or '',
         'impact': round(float(impact or 0), 2),
         'severity': severity,
         'action': action or '',
@@ -172,6 +230,26 @@ def _dimension_key(row: dict[str, Any], *keys: str) -> str:
     return 'N/A'
 
 
+def _dimension_key_variants(row: dict[str, Any], *, name_key: str, code_key: str) -> list[str]:
+    variants: list[str] = []
+    for raw_value in (row.get(code_key), row.get(name_key)):
+        value = str(raw_value or '').strip()
+        if not value:
+            continue
+        variants.append(value)
+        if ',' in value:
+            variants.extend(part.strip() for part in value.split(',') if part.strip())
+
+    seen: set[str] = set()
+    clean: list[str] = []
+    for value in variants:
+        key = ' '.join(value.lower().split())
+        if key and key not in seen:
+            seen.add(key)
+            clean.append(key)
+    return clean or ['n/a']
+
+
 def _build_dimension_diagnosis(
     *,
     title: str,
@@ -183,11 +261,16 @@ def _build_dimension_diagnosis(
     total_sales_net: float,
     href: str,
 ) -> dict[str, Any]:
-    previous_map = {_dimension_key(row, code_key, name_key): row for row in previous_rows}
+    previous_map: dict[str, dict[str, Any]] = {}
+    for row in previous_rows:
+        for key in _dimension_key_variants(row, name_key=name_key, code_key=code_key):
+            previous_map.setdefault(key, row)
     rows: list[dict[str, Any]] = []
     for row in current_rows:
-        key = _dimension_key(row, code_key, name_key)
-        previous = previous_map.get(key, {})
+        previous = next(
+            (previous_map[key] for key in _dimension_key_variants(row, name_key=name_key, code_key=code_key) if key in previous_map),
+            {},
+        )
         current_net = _num(row.get('net_value'))
         previous_net = _num(previous.get('net_value'))
         delta_value = current_net - previous_net
@@ -208,21 +291,58 @@ def _build_dimension_diagnosis(
         )
 
     rows = [row for row in rows if float(row.get('net_value') or 0) != 0 or float(row.get('previous_net_value') or 0) != 0]
+    known_rows = [
+        row
+        for row in rows
+        if str(row.get('name') or '').strip().upper() not in {'', 'N/A', 'NONE', 'NULL'}
+        or str(row.get('code') or '').strip().upper() not in {'', 'N/A', 'NONE', 'NULL'}
+    ]
     rows.sort(key=lambda row: float(row.get('net_value') or 0), reverse=True)
-    if not rows:
+    missing_grouping = bool(rows) and not known_rows
+    if not rows or missing_grouping:
+        dimension_label = 'κατηγορία' if mode == 'categories' else 'φυσικό σημείο'
+        dimension_genitive = 'κατηγορίας' if mode == 'categories' else 'φυσικού σημείου'
+        missing_data = [
+            f'Κωδικός ή όνομα {dimension_genitive} στα παραστατικά, ώστε να γίνει ομαδοποίηση.',
+        ]
+        if not current_rows:
+            missing_data.insert(0, f'Τζίρος ανά {dimension_label} για την επιλεγμένη περίοδο.')
+        if not previous_rows:
+            missing_data.insert(1 if not current_rows else 0, f'Τζίρος ανά {dimension_label} για την ίδια περίοδο πέρσι.')
+        if not rows:
+            missing_data.append('Μη μηδενικές αξίες πωλήσεων σε τουλάχιστον μία γραμμή της διάγνωσης.')
+        if total_sales_net <= 0:
+            missing_data.insert(0, 'Θετικός συνολικός τζίρος στην επιλεγμένη περίοδο.')
+        if missing_grouping and total_sales_net > 0:
+            missing_data.insert(
+                0,
+                f'Υπάρχει τζίρος, αλλά όλες οι γραμμές έρχονται χωρίς αναγνωρίσιμη {dimension_label}.',
+            )
         return {
             'mode': mode,
             'title': title,
-            'summary': 'Δεν υπάρχουν αρκετά δεδομένα για αξιόπιστη διάγνωση.',
+            'summary': (
+                'Δεν μπορεί να βγει αξιόπιστη πρόταση, γιατί τα δεδομένα δεν έχουν καθαρή ομαδοποίηση '
+                f'ανά {dimension_label} για την επιλεγμένη περίοδο και την ίδια περίοδο πέρσι.'
+            ),
+            'missing_data': missing_data,
+            'action': f'Έλεγξε ότι στα παραστατικά πωλήσεων είναι συμπληρωμένη η {dimension_label} και ότι υπάρχουν πωλήσεις στην περσινή περίοδο σύγκρισης.',
             'best': None,
             'worst': None,
             'rows': [],
             'href': href,
         }
 
-    comparable = [row for row in rows if row.get('delta_pct') is not None]
-    best = max(comparable or rows, key=lambda row: float(row.get('delta_pct') if row.get('delta_pct') is not None else row.get('net_value') or 0))
-    worst = min(comparable or rows, key=lambda row: float(row.get('delta_pct') if row.get('delta_pct') is not None else row.get('net_value') or 0))
+    material_rows = [
+        row
+        for row in (known_rows or rows)
+        if float(row.get('share_pct') or 0) >= 1.0
+        or max(abs(float(row.get('net_value') or 0)), abs(float(row.get('previous_net_value') or 0))) >= max(1000.0, total_sales_net * 0.01)
+    ]
+    decision_rows = material_rows or known_rows or rows
+    comparable = [row for row in decision_rows if row.get('delta_pct') is not None]
+    best = max(comparable or decision_rows, key=lambda row: float(row.get('delta_value') or row.get('net_value') or 0))
+    worst = min(comparable or decision_rows, key=lambda row: float(row.get('delta_value') or row.get('net_value') or 0))
     if mode == 'branches':
         summary = (
             f"Το σημείο που κινείται καλύτερα είναι {best['name']} ({_fmt_pct(best.get('delta_pct'))}). "
@@ -264,9 +384,20 @@ async def business_advisor_report(
     fulfillment_config: dict | None = None,
 ) -> dict[str, Any]:
     days = max(1, (date_to - date_from).days + 1)
-    prev_to = date_from - timedelta(days=1)
-    prev_from = prev_to - timedelta(days=days - 1)
+    prev_from = _same_day_previous_year(date_from)
+    prev_to = _same_day_previous_year(date_to)
     warnings: list[dict[str, str]] = []
+    period_context = (
+        f'Περίοδος ανάλυσης: {_fmt_date(date_from)} - {_fmt_date(date_to)} ({days} ημέρες). '
+        f'Σύγκριση: ίδια περίοδος πέρσι {_fmt_date(prev_from)} - {_fmt_date(prev_to)}. '
+        + _filters_label(
+            branches=branches,
+            warehouses=warehouses,
+            brands=brands,
+            categories=categories,
+            groups=groups,
+        )
+    )
 
     sales = await _safe(
         'sales',
@@ -331,8 +462,9 @@ async def business_advisor_report(
         warnings,
         {'summary': {'items': 0, 'avg_margin_pct': 0.0, 'target_margin_pct': target_margin_pct}, 'rows': []},
     )
+    use_fulfillment_points = _has_fulfillment_rules(fulfillment_config)
     branch_rows = await _safe(
-        'sales_by_fulfillment_point',
+        'sales_by_fulfillment_point' if use_fulfillment_points else 'sales_by_branch',
         lambda: sales_by_fulfillment_point(
             db,
             date_from,
@@ -344,13 +476,13 @@ async def business_advisor_report(
             groups,
             fulfillment_config,
         )
-        if fulfillment_config
+        if use_fulfillment_points
         else sales_by_branch(db, date_from, date_to, branches, warehouses, brands, categories, groups),
         warnings,
         [],
     )
     previous_branch_rows = await _safe(
-        'sales_by_fulfillment_point_previous',
+        'sales_by_fulfillment_point_previous' if use_fulfillment_points else 'sales_by_branch_previous',
         lambda: sales_by_fulfillment_point(
             db,
             prev_from,
@@ -362,7 +494,7 @@ async def business_advisor_report(
             groups,
             fulfillment_config,
         )
-        if fulfillment_config
+        if use_fulfillment_points
         else sales_by_branch(db, prev_from, prev_to, branches, warehouses, brands, categories, groups),
         warnings,
         [],
@@ -484,10 +616,11 @@ async def business_advisor_report(
                 kind='positive',
                 module='Πωλήσεις',
                 title='Ανοδική πορεία τζίρου',
-                text=f'Ο καθαρός τζίρος είναι {_fmt_money(sales_net)} με μεταβολή {_fmt_pct(sales_delta_pct)} έναντι της προηγούμενης ίδιας διάρκειας.',
+                text=f'Για αυτή την περίοδο ο καθαρός τζίρος είναι {_fmt_money(sales_net)} και είναι {_fmt_pct(sales_delta_pct)} σε σχέση με την ίδια περίοδο πέρσι. Αυτό δείχνει ότι η ζήτηση βελτιώνεται στο πλαίσιο που βλέπεις.',
                 impact=min(12.0, sales_delta_pct / 2),
                 severity='success',
                 href=sales_url,
+                context=period_context,
             )
         )
         score += min(8.0, sales_delta_pct / 3)
@@ -497,11 +630,12 @@ async def business_advisor_report(
                 kind='risk',
                 module='Πωλήσεις',
                 title='Πτώση καθαρών πωλήσεων',
-                text=f'Ο καθαρός τζίρος είναι {_fmt_money(sales_net)} και κινείται {_fmt_pct(sales_delta_pct)} από την προηγούμενη περίοδο.',
+                text=f'Για αυτή την περίοδο ο καθαρός τζίρος είναι {_fmt_money(sales_net)} και κινείται {_fmt_pct(sales_delta_pct)} σε σχέση με την ίδια περίοδο πέρσι. Πριν αποφασίσεις ενέργεια, έλεγξε αν η πτώση έρχεται από συγκεκριμένο κατάστημα, brand ή κατηγορία.',
                 impact=abs(sales_delta_pct),
                 severity='danger' if sales_delta_pct <= -15 else 'warning',
                 action='Άνοιξε ανάλυση ανά κατάστημα, brand και κατηγορία και απομόνωσε τις πηγές απώλειας.',
                 href=sales_url,
+                context=period_context,
             )
         )
         score -= 18.0 if sales_delta_pct <= -15 else 10.0
@@ -512,9 +646,10 @@ async def business_advisor_report(
                 kind='positive',
                 module='Κερδοφορία',
                 title='Το περιθώριο πιάνει τον στόχο',
-                text=f'Το μικτό περιθώριο είναι {margin_pct:.2f}% με σταθμισμένο στόχο {effective_target_margin_pct:.2f}%.'.replace('.', ','),
+                text=f'Για αυτή την περίοδο το μικτό περιθώριο είναι {margin_pct:.2f}% με σταθμισμένο στόχο {effective_target_margin_pct:.2f}%. Η τιμολογιακή πολιτική και το κόστος αγορών δεν δείχνουν άμεση πίεση στο επιλεγμένο πλαίσιο.'.replace('.', ','),
                 impact=margin_pct - effective_target_margin_pct,
                 severity='success',
+                context=period_context,
             )
         )
         score += 6.0
@@ -525,11 +660,12 @@ async def business_advisor_report(
                 kind='risk',
                 module='Κερδοφορία',
                 title='Πίεση στο μικτό περιθώριο',
-                text=f'Το μικτό περιθώριο είναι {margin_pct:.2f}% και υπολείπεται του σταθμισμένου στόχου κατά {gap:.2f} μονάδες.'.replace('.', ','),
+                text=f'Για αυτή την περίοδο το μικτό περιθώριο είναι {margin_pct:.2f}% και υπολείπεται του σταθμισμένου στόχου κατά {gap:.2f} μονάδες. Αυτό σημαίνει ότι ο τζίρος δεν μετατρέπεται σε αρκετό μικτό κέρδος για τον στόχο που έχεις ορίσει.'.replace('.', ','),
                 impact=gap,
                 severity='danger' if gap >= 10 else 'warning',
                 action='Έλεγξε τιμές κτήσης, εκπτώσεις και προϊόντα κάτω από την τιμή στόχο.',
                 href=price_control_below_url,
+                context=period_context,
             )
         )
         score -= 16.0 if gap >= 10 else 8.0
@@ -540,11 +676,12 @@ async def business_advisor_report(
                 kind='risk',
                 module='Αγορές',
                 title='Οι αγορές βαραίνουν τον τζίρο',
-                text=f'Οι αγορές είναι {purchases_to_sales_pct:.2f}% του καθαρού τζίρου της περιόδου.'.replace('.', ','),
+                text=f'Για αυτή την περίοδο οι αγορές είναι {purchases_to_sales_pct:.2f}% του καθαρού τζίρου. Αν δεν υπάρχει αντίστοιχη αύξηση πωλήσεων ή ανάγκη αποθέματος, υπάρχει κίνδυνος να δεσμεύεται ρευστότητα.'.replace('.', ','),
                 impact=purchases_to_sales_pct,
                 severity='warning',
                 action='Δες προμηθευτές υψηλής συγκέντρωσης και αγορές χωρίς ανάλογη απόδοση πωλήσεων.',
                 href=purchases_url,
+                context=period_context,
             )
         )
         score -= 8.0
@@ -554,10 +691,11 @@ async def business_advisor_report(
                 kind='positive',
                 module='Αγορές',
                 title='Καλύτερη πειθαρχία αγορών',
-                text=f'Οι αγορές μειώνονται {_fmt_pct(purchases_delta_pct)} ενώ οι πωλήσεις δεν υποχωρούν.',
+                text=f'Για αυτή την περίοδο οι αγορές μειώνονται {_fmt_pct(purchases_delta_pct)} ενώ οι πωλήσεις δεν υποχωρούν. Αυτό δείχνει καλύτερο έλεγχο αγορών χωρίς άμεση απώλεια τζίρου.',
                 impact=abs(purchases_delta_pct),
                 severity='success',
                 href=purchases_url,
+                context=period_context,
             )
         )
 
@@ -567,11 +705,12 @@ async def business_advisor_report(
                 kind='risk',
                 module='Ταμειακές ροές',
                 title='Αρνητική καθαρή ροή',
-                text=f'Οι εισροές είναι {_fmt_money(cash_in)}, οι εκροές {_fmt_money(cash_out)} και το καθαρό αποτέλεσμα {_fmt_money(cash_net)}.',
+                text=f'Για αυτή την περίοδο οι εισροές είναι {_fmt_money(cash_in)}, οι εκροές {_fmt_money(cash_out)} και το καθαρό αποτέλεσμα {_fmt_money(cash_net)}. Αυτό σημαίνει ότι βγήκαν περισσότερα χρήματα από όσα μπήκαν στο ταμείο.',
                 impact=abs(cash_net),
                 severity='danger',
                 action='Προτεραιότητα σε εισπράξεις και έλεγχο πληρωμών προς προμηθευτές.',
                 href=cashflow_url,
+                context=period_context,
             )
         )
         score -= 12.0
@@ -581,10 +720,11 @@ async def business_advisor_report(
                 kind='positive',
                 module='Ταμειακές ροές',
                 title='Θετική καθαρή ροή',
-                text=f'Το καθαρό ταμειακό αποτέλεσμα της περιόδου είναι {_fmt_money(cash_net)}.',
+                text=f'Για αυτή την περίοδο το καθαρό ταμειακό αποτέλεσμα είναι {_fmt_money(cash_net)}. Υπάρχει θετική ροή, άρα οι αποφάσεις μπορούν να δοθούν με λιγότερη πίεση ρευστότητας.',
                 impact=cash_net,
                 severity='success',
                 href=cashflow_url,
+                context=period_context,
             )
         )
         score += 4.0
@@ -595,11 +735,12 @@ async def business_advisor_report(
                 kind='risk',
                 module='Πελάτες',
                 title='Υψηλές ληξιπρόθεσμες απαιτήσεις',
-                text=f'Οι ληξιπρόθεσμες απαιτήσεις είναι {_fmt_money(overdue_receivables)} ({overdue_receivables_pct:.2f}%).'.replace('.', ','),
+                text=f'Στο πλαίσιο αυτής της ανάγνωσης οι ληξιπρόθεσμες απαιτήσεις είναι {_fmt_money(overdue_receivables)} ({overdue_receivables_pct:.2f}%). Αυτό δείχνει ποσά που πρέπει να μπουν σε πλάνο είσπραξης πριν επηρεάσουν τη ρευστότητα.'.replace('.', ','),
                 impact=overdue_receivables_pct,
                 severity='danger' if overdue_receivables_pct > 35 else 'warning',
                 action='Φτιάξε λίστα είσπραξης με τους μεγαλύτερους πελάτες και όριο ημερών καθυστέρησης.',
                 href=finance_url,
+                context=period_context,
             )
         )
         score -= 14.0 if overdue_receivables_pct > 35 else 8.0
@@ -610,11 +751,12 @@ async def business_advisor_report(
                 kind='risk',
                 module='Προμηθευτές',
                 title='Πίεση από ληξιπρόθεσμες υποχρεώσεις',
-                text=f'Οι ληξιπρόθεσμες υποχρεώσεις είναι {_fmt_money(supplier_overdue)} ({supplier_overdue_pct:.2f}%).'.replace('.', ','),
+                text=f'Στο πλαίσιο αυτής της ανάγνωσης οι ληξιπρόθεσμες υποχρεώσεις είναι {_fmt_money(supplier_overdue)} ({supplier_overdue_pct:.2f}%). Αυτό επηρεάζει προτεραιότητες πληρωμών και σχέση με προμηθευτές.'.replace('.', ','),
                 impact=supplier_overdue_pct,
                 severity='warning',
                 action='Ιεράρχησε πληρωμές ανά κρίσιμο προμηθευτή και έλεγξε αν υπάρχουν ανοιχτές πιστώσεις.',
                 href=suppliers_url,
+                context=period_context,
             )
         )
         score -= 8.0
@@ -625,11 +767,12 @@ async def business_advisor_report(
                 kind='risk',
                 module='Απόθεμα',
                 title='Υψηλή δέσμευση κεφαλαίου σε απόθεμα',
-                text=f'Η αξία αποθέματος είναι {_fmt_money(inventory_value)} και αντιστοιχεί περίπου σε {inventory_to_sales_days:.0f} ημέρες καθαρών πωλήσεων, με στόχο {inventory_coverage_target_days} ημέρες.',
+                text=f'Με βάση το απόθεμα στην ημερομηνία λήξης ({_fmt_date(date_to)}), η αξία αποθέματος είναι {_fmt_money(inventory_value)} και αντιστοιχεί περίπου σε {inventory_to_sales_days:.0f} ημέρες καθαρών πωλήσεων, με στόχο {inventory_coverage_target_days} ημέρες. Αυτό δείχνει κεφάλαιο που μένει δεσμευμένο σε στοκ.',
                 impact=inventory_to_sales_days,
                 severity='warning',
                 action='Εντόπισε αργοκίνητα είδη και brands με υψηλή αξία χωρίς αντίστοιχη κίνηση.',
                 href=inventory_url,
+                context=period_context,
             )
         )
         score -= 8.0
@@ -640,11 +783,12 @@ async def business_advisor_report(
                 kind='risk',
                 module='Έλεγχος Τιμών',
                 title='Προϊόντα κάτω από την τιμή στόχο',
-                text=f'{len(price_below_target)} προϊόντα πωλούνται κάτω από την τιμή που απαιτείται από τους στόχους κατηγορίας/ομάδας.',
+                text=f'Για αυτή την περίοδο {len(price_below_target)} προϊόντα πωλούνται κάτω από την τιμή που απαιτείται από τους στόχους κατηγορίας/ομάδας. Αυτό μπορεί να ρίχνει το μικτό περιθώριο ακόμη και αν ο τζίρος φαίνεται ικανοποιητικός.',
                 impact=len(price_below_target),
                 severity='danger' if len(price_below_target) > 20 else 'warning',
                 action='Άνοιξε τον Έλεγχο Τιμών και αναπροσάρμοσε έκπτωση ή λιανική στα είδη με μεγαλύτερη διαφορά.',
                 href=price_control_below_url,
+                context=period_context,
             )
         )
         score -= 10.0
@@ -654,10 +798,11 @@ async def business_advisor_report(
                 kind='positive',
                 module='Έλεγχος Τιμών',
                 title='Προϊόντα με χώρο εμπορικής κίνησης',
-                text=f'{len(price_above_target)} προϊόντα βρίσκονται πάνω από την τιμή στόχο και μπορούν να στηρίξουν προωθητικές ενέργειες.',
+                text=f'Για αυτή την περίοδο {len(price_above_target)} προϊόντα βρίσκονται πάνω από την τιμή στόχο. Αυτά μπορούν να στηρίξουν προωθητικές ενέργειες χωρίς να χαθεί αμέσως ο στόχος περιθωρίου.',
                 impact=len(price_above_target),
                 severity='success',
                 href=price_control_above_url,
+                context=period_context,
             )
         )
 
@@ -739,8 +884,9 @@ async def business_advisor_report(
                 kind='positive',
                 module='Σύνοψη',
                 title='Υπάρχει διαθέσιμη εικόνα για έλεγχο',
-                text='Τα βασικά κυκλώματα επιστρέφουν στοιχεία και μπορούν να χρησιμοποιηθούν για επιχειρησιακή απόφαση.',
+                text='Τα βασικά κυκλώματα επιστρέφουν στοιχεία και μπορούν να χρησιμοποιηθούν για επιχειρησιακή απόφαση. Διάβασε τα συμπεράσματα μαζί με την περίοδο και τα φίλτρα που εμφανίζονται στο πλαίσιο κάθε κάρτας.',
                 severity='info',
+                context=period_context,
             )
         )
 
@@ -761,9 +907,16 @@ async def business_advisor_report(
     leading_risk = risks[0]['title'] if risks else 'χωρίς έντονο αρνητικό σήμα'
     leading_positive = positives[0]['title'] if positives else 'σταθερή εικόνα'
     executive_brief = [
-        f'Η συνολική βαθμολογία είναι {score_value}/100: {label}.',
+        f'Περίοδος {_fmt_date(date_from)} - {_fmt_date(date_to)} ({days} ημέρες). Η συνολική βαθμολογία είναι {score_value}/100: {label}.',
         f'Κύριο θετικό σήμα: {leading_positive}. Κύριο σημείο προσοχής: {leading_risk}.',
         f'Πωλήσεις περιόδου {_fmt_money(sales_net)} ({_fmt_pct(sales_delta_pct)}), μικτό περιθώριο {margin_pct:.2f}% και καθαρή ταμειακή ροή {_fmt_money(cash_net)}.'.replace('.', ','),
+        _filters_label(
+            branches=branches,
+            warehouses=warehouses,
+            brands=brands,
+            categories=categories,
+            groups=groups,
+        ),
     ]
     if warnings:
         executive_brief.append('Υπάρχουν κυκλώματα με μερική ανάγνωση, οπότε η αναφορά κρατά διαγνωστική σημείωση για έλεγχο.')

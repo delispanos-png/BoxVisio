@@ -17,3 +17,10 @@ body.bv-shell {
   height: auto;
   object-fit: contain;
 }
+
+body.tenant-shell .bv-metric-card .mc-meta.mc-meta-compact {
+  font-size: .66rem !important;
+  line-height: 1.25;
+  letter-spacing: 0;
+  white-space: nowrap;
+}

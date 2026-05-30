@@ -542,6 +542,7 @@ async def get_dashboard_executive_summary(
                 brands=brands,
                 categories=categories,
                 groups=groups,
+                include_warehouse_breakdown=False,
             ),
         )
         out = _mask_executive_summary_for_subscription(request, dict(data or {}))
@@ -3326,7 +3327,7 @@ async def get_business_advisor_report(
         groups=groups,
     )
     params['target_margin_pct'] = round(float(target_margin_pct), 2)
-    params['drilldown_version'] = 2
+    params['drilldown_version'] = 5
     params['price_margin_targets'] = _tenant_price_margin_targets_from_request(request)
     params['business_advisor_targets'] = _tenant_business_advisor_targets_from_request(request)
     params['fulfillment'] = _tenant_eshop_fulfillment_from_request(request)

@@ -10,12 +10,14 @@ import re
 import shutil
 import subprocess
 import time
+import zipfile
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
 from uuid import UUID
 from zoneinfo import ZoneInfo
+from xml.sax.saxutils import escape as xml_escape
 
 import httpx
 from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
@@ -103,7 +105,14 @@ from app.services.iqvia import (
     validate_iqvia_file,
 )
 from app.services.kpi_cache import get_or_set_cache
-from app.services.replenishment import build_availability_foundation, build_replenishment_from_facts
+from app.services.replenishment import (
+    FNR_OUTPUT_COLUMNS,
+    build_availability_foundation,
+    build_availability_brief_from_facts,
+    build_destocking_brief_from_facts,
+    build_fnr_excel_from_facts,
+    build_replenishment_from_facts,
+)
 from app.services.supplier_orders import (
     SupplierOrdersFilters,
     build_supplier_orders_dashboard,
@@ -574,7 +583,89 @@ def _extract_3cx_extension_code(value: object) -> str:
     return token_match.group(1).strip() if token_match else text_value
 
 
-def _apply_3cx_agent_directory(agent_rows: object, directory: dict[str, str]) -> list[dict[str, object]]:
+def _3cx_internal_extension_code(value: object) -> str:
+    text_value = str(value or '').strip()
+    if not text_value:
+        return ''
+    extension_code = _extract_3cx_extension_code(text_value)
+    if re.fullmatch(r'\d{2,5}', extension_code):
+        return extension_code
+    if re.fullmatch(r'GRP[A-Za-z0-9]*', extension_code, flags=re.IGNORECASE):
+        return extension_code
+    return ''
+
+
+def _3cx_has_external_endpoint(*values: object) -> bool:
+    for value in values:
+        text_value = str(value or '').strip()
+        if not text_value or text_value in {'-', 'Άγνωστη πηγή', 'Χωρίς agent', 'Χωρίς queue'}:
+            continue
+        digits = re.sub(r'\D+', '', text_value)
+        if len(digits) >= 6:
+            return True
+        if not _3cx_internal_extension_code(text_value):
+            return True
+    return False
+
+
+def _3cx_external_endpoint(value: object) -> str:
+    text_value = str(value or '').strip()
+    if not text_value:
+        return ''
+    digits = re.sub(r'\D+', '', text_value)
+    if len(digits) >= 6 and not re.search(r'\(\d{2,5}\)\s*$', text_value):
+        return text_value
+    if text_value and not _3cx_internal_extension_code(text_value):
+        return text_value
+    return ''
+
+
+def _3cx_is_queue_endpoint(value: object) -> bool:
+    text_value = str(value or '').strip()
+    extension_code = _3cx_internal_extension_code(text_value)
+    return bool(
+        re.fullmatch(r'8\d{2}', extension_code)
+        or extension_code.upper().startswith('GRP')
+        or 'queue' in text_value.lower()
+        or 'call center' in text_value.lower()
+    )
+
+
+def _3cx_activity_ended_by(activity: object) -> str:
+    text_value = str(activity or '').strip()
+    if not text_value:
+        return ''
+    match = re.search(r'Ended by\s+(.+?)(?:$|→)', text_value, flags=re.IGNORECASE)
+    return match.group(1).strip() if match else ''
+
+
+def _is_3cx_internal_only_call(
+    *,
+    source_number: object,
+    destination_value: object,
+    extension: object,
+    agent: object,
+    queue: object,
+    did_number: object,
+) -> bool:
+    if _3cx_has_external_endpoint(source_number, did_number):
+        return False
+    source_internal = _3cx_internal_extension_code(source_number)
+    destination_internal = (
+        _3cx_internal_extension_code(destination_value)
+        or _3cx_internal_extension_code(extension)
+        or _3cx_internal_extension_code(agent)
+        or _3cx_internal_extension_code(queue)
+    )
+    return bool(source_internal and destination_internal)
+
+
+def _apply_3cx_agent_directory(
+    agent_rows: object,
+    directory: dict[str, str],
+    *,
+    target_calls_per_agent: int = 60,
+) -> list[dict[str, object]]:
     if not isinstance(agent_rows, list):
         return []
     grouped: dict[str, dict[str, object]] = {}
@@ -597,6 +688,10 @@ def _apply_3cx_agent_directory(agent_rows: object, directory: dict[str, str]) ->
                 'extension': extension_code,
                 'answered': 0,
                 'outbound': 0,
+                'inbound_answered': 0,
+                'outbound_answered': 0,
+                'inbound_missed': 0,
+                'outbound_missed': 0,
                 'inbound': 0,
                 'missed': 0,
                 'talk_seconds': 0,
@@ -616,7 +711,7 @@ def _apply_3cx_agent_directory(agent_rows: object, directory: dict[str, str]) ->
     for row in out:
         calls = max(1, int(row.get('calls') or 0))
         row['avg_talk_seconds'] = int(int(row.get('talk_seconds') or 0) / calls)
-        row['target_pct'] = round((int(row.get('answered') or 0) / 60) * 100, 1)
+        row['target_pct'] = round((int(row.get('answered') or 0) / max(1, target_calls_per_agent)) * 100, 1)
     return sorted(out, key=lambda item: int(item.get('answered') or 0) + int(item.get('outbound') or 0), reverse=True)
 
 
@@ -638,6 +733,115 @@ def _apply_3cx_queue_directory(queue_rows: object, directory: dict[str, str]) ->
 
 def _3cx_directory_rows(directory: dict[str, str]) -> list[dict[str, str]]:
     return [{'extension': extension, 'name': name} for extension, name in directory.items()]
+
+
+def _format_3cx_directory_text(directory: dict[str, str]) -> str:
+    return '\n'.join(f'{code}={label}' for code, label in directory.items() if code and label)
+
+
+def _label_3cx_endpoint(value: object, agent_directory: dict[str, str], queue_directory: dict[str, str]) -> str:
+    text_value = str(value or '').strip()
+    if not text_value:
+        return ''
+    extension_code = _extract_3cx_extension_code(text_value)
+    if extension_code in queue_directory:
+        return f'{queue_directory[extension_code]} ({extension_code})'
+    if extension_code in agent_directory:
+        return f'{agent_directory[extension_code]} ({extension_code})'
+    return text_value
+
+
+def _label_3cx_call_rows(
+    rows: object,
+    *,
+    agent_directory: dict[str, str],
+    queue_directory: dict[str, str],
+) -> list[dict[str, object]]:
+    if not isinstance(rows, list):
+        return []
+    out: list[dict[str, object]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        clean_row = dict(row)
+        for field in ('queue', 'did'):
+            clean_row[field] = _label_3cx_endpoint(clean_row.get(field), agent_directory, queue_directory)
+        agent_label = _label_3cx_endpoint(clean_row.get('agent'), agent_directory, queue_directory)
+        if agent_label:
+            clean_row['agent'] = agent_label
+        out.append(clean_row)
+    return out
+
+
+def _label_3cx_journey_rows(
+    rows: object,
+    *,
+    agent_directory: dict[str, str],
+    queue_directory: dict[str, str],
+) -> list[dict[str, object]]:
+    if not isinstance(rows, list):
+        return []
+    out: list[dict[str, object]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        clean_row = dict(row)
+        clean_row['from'] = _label_3cx_endpoint(clean_row.get('from'), agent_directory, queue_directory)
+        clean_row['to'] = _label_3cx_endpoint(clean_row.get('to'), agent_directory, queue_directory)
+        out.append(clean_row)
+    return out
+
+
+def _parse_3cx_extensions_csv_text(raw: object) -> dict[str, str]:
+    text_value = str(raw or '').strip()
+    if not text_value:
+        return {}
+    reader = csv.DictReader(io.StringIO(text_value))
+    if not reader.fieldnames:
+        return {}
+    directory: dict[str, str] = {}
+    for row in reader:
+        code = str(
+            row.get('Number')
+            or row.get('Extension')
+            or row.get('Ext')
+            or row.get('DN')
+            or row.get('Code')
+            or ''
+        ).strip()
+        if not code:
+            continue
+        first_name = str(row.get('FirstName') or row.get('First Name') or row.get('Name') or '').strip()
+        last_name = str(row.get('LastName') or row.get('Last Name') or row.get('Surname') or '').strip()
+        department = str(row.get('Department') or '').strip()
+        label = ' '.join(part for part in (first_name, last_name) if part).strip()
+        if not label:
+            label = str(row.get('DisplayName') or row.get('FullName') or row.get('EmailAddress') or code).strip()
+        if department and department not in label:
+            label = f'{label} [{department}]'
+        directory[code] = label
+    return directory
+
+
+def _merge_3cx_directory_text(existing_text: object, imported_directory: dict[str, str]) -> str:
+    merged = _parse_3cx_directory_text(existing_text)
+    merged.update(imported_directory or {})
+    return _format_3cx_directory_text(merged)
+
+
+def _safe_tenant_3cx_return_url(raw: object, *, default: str = '/tenant/settings') -> str:
+    value = str(raw or '').strip() or default
+    if value.startswith('/tenant/call-center') or value.startswith('/tenant/settings'):
+        return value
+    return default
+
+
+def _tenant_3cx_redirect(raw_return_to: object, **params: object) -> RedirectResponse:
+    target = _safe_tenant_3cx_return_url(raw_return_to)
+    query = urlencode({key: str(value) for key, value in params.items() if value is not None and str(value) != ''})
+    if query:
+        target = f'{target}{"&" if "?" in target else "?"}{query}'
+    return RedirectResponse(url=target, status_code=303)
 
 
 def _parse_bool_enabled(raw: object, default: bool = True) -> bool:
@@ -955,11 +1159,17 @@ def _tenant_iqvia_settings(tenant: Tenant | None) -> dict[str, object]:
     }
 
 
-async def _tenant_call_center_settings(db: AsyncSession, tenant_id: int) -> dict[str, object]:
+async def _tenant_call_center_settings(
+    db: AsyncSession,
+    tenant_id: int,
+    *,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    queues: object = '',
+) -> dict[str, object]:
     conn = await _find_tenant_connection(db, tenant_id=tenant_id, connector_type=_3CX_CONNECTOR_TYPE)
     params = conn.connection_parameters if conn is not None and isinstance(conn.connection_parameters, dict) else {}
     manual_import = params.get('manual_import') if isinstance(params.get('manual_import'), dict) else {}
-    stats = manual_import.get('stats') if isinstance(manual_import.get('stats'), dict) else {}
     agent_directory_text = str(params.get('agent_directory_text') or '')
     queue_directory_text = str(params.get('queue_directory_text') or '')
     agent_directory = _parse_3cx_directory_text(agent_directory_text)
@@ -970,6 +1180,37 @@ async def _tenant_call_center_settings(db: AsyncSession, tenant_id: int) -> dict
             secret_payload = decrypt_json_secret(conn.enc_payload)
         except Exception:
             logger.exception('tenant_3cx_secret_decrypt_failed', extra={'tenant_id': tenant_id})
+    answer_sla_seconds = _parse_int_in_range(
+        params.get('answer_sla_seconds'),
+        default=30,
+        min_value=1,
+        max_value=3600,
+    )
+    target_calls_per_agent = _parse_int_in_range(
+        params.get('target_calls_per_agent'),
+        default=60,
+        min_value=1,
+        max_value=1000,
+    )
+    view_import = _filter_3cx_manual_import(
+        manual_import,
+        from_date=from_date,
+        to_date=to_date,
+        queues=queues,
+        target_calls_per_agent=target_calls_per_agent,
+        answer_sla_seconds=answer_sla_seconds,
+    )
+    stats = view_import.get('stats') if isinstance(view_import.get('stats'), dict) else {}
+    labeled_call_rows = _label_3cx_call_rows(
+        view_import.get('call_rows'),
+        agent_directory=agent_directory,
+        queue_directory=queue_directory,
+    )
+    labeled_journey_rows = _label_3cx_journey_rows(
+        view_import.get('journey_rows'),
+        agent_directory=agent_directory,
+        queue_directory=queue_directory,
+    )
     return {
         'configured': bool(conn and conn.is_active and str(params.get('fqdn') or '').strip()),
         'fqdn': str(params.get('fqdn') or ''),
@@ -987,29 +1228,25 @@ async def _tenant_call_center_settings(db: AsyncSession, tenant_id: int) -> dict
             min_value=1,
             max_value=1440,
         ),
-        'answer_sla_seconds': _parse_int_in_range(
-            params.get('answer_sla_seconds'),
-            default=30,
-            min_value=1,
-            max_value=3600,
-        ),
-        'target_calls_per_agent': _parse_int_in_range(
-            params.get('target_calls_per_agent'),
-            default=60,
-            min_value=1,
-            max_value=1000,
-        ),
+        'answer_sla_seconds': answer_sla_seconds,
+        'target_calls_per_agent': target_calls_per_agent,
         'has_password': bool(secret_payload.get('password')),
         'last_sync_at': conn.last_sync_at if conn is not None else None,
         'last_test_ok_at': conn.last_test_ok_at if conn is not None else None,
         'last_test_error': conn.last_test_error if conn is not None else None,
         'sync_status': str(conn.sync_status if conn is not None else 'never'),
-        'manual_import': manual_import,
+        'manual_import': view_import,
         'stats': stats,
-        'daily_rows': manual_import.get('daily_rows') if isinstance(manual_import.get('daily_rows'), list) else [],
-        'queue_rows': _apply_3cx_queue_directory(manual_import.get('queue_rows'), queue_directory),
-        'agent_rows': _apply_3cx_agent_directory(manual_import.get('agent_rows'), agent_directory),
-        'source_rows': manual_import.get('source_rows') if isinstance(manual_import.get('source_rows'), list) else [],
+        'call_rows': labeled_call_rows,
+        'daily_rows': view_import.get('daily_rows') if isinstance(view_import.get('daily_rows'), list) else [],
+        'queue_rows': _apply_3cx_queue_directory(view_import.get('queue_rows'), queue_directory),
+        'agent_rows': _apply_3cx_agent_directory(
+            view_import.get('agent_rows'),
+            agent_directory,
+            target_calls_per_agent=target_calls_per_agent,
+        ),
+        'source_rows': view_import.get('source_rows') if isinstance(view_import.get('source_rows'), list) else [],
+        'journey_rows': labeled_journey_rows,
     }
 
 
@@ -1118,6 +1355,505 @@ def _3cx_call_fingerprint(
     return '|'.join(parts)
 
 
+def _parse_3cx_filter_date_value(raw: object) -> date | None:
+    text_value = str(raw or '').strip()
+    if not text_value:
+        return None
+    for fmt in ('%Y-%m-%d', '%d/%m/%Y'):
+        try:
+            return datetime.strptime(text_value[:10], fmt).date()
+        except ValueError:
+            continue
+    parsed = _parse_3cx_date(text_value)
+    if parsed:
+        try:
+            return datetime.strptime(parsed, '%Y-%m-%d').date()
+        except ValueError:
+            return None
+    return None
+
+
+def _split_3cx_filter_terms(raw: object) -> list[str]:
+    return [
+        item.strip().lower()
+        for item in re.split(r'[,;\n|]+', str(raw or ''))
+        if item.strip()
+    ]
+
+
+def _aggregate_3cx_call_rows(
+    call_rows: list[dict[str, object]],
+    *,
+    target_calls_per_agent: int = 60,
+    answer_sla_seconds: int = 30,
+) -> dict[str, object]:
+    total_calls = answered_calls = missed_calls = outbound_calls = total_wait_seconds = wait_count = 0
+    inbound_answered_calls = outbound_answered_calls = inbound_missed_calls = outbound_missed_calls = 0
+    daily: dict[str, dict[str, object]] = {}
+    queues: dict[str, dict[str, object]] = {}
+    agents: dict[str, dict[str, object]] = {}
+    sources: dict[str, dict[str, object]] = {}
+
+    for call in call_rows:
+        if not isinstance(call, dict):
+            continue
+        call_date = str(call.get('date') or '')
+        queue = str(call.get('queue') or 'Χωρίς queue')
+        agent = str(call.get('agent') or 'Χωρίς agent')
+        extension = str(call.get('extension') or '')
+        source_number = str(call.get('source') or 'Άγνωστη πηγή')
+        did_number = str(call.get('did') or '')
+        duration_seconds = int(call.get('duration_seconds') or 0)
+        wait_seconds = int(call.get('wait_seconds') or 0)
+        is_outbound = bool(call.get('is_outbound'))
+        is_missed = bool(call.get('is_missed'))
+        is_answered = bool(call.get('is_answered'))
+        status_label = str(call.get('status_label') or ('Χαμένη' if is_missed else 'Απαντ.'))
+        direction_label = str(call.get('direction_label') or ('Εξ.' if is_outbound else 'Εισ.'))
+
+        total_calls += 1
+        answered_calls += 1 if is_answered else 0
+        missed_calls += 1 if is_missed else 0
+        outbound_calls += 1 if is_outbound else 0
+        if is_outbound:
+            outbound_answered_calls += 1 if is_answered else 0
+            outbound_missed_calls += 1 if is_missed else 0
+        else:
+            inbound_answered_calls += 1 if is_answered else 0
+            inbound_missed_calls += 1 if is_missed else 0
+        if wait_seconds:
+            total_wait_seconds += wait_seconds
+            wait_count += 1
+
+        if call_date:
+            bucket = daily.setdefault(call_date, {'date': call_date, 'calls': 0, 'answered': 0, 'missed': 0, 'outbound': 0})
+            bucket['calls'] = int(bucket['calls']) + 1
+            bucket['answered'] = int(bucket['answered']) + (1 if is_answered else 0)
+            bucket['missed'] = int(bucket['missed']) + (1 if is_missed else 0)
+            bucket['outbound'] = int(bucket.get('outbound') or 0) + (1 if is_outbound else 0)
+
+        queue_bucket = queues.setdefault(queue, {'queue': queue, 'calls': 0, 'answered': 0, 'missed': 0, 'sla': 0})
+        queue_bucket['calls'] = int(queue_bucket['calls']) + 1
+        queue_bucket['answered'] = int(queue_bucket['answered']) + (1 if is_answered else 0)
+        queue_bucket['missed'] = int(queue_bucket['missed']) + (1 if is_missed else 0)
+        if wait_seconds and wait_seconds <= answer_sla_seconds:
+            queue_bucket['sla'] = int(queue_bucket['sla']) + 1
+
+        source_key = f'{source_number}|{did_number}|{queue}'
+        source_bucket = sources.setdefault(
+            source_key,
+            {
+                'source': source_number,
+                'did': did_number,
+                'queue': queue,
+                'calls': 0,
+                'answered': 0,
+                'missed': 0,
+                'outbound': 0,
+                'talk_seconds': 0,
+                'last_call': '',
+                'agents': {},
+                'recent': [],
+            },
+        )
+        source_bucket['calls'] = int(source_bucket['calls']) + 1
+        source_bucket['answered'] = int(source_bucket['answered']) + (1 if is_answered else 0)
+        source_bucket['missed'] = int(source_bucket['missed']) + (1 if is_missed else 0)
+        source_bucket['outbound'] = int(source_bucket['outbound']) + (1 if is_outbound else 0)
+        source_bucket['talk_seconds'] = int(source_bucket['talk_seconds']) + duration_seconds
+        if call_date:
+            source_bucket['last_call'] = max(str(source_bucket.get('last_call') or ''), call_date)
+        source_agents = source_bucket.get('agents') if isinstance(source_bucket.get('agents'), dict) else {}
+        agent_key = f'{agent}|{extension}'
+        agent_source_bucket = source_agents.setdefault(
+            agent_key,
+            {'agent': agent, 'extension': extension, 'calls': 0, 'talk_seconds': 0},
+        )
+        agent_source_bucket['calls'] = int(agent_source_bucket['calls']) + 1
+        agent_source_bucket['talk_seconds'] = int(agent_source_bucket['talk_seconds']) + duration_seconds
+        source_bucket['agents'] = source_agents
+        recent_calls = source_bucket.get('recent') if isinstance(source_bucket.get('recent'), list) else []
+        if len(recent_calls) < 5:
+            recent_calls.append(
+                {
+                    'date': call_date,
+                    'agent': agent,
+                    'extension': extension,
+                    'direction': direction_label,
+                    'duration_seconds': duration_seconds,
+                    'status': status_label,
+                }
+            )
+            source_bucket['recent'] = recent_calls
+
+        agent_bucket = agents.setdefault(
+            agent_key,
+            {
+                'agent': agent,
+                'extension': extension,
+                'answered': 0,
+                'outbound': 0,
+                'inbound': 0,
+                'missed': 0,
+                'talk_seconds': 0,
+                'calls': 0,
+                'recent': [],
+            },
+        )
+        agent_bucket['calls'] = int(agent_bucket['calls']) + 1
+        agent_bucket['answered'] = int(agent_bucket['answered']) + (1 if is_answered else 0)
+        agent_bucket['outbound'] = int(agent_bucket['outbound']) + (1 if is_outbound else 0)
+        agent_bucket['inbound'] = int(agent_bucket['inbound']) + (0 if is_outbound else 1)
+        agent_bucket['missed'] = int(agent_bucket['missed']) + (1 if is_missed else 0)
+        if is_outbound:
+            agent_bucket['outbound_answered'] = int(agent_bucket.get('outbound_answered') or 0) + (1 if is_answered else 0)
+            agent_bucket['outbound_missed'] = int(agent_bucket.get('outbound_missed') or 0) + (1 if is_missed else 0)
+        else:
+            agent_bucket['inbound_answered'] = int(agent_bucket.get('inbound_answered') or 0) + (1 if is_answered else 0)
+            agent_bucket['inbound_missed'] = int(agent_bucket.get('inbound_missed') or 0) + (1 if is_missed else 0)
+        agent_bucket['talk_seconds'] = int(agent_bucket['talk_seconds']) + duration_seconds
+        agent_recent = agent_bucket.get('recent') if isinstance(agent_bucket.get('recent'), list) else []
+        if len(agent_recent) < 8:
+            agent_recent.append(
+                {
+                    'date': call_date,
+                    'source': source_number,
+                    'queue': queue,
+                    'direction': direction_label,
+                    'duration_seconds': duration_seconds,
+                    'status': status_label,
+                }
+            )
+            agent_bucket['recent'] = agent_recent
+
+    for queue_row in queues.values():
+        calls = max(1, int(queue_row['calls']))
+        queue_row['sla_pct'] = round((int(queue_row.get('sla') or 0) / calls) * 100, 1)
+    for agent_row in agents.values():
+        calls = max(1, int(agent_row.get('calls') or 0))
+        agent_row['avg_talk_seconds'] = int(int(agent_row.get('talk_seconds') or 0) / calls)
+        agent_row['target_pct'] = round((int(agent_row.get('answered') or 0) / max(1, target_calls_per_agent)) * 100, 1)
+
+    source_rows: list[dict[str, object]] = []
+    for source_row in sources.values():
+        calls = max(1, int(source_row.get('calls') or 0))
+        source_agents = source_row.get('agents') if isinstance(source_row.get('agents'), dict) else {}
+        agent_rows = []
+        for agent_source_row in source_agents.values():
+            agent_calls = max(1, int(agent_source_row.get('calls') or 0))
+            agent_rows.append(
+                {
+                    **agent_source_row,
+                    'avg_talk_seconds': int(int(agent_source_row.get('talk_seconds') or 0) / agent_calls),
+                }
+            )
+        clean_source_row = dict(source_row)
+        clean_source_row['avg_talk_seconds'] = int(int(source_row.get('talk_seconds') or 0) / calls)
+        clean_source_row['agents'] = sorted(agent_rows, key=lambda item: int(item.get('calls') or 0), reverse=True)[:5]
+        source_rows.append(clean_source_row)
+
+    return {
+        'stats': {
+            'total_calls': total_calls,
+            'answered_calls': answered_calls,
+            'missed_calls': missed_calls,
+            'outbound_calls': outbound_calls,
+            'inbound_answered_calls': inbound_answered_calls,
+            'outbound_answered_calls': outbound_answered_calls,
+            'inbound_missed_calls': inbound_missed_calls,
+            'outbound_missed_calls': outbound_missed_calls,
+            'answer_rate_pct': round((answered_calls / total_calls) * 100, 1) if total_calls else 0,
+            'avg_wait_seconds': int(total_wait_seconds / wait_count) if wait_count else 0,
+        },
+        'daily_rows': sorted(daily.values(), key=lambda item: str(item.get('date') or ''))[-31:],
+        'queue_rows': sorted(queues.values(), key=lambda item: int(item.get('calls') or 0), reverse=True)[:20],
+        'agent_rows': sorted(agents.values(), key=lambda item: int(item.get('answered') or 0), reverse=True)[:50],
+        'source_rows': sorted(source_rows, key=lambda item: int(item.get('calls') or 0), reverse=True)[:50],
+    }
+
+
+def _filter_3cx_manual_import(
+    manual_import: dict[str, object],
+    *,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    queues: object = '',
+    target_calls_per_agent: int = 60,
+    answer_sla_seconds: int = 30,
+) -> dict[str, object]:
+    call_rows = manual_import.get('call_rows')
+    queue_terms = _split_3cx_filter_terms(queues)
+    if not isinstance(call_rows, list):
+        if from_date is None and to_date is None and not queue_terms:
+            return manual_import
+        filtered = dict(manual_import)
+        if isinstance(manual_import.get('daily_rows'), list) and (from_date is not None or to_date is not None):
+            daily_rows = []
+            for row in manual_import.get('daily_rows') or []:
+                if not isinstance(row, dict):
+                    continue
+                row_date = _parse_3cx_filter_date_value(row.get('date'))
+                if from_date is not None and (row_date is None or row_date < from_date):
+                    continue
+                if to_date is not None and (row_date is None or row_date > to_date):
+                    continue
+                daily_rows.append(row)
+            stats = dict(manual_import.get('stats') if isinstance(manual_import.get('stats'), dict) else {})
+            total_calls = sum(int(row.get('calls') or 0) for row in daily_rows)
+            answered_calls = sum(int(row.get('answered') or 0) for row in daily_rows)
+            missed_calls = sum(int(row.get('missed') or 0) for row in daily_rows)
+            outbound_calls = sum(int(row.get('outbound') or 0) for row in daily_rows)
+            stats.update(
+                {
+                    'total_calls': total_calls,
+                    'answered_calls': answered_calls,
+                    'missed_calls': missed_calls,
+                    'outbound_calls': outbound_calls,
+                    'answer_rate_pct': round((answered_calls / total_calls) * 100, 1) if total_calls else 0,
+                }
+            )
+            filtered['daily_rows'] = daily_rows
+            filtered['stats'] = stats
+            filtered['rows'] = total_calls
+        if queue_terms:
+            def _matches_queue(row: dict[str, object]) -> bool:
+                searchable = ' '.join(str(row.get(field) or '').lower() for field in ('queue', 'extension', 'source', 'did'))
+                return any(term in searchable for term in queue_terms)
+
+            queue_rows = [
+                row for row in (manual_import.get('queue_rows') if isinstance(manual_import.get('queue_rows'), list) else [])
+                if isinstance(row, dict) and _matches_queue(row)
+            ]
+            source_rows = [
+                row for row in (manual_import.get('source_rows') if isinstance(manual_import.get('source_rows'), list) else [])
+                if isinstance(row, dict) and _matches_queue(row)
+            ]
+            filtered['queue_rows'] = queue_rows
+            filtered['source_rows'] = source_rows
+            if from_date is None and to_date is None:
+                total_calls = sum(int(row.get('calls') or 0) for row in queue_rows)
+                answered_calls = sum(int(row.get('answered') or 0) for row in queue_rows)
+                missed_calls = sum(int(row.get('missed') or 0) for row in queue_rows)
+                stats = dict(filtered.get('stats') if isinstance(filtered.get('stats'), dict) else {})
+                stats.update(
+                    {
+                        'total_calls': total_calls,
+                        'answered_calls': answered_calls,
+                        'missed_calls': missed_calls,
+                        'answer_rate_pct': round((answered_calls / total_calls) * 100, 1) if total_calls else 0,
+                    }
+                )
+                filtered['stats'] = stats
+                filtered['rows'] = total_calls
+        filtered['filters_applied'] = True
+        filtered['legacy_filter_mode'] = True
+        return filtered
+    if from_date is None and to_date is None and not queue_terms:
+        return manual_import
+
+    filtered_rows: list[dict[str, object]] = []
+    for row in call_rows:
+        if not isinstance(row, dict):
+            continue
+        call_date = _parse_3cx_filter_date_value(row.get('date'))
+        if from_date is not None and (call_date is None or call_date < from_date):
+            continue
+        if to_date is not None and (call_date is None or call_date > to_date):
+            continue
+        if queue_terms:
+            searchable = ' '.join(
+                str(row.get(field) or '').lower()
+                for field in ('queue', 'extension', 'agent', 'source', 'did')
+            )
+            if not any(term in searchable for term in queue_terms):
+                continue
+        filtered_rows.append(row)
+
+    filtered = dict(manual_import)
+    filtered['call_rows'] = filtered_rows
+    filtered_call_ids = {str(row.get('call_id') or row.get('fingerprint') or '') for row in filtered_rows if isinstance(row, dict)}
+    if isinstance(manual_import.get('journey_rows'), list):
+        filtered['journey_rows'] = [
+            row for row in manual_import.get('journey_rows') or []
+            if isinstance(row, dict) and str(row.get('call_id') or '') in filtered_call_ids
+        ]
+    filtered['rows'] = len(filtered_rows)
+    filtered['filtered_rows'] = len(filtered_rows)
+    filtered['filters_applied'] = True
+    filtered.update(
+        _aggregate_3cx_call_rows(
+            filtered_rows,
+            target_calls_per_agent=target_calls_per_agent,
+            answer_sla_seconds=answer_sla_seconds,
+        )
+    )
+    return filtered
+
+
+def _parse_3cx_master_call_report(
+    *,
+    filename: str,
+    text_value: str,
+    rows: list[dict[str, object]],
+    user_identity: str,
+) -> dict[str, object]:
+    grouped: dict[str, list[dict[str, object]]] = {}
+    missing_call_id_rows = 0
+    for row in rows:
+        call_id = _pick_3cx_value(row, 'Call ID', 'CallId', 'Call Unique ID', 'Unique ID')
+        if not call_id:
+            missing_call_id_rows += 1
+            continue
+        grouped.setdefault(call_id, []).append(row)
+
+    call_rows: list[dict[str, object]] = []
+    journey_rows: list[dict[str, object]] = []
+    internal_rows = 0
+    duplicate_rows = 0
+
+    for call_id, legs in grouped.items():
+        clean_legs = sorted(legs, key=lambda item: _pick_3cx_value(item, 'Call Time', 'Date', 'Start Time', 'Start', 'Time'))
+        if not clean_legs:
+            continue
+        has_external = any(
+            _3cx_has_external_endpoint(_pick_3cx_value(leg, 'From'), _pick_3cx_value(leg, 'To'))
+            or str(_pick_3cx_value(leg, 'Direction')).strip().lower() != 'internal'
+            for leg in clean_legs
+        )
+        if not has_external:
+            internal_rows += len(clean_legs)
+            continue
+
+        first_leg = clean_legs[0]
+        first_time = _pick_3cx_value(first_leg, 'Call Time', 'Date', 'Start Time', 'Start', 'Time')
+        call_date = _parse_3cx_date(first_time)
+        external_source = ''
+        first_external_to = ''
+        first_queue = ''
+        first_answered_agent = ''
+        first_answered_extension = ''
+        outbound_agent = ''
+        outbound_extension = ''
+        final_status = ''
+        final_destination = ''
+        answered = False
+        outbound = False
+        total_ring_seconds = 0
+        total_talk_seconds = 0
+
+        for index, leg in enumerate(clean_legs):
+            direction = _pick_3cx_value(leg, 'Direction', 'Call Type', 'Type')
+            status = _pick_3cx_value(leg, 'Status', 'Call Status', 'Result', 'Disposition')
+            from_value = _pick_3cx_value(leg, 'From', 'Caller ID', 'Caller', 'Source')
+            to_value = _pick_3cx_value(leg, 'To', 'Destination', 'Called Number', 'Final Destination')
+            ringing_seconds = _parse_3cx_duration_seconds(_pick_3cx_value(leg, 'Ringing', 'Ring Time', 'Wait Time', 'Waiting Time'))
+            talking_seconds = _parse_3cx_duration_seconds(_pick_3cx_value(leg, 'Talking', 'Talk Time', 'Duration'))
+            activity = _pick_3cx_value(leg, 'Call Activity Details', 'Activity', 'Details')
+            leg_from_external = _3cx_external_endpoint(from_value)
+            leg_to_external = _3cx_external_endpoint(to_value)
+            if not external_source and leg_from_external:
+                external_source = leg_from_external
+            if not external_source and leg_to_external:
+                external_source = leg_to_external
+            if not first_external_to and not leg_to_external:
+                first_external_to = to_value
+            if not first_queue and ('queue' in direction.lower() or 'queue' in to_value.lower() or re.search(r'\(8\d{2}\)\s*$', to_value)):
+                first_queue = to_value
+            if not outbound and direction.lower() == 'outbound':
+                outbound = True
+            if direction.lower() == 'outbound' and not outbound_agent and not leg_from_external and not _3cx_is_queue_endpoint(from_value):
+                outbound_agent = from_value
+                outbound_extension = _3cx_internal_extension_code(from_value)
+            if status.lower() == 'answered' and talking_seconds > 0:
+                answered = True
+                ended_by = _3cx_activity_ended_by(activity)
+                if ended_by and not _3cx_external_endpoint(ended_by) and not _3cx_is_queue_endpoint(ended_by):
+                    first_answered_agent = ended_by
+                    first_answered_extension = _3cx_internal_extension_code(ended_by)
+                elif not first_answered_agent and not leg_to_external and not _3cx_is_queue_endpoint(to_value):
+                    first_answered_agent = to_value
+                    first_answered_extension = _3cx_internal_extension_code(to_value)
+            total_ring_seconds += ringing_seconds
+            total_talk_seconds += talking_seconds
+            final_status = status
+            final_destination = to_value
+            journey_rows.append(
+                {
+                    'call_id': call_id,
+                    'seq': index + 1,
+                    'time': first_time if index == 0 else _pick_3cx_value(leg, 'Call Time', 'Date', 'Start Time', 'Start', 'Time'),
+                    'date': _parse_3cx_date(_pick_3cx_value(leg, 'Call Time', 'Date', 'Start Time', 'Start', 'Time')),
+                    'from': from_value,
+                    'to': to_value,
+                    'direction': direction,
+                    'status': status,
+                    'ringing_seconds': ringing_seconds,
+                    'talking_seconds': talking_seconds,
+                    'activity': activity,
+                    'is_internal_leg': not (_3cx_has_external_endpoint(from_value, to_value) or direction.lower() != 'internal'),
+                }
+            )
+
+        if not external_source:
+            internal_rows += len(clean_legs)
+            continue
+        is_missed = not answered
+        queue = first_queue or first_external_to or final_destination or ('Outbound' if outbound else 'Χωρίς queue')
+        if outbound:
+            agent = outbound_agent or 'Χωρίς agent'
+            extension = outbound_extension
+        elif first_answered_agent:
+            agent = first_answered_agent
+            extension = first_answered_extension
+        elif final_destination and not _3cx_external_endpoint(final_destination) and not _3cx_is_queue_endpoint(final_destination):
+            agent = final_destination
+            extension = _3cx_internal_extension_code(final_destination)
+        else:
+            agent = 'Χωρίς agent'
+            extension = ''
+        call_rows.append(
+            {
+                'date': call_date,
+                'raw_call_time': first_time,
+                'call_id': call_id,
+                'queue': queue,
+                'agent': agent,
+                'extension': extension,
+                'source': external_source,
+                'did': first_external_to,
+                'duration_seconds': total_talk_seconds,
+                'wait_seconds': total_ring_seconds,
+                'is_outbound': outbound,
+                'is_answered': answered,
+                'is_missed': is_missed,
+                'direction_label': 'Εξ.' if outbound else 'Εισ.',
+                'status_label': 'Χαμένη' if is_missed else 'Απαντ.',
+                'fingerprint': call_id,
+                'journey_legs': len(clean_legs),
+                'final_status': final_status,
+                'final_destination': final_destination,
+            }
+        )
+        duplicate_rows += max(0, len(clean_legs) - 1)
+
+    parsed = {
+        'filename': filename,
+        'uploaded_at': datetime.utcnow().isoformat(timespec='seconds') + 'Z',
+        'uploaded_by': user_identity or 'admin',
+        'source_sha256': hashlib.sha256(text_value.encode('utf-8')).hexdigest(),
+        'rows': len(call_rows),
+        'raw_rows': len(rows),
+        'duplicate_rows': duplicate_rows,
+        'internal_rows': internal_rows,
+        'missing_call_id_rows': missing_call_id_rows,
+        'master_report': True,
+        'call_rows': call_rows,
+        'journey_rows': journey_rows,
+    }
+    parsed.update(_aggregate_3cx_call_rows(call_rows))
+    return parsed
+
+
 def _parse_3cx_report_upload(upload: UploadFile, *, user_identity: str, report_kind: str = 'auto') -> dict[str, object]:
     filename = Path(upload.filename or '').name
     if not filename.lower().endswith(('.csv', '.txt')):
@@ -1133,6 +1869,13 @@ def _parse_3cx_report_upload(upload: UploadFile, *, user_identity: str, report_k
     if not rows:
         raise ValueError('Το 3CX CSV δεν έχει γραμμές δεδομένων.')
     headers = {_clean_3cx_header(key) for key in (reader.fieldnames or [])}
+    if {'calltime', 'callid', 'from', 'to', 'callactivitydetails'}.issubset(headers):
+        return _parse_3cx_master_call_report(
+            filename=filename,
+            text_value=text_value,
+            rows=rows,
+            user_identity=user_identity,
+        )
     kind = str(report_kind or 'auto').strip().lower()
     if kind not in {'inbound', 'outbound'}:
         lower_filename = filename.lower()
@@ -1144,12 +1887,15 @@ def _parse_3cx_report_upload(upload: UploadFile, *, user_identity: str, report_k
             kind = 'auto'
 
     total_calls = answered_calls = missed_calls = outbound_calls = total_wait_seconds = wait_count = 0
+    inbound_answered_calls = outbound_answered_calls = inbound_missed_calls = outbound_missed_calls = 0
     daily: dict[str, dict[str, object]] = {}
     queues: dict[str, dict[str, object]] = {}
     agents: dict[str, dict[str, object]] = {}
     sources: dict[str, dict[str, object]] = {}
     seen_call_keys: set[str] = set()
     duplicate_rows = 0
+    internal_rows = 0
+    call_rows: list[dict[str, object]] = []
 
     for row in rows:
         direction = _pick_3cx_value(row, 'Direction', 'Call Type', 'Type').lower()
@@ -1224,6 +1970,16 @@ def _parse_3cx_report_upload(upload: UploadFile, *, user_identity: str, report_k
                 or 'Άγνωστη πηγή'
             )
             did_number = _pick_3cx_value(row, 'DID', 'DDI', 'Dialed Number', 'Called Number', 'To Number', 'Line', 'Εισερχόμενος Αριθμός')
+        if _is_3cx_internal_only_call(
+            source_number=source_number,
+            destination_value=destination_value,
+            extension=extension,
+            agent=agent,
+            queue=queue,
+            did_number=did_number,
+        ):
+            internal_rows += 1
+            continue
         raw_call_time = _pick_3cx_value(row, 'Date', 'Start Time', 'Start', 'Time', 'Call Time')
         call_date = _parse_3cx_date(raw_call_time)
         duration_seconds = _parse_3cx_duration_seconds(
@@ -1270,12 +2026,38 @@ def _parse_3cx_report_upload(upload: UploadFile, *, user_identity: str, report_k
         if call_key in seen_call_keys:
             duplicate_rows += 1
             continue
-        seen_call_keys.add(call_key)
+        else:
+            seen_call_keys.add(call_key)
+        call_rows.append(
+            {
+                'date': call_date,
+                'raw_call_time': raw_call_time,
+                'queue': queue,
+                'agent': agent,
+                'extension': extension,
+                'source': source_number,
+                'did': did_number,
+                'duration_seconds': duration_seconds,
+                'wait_seconds': wait_seconds,
+                'is_outbound': is_outbound,
+                'is_answered': is_answered,
+                'is_missed': is_missed,
+                'direction_label': 'Εξ.' if is_outbound else 'Εισ.',
+                'status_label': 'Χαμένη' if is_missed else 'Απαντ.',
+                'fingerprint': call_key,
+            }
+        )
 
         total_calls += 1
         answered_calls += 1 if is_answered else 0
         missed_calls += 1 if is_missed else 0
         outbound_calls += 1 if is_outbound else 0
+        if is_outbound:
+            outbound_answered_calls += 1 if is_answered else 0
+            outbound_missed_calls += 1 if is_missed else 0
+        else:
+            inbound_answered_calls += 1 if is_answered else 0
+            inbound_missed_calls += 1 if is_missed else 0
         if wait_seconds:
             total_wait_seconds += wait_seconds
             wait_count += 1
@@ -1347,6 +2129,10 @@ def _parse_3cx_report_upload(upload: UploadFile, *, user_identity: str, report_k
                 'extension': extension,
                 'answered': 0,
                 'outbound': 0,
+                'inbound_answered': 0,
+                'outbound_answered': 0,
+                'inbound_missed': 0,
+                'outbound_missed': 0,
                 'inbound': 0,
                 'missed': 0,
                 'talk_seconds': 0,
@@ -1359,6 +2145,12 @@ def _parse_3cx_report_upload(upload: UploadFile, *, user_identity: str, report_k
         agent_bucket['outbound'] = int(agent_bucket['outbound']) + (1 if is_outbound else 0)
         agent_bucket['inbound'] = int(agent_bucket['inbound']) + (0 if is_outbound else 1)
         agent_bucket['missed'] = int(agent_bucket['missed']) + (1 if is_missed else 0)
+        if is_outbound:
+            agent_bucket['outbound_answered'] = int(agent_bucket.get('outbound_answered') or 0) + (1 if is_answered else 0)
+            agent_bucket['outbound_missed'] = int(agent_bucket.get('outbound_missed') or 0) + (1 if is_missed else 0)
+        else:
+            agent_bucket['inbound_answered'] = int(agent_bucket.get('inbound_answered') or 0) + (1 if is_answered else 0)
+            agent_bucket['inbound_missed'] = int(agent_bucket.get('inbound_missed') or 0) + (1 if is_missed else 0)
         agent_bucket['talk_seconds'] = int(agent_bucket['talk_seconds']) + duration_seconds
         agent_recent = agent_bucket.get('recent') if isinstance(agent_bucket.get('recent'), list) else []
         if len(agent_recent) < 8:
@@ -1405,14 +2197,20 @@ def _parse_3cx_report_upload(upload: UploadFile, *, user_identity: str, report_k
         'uploaded_at': datetime.utcnow().isoformat(timespec='seconds') + 'Z',
         'uploaded_by': user_identity or 'admin',
         'source_sha256': hashlib.sha256(text_value.encode('utf-8')).hexdigest(),
-        'rows': len(rows) - duplicate_rows,
+        'rows': len(call_rows),
         'raw_rows': len(rows),
         'duplicate_rows': duplicate_rows,
+        'internal_rows': internal_rows,
+        'call_rows': call_rows,
         'stats': {
             'total_calls': total_calls,
             'answered_calls': answered_calls,
             'missed_calls': missed_calls,
             'outbound_calls': outbound_calls,
+            'inbound_answered_calls': inbound_answered_calls,
+            'outbound_answered_calls': outbound_answered_calls,
+            'inbound_missed_calls': inbound_missed_calls,
+            'outbound_missed_calls': outbound_missed_calls,
             'answer_rate_pct': round((answered_calls / total_calls) * 100, 1) if total_calls else 0,
             'avg_wait_seconds': int(total_wait_seconds / wait_count) if wait_count else 0,
         },
@@ -1434,12 +2232,16 @@ def _merge_3cx_manual_imports(imports: list[dict[str, object]], *, user_identity
         'rows': sum(int(item.get('rows') or 0) for item in valid_imports),
         'raw_rows': sum(int(item.get('raw_rows') or item.get('rows') or 0) for item in valid_imports),
         'duplicate_rows': sum(int(item.get('duplicate_rows') or 0) for item in valid_imports),
+        'internal_rows': sum(int(item.get('internal_rows') or 0) for item in valid_imports),
         'import_fingerprints': sorted(
             str(item.get('source_sha256') or '')
             for item in valid_imports
             if str(item.get('source_sha256') or '').strip()
         ),
     }
+    merged_call_rows: list[dict[str, object]] = []
+    merged_call_fingerprints: set[str] = set()
+    cross_import_duplicate_rows = 0
     stats = {
         'total_calls': 0,
         'answered_calls': 0,
@@ -1451,7 +2253,23 @@ def _merge_3cx_manual_imports(imports: list[dict[str, object]], *, user_identity
     queues: dict[str, dict[str, object]] = {}
     agents: dict[str, dict[str, object]] = {}
     sources: dict[str, dict[str, object]] = {}
+    master_import = next((item for item in valid_imports if item.get('master_report')), None)
+    if isinstance(master_import, dict):
+        valid_imports = [master_import]
     for item in valid_imports:
+        item_has_call_rows = isinstance(item.get('call_rows'), list)
+        for row in item.get('call_rows') if isinstance(item.get('call_rows'), list) else []:
+            if not isinstance(row, dict):
+                continue
+            fingerprint = str(row.get('fingerprint') or '').strip()
+            if fingerprint and fingerprint in merged_call_fingerprints:
+                cross_import_duplicate_rows += 1
+                continue
+            if fingerprint:
+                merged_call_fingerprints.add(fingerprint)
+            merged_call_rows.append(dict(row))
+        if item_has_call_rows:
+            continue
         item_stats = item.get('stats') if isinstance(item.get('stats'), dict) else {}
         stats['total_calls'] += int(item_stats.get('total_calls') or 0)
         stats['answered_calls'] += int(item_stats.get('answered_calls') or 0)
@@ -1483,6 +2301,10 @@ def _merge_3cx_manual_imports(imports: list[dict[str, object]], *, user_identity
                     'extension': row.get('extension') or '',
                     'answered': 0,
                     'outbound': 0,
+                    'inbound_answered': 0,
+                    'outbound_answered': 0,
+                    'inbound_missed': 0,
+                    'outbound_missed': 0,
                     'inbound': 0,
                     'missed': 0,
                     'talk_seconds': 0,
@@ -1490,7 +2312,7 @@ def _merge_3cx_manual_imports(imports: list[dict[str, object]], *, user_identity
                     'recent': [],
                 },
             )
-            for field in ('answered', 'outbound', 'inbound', 'missed', 'talk_seconds', 'calls'):
+            for field in ('answered', 'outbound', 'inbound_answered', 'outbound_answered', 'inbound_missed', 'outbound_missed', 'inbound', 'missed', 'talk_seconds', 'calls'):
                 bucket[field] = int(bucket.get(field) or 0) + int(row.get(field) or 0)
             if isinstance(row.get('recent'), list):
                 recent_rows = bucket.get('recent') if isinstance(bucket.get('recent'), list) else []
@@ -1509,6 +2331,23 @@ def _merge_3cx_manual_imports(imports: list[dict[str, object]], *, user_identity
             bucket['last_call'] = max(str(bucket.get('last_call') or ''), str(row.get('last_call') or ''))
             bucket['agents'] = list(bucket.get('agents') or []) + list(row.get('agents') or [])
             bucket['recent'] = (list(bucket.get('recent') or []) + list(row.get('recent') or []))[:5]
+    if merged_call_rows:
+        merged['rows'] = len(merged_call_rows)
+        merged['duplicate_rows'] = int(merged.get('duplicate_rows') or 0) + cross_import_duplicate_rows
+        merged['call_rows'] = merged_call_rows
+        if isinstance(master_import, dict):
+            merged['master_report'] = True
+            merged['journey_rows'] = [
+                dict(row)
+                for row in (master_import.get('journey_rows') if isinstance(master_import.get('journey_rows'), list) else [])
+                if isinstance(row, dict)
+            ]
+            for field in ('missing_call_id_rows',):
+                if field in master_import:
+                    merged[field] = master_import[field]
+        merged.update(_aggregate_3cx_call_rows(merged_call_rows))
+        return merged
+
     stats['answer_rate_pct'] = round((stats['answered_calls'] / stats['total_calls']) * 100, 1) if stats['total_calls'] else 0
     for queue_row in queues.values():
         calls = max(1, int(queue_row.get('calls') or 0))
@@ -1521,6 +2360,7 @@ def _merge_3cx_manual_imports(imports: list[dict[str, object]], *, user_identity
         calls = max(1, int(source_row.get('calls') or 0))
         source_row['avg_talk_seconds'] = int(int(source_row.get('talk_seconds') or 0) / calls)
     merged['stats'] = stats
+    merged['call_rows'] = merged_call_rows
     merged['daily_rows'] = sorted(daily.values(), key=lambda row: str(row.get('date') or ''))[-31:]
     merged['queue_rows'] = sorted(queues.values(), key=lambda row: int(row.get('calls') or 0), reverse=True)[:20]
     merged['agent_rows'] = sorted(agents.values(), key=lambda row: int(row.get('answered') or 0), reverse=True)[:50]
@@ -10246,20 +11086,130 @@ async def tenant_call_center_sync_now(
     return RedirectResponse(url=f'/tenant/call-center?call_center_sync={status}&{reason}', status_code=303)
 
 
-@router.post('/tenant/settings/call-center')
-async def tenant_settings_call_center_upload(
-    call_center_inbound_report_file: UploadFile | None = File(default=None),
-    call_center_outbound_report_file: UploadFile | None = File(default=None),
-    call_center_report_file: UploadFile | None = File(default=None),
+@router.post('/tenant/settings/call-center/clear')
+async def tenant_settings_call_center_clear(
+    return_to: str = Form(default='/tenant/settings'),
     tenant: Tenant = Depends(get_request_tenant),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_control_db),
 ):
     if user.role not in {RoleName.tenant_admin, RoleName.cloudon_admin}:
-        return RedirectResponse(url='/tenant/settings?call_center_upload=0&reason=permission', status_code=303)
+        return _tenant_3cx_redirect(return_to, call_center_clear=0, reason='permission')
+    conn = await _find_tenant_connection(db, tenant_id=tenant.id, connector_type=_3CX_CONNECTOR_TYPE)
+    if conn is None:
+        return _tenant_3cx_redirect(return_to, call_center_clear=0, reason='not_found')
+    params = dict(conn.connection_parameters if isinstance(conn.connection_parameters, dict) else {})
+    previous_import = params.get('manual_import') if isinstance(params.get('manual_import'), dict) else {}
+    previous_rows = int(previous_import.get('rows') or 0) if isinstance(previous_import, dict) else 0
+    previous_filename = str(previous_import.get('filename') or '') if isinstance(previous_import, dict) else ''
+    params.pop('manual_import', None)
+    params['import_mode'] = 'replace_snapshot'
+    conn.connection_parameters = params
+    conn.sync_status = 'cleared'
+    conn.last_sync_at = None
+    flag_modified(conn, 'connection_parameters')
+    db.add(
+        AuditLog(
+            tenant_id=tenant.id,
+            actor_user_id=user.id,
+            action='tenant_3cx_call_center_cleared',
+            entity_type='tenant_connection',
+            entity_id=str(conn.id),
+            payload={'previous_rows': previous_rows, 'previous_filename': previous_filename},
+        )
+    )
+    await db.commit()
+    return _tenant_3cx_redirect(return_to, call_center_clear=1)
+
+
+@router.post('/tenant/settings/call-center/directory')
+async def tenant_settings_call_center_directory(
+    call_center_extensions_file: UploadFile | None = File(default=None),
+    agent_directory_text: str = Form(default=''),
+    queue_directory_text: str = Form(default=''),
+    return_to: str = Form(default='/tenant/settings'),
+    tenant: Tenant = Depends(get_request_tenant),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_control_db),
+):
+    if user.role not in {RoleName.tenant_admin, RoleName.cloudon_admin}:
+        return _tenant_3cx_redirect(return_to, call_center_directory=0, reason='permission')
     db_tenant = (await db.execute(select(Tenant).where(Tenant.id == tenant.id))).scalar_one_or_none()
     if db_tenant is None:
-        return RedirectResponse(url='/tenant/settings?call_center_upload=0&reason=tenant_not_found', status_code=303)
+        return _tenant_3cx_redirect(return_to, call_center_directory=0, reason='tenant_not_found')
+
+    imported_agents: dict[str, str] = {}
+    if call_center_extensions_file is not None and call_center_extensions_file.filename:
+        try:
+            imported_agents = _parse_3cx_extensions_csv_text(_as_3cx_report_text(call_center_extensions_file))
+        except Exception as exc:
+            return _tenant_3cx_redirect(return_to, call_center_directory=0, reason='extensions_invalid', message=str(exc))
+        if not imported_agents:
+            return _tenant_3cx_redirect(return_to, call_center_directory=0, reason='extensions_empty')
+
+    conn = await _find_tenant_connection(db, tenant_id=db_tenant.id, connector_type=_3CX_CONNECTOR_TYPE)
+    if conn is None:
+        conn = TenantConnection(
+            tenant_id=db_tenant.id,
+            connector_type=_3CX_CONNECTOR_TYPE,
+            source_type='file',
+            is_active=True,
+            supported_streams=['call_center_kpis'],
+            enabled_streams=['call_center_kpis'],
+        )
+        db.add(conn)
+
+    params = dict(conn.connection_parameters if isinstance(conn.connection_parameters, dict) else {})
+    params.setdefault('fqdn', _DEFAULT_3CX_FQDN)
+    params.setdefault('username', _DEFAULT_3CX_USERNAME)
+    params.setdefault('client_id', '')
+    params.setdefault('queue_ids', '')
+    params.setdefault('team_extensions', '')
+    params.setdefault('polling_interval_minutes', 5)
+    params.setdefault('answer_sla_seconds', 30)
+    params.setdefault('target_calls_per_agent', 60)
+    params['agent_directory_text'] = _merge_3cx_directory_text(agent_directory_text, imported_agents)
+    params['queue_directory_text'] = _format_3cx_directory_text(_parse_3cx_directory_text(queue_directory_text))
+    params['directory_updated_at'] = datetime.now(timezone.utc).isoformat()
+    params['directory_updated_by'] = str(user.email or user.full_name or user.id)
+    conn.connection_parameters = params
+    conn.source_type = conn.source_type or 'file'
+    conn.is_active = True
+    flag_modified(conn, 'connection_parameters')
+    await db.flush()
+    db.add(
+        AuditLog(
+            tenant_id=db_tenant.id,
+            actor_user_id=user.id,
+            action='tenant_3cx_call_center_directory_saved',
+            entity_type='tenant_connection',
+            entity_id=str(conn.id),
+            payload={
+                'agents': len(_parse_3cx_directory_text(params.get('agent_directory_text'))),
+                'queues': len(_parse_3cx_directory_text(params.get('queue_directory_text'))),
+                'extensions_file': str(call_center_extensions_file.filename or '') if call_center_extensions_file else '',
+            },
+        )
+    )
+    await db.commit()
+    return _tenant_3cx_redirect(return_to, call_center_directory=1)
+
+
+@router.post('/tenant/settings/call-center')
+async def tenant_settings_call_center_upload(
+    call_center_inbound_report_file: UploadFile | None = File(default=None),
+    call_center_outbound_report_file: UploadFile | None = File(default=None),
+    call_center_report_file: UploadFile | None = File(default=None),
+    return_to: str = Form(default='/tenant/settings'),
+    tenant: Tenant = Depends(get_request_tenant),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_control_db),
+):
+    if user.role not in {RoleName.tenant_admin, RoleName.cloudon_admin}:
+        return _tenant_3cx_redirect(return_to, call_center_upload=0, reason='permission')
+    db_tenant = (await db.execute(select(Tenant).where(Tenant.id == tenant.id))).scalar_one_or_none()
+    if db_tenant is None:
+        return _tenant_3cx_redirect(return_to, call_center_upload=0, reason='tenant_not_found')
     user_identity = str(user.email or user.full_name or user.id)
     imports: list[dict[str, object]] = []
     try:
@@ -10282,12 +11232,9 @@ async def tenant_settings_call_center_upload(
                 )
             )
     except ValueError as exc:
-        return RedirectResponse(
-            url=f'/tenant/settings?{urlencode({"call_center_upload": "0", "reason": "3cx_file_invalid", "message": str(exc)})}',
-            status_code=303,
-        )
+        return _tenant_3cx_redirect(return_to, call_center_upload=0, reason='3cx_file_invalid', message=str(exc))
     if not imports:
-        return RedirectResponse(url='/tenant/settings?call_center_upload=0&reason=missing_file', status_code=303)
+        return _tenant_3cx_redirect(return_to, call_center_upload=0, reason='missing_file')
     incoming_fingerprints = sorted(
         str(item.get('source_sha256') or '')
         for item in imports
@@ -10301,7 +11248,7 @@ async def tenant_settings_call_center_upload(
         if str(item or '').strip()
     )
     if incoming_fingerprints and incoming_fingerprints == existing_fingerprints:
-        return RedirectResponse(url='/tenant/settings?call_center_upload=0&reason=duplicate_file', status_code=303)
+        return _tenant_3cx_redirect(return_to, call_center_upload=0, reason='duplicate_file')
     manual_import = await _replace_3cx_manual_import(
         db,
         tenant_id=db_tenant.id,
@@ -10324,7 +11271,7 @@ async def tenant_settings_call_center_upload(
         )
     )
     await db.commit()
-    return RedirectResponse(url='/tenant/settings?call_center_upload=1', status_code=303)
+    return _tenant_3cx_redirect(return_to, call_center_upload=1)
 
 
 @router.post('/tenant/settings/era-exploration')
@@ -10718,7 +11665,13 @@ async def tenant_call_center_dashboard(
             'request': request,
             'tenant': tenant,
             **(await _tenant_navigation_context(tenant)),
-            'call_center_3cx': await _tenant_call_center_settings(db, tenant.id),
+            'call_center_3cx': await _tenant_call_center_settings(
+                db,
+                tenant.id,
+                from_date=from_date,
+                to_date=to_date,
+                queues=request.query_params.get('queues') or '',
+            ),
             'default_from': from_date,
             'default_to': to_date,
             'active_page': 'call_center',
@@ -11000,6 +11953,937 @@ async def tenant_replenishment_dashboard(
             'issue_rows': issue_rows,
             'hide_page_filters': True,
         },
+    )
+
+
+def _fnr_query_list(value: str | None) -> list[str]:
+    return [part.strip() for part in str(value or '').replace('\n', ',').split(',') if part.strip()]
+
+
+def _fnr_float(value: object, default: float) -> float:
+    try:
+        return float(str(value or '').replace(',', '.'))
+    except (TypeError, ValueError):
+        return default
+
+
+def _fnr_int(value: object, default: int) -> int:
+    try:
+        return max(int(float(str(value or '').replace(',', '.'))), 1)
+    except (TypeError, ValueError):
+        return default
+
+
+def _fnr_export_row(row: dict[str, object]) -> list[object]:
+    stores = row.get('stores') if isinstance(row.get('stores'), dict) else {}
+    stock_weeks = row.get('stock_weeks') if isinstance(row.get('stock_weeks'), dict) else {}
+    target_stock = row.get('target_stock') if isinstance(row.get('target_stock'), dict) else {}
+    need_qty = row.get('need_qty') if isinstance(row.get('need_qty'), dict) else {}
+    overstock_qty = row.get('overstock_qty') if isinstance(row.get('overstock_qty'), dict) else {}
+
+    def store_value(code: str, field: str) -> object:
+        metric = stores.get(code) if isinstance(stores.get(code), dict) else {}
+        return metric.get(field, 0) if isinstance(metric, dict) else 0
+
+    values: list[object] = [
+        row.get('item_code', ''),
+        row.get('item_name', ''),
+        row.get('category_1', ''),
+        row.get('category_2', ''),
+        row.get('category_3', ''),
+        row.get('status_1', ''),
+        row.get('status_2', ''),
+        row.get('min_stock', 0),
+        row.get('repl_moq', 0),
+        row.get('vendor_moq', 0),
+    ]
+    for field in ('sales_avg_1', 'sales_avg_2', 'stock_qty'):
+        values.extend(store_value(code, field) for code in ('KAS', 'AGD', 'PER', 'ELL', 'SPA', 'LOGICA'))
+    values.extend(stock_weeks.get(code, 0) for code in ('KAS', 'AGD', 'PER', 'ELL', 'SPA', 'LOGICA'))
+    values.extend(store_value(code, 'expected_qty') for code in ('KAS', 'AGD', 'PER', 'ELL', 'SPA', 'LOGICA'))
+    values.extend(target_stock.get(code, 0) for code in ('KAS', 'AGD', 'PER', 'ELL', 'SPA', 'LOGICA'))
+    values.extend(need_qty.get(code, 0) for code in ('KAS', 'AGD', 'PER', 'ELL', 'SPA', 'LOGICA'))
+    values.extend(overstock_qty.get(code, 0) for code in ('KAS', 'AGD', 'PER', 'ELL', 'SPA', 'LOGICA'))
+    values.extend([
+        row.get('supplier_order_qty', 0),
+        row.get('weeks_of_stock_total', 0),
+        row.get('purchase_price', 0),
+        row.get('supplier_order_value', 0),
+    ])
+    return values
+
+
+def _xlsx_column_letter(index: int) -> str:
+    value = max(int(index), 1)
+    out = ''
+    while value:
+        value, remainder = divmod(value - 1, 26)
+        out = chr(65 + remainder) + out
+    return out
+
+
+def _xlsx_cell(row_no: int, col_no: int, value: object, style: int = 0) -> str:
+    ref = f'{_xlsx_column_letter(col_no)}{row_no}'
+    style_attr = f' s="{style}"' if style else ''
+    if value is None:
+        return f'<c r="{ref}"{style_attr}/>'
+    if isinstance(value, bool):
+        return f'<c r="{ref}"{style_attr} t="b"><v>{1 if value else 0}</v></c>'
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return f'<c r="{ref}"{style_attr}><v>{float(value):.6f}</v></c>'
+    text_value = xml_escape(str(value), {'"': '&quot;'})
+    return f'<c r="{ref}"{style_attr} t="inlineStr"><is><t>{text_value}</t></is></c>'
+
+
+def _xlsx_sheet_xml(
+    rows: list[list[tuple[object, int] | object]],
+    *,
+    widths: list[float] | None = None,
+    freeze_row: int | None = None,
+    auto_filter_row: int | None = None,
+) -> str:
+    max_cols = max((len(row) for row in rows), default=1)
+    max_rows = max(len(rows), 1)
+    dimension = f'A1:{_xlsx_column_letter(max_cols)}{max_rows}'
+    col_xml = ''
+    if widths:
+        col_parts = []
+        for idx, width in enumerate(widths, start=1):
+            col_parts.append(f'<col min="{idx}" max="{idx}" width="{float(width):.2f}" customWidth="1"/>')
+        col_xml = f'<cols>{"".join(col_parts)}</cols>'
+    pane_xml = ''
+    if freeze_row and freeze_row > 1:
+        pane_xml = (
+            '<sheetViews><sheetView workbookViewId="0">'
+            f'<pane ySplit="{freeze_row - 1}" topLeftCell="A{freeze_row}" activePane="bottomLeft" state="frozen"/>'
+            '</sheetView></sheetViews>'
+        )
+    else:
+        pane_xml = '<sheetViews><sheetView workbookViewId="0"/></sheetViews>'
+    row_parts: list[str] = []
+    for row_no, row in enumerate(rows, start=1):
+        cells = []
+        for col_no, raw_cell in enumerate(row, start=1):
+            if isinstance(raw_cell, tuple):
+                value, style = raw_cell
+            else:
+                value, style = raw_cell, 0
+            cells.append(_xlsx_cell(row_no, col_no, value, style))
+        row_parts.append(f'<row r="{row_no}">{"".join(cells)}</row>')
+    auto_filter_xml = ''
+    if auto_filter_row and auto_filter_row <= max_rows:
+        auto_filter_xml = f'<autoFilter ref="A{auto_filter_row}:{_xlsx_column_letter(max_cols)}{max_rows}"/>'
+    return (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+        f'<dimension ref="{dimension}"/>'
+        f'{pane_xml}'
+        f'{col_xml}'
+        f'<sheetData>{"".join(row_parts)}</sheetData>'
+        f'{auto_filter_xml}'
+        '</worksheet>'
+    )
+
+
+def _build_xlsx_workbook(sheets: list[dict[str, object]]) -> bytes:
+    styles_xml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <numFmts count="2"><numFmt numFmtId="164" formatCode="#,##0.00"/><numFmt numFmtId="165" formatCode="#,##0.00 €"/></numFmts>
+  <fonts count="6">
+    <font><sz val="11"/><color rgb="FF111827"/><name val="Calibri"/></font>
+    <font><b/><sz val="18"/><color rgb="FF111827"/><name val="Calibri"/></font>
+    <font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font>
+    <font><b/><sz val="11"/><color rgb="FF1E3A8A"/><name val="Calibri"/></font>
+    <font><b/><sz val="11"/><color rgb="FF92400E"/><name val="Calibri"/></font>
+    <font><b/><sz val="11"/><color rgb="FF065F46"/><name val="Calibri"/></font>
+  </fonts>
+  <fills count="8">
+    <fill><patternFill patternType="none"/></fill>
+    <fill><patternFill patternType="gray125"/></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FF1F2937"/><bgColor indexed="64"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFD9EAFE"/><bgColor indexed="64"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFFFF7ED"/><bgColor indexed="64"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFECFDF5"/><bgColor indexed="64"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFFEF3C7"/><bgColor indexed="64"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFEFF6FF"/><bgColor indexed="64"/></patternFill></fill>
+  </fills>
+  <borders count="2">
+    <border><left/><right/><top/><bottom/><diagonal/></border>
+    <border><left style="thin"><color rgb="FFE2E8F0"/></left><right style="thin"><color rgb="FFE2E8F0"/></right><top style="thin"><color rgb="FFE2E8F0"/></top><bottom style="thin"><color rgb="FFE2E8F0"/></bottom><diagonal/></border>
+  </borders>
+  <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
+  <cellXfs count="10">
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0"/>
+    <xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/>
+    <xf numFmtId="0" fontId="2" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
+    <xf numFmtId="0" fontId="3" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1"/>
+    <xf numFmtId="164" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1"><alignment horizontal="right"/></xf>
+    <xf numFmtId="165" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1"><alignment horizontal="right"/></xf>
+    <xf numFmtId="164" fontId="4" fillId="6" borderId="1" xfId="0" applyFont="1" applyFill="1" applyNumberFormat="1"><alignment horizontal="right"/></xf>
+    <xf numFmtId="0" fontId="5" fillId="5" borderId="1" xfId="0" applyFont="1" applyFill="1"/>
+    <xf numFmtId="165" fontId="5" fillId="5" borderId="1" xfId="0" applyFont="1" applyFill="1" applyNumberFormat="1"><alignment horizontal="right"/></xf>
+    <xf numFmtId="0" fontId="3" fillId="7" borderId="1" xfId="0" applyFont="1" applyFill="1"/>
+  </cellXfs>
+  <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
+</styleSheet>"""
+    content_types = ['<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
+        '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">',
+        '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>',
+        '<Default Extension="xml" ContentType="application/xml"/>',
+        '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>',
+        '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>',
+    ]
+    workbook_sheets = []
+    workbook_rels = ['<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">',
+    ]
+    for idx, sheet in enumerate(sheets, start=1):
+        content_types.append(f'<Override PartName="/xl/worksheets/sheet{idx}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>')
+        name = xml_escape(str(sheet.get('name') or f'Sheet{idx}'), {'"': '&quot;'})
+        workbook_sheets.append(f'<sheet name="{name}" sheetId="{idx}" r:id="rId{idx}"/>')
+        workbook_rels.append(f'<Relationship Id="rId{idx}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet{idx}.xml"/>')
+    content_types.append('</Types>')
+    workbook_rels.append(f'<Relationship Id="rId{len(sheets) + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>')
+    workbook_rels.append('</Relationships>')
+    workbook_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+        f'<sheets>{"".join(workbook_sheets)}</sheets></workbook>'
+    )
+    root_rels = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>'
+        '</Relationships>'
+    )
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr('[Content_Types].xml', ''.join(content_types))
+        archive.writestr('_rels/.rels', root_rels)
+        archive.writestr('xl/workbook.xml', workbook_xml)
+        archive.writestr('xl/_rels/workbook.xml.rels', ''.join(workbook_rels))
+        archive.writestr('xl/styles.xml', styles_xml)
+        for idx, sheet in enumerate(sheets, start=1):
+            archive.writestr(f'xl/worksheets/sheet{idx}.xml', str(sheet['xml']))
+    return output.getvalue()
+
+
+def _build_fnr_order_xlsx(fnr: dict[str, object], *, tenant_name: str = '') -> bytes:
+    summary = fnr.get('summary') if isinstance(fnr.get('summary'), dict) else {}
+    filters = fnr.get('filters') if isinstance(fnr.get('filters'), dict) else {}
+    parameters = fnr.get('parameters') if isinstance(fnr.get('parameters'), dict) else {}
+    order_rows = [row for row in (fnr.get('order_rows') or []) if isinstance(row, dict)]
+    generated_at = datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')
+
+    def joined(key: str) -> str:
+        value = filters.get(key)
+        if isinstance(value, list):
+            return ', '.join(str(item) for item in value if str(item).strip()) or 'Όλα'
+        return str(value or 'Όλα')
+
+    order_sheet: list[list[tuple[object, int] | object]] = [
+        [('FNR Παραγγελία Προμηθευτή', 1)],
+        [(tenant_name or 'Tenant', 3), (f'Ημερομηνία δεδομένων: {summary.get("as_of", "-")}', 3), (f'Παραγωγή: {generated_at}', 3)],
+        [],
+        [('Σύνοψη', 7), ('Γραμμές παραγγελίας', 9), (summary.get('order_rows_count', 0), 4), ('Ποσότητα', 9), (summary.get('total_supplier_order_qty', 0), 4), ('Αξία', 9), (summary.get('total_supplier_order_value', 0), 8)],
+        [('Φίλτρα', 7), ('Φαρμακεία', 9), joined('pharmacies'), ('Κατηγ. 1', 9), joined('category_1'), ('Προμηθευτές', 9), joined('suppliers')],
+        [('Παράμετροι', 7), ('Target weeks', 9), parameters.get('target_stock_weeks', ''), ('Overstock weeks', 9), parameters.get('overstock_weeks', ''), ('MO1/MO2 weeks', 9), f"{parameters.get('sales_avg_period_1_weeks', '')}/{parameters.get('sales_avg_period_2_weeks', '')}"],
+        [],
+    ]
+    order_header = [
+        'Προμηθευτής', 'Κωδικός', 'Περιγραφή', 'Κατηγορία 1', 'Κατηγορία 2', 'Κατηγορία 3',
+        'Status', 'Ποσότητα Παραγγελίας', 'Τιμή Αγοράς', 'Αξία Παραγγελίας', 'Need Σύνολο',
+        'Stock Logica', 'Expected Logica', 'Weeks Total',
+        'Need ΚΑΣ', 'Need ΑΓΔ', 'Need ΠΕΡ', 'Need ΕΛΛ', 'Need ΣΠΑ', 'Need Logica',
+    ]
+    order_sheet.append([(header, 2) for header in order_header])
+    sorted_rows = sorted(order_rows, key=lambda row: (str(row.get('supplier') or 'Χωρίς προμηθευτή'), str(row.get('item_name') or '')))
+    current_supplier = None
+    supplier_qty = 0.0
+    supplier_value = 0.0
+
+    def subtotal_row(label: str, qty: float, value: float) -> list[tuple[object, int] | object]:
+        return [(f'Σύνολο {label}', 7), '', '', '', '', '', '', (qty, 6), '', (value, 8)]
+
+    for row in sorted_rows:
+        supplier = str(row.get('supplier') or 'Χωρίς προμηθευτή')
+        if current_supplier is not None and supplier != current_supplier:
+            order_sheet.append(subtotal_row(current_supplier, supplier_qty, supplier_value))
+            supplier_qty = 0.0
+            supplier_value = 0.0
+        current_supplier = supplier
+        stores = row.get('stores') if isinstance(row.get('stores'), dict) else {}
+        logica = stores.get('LOGICA') if isinstance(stores.get('LOGICA'), dict) else {}
+        need = row.get('need_qty') if isinstance(row.get('need_qty'), dict) else {}
+        qty = float(row.get('supplier_order_qty') or 0)
+        value = float(row.get('supplier_order_value') or 0)
+        supplier_qty += qty
+        supplier_value += value
+        order_sheet.append([
+            supplier,
+            row.get('item_code', ''),
+            row.get('item_name', ''),
+            row.get('category_1', ''),
+            row.get('category_2', ''),
+            row.get('category_3', ''),
+            row.get('status_1', ''),
+            (qty, 6),
+            (row.get('purchase_price', 0), 4),
+            (value, 5),
+            (row.get('total_need_qty', 0), 4),
+            (logica.get('stock_qty', 0), 4),
+            (logica.get('expected_qty', 0), 4),
+            (row.get('weeks_of_stock_total', 0), 4),
+            (need.get('KAS', 0), 4),
+            (need.get('AGD', 0), 4),
+            (need.get('PER', 0), 4),
+            (need.get('ELL', 0), 4),
+            (need.get('SPA', 0), 4),
+            (need.get('LOGICA', 0), 4),
+        ])
+    if current_supplier is not None:
+        order_sheet.append(subtotal_row(current_supplier, supplier_qty, supplier_value))
+
+    detail_sheet: list[list[tuple[object, int] | object]] = [
+        [('FNR Detail', 1)],
+        [(f'Πλήρης ανάλυση γραμμών παραγγελίας - {generated_at}', 3)],
+        [],
+        [(header, 2) for header in FNR_OUTPUT_COLUMNS],
+    ]
+    for row in order_rows:
+        detail_sheet.append([(value, 4 if isinstance(value, (int, float)) else 0) for value in _fnr_export_row(row)])
+
+    sheets = [
+        {
+            'name': 'Παραγγελία',
+            'xml': _xlsx_sheet_xml(
+                order_sheet,
+                widths=[22, 14, 42, 18, 18, 18, 16, 18, 14, 18, 14, 14, 14, 14, 12, 12, 12, 12, 12, 14],
+                freeze_row=8,
+                auto_filter_row=8,
+            ),
+        },
+        {
+            'name': 'FNR Detail',
+            'xml': _xlsx_sheet_xml(
+                detail_sheet,
+                widths=[14, 42, 18, 18, 18, 14, 18, 11, 11, 11] + [12] * (len(FNR_OUTPUT_COLUMNS) - 10),
+                freeze_row=4,
+                auto_filter_row=4,
+            ),
+        },
+    ]
+    return _build_xlsx_workbook(sheets)
+
+
+async def _build_fnr_context(
+    tenant_db: AsyncSession,
+    *,
+    pharmacies: str | None = None,
+    category_1: str | None = None,
+    category_2: str | None = None,
+    category_3: str | None = None,
+    suppliers: str | None = None,
+    search: str | None = None,
+    target_stock_weeks: str | None = None,
+    overstock_weeks: str | None = None,
+    sales_avg_period_1_weeks: str | None = None,
+    sales_avg_period_2_weeks: str | None = None,
+    limit: int = 5000,
+) -> dict[str, object]:
+    return await build_fnr_excel_from_facts(
+        tenant_db,
+        pharmacies=_fnr_query_list(pharmacies),
+        category_1=_fnr_query_list(category_1),
+        category_2=_fnr_query_list(category_2),
+        category_3=_fnr_query_list(category_3),
+        suppliers=_fnr_query_list(suppliers),
+        search=search or '',
+        target_stock_weeks=_fnr_float(target_stock_weeks, 4.0),
+        overstock_weeks=_fnr_float(overstock_weeks, 12.0),
+        sales_avg_period_1_weeks=_fnr_int(sales_avg_period_1_weeks, 4),
+        sales_avg_period_2_weeks=_fnr_int(sales_avg_period_2_weeks, 12),
+        limit=limit,
+    )
+
+
+def _worksheet_cache_params(**values: object) -> dict[str, object]:
+    return {key: '' if value is None else str(value) for key, value in sorted(values.items())}
+
+
+def _availability_date(value: object, default: date) -> date:
+    return _parse_date_or_none(str(value or '')) or default
+
+
+async def _build_availability_context(
+    tenant_db: AsyncSession,
+    *,
+    pharmacies: str | None = None,
+    category_1: str | None = None,
+    category_2: str | None = None,
+    category_3: str | None = None,
+    suppliers: str | None = None,
+    status_abcd: str | None = None,
+    commercial_status: str | None = None,
+    period_from: str | None = None,
+    period_to: str | None = None,
+    stock_date_1: str | None = None,
+    stock_date_2: str | None = None,
+    step: str | None = None,
+) -> dict[str, object]:
+    today = date.today()
+    default_from = date(today.year, max(today.month - 3, 1), 1)
+    to_date = _availability_date(period_to, today)
+    return await build_availability_brief_from_facts(
+        tenant_db,
+        pharmacies=_fnr_query_list(pharmacies),
+        category_1=_fnr_query_list(category_1),
+        category_2=_fnr_query_list(category_2),
+        category_3=_fnr_query_list(category_3),
+        suppliers=_fnr_query_list(suppliers),
+        status_abcd=_fnr_query_list(status_abcd),
+        commercial_status=_fnr_query_list(commercial_status),
+        period_from=_availability_date(period_from, default_from),
+        period_to=to_date,
+        stock_date_1=_availability_date(stock_date_1, to_date),
+        stock_date_2=_availability_date(stock_date_2, date(to_date.year - 1, 12, 31)),
+        step=str(step or 'month').strip().lower(),
+    )
+
+
+def _availability_table_export_row(row: dict[str, object], store_codes: tuple[str, ...] = ('LOGICA', 'AGD', 'KAS', 'ELL', 'SPA', 'PER')) -> list[object]:
+    availability = row.get('availability') if isinstance(row.get('availability'), dict) else {}
+    return [
+        row.get('status_abcd', ''),
+        row.get('commercial_status', ''),
+        row.get('sku_count', 0),
+        row.get('sku_live_online', 0),
+        row.get('web_availability', 0),
+        row.get('sales_units', 0),
+        row.get('sales_value', 0),
+        row.get('margin_pct', 0),
+        row.get('purchase_units', 0),
+        row.get('purchase_value', 0),
+        row.get('stock_units_1', 0),
+        row.get('stock_value_1', 0),
+        row.get('stock_units_2', 0),
+        row.get('stock_value_2', 0),
+        row.get('dio', ''),
+        *[availability.get(code, 0) for code in store_codes],
+    ]
+
+
+async def _build_destocking_context(tenant_db: AsyncSession, **kwargs: object) -> dict[str, object]:
+    today = date.today()
+    period_to = _availability_date(kwargs.get('period_to'), today)
+    default_from = date(period_to.year, max(period_to.month - 3, 1), 1)
+    return await build_destocking_brief_from_facts(
+        tenant_db,
+        pharmacies=_fnr_query_list(kwargs.get('pharmacies')),
+        category_1=_fnr_query_list(kwargs.get('category_1')),
+        category_2=_fnr_query_list(kwargs.get('category_2')),
+        category_3=_fnr_query_list(kwargs.get('category_3')),
+        suppliers=_fnr_query_list(kwargs.get('suppliers')),
+        status_abcd=_fnr_query_list(kwargs.get('status_abcd')),
+        commercial_status=_fnr_query_list(kwargs.get('commercial_status')),
+        period_from=_availability_date(kwargs.get('period_from'), default_from),
+        period_to=period_to,
+        stock_date_1=_availability_date(kwargs.get('stock_date_1'), period_to),
+        stock_date_2=_availability_date(kwargs.get('stock_date_2'), date(period_to.year - 1, 12, 31)),
+        threshold_weeks=_fnr_float(kwargs.get('threshold_weeks'), 8.0),
+        step=str(kwargs.get('step') or 'month').strip().lower(),
+    )
+
+
+def _build_destocking_xlsx(destocking: dict[str, object], *, tenant_name: str = '') -> bytes:
+    summary = destocking.get('summary') if isinstance(destocking.get('summary'), dict) else {}
+    params = destocking.get('parameters') if isinstance(destocking.get('parameters'), dict) else {}
+    table_rows = [row for row in (destocking.get('table_rows') or []) if isinstance(row, dict)]
+    trends = destocking.get('trends') if isinstance(destocking.get('trends'), dict) else {}
+    correlation = destocking.get('correlation') if isinstance(destocking.get('correlation'), dict) else {}
+    recs = [row for row in (destocking.get('recommendations') or []) if isinstance(row, dict)]
+    periods = trends.get('periods') if isinstance(trends.get('periods'), list) else []
+    table_sheet: list[list[tuple[object, int] | object]] = [
+        [('BoxVisio Destocking Brief', 1)],
+        [(tenant_name or 'Tenant', 3), (f'Period: {params.get("period_from", "-")} - {params.get("period_to", "-")}', 3), (f'Threshold: {params.get("threshold_weeks", "-")} weeks', 3)],
+        [],
+        [('Total Overstock', 7), (summary.get('total_overstock', 0), 5), ('Stock Value Date 1', 7), (summary.get('stock_value_1', 0), 5), ('Recommendations', 7), (summary.get('recommendations_count', 0), 4)],
+        [],
+        [(header, 2) for header in ['ABCD Status', 'Εμπορικό Status', 'SKU Count', 'Units on Date 1', 'Value (€) on Date 1', 'Units on Date 2', 'Value (€) on Date 2', 'DIO on Date 1 vs Period 1']],
+    ]
+    for row in table_rows:
+        table_sheet.append([row.get('status_abcd', ''), row.get('commercial_status', ''), (row.get('sku_count', 0), 4), (row.get('stock_units_1', 0), 4), (row.get('stock_value_1', 0), 5), (row.get('stock_units_2', 0), 4), (row.get('stock_value_2', 0), 5), row.get('dio', '')])
+    trend_sheet: list[list[tuple[object, int] | object]] = [[('Trends', 1)], [('Line chart source data: stock / overstock ανά location.', 3)], []]
+    for series in trends.get('series') or []:
+        if isinstance(series, dict):
+            trend_sheet.append([(series.get('name', ''), 7)])
+            trend_sheet.append([('', 2), *[(period, 2) for period in periods]])
+            for line in series.get('lines') or []:
+                if isinstance(line, dict):
+                    trend_sheet.append([line.get('name', ''), *[(value, 5) for value in (line.get('values') or [])]])
+            trend_sheet.append([])
+    corr_sheet: list[list[tuple[object, int] | object]] = [[('Correlation', 1)], [('Dual line source data: margin % σε σχέση με overstock.', 3)], []]
+    for series in correlation.get('series') or []:
+        if isinstance(series, dict):
+            corr_sheet.append([(series.get('name', ''), 7)])
+            corr_sheet.append([('', 2), *[(period, 2) for period in (correlation.get('periods') or [])]])
+            corr_sheet.append(['overstock', *[(value, 5) for value in (series.get('overstock') or [])]])
+            corr_sheet.append(['D3', *[(value, 5) for value in (series.get('d3_overstock') or [])]])
+            corr_sheet.append(['margin', *[(value, 4) for value in (series.get('margin') or [])]])
+            corr_sheet.append([])
+    rec_sheet = [[('Recommendations for Destocking', 1)], [], [('', 2), ('Action', 2), ('Status ABCD', 2), ('Status Εμπορικό', 2), ('Vendor', 2), ('Location', 2), ('Cur Overstock', 2), ('Target Overstock', 2), ('Destocking potential', 2), ('Show SKU', 2)]]
+    for idx, row in enumerate(recs, start=1):
+        rec_sheet.append([idx, row.get('action', ''), row.get('status_abcd', ''), row.get('commercial_status', ''), row.get('vendor', ''), row.get('location', ''), (row.get('cur_overstock', 0), 5), (row.get('target_overstock', 0), 5), (row.get('destocking_potential', 0), 5), row.get('show_sku', '')])
+    return _build_xlsx_workbook([
+        {'name': 'Table', 'xml': _xlsx_sheet_xml(table_sheet, widths=[16, 22, 12, 16, 18, 16, 18, 18], freeze_row=6, auto_filter_row=6)},
+        {'name': 'Trends', 'xml': _xlsx_sheet_xml(trend_sheet, widths=[24] + [12] * max(len(periods), 1), freeze_row=4)},
+        {'name': 'Correlation', 'xml': _xlsx_sheet_xml(corr_sheet, widths=[24] + [12] * max(len(periods), 1), freeze_row=4)},
+        {'name': 'Recommendations', 'xml': _xlsx_sheet_xml(rec_sheet, widths=[8, 24, 14, 22, 28, 18, 16, 16, 20, 48], freeze_row=3, auto_filter_row=3)},
+    ])
+
+
+def _build_availability_xlsx(availability: dict[str, object], *, tenant_name: str = '') -> bytes:
+    summary = availability.get('summary') if isinstance(availability.get('summary'), dict) else {}
+    parameters = availability.get('parameters') if isinstance(availability.get('parameters'), dict) else {}
+    table_rows = [row for row in (availability.get('table_rows') or []) if isinstance(row, dict)]
+    recommendations = [row for row in (availability.get('recommendations') or []) if isinstance(row, dict)]
+    trends = availability.get('trends') if isinstance(availability.get('trends'), dict) else {}
+    correlation = availability.get('correlation') if isinstance(availability.get('correlation'), dict) else {}
+    store_codes = ('LOGICA', 'AGD', 'KAS', 'ELL', 'SPA', 'PER')
+    headers = [
+        'ABCD Status', 'Εμπορικό Status', 'SKU Count', 'SKU Live Online', 'Web Availability',
+        'Sales (units) over Period 1', 'Sales (value) over Period 1', 'Margin % over Period 1',
+        'Purchases (units) in Period 1', 'Purchases (value) in Period 1',
+        'Units on Date 1', 'Value (€) on Date 1', 'Units on Date 2', 'Value (€) on Date 2',
+        'DIO on Date 1 vs Period 1', 'Availability Logica', 'Availability Αγ. Δημ.',
+        'Availability Κασσαβέτη', 'Availability Ελληνικού', 'Availability Σπατών', 'Availability Περιστερίου',
+    ]
+    generated_at = datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')
+    table_sheet: list[list[tuple[object, int] | object]] = [
+        [('BoxVisio Availability Brief', 1)],
+        [(tenant_name or 'Tenant', 3), (f'Period: {parameters.get("period_from", "-")} - {parameters.get("period_to", "-")}', 3), (f'Generated: {generated_at}', 3)],
+        [(f'Stock Date 1: {parameters.get("stock_date_1", "-")}', 3), (f'Stock Date 2: {parameters.get("stock_date_2", "-")}', 3), (f'Step: {parameters.get("step", "-")}', 3)],
+        [],
+        [('SKU Count', 7), (summary.get('sku_count', 0), 4), ('SKU Live Online', 7), (summary.get('sku_live_online', 0), 4), ('Web Availability', 7), (summary.get('web_availability', 0), 4), ('Sales Value', 7), (summary.get('sales_value', 0), 5)],
+        [],
+        [(header, 2) for header in headers],
+    ]
+    for row in table_rows:
+        table_sheet.append([(value, 4 if isinstance(value, (int, float)) else 0) for value in _availability_table_export_row(row, store_codes)])
+    periods = trends.get('periods') if isinstance(trends.get('periods'), list) else []
+    trend_sheet: list[list[tuple[object, int] | object]] = [
+        [('Trends', 1)],
+        [('Line chart source data: availability % ανά φαρμακείο, Logica και συνολικά.', 3)],
+        [],
+        [('', 2), *[(period, 2) for period in periods]],
+    ]
+    for series in trends.get('series') or []:
+        if isinstance(series, dict):
+            trend_sheet.append([series.get('name', ''), *[(value, 4) for value in (series.get('values') or [])]])
+    corr_sheet: list[list[tuple[object, int] | object]] = [
+        [('Correlation', 1)],
+        [('Dual line chart source data: availability % σε σχέση με μεταβολή πωλήσεων από πέρσι.', 3)],
+        [],
+    ]
+    corr_periods = correlation.get('periods') if isinstance(correlation.get('periods'), list) else []
+    for series in correlation.get('series') or []:
+        if isinstance(series, dict):
+            corr_sheet.append([(series.get('name', ''), 7)])
+            corr_sheet.append([('', 2), *[(period, 2) for period in corr_periods]])
+            corr_sheet.append(['availability', *[(value, 4) for value in (series.get('availability') or [])]])
+            corr_sheet.append(['sales vs PY', *[(value, 4) for value in (series.get('sales_vs_py') or [])]])
+            corr_sheet.append([])
+    rec_sheet: list[list[tuple[object, int] | object]] = [
+        [('Recommendations for Sales Growth', 1)],
+        [],
+        [('', 2), ('Action', 2), ('Status ABCD', 2), ('Status Εμπορικό', 2), ('Vendor', 2), ('Location', 2), ('Cur Availability', 2), ('Target Availability', 2), ('Monthly revenue potential', 2)],
+    ]
+    for idx, row in enumerate(recommendations, start=1):
+        rec_sheet.append([
+            idx,
+            row.get('action', ''),
+            row.get('status_abcd', ''),
+            row.get('commercial_status', ''),
+            row.get('vendor', ''),
+            row.get('location', ''),
+            (row.get('cur_availability', 0), 4),
+            (row.get('target_availability', 0), 4),
+            (row.get('monthly_revenue_potential', 0), 5),
+        ])
+    return _build_xlsx_workbook([
+        {'name': 'Table', 'xml': _xlsx_sheet_xml(table_sheet, widths=[16, 22, 12, 16, 16, 18, 18, 14, 18, 18, 14, 16, 14, 16, 18, 16, 16, 18, 18, 16, 18], freeze_row=7, auto_filter_row=7)},
+        {'name': 'Trends', 'xml': _xlsx_sheet_xml(trend_sheet, widths=[24] + [12] * max(len(periods), 1), freeze_row=4, auto_filter_row=4)},
+        {'name': 'Correlation', 'xml': _xlsx_sheet_xml(corr_sheet, widths=[24] + [12] * max(len(periods), 1), freeze_row=4, auto_filter_row=4)},
+        {'name': 'Recommendations', 'xml': _xlsx_sheet_xml(rec_sheet, widths=[8, 24, 14, 22, 28, 18, 16, 16, 22], freeze_row=3, auto_filter_row=3)},
+    ])
+
+
+@router.get('/tenant/destocking', response_class=HTMLResponse)
+async def tenant_destocking_dashboard(
+    request: Request,
+    tenant: Tenant = Depends(get_request_tenant),
+    tenant_db: AsyncSession = Depends(get_tenant_db),
+    _user=Depends(get_current_user),
+):
+    feature_flags = await _tenant_navigation_context(tenant)
+    feature_locked = not feature_flags['replenishment_enabled']
+    destocking = {'summary': {}, 'table_rows': [], 'recommendations': [], 'options': {}, 'parameters': {}}
+    if not feature_locked:
+        try:
+            destocking, _cache_hit = await get_or_set_cache(
+                namespace='tenant:worksheet:destocking',
+                tenant_key=str(tenant.id),
+                params=_worksheet_cache_params(version='destocking-d3-period-v2', **dict(request.query_params)),
+                ttl_seconds=300,
+                producer=lambda: _build_destocking_context(tenant_db, **dict(request.query_params)),
+            )
+        except Exception:
+            logger.exception('tenant_destocking_load_failed', extra={'tenant_id': tenant.id})
+            await tenant_db.rollback()
+    query_values = {key: request.query_params.get(key, '') for key in ['pharmacies', 'category_1', 'category_2', 'category_3', 'suppliers', 'status_abcd', 'commercial_status', 'period_from', 'period_to', 'stock_date_1', 'stock_date_2', 'step']}
+    query_values['threshold_weeks'] = request.query_params.get('threshold_weeks', '8')
+    return templates.TemplateResponse(
+        'tenant/destocking_dashboard.html',
+        {
+            'request': request,
+            'tenant': tenant,
+            **feature_flags,
+            'feature_locked': feature_locked,
+            'active_page': 'destocking',
+            'title': 'Destocking',
+            'destocking': destocking,
+            'hide_page_filters': True,
+            'query_values': query_values,
+        },
+    )
+
+
+@router.get('/tenant/destocking/export')
+async def tenant_destocking_export(
+    request: Request,
+    tenant: Tenant = Depends(get_request_tenant),
+    tenant_db: AsyncSession = Depends(get_tenant_db),
+    _user=Depends(get_current_user),
+):
+    feature_flags = await _tenant_navigation_context(tenant)
+    if not feature_flags.get('replenishment_enabled', False):
+        return Response('Destocking feature is locked', status_code=403, media_type='text/plain')
+    destocking, _cache_hit = await get_or_set_cache(
+        namespace='tenant:worksheet:destocking',
+        tenant_key=str(tenant.id),
+        params=_worksheet_cache_params(version='destocking-d3-period-v2', **dict(request.query_params)),
+        ttl_seconds=300,
+        producer=lambda: _build_destocking_context(tenant_db, **dict(request.query_params)),
+    )
+    content = _build_destocking_xlsx(destocking, tenant_name=str(tenant.name or tenant.slug or 'Tenant'))
+    filename = f"Destocking_brief_{datetime.utcnow().strftime('%Y%m%d_%H%M')}.xlsx"
+    return Response(content, media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', headers={'Content-Disposition': f'attachment; filename=\"{filename}\"'})
+
+
+@router.get('/tenant/availability', response_class=HTMLResponse)
+async def tenant_availability_dashboard(
+    request: Request,
+    pharmacies: str | None = Query(default=''),
+    category_1: str | None = Query(default=''),
+    category_2: str | None = Query(default=''),
+    category_3: str | None = Query(default=''),
+    suppliers: str | None = Query(default=''),
+    status_abcd: str | None = Query(default=''),
+    commercial_status: str | None = Query(default=''),
+    period_from: str | None = Query(default=''),
+    period_to: str | None = Query(default=''),
+    stock_date_1: str | None = Query(default=''),
+    stock_date_2: str | None = Query(default=''),
+    step: str | None = Query(default='month'),
+    tenant: Tenant = Depends(get_request_tenant),
+    tenant_db: AsyncSession = Depends(get_tenant_db),
+    _user=Depends(get_current_user),
+):
+    feature_flags = await _tenant_navigation_context(tenant)
+    feature_locked = not feature_flags['replenishment_enabled']
+    availability = {'summary': {}, 'table_rows': [], 'recommendations': [], 'options': {}, 'parameters': {}}
+    if not feature_locked:
+        try:
+            availability, _cache_hit = await get_or_set_cache(
+                namespace='tenant:worksheet:availability',
+                tenant_key=str(tenant.id),
+                params=_worksheet_cache_params(
+                    version='availability-worksheet-v2',
+                    pharmacies=pharmacies,
+                    category_1=category_1,
+                    category_2=category_2,
+                    category_3=category_3,
+                    suppliers=suppliers,
+                    status_abcd=status_abcd,
+                    commercial_status=commercial_status,
+                    period_from=period_from,
+                    period_to=period_to,
+                    stock_date_1=stock_date_1,
+                    stock_date_2=stock_date_2,
+                    step=step,
+                ),
+                ttl_seconds=300,
+                producer=lambda: _build_availability_context(
+                    tenant_db,
+                    pharmacies=pharmacies,
+                    category_1=category_1,
+                    category_2=category_2,
+                    category_3=category_3,
+                    suppliers=suppliers,
+                    status_abcd=status_abcd,
+                    commercial_status=commercial_status,
+                    period_from=period_from,
+                    period_to=period_to,
+                    stock_date_1=stock_date_1,
+                    stock_date_2=stock_date_2,
+                    step=step,
+                ),
+            )
+        except Exception:
+            logger.exception('tenant_availability_load_failed', extra={'tenant_id': tenant.id})
+            await tenant_db.rollback()
+    return templates.TemplateResponse(
+        'tenant/availability_dashboard.html',
+        {
+            'request': request,
+            'tenant': tenant,
+            **feature_flags,
+            'feature_locked': feature_locked,
+            'active_page': 'availability',
+            'title': 'Availability',
+            'availability': availability,
+            'hide_page_filters': True,
+            'query_values': {
+                'pharmacies': pharmacies or '',
+                'category_1': category_1 or '',
+                'category_2': category_2 or '',
+                'category_3': category_3 or '',
+                'suppliers': suppliers or '',
+                'status_abcd': status_abcd or '',
+                'commercial_status': commercial_status or '',
+                'period_from': period_from or '',
+                'period_to': period_to or '',
+                'stock_date_1': stock_date_1 or '',
+                'stock_date_2': stock_date_2 or '',
+                'step': step or 'month',
+            },
+        },
+    )
+
+
+@router.get('/tenant/availability/export')
+async def tenant_availability_export(
+    request: Request,
+    pharmacies: str | None = Query(default=''),
+    category_1: str | None = Query(default=''),
+    category_2: str | None = Query(default=''),
+    category_3: str | None = Query(default=''),
+    suppliers: str | None = Query(default=''),
+    status_abcd: str | None = Query(default=''),
+    commercial_status: str | None = Query(default=''),
+    period_from: str | None = Query(default=''),
+    period_to: str | None = Query(default=''),
+    stock_date_1: str | None = Query(default=''),
+    stock_date_2: str | None = Query(default=''),
+    step: str | None = Query(default='month'),
+    tenant: Tenant = Depends(get_request_tenant),
+    tenant_db: AsyncSession = Depends(get_tenant_db),
+    _user=Depends(get_current_user),
+):
+    feature_flags = await _tenant_navigation_context(tenant)
+    if not feature_flags.get('replenishment_enabled', False):
+        return Response('Availability feature is locked', status_code=403, media_type='text/plain')
+    availability, _cache_hit = await get_or_set_cache(
+        namespace='tenant:worksheet:availability',
+        tenant_key=str(tenant.id),
+        params=_worksheet_cache_params(
+            version='availability-worksheet-v2',
+            pharmacies=pharmacies,
+            category_1=category_1,
+            category_2=category_2,
+            category_3=category_3,
+            suppliers=suppliers,
+            status_abcd=status_abcd,
+            commercial_status=commercial_status,
+            period_from=period_from,
+            period_to=period_to,
+            stock_date_1=stock_date_1,
+            stock_date_2=stock_date_2,
+            step=step,
+        ),
+        ttl_seconds=300,
+        producer=lambda: _build_availability_context(
+            tenant_db,
+            pharmacies=pharmacies,
+            category_1=category_1,
+            category_2=category_2,
+            category_3=category_3,
+            suppliers=suppliers,
+            status_abcd=status_abcd,
+            commercial_status=commercial_status,
+            period_from=period_from,
+            period_to=period_to,
+            stock_date_1=stock_date_1,
+            stock_date_2=stock_date_2,
+            step=step,
+        ),
+    )
+    content = _build_availability_xlsx(availability, tenant_name=str(tenant.name or tenant.slug or 'Tenant'))
+    filename = f"Availability_brief_{datetime.utcnow().strftime('%Y%m%d_%H%M')}.xlsx"
+    return Response(
+        content,
+        media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        headers={'Content-Disposition': f'attachment; filename=\"{filename}\"'},
+    )
+
+
+@router.get('/tenant/fnr', response_class=HTMLResponse)
+async def tenant_fnr_dashboard(
+    request: Request,
+    pharmacies: str | None = Query(default=''),
+    category_1: str | None = Query(default=''),
+    category_2: str | None = Query(default=''),
+    category_3: str | None = Query(default=''),
+    suppliers: str | None = Query(default=''),
+    search: str | None = Query(default=''),
+    target_stock_weeks: str | None = Query(default='4'),
+    overstock_weeks: str | None = Query(default='12'),
+    sales_avg_period_1_weeks: str | None = Query(default='4'),
+    sales_avg_period_2_weeks: str | None = Query(default='12'),
+    tenant: Tenant = Depends(get_request_tenant),
+    tenant_db: AsyncSession = Depends(get_tenant_db),
+    _user=Depends(get_current_user),
+):
+    feature_flags = await _tenant_navigation_context(tenant)
+    feature_locked = not feature_flags['replenishment_enabled']
+    fnr = {'summary': {}, 'rows': [], 'order_rows': [], 'options': {}, 'parameters': {}}
+    if not feature_locked:
+        try:
+            fnr, _cache_hit = await get_or_set_cache(
+                namespace='tenant:worksheet:fnr',
+                tenant_key=str(tenant.id),
+                params=_worksheet_cache_params(
+                    version='fnr-worksheet-v2',
+                    pharmacies=pharmacies,
+                    category_1=category_1,
+                    category_2=category_2,
+                    category_3=category_3,
+                    suppliers=suppliers,
+                    search=search,
+                    target_stock_weeks=target_stock_weeks,
+                    overstock_weeks=overstock_weeks,
+                    sales_avg_period_1_weeks=sales_avg_period_1_weeks,
+                    sales_avg_period_2_weeks=sales_avg_period_2_weeks,
+                    limit=5000,
+                ),
+                ttl_seconds=300,
+                producer=lambda: _build_fnr_context(
+                    tenant_db,
+                    pharmacies=pharmacies,
+                    category_1=category_1,
+                    category_2=category_2,
+                    category_3=category_3,
+                    suppliers=suppliers,
+                    search=search,
+                    target_stock_weeks=target_stock_weeks,
+                    overstock_weeks=overstock_weeks,
+                    sales_avg_period_1_weeks=sales_avg_period_1_weeks,
+                    sales_avg_period_2_weeks=sales_avg_period_2_weeks,
+                    limit=5000,
+                ),
+            )
+        except Exception:
+            logger.exception('tenant_fnr_load_failed', extra={'tenant_id': tenant.id})
+            await tenant_db.rollback()
+    return templates.TemplateResponse(
+        'tenant/fnr_dashboard.html',
+        {
+            'request': request,
+            'tenant': tenant,
+            **feature_flags,
+            'feature_locked': feature_locked,
+            'active_page': 'replenishment',
+            'title': 'FNR',
+            'fnr': fnr,
+            'columns': FNR_OUTPUT_COLUMNS,
+            'hide_page_filters': True,
+            'query_values': {
+                'pharmacies': pharmacies or '',
+                'category_1': category_1 or '',
+                'category_2': category_2 or '',
+                'category_3': category_3 or '',
+                'suppliers': suppliers or '',
+                'search': search or '',
+                'target_stock_weeks': target_stock_weeks or '4',
+                'overstock_weeks': overstock_weeks or '12',
+                'sales_avg_period_1_weeks': sales_avg_period_1_weeks or '4',
+                'sales_avg_period_2_weeks': sales_avg_period_2_weeks or '12',
+            },
+        },
+    )
+
+
+@router.get('/tenant/fnr/export')
+async def tenant_fnr_export(
+    request: Request,
+    pharmacies: str | None = Query(default=''),
+    category_1: str | None = Query(default=''),
+    category_2: str | None = Query(default=''),
+    category_3: str | None = Query(default=''),
+    suppliers: str | None = Query(default=''),
+    search: str | None = Query(default=''),
+    target_stock_weeks: str | None = Query(default='4'),
+    overstock_weeks: str | None = Query(default='12'),
+    sales_avg_period_1_weeks: str | None = Query(default='4'),
+    sales_avg_period_2_weeks: str | None = Query(default='12'),
+    tenant: Tenant = Depends(get_request_tenant),
+    tenant_db: AsyncSession = Depends(get_tenant_db),
+    _user=Depends(get_current_user),
+):
+    feature_flags = await _tenant_navigation_context(tenant)
+    if not feature_flags.get('replenishment_enabled', False):
+        return Response('FNR feature is locked', status_code=403, media_type='text/plain')
+    fnr, _cache_hit = await get_or_set_cache(
+        namespace='tenant:worksheet:fnr',
+        tenant_key=str(tenant.id),
+        params=_worksheet_cache_params(
+            version='fnr-worksheet-v2',
+            pharmacies=pharmacies,
+            category_1=category_1,
+            category_2=category_2,
+            category_3=category_3,
+            suppliers=suppliers,
+            search=search,
+            target_stock_weeks=target_stock_weeks,
+            overstock_weeks=overstock_weeks,
+            sales_avg_period_1_weeks=sales_avg_period_1_weeks,
+            sales_avg_period_2_weeks=sales_avg_period_2_weeks,
+            limit=20000,
+        ),
+        ttl_seconds=300,
+        producer=lambda: _build_fnr_context(
+            tenant_db,
+            pharmacies=pharmacies,
+            category_1=category_1,
+            category_2=category_2,
+            category_3=category_3,
+            suppliers=suppliers,
+            search=search,
+            target_stock_weeks=target_stock_weeks,
+            overstock_weeks=overstock_weeks,
+            sales_avg_period_1_weeks=sales_avg_period_1_weeks,
+            sales_avg_period_2_weeks=sales_avg_period_2_weeks,
+            limit=20000,
+        ),
+    )
+    content = _build_fnr_order_xlsx(fnr, tenant_name=str(tenant.name or tenant.slug or 'Tenant'))
+    filename = f"FNR_order_{datetime.utcnow().strftime('%Y%m%d_%H%M')}.xlsx"
+    return Response(
+        content,
+        media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        headers={'Content-Disposition': f'attachment; filename=\"{filename}\"'},
     )
 
 

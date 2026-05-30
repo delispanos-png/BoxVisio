@@ -142,7 +142,7 @@
         {% set _operational_stream_open = active_page in _operational_stream_pages or (active_page == 'cashflow' and _cashflow_is_stream) %}
         {% set _dashboard_pages = ['dashboard', 'finance_dashboard', 'insights'] %}
         {% set _dashboard_open = active_page in _dashboard_pages %}
-        {% set _analytics_open = active_page in ['sales', 'pos', 'call_center', 'eshop_analysis', 'purchases', 'inventory', 'items', 'replenishment', 'analytics_receivables_payables', 'supplier_targets', 'price_control', 'business_advisor', 'era_exploration_data', 'iqvia', 'exports_sellout'] or (active_page == 'cashflow' and not _cashflow_is_stream) %}
+        {% set _analytics_open = active_page in ['sales', 'pos', 'call_center', 'eshop_analysis', 'purchases', 'inventory', 'items', 'replenishment', 'availability', 'destocking', 'analytics_receivables_payables', 'supplier_targets', 'price_control', 'business_advisor', 'era_exploration_data', 'iqvia', 'exports_sellout'] or (active_page == 'cashflow' and not _cashflow_is_stream) %}
         {% set _comparison_pages = ['compare_period', 'compare_branch', 'compare_category'] %}
         {% set _comparison_open = active_page in _comparison_pages %}
         {% set _exports_open = active_page in ['exports_reports', 'exports_csv_excel'] %}
@@ -377,7 +377,13 @@
               {% endif %}
               {% if _menu_analytics_replenishment %}
               <li class="{% if active_page == 'replenishment' %}is-active{% endif %} {% if _menu_locked.get('analytics_replenishment', false) %}opacity-75{% endif %}">
-                <a class="bv-submenu-link" href="/tenant/replenishment"><i class="fe fe-repeat"></i><span>Replenishment</span>{% if _menu_locked.get('analytics_replenishment', false) %}<i class="fe fe-lock ms-auto"></i>{% endif %}</a>
+                <a class="bv-submenu-link" href="/tenant/fnr"><i class="fe fe-repeat"></i><span>FNR</span>{% if _menu_locked.get('analytics_replenishment', false) %}<i class="fe fe-lock ms-auto"></i>{% endif %}</a>
+              </li>
+              <li class="{% if active_page == 'availability' %}is-active{% endif %} {% if _menu_locked.get('analytics_replenishment', false) %}opacity-75{% endif %}">
+                <a class="bv-submenu-link" href="/tenant/availability"><i class="fe fe-check-circle"></i><span>Availability</span>{% if _menu_locked.get('analytics_replenishment', false) %}<i class="fe fe-lock ms-auto"></i>{% endif %}</a>
+              </li>
+              <li class="{% if active_page == 'destocking' %}is-active{% endif %} {% if _menu_locked.get('analytics_replenishment', false) %}opacity-75{% endif %}">
+                <a class="bv-submenu-link" href="/tenant/destocking"><i class="fe fe-trending-down"></i><span>Destocking</span>{% if _menu_locked.get('analytics_replenishment', false) %}<i class="fe fe-lock ms-auto"></i>{% endif %}</a>
               </li>
               {% endif %}
               {% if _menu_analytics_items %}
@@ -575,7 +581,9 @@
             'iqvia': 'iqvia',
             'purchases': 'purchases-analytics',
             'inventory': 'inventory-analytics',
-            'replenishment': 'replenishment',
+            'replenishment': 'fnr',
+            'availability': 'availability',
+            'destocking': 'destocking',
             'items': 'warehouse-items',
             'analytics_receivables_payables': 'finance-dashboard',
             'price_control': 'price-control',
@@ -613,7 +621,7 @@
             <p class="bv-page-subtitle">{{ tt(request, 'page_subtitle_balances') }}</p>
             {% elif active_page == 'call_center' %}
             <p class="bv-page-subtitle">{{ tt(request, 'page_subtitle_call_center') }}</p>
-            {% elif active_page in ['sales', 'purchases', 'inventory', 'items', 'replenishment', 'analytics_receivables_payables', 'supplier_targets', 'price_control', 'business_advisor', 'era_exploration_data', 'iqvia', 'exports_sellout', 'pos', 'eshop_analysis'] %}
+            {% elif active_page in ['sales', 'purchases', 'inventory', 'items', 'replenishment', 'availability', 'destocking', 'analytics_receivables_payables', 'supplier_targets', 'price_control', 'business_advisor', 'era_exploration_data', 'iqvia', 'exports_sellout', 'pos', 'eshop_analysis'] %}
             <p class="bv-page-subtitle">{{ tt(request, 'page_subtitle_analytics') }}</p>
             {% elif active_page in ['compare_period', 'compare_branch', 'compare_category'] %}
             <p class="bv-page-subtitle">{{ tt(request, 'page_subtitle_comparisons') }}</p>
@@ -637,7 +645,7 @@
         </div>
 
         {% set _hide_page_filters = hide_page_filters if hide_page_filters is defined else false %}
-        {% if active_page in ['dashboard', 'finance_dashboard', 'sales', 'pos', 'call_center', 'eshop_analysis', 'sales_documents', 'purchases', 'purchase_documents', 'expense_documents', 'suppliers', 'warehouse_documents', 'operating_expenses', 'inventory', 'items', 'replenishment', 'cashflow', 'customers', 'compare_period', 'compare_branch', 'compare_category', 'insights', 'analytics_receivables_payables', 'supplier_targets', 'price_control', 'business_advisor', 'era_exploration_data', 'iqvia', 'exports_reports', 'exports_csv_excel', 'exports_sellout'] and not _hide_page_filters %}
+        {% if active_page in ['dashboard', 'finance_dashboard', 'sales', 'pos', 'call_center', 'eshop_analysis', 'sales_documents', 'purchases', 'purchase_documents', 'expense_documents', 'suppliers', 'warehouse_documents', 'operating_expenses', 'inventory', 'items', 'replenishment', 'availability', 'destocking', 'cashflow', 'customers', 'compare_period', 'compare_branch', 'compare_category', 'insights', 'analytics_receivables_payables', 'supplier_targets', 'price_control', 'business_advisor', 'era_exploration_data', 'iqvia', 'exports_reports', 'exports_csv_excel', 'exports_sellout'] and not _hide_page_filters %}
         <div class="card filter-card mb-3">
           <div class="card-header d-flex justify-content-between align-items-center">
             <h5 class="mb-0">{{ tt(request, 'filters') }}</h5>
@@ -1168,13 +1176,15 @@
     }
 
     function isFromField(el) {
-      const key = `${el?.name || ''} ${el?.id || ''}`.toLowerCase();
-      return /\b(from|a_from|b_from|cffrom)\b/.test(key);
+      const rawKey = `${el?.name || ''} ${el?.id || ''}`;
+      const key = rawKey.toLowerCase();
+      return /(^|[\s_-])(from|a_from|b_from|cffrom)([\s_-]|$)/.test(key) || /[a-z0-9]From$/.test(rawKey);
     }
 
     function isToField(el) {
-      const key = `${el?.name || ''} ${el?.id || ''}`.toLowerCase();
-      return /\b(to|a_to|b_to|snapshot|as_of|cfto|invasof|itasof)\b/.test(key);
+      const rawKey = `${el?.name || ''} ${el?.id || ''}`;
+      const key = rawKey.toLowerCase();
+      return /(^|[\s_-])(to|a_to|b_to|snapshot|as_of|cfto|invasof|itasof)([\s_-]|$)/.test(key) || /[a-z0-9]To$/.test(rawKey) || /(snapshot|asof)$/i.test(rawKey);
     }
 
     function normalizeAndSetDateInput(el, val) {
@@ -1351,9 +1361,8 @@
       return `${String(dateObj.getDate()).padStart(2, '0')}/${String(dateObj.getMonth() + 1).padStart(2, '0')}/${dateObj.getFullYear()}`;
     }
 
-    function bvFilterPresetRange(preset) {
-      const now = new Date();
-      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    function bvDatePresetRange(preset, baseDate = new Date()) {
+      const today = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate());
       const startOfWeek = (d) => {
         const day = d.getDay() || 7;
         return new Date(d.getFullYear(), d.getMonth(), d.getDate() - day + 1);
@@ -1377,6 +1386,10 @@
         two_years_ago: { start: new Date(today.getFullYear() - 2, 0, 1), to: new Date(today.getFullYear() - 2, 11, 31) }
       };
       return ranges[preset] || null;
+    }
+
+    function bvFilterPresetRange(preset) {
+      return bvDatePresetRange(preset);
     }
 
     function bvApplyFilterDatePreset(panel, preset) {
@@ -1815,42 +1828,7 @@
       }
 
       function getPresetRange(preset) {
-        const today = new Date();
-        const end = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-        let start = new Date(end.getFullYear(), end.getMonth(), end.getDate());
-        let to = new Date(end.getFullYear(), end.getMonth(), end.getDate());
-
-        if (preset === 'today') {
-          start = new Date(end.getFullYear(), end.getMonth(), end.getDate());
-          to = new Date(end.getFullYear(), end.getMonth(), end.getDate());
-        } else if (preset === 'yesterday' || preset === 'prev_day') {
-          start.setDate(start.getDate() - 1);
-          to = new Date(start.getFullYear(), start.getMonth(), start.getDate());
-        } else if (preset === 'current_week') {
-          start = startOfWeekMonday(end);
-        } else if (preset === 'previous_week') {
-          const currentWeekStart = startOfWeekMonday(end);
-          start = new Date(currentWeekStart.getFullYear(), currentWeekStart.getMonth(), currentWeekStart.getDate());
-          start.setDate(start.getDate() - 7);
-          to = new Date(start.getFullYear(), start.getMonth(), start.getDate());
-          to.setDate(to.getDate() + 6);
-        } else if (preset === 'current_month') {
-          start = new Date(end.getFullYear(), end.getMonth(), 1);
-        } else if (preset === 'previous_month') {
-          start = new Date(end.getFullYear(), end.getMonth() - 1, 1);
-          to = new Date(end.getFullYear(), end.getMonth(), 0);
-        } else if (preset === 'current_year') {
-          start = new Date(end.getFullYear(), 0, 1);
-        } else if (preset === 'previous_year') {
-          start = new Date(end.getFullYear() - 1, 0, 1);
-          to = new Date(end.getFullYear() - 1, 11, 31);
-        } else if (preset === 'two_years_ago') {
-          start = new Date(end.getFullYear() - 2, 0, 1);
-          to = new Date(end.getFullYear() - 2, 11, 31);
-        } else {
-          return null;
-        }
-        return { start, to };
+        return bvDatePresetRange(preset === 'prev_day' ? 'yesterday' : preset);
       }
 
       function applyRangeToPicker(startDate, endDate, preset) {

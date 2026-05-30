@@ -324,6 +324,13 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
+  #kpiYearToDateFullCmpDelta.mc-meta-compact {
+    font-size: .66rem !important;
+    line-height: 1.2;
+    letter-spacing: 0;
+    overflow: visible;
+    text-overflow: clip;
+  }
   .decision-insights-wrap {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
@@ -607,7 +614,7 @@
           <div class="mc-icon"><i class="fe fe-flag"></i></div>
           <div class="mc-label">Τζίρος <span id="kpiYearToDateLabel">{{ default_to.year }}</span> (YTD vs FULL)</div>
           <div id="kpiYearToDateFullCmp" class="mc-value">—</div>
-          <div id="kpiYearToDateFullCmpDelta" class="mc-meta">-</div>
+          <div id="kpiYearToDateFullCmpDelta" class="mc-meta mc-meta-compact">-</div>
         </div>
       </div>
     </div>
@@ -2348,17 +2355,16 @@ async function reloadCentralDashboard(e){
     execParams.set('_ts', String(Date.now()));
     const fastParams = new URLSearchParams(execParams);
     fastParams.set('fast', '1');
-    const fastExecutivePromise = fetchJsonStrict(`/v1/dashboard/executive-summary?${fastParams.toString()}`);
-    const executivePromise = fetchJsonStrict(`/v1/dashboard/executive-summary?${execParams.toString()}`);
     try{
-      const fastExecutive = await fastExecutivePromise;
+      const fastExecutive = await fetchJsonStrict(`/v1/dashboard/executive-summary?${fastParams.toString()}`);
       if(reloadToken !== dashboardReloadToken) return;
       renderCentralKpiCards(fastExecutive, selectedFromDate, anchorDate);
     }catch(fastErr){
       console.warn('Fast dashboard cards failed', fastErr);
     }
 
-    const executive = await executivePromise;
+    const executive = await fetchJsonStrict(`/v1/dashboard/executive-summary?${execParams.toString()}`);
+    if(reloadToken !== dashboardReloadToken) return;
     const cards = executive?.cards || {};
     const branchBreakdown = executive?.branch_breakdown || {};
     const trend = executive?.trend || {};

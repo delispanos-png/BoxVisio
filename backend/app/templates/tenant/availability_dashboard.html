@@ -1,0 +1,376 @@
+{% extends "base_tenant.html" %}
+
+{% block content %}
+{% set summary = availability.summary if availability.summary is defined else {} %}
+{% set options = availability.options if availability.options is defined else {} %}
+{% set rows = availability.table_rows if availability.table_rows is defined else [] %}
+{% set trends = availability.trends if availability.trends is defined else {} %}
+{% set correlation = availability.correlation if availability.correlation is defined else {} %}
+{% set recs = availability.recommendations if availability.recommendations is defined else [] %}
+{% set store_codes = ['LOGICA', 'AGD', 'KAS', 'ELL', 'SPA', 'PER'] %}
+{% set store_labels = {'LOGICA': 'Logica', 'AGD': 'Αγ. Δημ.', 'KAS': 'Κασσαβέτη', 'ELL': 'Ελληνικού', 'SPA': 'Σπατών', 'PER': 'Περιστερίου'} %}
+{% set notes = [
+  'Το ABCD Status ορίζεται σε επίπεδο κωδικού.',
+  'Το Εμπορικό Status ορίζεται σε επίπεδο κωδικού.',
+  'Το SKU Count είναι το πλήθος κωδικών ανά status.',
+  'Το SKU Live Online είναι το πλήθος κωδικών που είναι διαθέσιμοι στο website ή διαθέσιμοι σε stock.',
+  'Το availability είναι το ποσοστό κωδικών που το κάθε φαρμακείο έχει με stock >= 1 τεμ.'
+] %}
+<style>
+  .bv-page-head { display: none !important; }
+  .dashboard-shell { padding-top: 10px !important; }
+  .av-shell { display: grid; gap: 5px; max-width: 100%; min-width: 0; overflow-x: hidden; }
+  .av-title { display: none !important; }
+  .av-title h1 { font-size: clamp(24px, 2.4vw, 34px); line-height: 1; margin: 0; }
+  .av-title p { color: var(--text-muted); font-weight: 800; margin: 4px 0 0; }
+  .av-panel,
+  .av-inputs,
+  .av-notes,
+  .av-summary { background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: 8px; box-shadow: var(--panel-shadow); min-width: 0; max-width: 100%; }
+  .av-panel { overflow: hidden; }
+  .av-workbench { align-items: start; display: grid; gap: 8px; grid-template-columns: minmax(0, 1080px) 260px; justify-content: start; max-width: 100%; min-width: 0; width: min(100%, 1348px); }
+  .av-inputs { max-width: 1080px; min-width: 0; width: 100%; }
+  .av-input-head { align-items: center; background: #dbeafe; border-bottom: 1px solid #bfdbfe; color: #1e3a8a; display: flex; justify-content: space-between; min-height: 30px; padding: 5px 10px; }
+  .av-form-grid { display: grid; grid-template-columns: 132px minmax(0, 520px) 126px 132px; min-width: 0; }
+  .av-cell { border-bottom: 1px solid #dbeafe; min-height: 42px; min-width: 0; padding: 5px 9px; }
+  .av-cell.label { align-items: center; background: #eff6ff; color: #1e3a8a; display: flex; font-size: 11px; font-weight: 1000; letter-spacing: 0; line-height: 1.15; text-transform: uppercase; }
+  .av-cell input,
+  .av-cell select { background: #fff; border: 1px solid #bfdbfe; border-radius: 7px; color: var(--text-main); font-size: 13px; font-weight: 900; line-height: 1.25; min-height: 31px; padding: 5px 9px; width: 100%; }
+  .av-dropdown { position: relative; }
+  .av-dropdown summary { align-items: center; background: #fff; border: 1px solid #bfdbfe; border-radius: 7px; cursor: pointer; display: flex; font-size: 13px; font-weight: 950; justify-content: space-between; line-height: 1.25; list-style: none; min-height: 31px; padding: 5px 9px; }
+  .av-dropdown summary::-webkit-details-marker { display: none; }
+  .av-dropdown summary::after { color: #2563eb; content: "⌄"; font-size: 13px; font-weight: 1000; }
+  .av-dropdown-menu { background: #fff; border: 1px solid #bfdbfe; border-radius: 8px; box-shadow: 0 18px 40px rgba(15, 23, 42, .16); display: grid; gap: 4px; left: 0; max-height: 260px; overflow: auto; padding: 8px; position: absolute; right: 0; top: calc(100% + 6px); z-index: 20; }
+  .av-option { align-items: center; border-radius: 6px; display: flex; gap: 8px; font-size: 13px; font-weight: 850; min-height: 32px; padding: 6px 8px; }
+  .av-option:hover { background: #eff6ff; }
+  .av-option input { height: 16px; min-height: 16px; width: 16px; }
+  .av-actions { align-items: center; display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; padding: 6px 10px; }
+  .av-actions .btn { font-size: 12px; min-height: 30px; padding: 5px 10px; }
+  .av-notes { padding: 8px 10px; max-height: 256px; overflow: auto; }
+  .av-notes h2 { font-size: 13px; margin: 0 0 6px; }
+  .av-notes ol { color: var(--text-muted); display: grid; gap: 3px; font-size: 10px; font-weight: 800; margin: 0; padding-left: 14px; }
+  .av-summary { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); overflow: hidden; }
+  .av-kpi { border-right: 1px solid var(--panel-border); padding: 7px 10px; }
+  .av-kpi:last-child { border-right: 0; }
+  .av-kpi span { color: var(--text-muted); display: block; font-size: 11px; font-weight: 1000; text-transform: uppercase; }
+  .av-kpi strong { display: block; font-size: 18px; line-height: 1.05; margin-top: 2px; }
+  .av-tabs { display: flex; gap: 6px; overflow-x: auto; padding: 9px 10px 0; }
+  .av-tab { background: #fff; border: 1px solid var(--panel-border); border-radius: 7px 7px 0 0; color: var(--text-muted); font-size: 12px; font-weight: 1000; padding: 8px 11px; }
+  .av-tab.active { background: #eff6ff; border-color: #93c5fd; color: #1d4ed8; }
+  .av-pane { display: none; padding: 8px 10px; }
+  .av-pane.active { display: block; }
+  .av-table-wrap { max-height: 68vh; max-width: 100%; min-width: 0; overflow: auto; }
+  .av-table { border-collapse: separate; border-spacing: 0; font-size: 12px; min-width: 2100px; width: 100%; }
+  .av-table th,
+  .av-table td { border-bottom: 1px solid #e2e8f0; border-right: 1px solid #e2e8f0; padding: 5px 7px; white-space: nowrap; }
+  .av-table th { background: #1f2937; color: #fff; font-size: 10px; font-weight: 1000; position: sticky; text-transform: uppercase; top: 0; z-index: 2; }
+  .av-number { font-variant-numeric: tabular-nums; text-align: right; }
+  .av-muted { color: var(--text-muted); font-size: 12px; font-weight: 800; }
+  .av-chart-grid { display: grid; gap: 14px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .av-chart { border: 1px solid var(--panel-border); border-radius: 8px; padding: 14px; }
+  .av-bars { display: grid; gap: 8px; margin-top: 12px; }
+  .av-bar { align-items: center; display: grid; gap: 10px; grid-template-columns: 110px minmax(0, 1fr) 56px; font-size: 12px; font-weight: 850; }
+  .av-track { background: #e5e7eb; border-radius: 999px; height: 10px; overflow: hidden; }
+  .av-fill { background: #2563eb; height: 100%; }
+  .av-dual-chart { border: 1px solid var(--panel-border); border-radius: 8px; padding: 14px; }
+  .av-line-chart { border: 1px solid var(--panel-border); border-radius: 8px; padding: 14px; }
+  .av-mini-table { border-collapse: collapse; font-size: 11px; margin-top: 10px; width: 100%; }
+  .av-mini-table th,
+  .av-mini-table td { border-bottom: 1px solid #e2e8f0; padding: 4px 6px; text-align: right; white-space: nowrap; }
+  .av-mini-table th:first-child,
+  .av-mini-table td:first-child { color: var(--text-main); font-weight: 1000; text-align: left; }
+  .av-mini-table thead th { color: var(--text-muted); font-weight: 1000; }
+  .av-dual-svg { display: block; height: 260px; margin-top: 10px; width: 100%; }
+  .av-line-svg { display: block; height: 260px; margin-top: 10px; width: 100%; }
+  .av-chart-legend { align-items: center; display: flex; flex-wrap: wrap; gap: 14px; margin-top: 8px; }
+  .av-legend-item { align-items: center; color: var(--text-muted); display: inline-flex; font-size: 12px; font-weight: 900; gap: 6px; }
+  .av-legend-line { border-radius: 999px; display: inline-block; height: 3px; width: 24px; }
+  @media (max-width: 1100px) {
+    .av-workbench,
+    .av-summary,
+    .av-chart-grid { grid-template-columns: 1fr; }
+    .av-form-grid { grid-template-columns: 1fr; }
+    .av-kpi { border-right: 0; border-bottom: 1px solid var(--panel-border); }
+  }
+</style>
+
+<div class="av-shell">
+  <section class="av-title">
+    <div>
+      <h1>Availability</h1>
+      <p>Availability brief με τα 4 worksheets του Excel, υπολογισμένο από τα BI facts.</p>
+    </div>
+    <div class="av-muted">{{ availability.parameters.period_from or '-' }} - {{ availability.parameters.period_to or '-' }}</div>
+  </section>
+
+  {% if feature_locked %}
+    <section class="av-panel p-4 text-center"><h2>Το Availability είναι κλειδωμένο για αυτόν τον tenant.</h2></section>
+  {% else %}
+  <section class="av-workbench">
+    <form class="av-inputs" method="get" action="/tenant/availability">
+      <div class="av-input-head">
+        <strong>Inputs</strong>
+        <span class="av-muted">Τα φίλτρα είναι τα μπλε κελιά του Excel.</span>
+      </div>
+      <div class="av-form-grid">
+        {% set multi_fields = [
+          ('pharmacies', 'Φαρμακεία', options.pharmacies or [], 'Όλα τα φαρμακεία'),
+          ('category_1', 'Κατηγορία 1', options.category_1 or [], 'Όλες οι κατηγορίες 1'),
+          ('category_2', 'Κατηγορία 2', options.category_2 or [], 'Όλες οι κατηγορίες 2'),
+          ('category_3', 'Κατηγορία 3', options.category_3 or [], 'Όλες οι κατηγορίες 3'),
+          ('suppliers', 'Προμηθευτής', options.suppliers or [], 'Όλοι οι προμηθευτές'),
+          ('status_abcd', 'Status ABCD', options.status_abcd or [], 'Όλα τα ABCD'),
+          ('commercial_status', 'Status Εμπορικό', options.commercial_status or [], 'Όλα τα εμπορικά status')
+        ] %}
+        {% for key, label, opts, placeholder in multi_fields %}
+        <div class="av-cell label">{{ label }}</div>
+        <div class="av-cell">
+          <input type="hidden" name="{{ key }}" value="{{ query_values[key] }}" data-av-multi-value="{{ key }}">
+          <details class="av-dropdown" data-av-multi="{{ key }}" data-placeholder="{{ placeholder }}">
+            <summary data-av-multi-label>{{ placeholder }}</summary>
+            <div class="av-dropdown-menu">
+              {% for option in opts %}
+              <label class="av-option"><input type="checkbox" value="{{ option }}"> {{ option }}</label>
+              {% else %}
+              <div class="av-muted p-2">Δεν υπάρχουν διαθέσιμες επιλογές.</div>
+              {% endfor %}
+            </div>
+          </details>
+        </div>
+        {% if loop.index == 1 %}
+        <div class="av-cell label">Period από</div>
+        <div class="av-cell"><input name="period_from" type="date" value="{{ query_values.period_from }}"></div>
+        {% elif loop.index == 2 %}
+        <div class="av-cell label">Period έως</div>
+        <div class="av-cell"><input name="period_to" type="date" value="{{ query_values.period_to }}"></div>
+        {% elif loop.index == 3 %}
+        <div class="av-cell label">Stock Date 1</div>
+        <div class="av-cell"><input name="stock_date_1" type="date" value="{{ query_values.stock_date_1 }}"></div>
+        {% elif loop.index == 4 %}
+        <div class="av-cell label">Stock Date 2</div>
+        <div class="av-cell"><input name="stock_date_2" type="date" value="{{ query_values.stock_date_2 }}"></div>
+        {% elif loop.index == 5 %}
+        <div class="av-cell label">Step</div>
+        <div class="av-cell">
+          <select name="step">
+            <option value="month" {% if query_values.step == 'month' %}selected{% endif %}>Μήνας</option>
+            <option value="week" {% if query_values.step == 'week' %}selected{% endif %}>Εβδομάδα</option>
+            <option value="quarter" {% if query_values.step == 'quarter' %}selected{% endif %}>Τρίμηνο</option>
+          </select>
+        </div>
+        {% else %}
+        <div class="av-cell"></div><div class="av-cell"></div>
+        {% endif %}
+        {% endfor %}
+      </div>
+      <div class="av-actions">
+        <a class="btn btn-light" href="/tenant/availability">Καθαρισμός</a>
+        <button class="btn btn-primary" type="submit"><i class="fe fe-filter"></i> Εφαρμογή</button>
+        <a class="btn btn-success" href="/tenant/availability/export{% if request.url.query %}?{{ request.url.query }}{% endif %}"><i class="fe fe-download"></i> Export Excel</a>
+      </div>
+    </form>
+    <aside class="av-notes">
+      <h2>Notes Excel</h2>
+      <ol>{% for note in notes %}<li>{{ note }}</li>{% endfor %}</ol>
+    </aside>
+  </section>
+
+  <section class="av-summary">
+    <div class="av-kpi"><span>SKU Count</span><strong>{{ summary.sku_count or 0 }}</strong></div>
+    <div class="av-kpi"><span>SKU Live Online</span><strong>{{ summary.sku_live_online or 0 }}</strong></div>
+    <div class="av-kpi"><span>Web Availability</span><strong>{{ "%.1f"|format((summary.web_availability or 0) * 100) }}%</strong></div>
+    <div class="av-kpi"><span>Sales Value</span><strong>{{ "%.0f"|format(summary.sales_value or 0) }} €</strong></div>
+    <div class="av-kpi"><span>Recommendations</span><strong>{{ summary.recommendations_count or 0 }}</strong></div>
+  </section>
+
+  <section class="av-panel">
+    <div class="av-tabs">
+      <button class="av-tab active" type="button" data-av-tab="table">Table</button>
+      <button class="av-tab" type="button" data-av-tab="trends">Trends</button>
+      <button class="av-tab" type="button" data-av-tab="correlation">Correlation</button>
+      <button class="av-tab" type="button" data-av-tab="recommendations">Recommendations</button>
+    </div>
+    <div class="av-pane active" data-av-pane="table">
+      <div class="av-table-wrap">
+        <table class="av-table">
+          <thead>
+            <tr>
+              <th>ABCD Status</th><th>Εμπορικό Status</th><th>SKU Count</th><th>SKU Live Online</th><th>Web Availability</th>
+              <th>Sales Units</th><th>Sales Value</th><th>Margin %</th><th>Purchases Units</th><th>Purchases Value</th>
+              <th>Units Date 1</th><th>Value Date 1</th><th>Units Date 2</th><th>Value Date 2</th><th>DIO</th>
+              {% for code in store_codes %}<th>Availability {{ store_labels[code] }}</th>{% endfor %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in rows %}
+            <tr>
+              <td>{{ row.status_abcd }}</td><td>{{ row.commercial_status }}</td>
+              <td class="av-number">{{ row.sku_count }}</td><td class="av-number">{{ row.sku_live_online }}</td><td class="av-number">{{ "%.1f"|format((row.web_availability or 0) * 100) }}%</td>
+              <td class="av-number">{{ "%.0f"|format(row.sales_units or 0) }}</td><td class="av-number">{{ "%.2f"|format(row.sales_value or 0) }}</td><td class="av-number">{{ "%.1f"|format((row.margin_pct or 0) * 100) }}%</td>
+              <td class="av-number">{{ "%.0f"|format(row.purchase_units or 0) }}</td><td class="av-number">{{ "%.2f"|format(row.purchase_value or 0) }}</td>
+              <td class="av-number">{{ "%.0f"|format(row.stock_units_1 or 0) }}</td><td class="av-number">{{ "%.2f"|format(row.stock_value_1 or 0) }}</td>
+              <td class="av-number">{{ "%.0f"|format(row.stock_units_2 or 0) }}</td><td class="av-number">{{ "%.2f"|format(row.stock_value_2 or 0) }}</td>
+              <td class="av-number">{{ row.dio if row.dio == '-' else "%.1f"|format(row.dio or 0) }}</td>
+              {% for code in store_codes %}<td class="av-number">{{ "%.1f"|format((row.availability[code] or 0) * 100) }}%</td>{% endfor %}
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="av-pane" data-av-pane="trends">
+      <div class="av-chart-grid">
+        {% for series in trends.series or [] %}
+        <div class="av-line-chart" data-av-line='{{ {"periods": trends.periods or [], "name": series.name, "values": series["values"]}|tojson }}'>
+          <strong>{{ series.name }}</strong>
+          <table class="av-mini-table">
+            <thead><tr><th></th>{% for period in trends.periods or [] %}<th>{{ period }}</th>{% endfor %}</tr></thead>
+            <tbody><tr><td>availability</td>{% for value in series["values"] or [] %}<td>{{ "%.0f"|format((value or 0) * 100) }}%</td>{% endfor %}</tr></tbody>
+          </table>
+          <svg class="av-line-svg" role="img" aria-label="{{ series.name }} availability trend"></svg>
+          <div class="av-chart-legend">
+            <span class="av-legend-item"><span class="av-legend-line" style="background:#2563eb"></span> availability</span>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="av-pane" data-av-pane="correlation">
+      <div class="av-chart-grid">
+        {% for series in correlation.series or [] %}
+        <div class="av-dual-chart" data-av-dual='{{ {"periods": correlation.periods or [], "name": series.name, "availability": series.availability, "sales_vs_py": series.sales_vs_py}|tojson }}'>
+          <strong>{{ series.name }}</strong>
+          <table class="av-mini-table">
+            <thead><tr><th></th>{% for period in correlation.periods or [] %}<th>{{ period }}</th>{% endfor %}</tr></thead>
+            <tbody>
+              <tr><td>availability</td>{% for value in series.availability or [] %}<td>{{ "%.0f"|format((value or 0) * 100) }}%</td>{% endfor %}</tr>
+              <tr><td>sales vs PY</td>{% for value in series.sales_vs_py or [] %}<td>{{ "%.0f"|format((value or 0) * 100) }}%</td>{% endfor %}</tr>
+            </tbody>
+          </table>
+          <svg class="av-dual-svg" role="img" aria-label="{{ series.name }} availability and sales vs PY"></svg>
+          <div class="av-chart-legend">
+            <span class="av-legend-item"><span class="av-legend-line" style="background:#2563eb"></span> availability</span>
+            <span class="av-legend-item"><span class="av-legend-line" style="background:#f97316"></span> sales vs PY</span>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="av-pane" data-av-pane="recommendations">
+      <div class="av-table-wrap">
+        <table class="av-table" style="min-width: 1200px">
+          <thead><tr><th>#</th><th>Action</th><th>Status ABCD</th><th>Status Εμπορικό</th><th>Vendor</th><th>Location</th><th>Cur Availability</th><th>Target Availability</th><th>Monthly revenue potential</th></tr></thead>
+          <tbody>
+            {% for row in recs %}
+            <tr><td>{{ loop.index }}</td><td>{{ row.action }}</td><td>{{ row.status_abcd }}</td><td>{{ row.commercial_status }}</td><td>{{ row.vendor }}</td><td>{{ row.location }}</td><td class="av-number">{{ "%.1f"|format((row.cur_availability or 0) * 100) }}%</td><td class="av-number">{{ "%.0f"|format((row.target_availability or 0) * 100) }}%</td><td class="av-number">{{ "%.2f"|format(row.monthly_revenue_potential or 0) }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+  {% endif %}
+</div>
+<script>
+  (() => {
+    const splitValues = (value) => String(value || '').split(',').map((part) => part.trim()).filter(Boolean);
+    document.querySelectorAll('[data-av-multi]').forEach((dropdown) => {
+      const key = dropdown.getAttribute('data-av-multi');
+      const hidden = document.querySelector(`[data-av-multi-value="${key}"]`);
+      const label = dropdown.querySelector('[data-av-multi-label]');
+      const boxes = Array.from(dropdown.querySelectorAll('input[type="checkbox"]'));
+      const placeholder = dropdown.getAttribute('data-placeholder') || 'Όλα';
+      const refresh = () => {
+        const selected = boxes.filter((box) => box.checked).map((box) => box.value);
+        if (hidden) hidden.value = selected.join(', ');
+        if (label) label.textContent = selected.length ? (selected.length <= 2 ? selected.join(', ') : `${selected.length} επιλεγμένα`) : placeholder;
+      };
+      const initial = new Set(splitValues(hidden?.value));
+      boxes.forEach((box) => { box.checked = initial.has(box.value); box.addEventListener('change', refresh); });
+      refresh();
+    });
+    document.querySelectorAll('[data-av-tab]').forEach((button) => {
+      button.addEventListener('click', () => {
+        document.querySelectorAll('[data-av-tab]').forEach((node) => node.classList.toggle('active', node === button));
+        document.querySelectorAll('[data-av-pane]').forEach((pane) => pane.classList.toggle('active', pane.getAttribute('data-av-pane') === button.getAttribute('data-av-tab')));
+      });
+    });
+    const pct = (value) => `${Math.round(value * 100)}%`;
+    const drawLine = (box) => {
+      const svg = box.querySelector('svg');
+      if (!svg) return;
+      const data = JSON.parse(box.getAttribute('data-av-line') || '{}');
+      const periods = data.periods || [];
+      const values = data.values || [];
+      const width = 640;
+      const height = 260;
+      const pad = { left: 46, right: 24, top: 20, bottom: 42 };
+      const plotW = width - pad.left - pad.right;
+      const plotH = height - pad.top - pad.bottom;
+      const maxValue = Math.max(.1, Math.min(1, Math.max(...values, .8)));
+      const yMax = Math.min(1, Math.max(.1, Math.ceil((maxValue + .05) * 10) / 10));
+      const yMin = Math.max(0, Math.floor(Math.min(...values, 0) * 10) / 10);
+      const ySpan = Math.max(yMax - yMin, .1);
+      const x = (idx) => pad.left + (periods.length <= 1 ? plotW / 2 : (idx / (periods.length - 1)) * plotW);
+      const y = (value) => pad.top + (1 - ((Math.max(yMin, Math.min(yMax, value)) - yMin) / ySpan)) * plotH;
+      const path = values.map((value, idx) => `${idx ? 'L' : 'M'} ${x(idx).toFixed(1)} ${y(value).toFixed(1)}`).join(' ');
+      const ticks = Array.from({ length: 6 }, (_, idx) => yMin + (ySpan / 5) * idx);
+      const grid = ticks.map((tick) => {
+        const yy = y(tick);
+        return `<line x1="${pad.left}" y1="${yy}" x2="${width - pad.right}" y2="${yy}" stroke="#e5e7eb"/><text x="8" y="${yy + 4}" font-size="11" fill="#64748b">${Math.round(tick * 100)}%</text>`;
+      }).join('');
+      const labels = periods.map((period, idx) => `<text x="${x(idx)}" y="${height - 14}" text-anchor="middle" font-size="11" fill="#64748b">${period}</text>`).join('');
+      const valueLabels = values.map((value, idx) => `<text x="${x(idx)}" y="${y(value) - 8}" text-anchor="middle" font-size="11" fill="#1d4ed8">${pct(value)}</text>`).join('');
+      svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+      svg.innerHTML = `
+        ${grid}${labels}
+        <path d="${path}" fill="none" stroke="#2563eb" stroke-width="3"/>
+        ${values.map((value, idx) => `<circle cx="${x(idx)}" cy="${y(value)}" r="4" fill="#2563eb"/>`).join('')}
+        ${valueLabels}
+      `;
+    };
+    const drawDual = (box) => {
+      const svg = box.querySelector('svg');
+      if (!svg) return;
+      const data = JSON.parse(box.getAttribute('data-av-dual') || '{}');
+      const periods = data.periods || [];
+      const availability = data.availability || [];
+      const sales = data.sales_vs_py || [];
+      const width = 640;
+      const height = 260;
+      const pad = { left: 46, right: 50, top: 20, bottom: 42 };
+      const plotW = width - pad.left - pad.right;
+      const plotH = height - pad.top - pad.bottom;
+      const x = (idx) => pad.left + (periods.length <= 1 ? plotW / 2 : (idx / (periods.length - 1)) * plotW);
+      const yLeft = (value) => pad.top + (1 - Math.max(0, Math.min(1, value))) * plotH;
+      const yRight = (value) => {
+        const clamped = Math.max(-1, Math.min(1, value));
+        return pad.top + ((1 - ((clamped + 1) / 2)) * plotH);
+      };
+      const path = (values, mapper) => values.map((value, idx) => `${idx ? 'L' : 'M'} ${x(idx).toFixed(1)} ${mapper(value).toFixed(1)}`).join(' ');
+      const grid = [0, .25, .5, .75, 1].map((tick) => {
+        const yy = yLeft(tick);
+        return `<line x1="${pad.left}" y1="${yy}" x2="${width - pad.right}" y2="${yy}" stroke="#e5e7eb"/><text x="8" y="${yy + 4}" font-size="11" fill="#64748b">${Math.round(tick * 100)}%</text>`;
+      }).join('');
+      const rightTicks = [-1, -.5, 0, .5, 1].map((tick) => {
+        const yy = yRight(tick);
+        return `<text x="${width - pad.right + 8}" y="${yy + 4}" font-size="11" fill="#64748b">${Math.round(tick * 100)}%</text>`;
+      }).join('');
+      const labels = periods.map((period, idx) => `<text x="${x(idx)}" y="${height - 14}" text-anchor="middle" font-size="11" fill="#64748b">${period}</text>`).join('');
+      const avLabels = availability.map((value, idx) => `<text x="${x(idx)}" y="${yLeft(value) - 8}" text-anchor="middle" font-size="11" fill="#1d4ed8">${pct(value)}</text>`).join('');
+      const salesLabels = sales.map((value, idx) => `<text x="${x(idx)}" y="${yRight(value) + 18}" text-anchor="middle" font-size="11" fill="#ea580c">${pct(value)}</text>`).join('');
+      svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+      svg.innerHTML = `
+        ${grid}${rightTicks}${labels}
+        <path d="${path(availability, yLeft)}" fill="none" stroke="#2563eb" stroke-width="3"/>
+        <path d="${path(sales, yRight)}" fill="none" stroke="#f97316" stroke-width="3"/>
+        ${availability.map((value, idx) => `<circle cx="${x(idx)}" cy="${yLeft(value)}" r="4" fill="#2563eb"/>`).join('')}
+        ${sales.map((value, idx) => `<circle cx="${x(idx)}" cy="${yRight(value)}" r="4" fill="#f97316"/>`).join('')}
+        ${avLabels}${salesLabels}
+      `;
+    };
+    document.querySelectorAll('[data-av-line]').forEach(drawLine);
+    document.querySelectorAll('[data-av-dual]').forEach(drawDual);
+  })();
+</script>
+{% endblock %}

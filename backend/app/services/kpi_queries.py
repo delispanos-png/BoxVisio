@@ -2490,7 +2490,7 @@ async def _purchases_summaries_by_windows(
     # The purchase summary cards need document-level fields that are not fully
     # represented in the daily company aggregate: NODSCAMNT for before-discount
     # purchases and document expenses for after-discount cost.
-    use_company_aggregate = False
+    use_company_aggregate = True
     if use_company_aggregate and not any([branches, warehouses, brands, categories, groups]) and _effective_branch_filter(None) is None:
         global_from, global_to = _window_bounds(windows)
         cols = []
@@ -3171,34 +3171,37 @@ async def sales_by_category(
     categories: list[str] | None = None,
     groups: list[str] | None = None,
 ):
-    item_category_key = _item_category_key_expr()
-    item_category_path = func.nullif(_item_category_path_expr(), literal('N/A > N/A > N/A'))
-    item_category_map = (
-        select(
-            item_category_key.label('category_ext_id'),
-            func.max(item_category_path).label('category_name'),
-        )
-        .where(item_category_path.is_not(None))
-        .group_by(item_category_key)
-        .subquery()
+    item_category_label = func.coalesce(
+        _softone_clean_dimension_text(DimItem.category_1),
+        _softone_clean_dimension_text(DimItem.commercial_category),
+        _softone_clean_dimension_text(DimGroup.name),
+    )
+    fact_category_code = _softone_clean_dimension_text(FactSales.category_ext_id)
+    category_code = func.coalesce(
+        fact_category_code,
+        func.concat(literal('ITEMCAT:'), func.substring(func.md5(item_category_label), 1, 24)),
+        literal('N/A'),
+    )
+    category_name = func.coalesce(
+        _softone_clean_dimension_text(DimCategory.name),
+        item_category_label,
+        fact_category_code,
+        literal('N/A'),
     )
     doc_key = _fact_sales_document_key_expr()
     doc_rows = (
         select(
             doc_key.label('document_key'),
-            FactSales.category_ext_id.label('category_ext_id'),
-            func.coalesce(
-                func.max(DimCategory.name),
-                func.max(item_category_map.c.category_name),
-                FactSales.category_ext_id,
-            ).label('category_name'),
+            category_code.label('category_ext_id'),
+            func.max(category_name).label('category_name'),
             func.coalesce(func.sum(_fact_sales_signed_net_expr()), 0).label('net_value'),
             func.coalesce(func.sum(_fact_sales_signed_gross_expr()), 0).label('gross_value'),
             func.coalesce(func.max(_fact_sales_signed_expenses_expr()), 0).label('expenses_value'),
         )
         .select_from(FactSales)
         .join(DimCategory, DimCategory.external_id == FactSales.category_ext_id, isouter=True)
-        .join(item_category_map, item_category_map.c.category_ext_id == FactSales.category_ext_id, isouter=True)
+        .join(DimItem, DimItem.external_id == FactSales.item_code, isouter=True)
+        .join(DimGroup, DimGroup.id == DimItem.group_id, isouter=True)
         .where(*_date_range(FactSales.doc_date, date_from, date_to))
     )
     doc_rows = _apply_fact_sales_filters(
@@ -3206,7 +3209,7 @@ async def sales_by_category(
     )
     doc_rows = _apply_fact_sales_behavior_rules(doc_rows)
     doc_rows = _apply_fact_sales_turnover_rules(doc_rows)
-    doc_rows = doc_rows.group_by(doc_key, FactSales.category_ext_id).subquery('sales_category_doc_amounts')
+    doc_rows = doc_rows.group_by(doc_key, category_code).subquery('sales_category_doc_amounts')
     stmt = (
         select(
             doc_rows.c.category_ext_id,
@@ -7738,6 +7741,38 @@ async def sales_monthly_trend(
     categories: list[str] | None = None,
     groups: list[str] | None = None,
 ):
+    if not (_has_sales_turnover_series_rules() or _has_sales_behavior_rules()):
+        agg_stmt = (
+            select(
+                AggSalesMonthly.month_start,
+                func.coalesce(func.sum(AggSalesMonthly.net_value), 0).label('net_value'),
+                func.coalesce(func.sum(AggSalesMonthly.gross_value), 0).label('gross_value'),
+                func.coalesce(func.sum(AggSalesMonthly.qty), 0).label('qty'),
+            )
+            .where(*_date_range(AggSalesMonthly.month_start, date_from, date_to))
+            .group_by(AggSalesMonthly.month_start)
+            .order_by(AggSalesMonthly.month_start)
+        )
+        agg_stmt = _apply_sales_monthly_filters(
+            agg_stmt,
+            branches=branches,
+            warehouses=warehouses,
+            brands=brands,
+            categories=categories,
+            groups=groups,
+        )
+        agg_rows = (await db.execute(agg_stmt)).all()
+        if agg_rows:
+            return [
+                {
+                    'month_start': str(r[0]),
+                    'net_value': float(r[1] or 0),
+                    'gross_value': float(r[2] or 0),
+                    'qty': float(r[3] or 0),
+                }
+                for r in agg_rows
+            ]
+
     doc_key = _fact_sales_document_key_expr()
     month_start_expr = cast(func.date_trunc(literal_column("'month'"), FactSales.doc_date), Date)
     doc_rows = (
@@ -7790,6 +7825,30 @@ async def sales_monthly_company_totals(
     date_from: date,
     date_to: date,
 ):
+    if not (_has_sales_turnover_series_rules() or _has_sales_behavior_rules()):
+        agg_stmt = (
+            select(
+                AggSalesMonthly.month_start,
+                func.coalesce(func.sum(AggSalesMonthly.net_value), 0).label('net_value'),
+                func.coalesce(func.sum(AggSalesMonthly.gross_value), 0).label('gross_value'),
+                func.coalesce(func.sum(AggSalesMonthly.qty), 0).label('qty'),
+            )
+            .where(*_date_range(AggSalesMonthly.month_start, date_from, date_to))
+            .group_by(AggSalesMonthly.month_start)
+            .order_by(AggSalesMonthly.month_start)
+        )
+        agg_rows = (await db.execute(agg_stmt)).all()
+        if agg_rows:
+            return [
+                {
+                    'month_start': str(r[0]),
+                    'net_value': float(r[1] or 0),
+                    'gross_value': float(r[2] or 0),
+                    'qty': float(r[3] or 0),
+                }
+                for r in agg_rows
+            ]
+
     doc_key = _fact_sales_document_key_expr()
     month_start_expr = cast(func.date_trunc(literal_column("'month'"), FactSales.doc_date), Date)
     doc_rows = (
@@ -12780,6 +12839,7 @@ async def executive_dashboard_cards_summary(
     brands: list[str] | None = None,
     categories: list[str] | None = None,
     groups: list[str] | None = None,
+    include_warehouse_breakdown: bool = True,
 ) -> dict:
     anchor_date = date_to
     day_anchor_date = date_from if date_from == date_to else date.today()
@@ -12875,18 +12935,20 @@ async def executive_dashboard_cards_summary(
         categories=categories,
         groups=groups,
     )
-    warehouse_windows = await _sales_by_warehouse_windows(
-        db,
-        windows={
-            'year': (year_from, anchor_date),
-            'prev_year': (prev_ytd_cmp_from, prev_ytd_cmp_to),
-        },
-        branches=branches,
-        warehouses=warehouses,
-        brands=brands,
-        categories=categories,
-        groups=groups,
-    )
+    warehouse_windows = {}
+    if include_warehouse_breakdown:
+        warehouse_windows = await _sales_by_warehouse_windows(
+            db,
+            windows={
+                'year': (year_from, anchor_date),
+                'prev_year': (prev_ytd_cmp_from, prev_ytd_cmp_to),
+            },
+            branches=branches,
+            warehouses=warehouses,
+            brands=brands,
+            categories=categories,
+            groups=groups,
+        )
 
     empty_sales = {'records': 0, 'qty': 0.0, 'net_value': 0.0, 'gross_value': 0.0}
     empty_purchase = {'records': 0, 'qty': 0.0, 'net_value': 0.0, 'cost_amount': 0.0}

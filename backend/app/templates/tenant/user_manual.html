@@ -429,6 +429,54 @@
     'checks': ['Χρησιμοποίησε φίλτρα για σημείο, status, κατηγορία, προμηθευτή και αναζήτηση είδους πριν διαβάσεις τις προτάσεις.', 'Πριν αποδεχτείς πρόταση, έλεγξε ανοιχτές παραγγελίες προμηθευτών.', 'Αν λείπει τιμή αγοράς ή MOQ, η γραμμή μπαίνει στο Data Quality.', 'Το BI δεν κρατά backorders, οπότε μετασχηματισμένη παραγγελία θεωρείται κλειστή.']
   },
   {
+    'id': 'fnr',
+    'title': 'FNR Worksheet',
+    'route': '/tenant/fnr',
+    'purpose': 'Παράγει worksheet παραγγελίας προμηθευτή με τη δομή και τη λογική του Excel FNR. Τα μπλε πεδία λειτουργούν ως φίλτρα/παράμετροι και τα αποτελέσματα υπολογίζονται από τα BI facts.',
+    'kpis': [
+      ['Γραμμές Worksheet', 'Πλήθος ειδών που συμμετέχουν στο αποτέλεσμα.', 'Count γραμμών μετά τα φίλτρα.'],
+      ['Γραμμές Παραγγελίας', 'Είδη με τελική προτεινόμενη ποσότητα.', 'Count γραμμών όπου supplier_order_qty > 0.'],
+      ['Ποσότητα Παραγγελίας', 'Συνολική ποσότητα που προτείνεται.', 'Άθροισμα supplier_order_qty.'],
+      ['Αξία Παραγγελίας', 'Εκτιμώμενη αξία παραγγελίας.', 'supplier_order_qty * τιμή αγοράς.'],
+      ['Είδη σε Ανάγκη', 'Είδη κάτω από target stock.', 'Count γραμμών με ανάγκη σε Logica ή φαρμακείο.']
+    ],
+    'columns': ['Κωδικός, περιγραφή, κατηγορίες, status και προμηθευτής.', 'Πωλήσεις, stock, εβδομάδες κάλυψης, αναμενόμενα, target, ανάγκη και overstock ανά σημείο.', 'Τελική ποσότητα/αξία παραγγελίας και export Excel για αποστολή σε προμηθευτή.'],
+    'popups': ['Multi-select φίλτρα για φαρμακείο, κατηγορίες και προμηθευτή.', 'Export Excel με ανθρώπινη μορφοποίηση.', 'Αναζήτηση είδους με κωδικό ή περιγραφή.'],
+    'checks': ['Τα φίλτρα εφαρμόζονται πριν τον υπολογισμό των KPIs.', 'Οι παράμετροι Target Stock, Overstock και μέσοι όροι εβδομάδων αλλάζουν το αποτέλεσμα.', 'Το export περιλαμβάνει τις γραμμές παραγγελίας, όχι απλό CSV dump.']
+  },
+  {
+    'id': 'availability-brief',
+    'title': 'Availability Brief',
+    'route': '/tenant/availability',
+    'purpose': 'Αναπαράγει το Availability brief του Excel σε reporting μορφή με Table, Trends, Correlation και Recommendations, υπολογισμένα από τα επιχειρησιακά κυκλώματα.',
+    'kpis': [
+      ['SKU Count', 'Πλήθος κωδικών στο επιλεγμένο φίλτρο.', 'Count distinct SKU.'],
+      ['SKU Live Online', 'Κωδικοί με online/διαθέσιμη παρουσία.', 'Count SKU με availability signal.'],
+      ['Web Availability', 'Ποσοστό κωδικών διαθέσιμων στο web.', 'SKU Live Online / SKU Count.'],
+      ['Sales Value', 'Αξία πωλήσεων περιόδου.', 'Άθροισμα sales value μετά τα φίλτρα.'],
+      ['Recommendations', 'Πλήθος προτεινόμενων ενεργειών.', 'Count generated recommendations.']
+    ],
+    'columns': ['Πίνακας ανά ABCD και εμπορικό status.', 'Trends ανά φαρμακείο/Logica/σύνολο με σύνοψη περιόδων πάνω από κάθε γράφημα.', 'Correlation με availability και sales vs previous year σε dual line λογική.'],
+    'popups': ['Tabs Table, Trends, Correlation και Recommendations.', 'Export Excel με τα worksheets του brief.', 'Φίλτρα σε μπλε πεδία όπως στο Excel.'],
+    'checks': ['Η σύνοψη πάνω από τα γραφήματα είναι μέρος του αποτελέσματος και όχι στατικό screenshot.', 'Τα φίλτρα φαρμακείου, κατηγοριών, προμηθευτή και status έρχονται από την υποδομή BI.', 'Το layout έχει ελεγχθεί σε desktop, tablet και mobile.']
+  },
+  {
+    'id': 'destocking-brief',
+    'title': 'Destocking Brief',
+    'route': '/tenant/destocking',
+    'purpose': 'Αναπαράγει το Destocking brief του Excel σε ξεχωριστό κύκλωμα αναλύσεων, με υπολογισμό overstock, margin, D3 και recommendations από BI facts.',
+    'kpis': [
+      ['SKU Count', 'Πλήθος κωδικών που αναλύονται.', 'Count distinct SKU μετά τα φίλτρα.'],
+      ['Stock Value Date 1', 'Αξία αποθέματος στην πρώτη ημερομηνία.', 'Άθροισμα value date 1.'],
+      ['Total Overstock', 'Συνολική αξία υπερ-αποθέματος.', 'Άθροισμα overstock βάσει threshold.'],
+      ['Margin', 'Περιθώριο κέρδους περιόδου.', 'Gross margin / sales value.'],
+      ['Recommendations', 'Προτάσεις destocking.', 'Count γραμμών recommendation.']
+    ],
+    'columns': ['Table ανά ABCD και εμπορικό status.', 'Trends με A over, B over, C, D και D3 ανά περίοδο.', 'Correlation με overstock, D3 overstock και margin σε dual-axis λογική.'],
+    'popups': ['Tabs Table, Trends, Correlation και Recommendations.', 'Export Excel με το ίδιο reporting αποτέλεσμα.', 'Threshold και stock dates ως χειροκίνητες παράμετροι.'],
+    'checks': ['Το D3 εμφανίζεται ξεχωριστά από το D στα trends και correlation.', 'Οι γραμμές των charts βασίζονται σε κάθε περίοδο, δεν αντιγράφουν την ίδια τιμή.', 'Η διάταξη των φίλτρων είναι στενή σε πλάτος και πιο άνετη σε ύψος.']
+  },
+  {
     'id': 'business-advisor',
     'title': 'Business Advisor / Σύμβουλος Επιχείρησης',
     'route': '/tenant/business-advisor',
