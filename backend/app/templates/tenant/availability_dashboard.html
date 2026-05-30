@@ -28,19 +28,20 @@
   .av-notes,
   .av-summary { background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: 8px; box-shadow: var(--panel-shadow); min-width: 0; max-width: 100%; }
   .av-panel { overflow: hidden; }
-  .av-workbench { align-items: start; display: grid; gap: 8px; grid-template-columns: minmax(0, 1080px) 260px; justify-content: start; max-width: 100%; min-width: 0; width: min(100%, 1348px); }
-  .av-inputs { max-width: 1080px; min-width: 0; width: 100%; }
+  .av-workbench { align-items: start; display: grid; gap: 8px; grid-template-columns: minmax(0, 1080px) 260px; justify-content: start; max-width: 100%; min-width: 0; position: relative; width: min(100%, 1348px); z-index: 30; }
+  .av-inputs { max-width: 1080px; min-width: 0; overflow: visible; position: relative; width: 100%; z-index: 31; }
   .av-input-head { align-items: center; background: #dbeafe; border-bottom: 1px solid #bfdbfe; color: #1e3a8a; display: flex; justify-content: space-between; min-height: 30px; padding: 5px 10px; }
   .av-form-grid { display: grid; grid-template-columns: 132px minmax(0, 520px) 126px 132px; min-width: 0; }
   .av-cell { border-bottom: 1px solid #dbeafe; min-height: 42px; min-width: 0; padding: 5px 9px; }
   .av-cell.label { align-items: center; background: #eff6ff; color: #1e3a8a; display: flex; font-size: 11px; font-weight: 1000; letter-spacing: 0; line-height: 1.15; text-transform: uppercase; }
   .av-cell input,
   .av-cell select { background: #fff; border: 1px solid #bfdbfe; border-radius: 7px; color: var(--text-main); font-size: 13px; font-weight: 900; line-height: 1.25; min-height: 31px; padding: 5px 9px; width: 100%; }
-  .av-dropdown { position: relative; }
+  .av-dropdown { position: relative; z-index: 40; }
+  .av-dropdown[open] { z-index: 1000; }
   .av-dropdown summary { align-items: center; background: #fff; border: 1px solid #bfdbfe; border-radius: 7px; cursor: pointer; display: flex; font-size: 13px; font-weight: 950; justify-content: space-between; line-height: 1.25; list-style: none; min-height: 31px; padding: 5px 9px; }
   .av-dropdown summary::-webkit-details-marker { display: none; }
   .av-dropdown summary::after { color: #2563eb; content: "⌄"; font-size: 13px; font-weight: 1000; }
-  .av-dropdown-menu { background: #fff; border: 1px solid #bfdbfe; border-radius: 8px; box-shadow: 0 18px 40px rgba(15, 23, 42, .16); display: grid; gap: 4px; left: 0; max-height: 260px; overflow: auto; padding: 8px; position: absolute; right: 0; top: calc(100% + 6px); z-index: 20; }
+  .av-dropdown-menu { background: #fff; border: 1px solid #bfdbfe; border-radius: 8px; box-shadow: 0 18px 40px rgba(15, 23, 42, .16); display: grid; gap: 4px; left: 0; max-height: 260px; overflow: auto; padding: 8px; position: absolute; right: 0; top: calc(100% + 6px); z-index: 1001; }
   .av-option { align-items: center; border-radius: 6px; display: flex; gap: 8px; font-size: 13px; font-weight: 850; min-height: 32px; padding: 6px 8px; }
   .av-option:hover { background: #eff6ff; }
   .av-option input { height: 16px; min-height: 16px; width: 16px; }
@@ -49,7 +50,7 @@
   .av-notes { padding: 8px 10px; max-height: 256px; overflow: auto; }
   .av-notes h2 { font-size: 13px; margin: 0 0 6px; }
   .av-notes ol { color: var(--text-muted); display: grid; gap: 3px; font-size: 10px; font-weight: 800; margin: 0; padding-left: 14px; }
-  .av-summary { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); overflow: hidden; }
+  .av-summary { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); overflow: hidden; position: relative; z-index: 1; }
   .av-kpi { border-right: 1px solid var(--panel-border); padding: 7px 10px; }
   .av-kpi:last-child { border-right: 0; }
   .av-kpi span { color: var(--text-muted); display: block; font-size: 11px; font-weight: 1000; text-transform: uppercase; }
