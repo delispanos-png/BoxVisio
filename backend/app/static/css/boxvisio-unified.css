@@ -33,40 +33,40 @@ body.tenant-shell .bv-metric-card .mc-meta.mc-meta-compact {
    the cascade so these win over the base .bv-metric-card sizing.
    =================================================================== */
 body.bv-ui-next.tenant-shell .bv-metric-card {
-  min-height: 84px;
-  padding: 12px 42px 12px 14px !important;
+  min-height: 58px;
+  padding: 8px 30px 8px 10px !important;
   border-radius: var(--bv-radius-sm, 8px);
-  box-shadow: 0 5px 14px rgba(15, 23, 42, .05);
+  box-shadow: 0 4px 11px rgba(15, 23, 42, .05);
 }
 
 body.bv-ui-next.tenant-shell .bv-metric-card .mc-label {
-  font-size: .62rem;
+  font-size: .54rem;
   letter-spacing: .01em;
 }
 
 body.bv-ui-next.tenant-shell .bv-metric-card .mc-value {
-  font-size: clamp(.98rem, 1.15vw, 1.12rem);
-  line-height: 1.15;
+  font-size: clamp(.8rem, 1vw, .9rem);
+  line-height: 1.1;
 }
 
 body.bv-ui-next.tenant-shell .bv-metric-card .mc-meta {
-  font-size: .64rem;
-  line-height: 1.2;
+  font-size: .55rem;
+  line-height: 1.15;
 }
 
 body.bv-ui-next.tenant-shell .bv-metric-card .mc-delta {
-  font-size: .64rem;
+  font-size: .55rem;
 }
 
 body.bv-ui-next.tenant-shell .bv-metric-card .mc-icon {
-  width: 28px;
-  height: 28px;
-  min-width: 28px;
-  top: 10px;
-  right: 10px;
-  border-radius: 8px;
+  width: 22px;
+  height: 22px;
+  min-width: 22px;
+  top: 8px;
+  right: 8px;
+  border-radius: 6px;
 }
 
 body.bv-ui-next.tenant-shell .bv-metric-card .mc-icon i {
-  font-size: 13px;
+  font-size: 11px;
 }
