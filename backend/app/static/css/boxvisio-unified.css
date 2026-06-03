@@ -41,3 +41,22 @@ body.bv-ui-next.tenant-shell .dashboard-shell {
 body.bv-ui-next .modal-dialog {
   zoom: 0.85;
 }
+
+/* Charts built to grow (maintainAspectRatio:false + flex-fill) stay tall even
+   after zoom. Cap their containers so they're compact too. Add more chart-wrap
+   classes here if other circuits look oversized. */
+body.bv-ui-next.tenant-shell .pos-chart-card .card-body {
+  min-height: 0 !important;
+}
+
+body.bv-ui-next.tenant-shell .pos-chart-wrap,
+body.bv-ui-next.tenant-shell .purchase-chart-wrap,
+body.bv-ui-next.tenant-shell .cmp-chart-wrap,
+body.bv-ui-next.tenant-shell .av-line-chart,
+body.bv-ui-next.tenant-shell .av-dual-chart,
+body.bv-ui-next.tenant-shell .dst-chart {
+  flex: 0 0 auto !important;
+  height: 220px !important;
+  min-height: 0 !important;
+  max-height: 220px !important;
+}
