@@ -102,9 +102,12 @@
     <label class="form-label mb-1">Κατηγορία 3</label>
     {{ multiselect('salesCategoryL3') }}
   </div>
+  <div class="col-12 col-md-6 col-xl-2">
+    <label class="form-label mb-1">Ομάδα</label>
+    {{ multiselect('salesGroups', 'groups') }}
+  </div>
   {% endif %}
   <select name="categories" id="salesCategories" multiple hidden></select>
-  <select name="groups" id="salesGroups" multiple hidden></select>
   <div class="col-12 col-xl-2 d-grid gap-2 align-content-end">
     <button class="btn btn-primary" type="submit"><i class="fe fe-filter"></i> {{ tt(request, 'apply') }}</button>
     <button class="btn btn-outline-secondary" type="button" id="salesFiltersReset"><i class="fe fe-rotate-ccw"></i> Καθαρισμός</button>
@@ -1190,6 +1193,7 @@ const salesUiFieldDefs = [
   {selectId:'salesCategoryL1', label:'Κατηγορία 1'},
   {selectId:'salesCategoryL2', label:'Κατηγορία 2'},
   {selectId:'salesCategoryL3', label:'Κατηγορία 3'},
+  {selectId:'salesGroups', label:'Ομάδα'},
 ];
 let salesCategoryHierarchy = [];
 let salesInitCategoryIds = new Set(salesInitialMultiFilters.categories);
@@ -1873,7 +1877,7 @@ async function loadSalesFilterOptions(){
       groups: ((options && options.labels && options.labels.groups) || {}),
       warehouses: ((options && options.labels && options.labels.warehouses) || {}),
     };
-    ['branches','warehouses','brands'].forEach((key)=>{
+    ['branches','warehouses','brands','groups'].forEach((key)=>{
       const field = salesFieldDefs.find(f => f.key === key);
       if(!field) return;
       const vals=(options && options[key]) || [];
@@ -1885,7 +1889,6 @@ async function loadSalesFilterOptions(){
       (options && options.categories) || [],
       (options && options.labels && options.labels.categories) || {}
     );
-    document.getElementById('salesGroups').innerHTML = '';
     if(documentsMode){
       const channelVals = (options && options.channels) || [];
       const channelLabels = (options && options.labels && options.labels.channels) || {};

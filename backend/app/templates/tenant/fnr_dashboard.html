@@ -3,6 +3,8 @@
 {% block content %}
 {% set summary = fnr.summary if fnr.summary is defined else {} %}
 {% set rows = fnr.rows if fnr.rows is defined else [] %}
+{% set expected_order_rows = fnr.expected_order_rows if fnr.expected_order_rows is defined else [] %}
+{% set fnr_view = request.query_params.get('view', 'worksheet') %}
 {% set options = fnr.options if fnr.options is defined else {} %}
 {% set store_codes = fnr.store_codes if fnr.store_codes is defined else ['KAS', 'AGD', 'PER', 'ELL', 'SPA', 'LOGICA'] %}
 {% set store_labels = {'KAS': 'ΚΑΣ', 'AGD': 'ΑΓΔ', 'PER': 'ΠΕΡ', 'ELL': 'ΕΛΛ', 'SPA': 'ΣΠΑ', 'LOGICA': 'Logica'} %}
@@ -29,11 +31,11 @@
   .fnr-inputs,
   .fnr-summary,
   .fnr-notes { background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: 8px; box-shadow: var(--panel-shadow); max-width: 100%; min-width: 0; }
-  .fnr-workbench { align-items: start; display: grid; gap: 8px; grid-template-columns: minmax(0, 1080px) 260px; justify-content: start; max-width: 100%; min-width: 0; position: relative; width: min(100%, 1348px); z-index: 30; }
-  .fnr-inputs { max-width: 1080px; min-width: 0; overflow: visible; position: relative; width: 100%; z-index: 31; }
+  .fnr-workbench { align-items: flex-start; display: flex; gap: 8px; justify-content: flex-start; max-width: 100%; min-width: 0; position: relative; width: 100%; z-index: 30; }
+  .fnr-inputs { flex: 1 1 auto; min-width: 0; overflow: visible; position: relative; width: auto; z-index: 31; }
   .fnr-input-head { align-items: center; background: #dbeafe; border-bottom: 1px solid #bfdbfe; color: #1e3a8a; display: flex; justify-content: space-between; min-height: 30px; padding: 5px 10px; }
   .fnr-input-head strong { font-size: 12px; font-weight: 1000; }
-  .fnr-form-grid { display: grid; gap: 0; grid-template-columns: 132px minmax(0, 520px) 126px 132px; min-width: 0; }
+  .fnr-form-grid { display: grid; gap: 0; grid-template-columns: 124px minmax(0, 1fr) 116px 120px; min-width: 0; }
   .fnr-cell { border-bottom: 1px solid #dbeafe; min-height: 42px; min-width: 0; padding: 5px 9px; }
   .fnr-cell.label { align-items: center; background: #eff6ff; color: #1e3a8a; display: flex; font-size: 11px; font-weight: 1000; letter-spacing: 0; line-height: 1.15; text-transform: uppercase; }
   .fnr-cell input { background: #fff; border: 1px solid #bfdbfe; border-radius: 7px; color: var(--text-main); font-size: 13px; font-weight: 900; line-height: 1.25; min-height: 31px; padding: 5px 9px; width: 100%; }
@@ -91,7 +93,16 @@
   .fnr-option-empty { color: var(--text-muted); font-size: 12px; font-weight: 800; padding: 8px; }
   .fnr-actions { align-items: center; display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; padding: 6px 10px; }
   .fnr-actions .btn { font-size: 12px; min-height: 30px; padding: 5px 10px; }
-  .fnr-notes { padding: 8px 10px; max-height: 218px; overflow: auto; }
+  .fnr-sync-note { align-items: center; background: #eff6ff; border-top: 1px solid #bfdbfe; color: #1e3a8a; display: flex; flex-wrap: wrap; font-size: 11px; font-weight: 900; gap: 6px; justify-content: space-between; padding: 6px 10px; }
+  .fnr-sync-note strong { color: #172554; }
+  .fnr-sync-ok { background: #ecfdf5; border: 1px solid #bbf7d0; border-radius: 8px; color: #166534; font-size: 12px; font-weight: 900; padding: 7px 10px; }
+  .fnr-sync-progress { background: #f8fafc; border-top: 1px solid #dbeafe; display: none; gap: 6px; padding: 8px 10px; }
+  .fnr-sync-progress.is-visible { display: grid; }
+  .fnr-progress-head { align-items: center; color: #1e3a8a; display: flex; font-size: 12px; font-weight: 950; justify-content: space-between; }
+  .fnr-progress-track { background: #dbeafe; border-radius: 999px; height: 10px; overflow: hidden; }
+  .fnr-progress-fill { background: linear-gradient(90deg, #2563eb, #22c55e); border-radius: inherit; height: 100%; transition: width .35s ease; width: 0%; }
+  .fnr-progress-meta { color: #64748b; font-size: 11px; font-weight: 850; }
+  .fnr-notes { flex: 0 0 260px; padding: 8px 10px; max-height: 218px; overflow: auto; width: 260px; }
   .fnr-notes h2 { font-size: 12px; margin: 0 0 4px; }
   .fnr-notes ol { color: var(--text-muted); display: grid; gap: 3px; font-size: 10px; font-weight: 800; margin: 0; padding-left: 14px; }
   .fnr-summary { display: grid; gap: 0; grid-template-columns: repeat(5, minmax(0, 1fr)); overflow: hidden; position: relative; z-index: 1; }
@@ -103,16 +114,29 @@
   .fnr-sheet-toolbar { align-items: center; border-bottom: 1px solid var(--panel-border); display: flex; flex-wrap: wrap; gap: 6px; justify-content: space-between; padding: 7px 9px; }
   .fnr-sheet-toolbar h2 { font-size: 16px; margin: 0; }
   .fnr-table-wrap { max-height: 68vh; max-width: 100%; min-width: 0; overflow: auto; }
-  .fnr-table { border-collapse: separate; border-spacing: 0; font-size: 12px; min-width: 3200px; width: 100%; }
+  .fnr-expected-wrap { max-height: 70vh; }
+  .fnr-table { border-collapse: separate; border-spacing: 0; font-size: 12px; min-width: 3400px; table-layout: fixed; width: 100%; }
   .fnr-table th,
   .fnr-table td { border-bottom: 1px solid #e2e8f0; border-right: 1px solid #e2e8f0; padding: 5px 7px; white-space: nowrap; }
   .fnr-table th { color: #334155; font-size: 10px; font-weight: 1000; position: sticky; top: 0; z-index: 2; text-transform: uppercase; }
   .fnr-table .group th { top: 0; text-align: center; }
   .fnr-table .headers th { top: 34px; }
-  .fnr-id { background: #f8fafc; left: 0; position: sticky; z-index: 3; }
-  .fnr-name { background: #f8fafc; left: 96px; position: sticky; z-index: 3; min-width: 280px; }
+  .fnr-id { background: #f8fafc; left: 0; position: sticky; width: 96px; z-index: 4; }
+  .fnr-name { background: #f8fafc; left: 96px; position: sticky; width: 420px; z-index: 4; }
+  .fnr-cat1 { background: #f8fafc; left: 516px; position: sticky; width: 220px; z-index: 3; }
+  .fnr-cat2,
+  .fnr-cat3 { width: 220px; }
+  .fnr-status { width: 92px; }
+  .fnr-small { width: 84px; }
+  .fnr-store-col { width: 82px; }
+  .fnr-order-col { width: 110px; }
   td.fnr-id,
-  td.fnr-name { font-weight: 950; }
+  td.fnr-name,
+  td.fnr-cat1 { font-weight: 950; }
+  td.fnr-name,
+  td.fnr-cat1,
+  td.fnr-cat2,
+  td.fnr-cat3 { overflow: hidden; text-overflow: ellipsis; }
   .fnr-g-base { background: #f8fafc; }
   .fnr-g-mo1 { background: #dcfce7; }
   .fnr-g-mo2 { background: #dbeafe; }
@@ -126,9 +150,16 @@
   .fnr-number { font-variant-numeric: tabular-nums; text-align: right; }
   .fnr-order-cell { background: #fffbeb; color: #92400e; font-weight: 1000; }
   .fnr-muted { color: var(--text-muted); font-size: 12px; font-weight: 800; }
+  .fnr-expected-table { border-collapse: separate; border-spacing: 0; font-size: 12px; min-width: 1120px; width: 100%; }
+  .fnr-expected-table th,
+  .fnr-expected-table td { border-bottom: 1px solid #e2e8f0; padding: 6px 8px; white-space: nowrap; }
+  .fnr-expected-table th { background: #eff6ff; color: #1e3a8a; font-size: 10px; font-weight: 1000; text-transform: uppercase; }
+  .fnr-expected-table td { font-weight: 850; }
   .fnr-locked { padding: 32px; text-align: center; }
-  @media (max-width: 1100px) {
-    .fnr-workbench,
+  @media (max-width: 860px) {
+    .fnr-workbench { flex-direction: column; }
+    .fnr-inputs,
+    .fnr-notes { flex: 1 1 auto; width: 100%; }
     .fnr-summary { grid-template-columns: 1fr; }
     .fnr-kpi { border-right: 0; border-bottom: 1px solid var(--panel-border); }
     .fnr-form-grid { grid-template-columns: 1fr; }
@@ -173,6 +204,23 @@
         <div class="fnr-cell label">Target stock</div>
         <div class="fnr-cell"><input name="target_stock_weeks" type="number" step="0.1" value="{{ query_values.target_stock_weeks }}"></div>
 
+        <div class="fnr-cell label">Ομάδα</div>
+        <div class="fnr-cell">
+          <input type="hidden" name="group" value="{{ query_values.group }}" data-fnr-multi-value="group">
+          <details class="fnr-dropdown" data-fnr-multi="group">
+            <summary data-fnr-multi-label>Όλες οι ομάδες</summary>
+            <div class="fnr-dropdown-menu">
+              {% for option in options.group or [] %}
+              <label class="fnr-option"><input type="checkbox" value="{{ option }}"> {{ option }}</label>
+              {% else %}
+              <div class="fnr-option-empty">Δεν υπάρχουν διαθέσιμες ομάδες.</div>
+              {% endfor %}
+            </div>
+          </details>
+        </div>
+        <div class="fnr-cell label">Overstock</div>
+        <div class="fnr-cell"><input name="overstock_weeks" type="number" step="0.1" value="{{ query_values.overstock_weeks }}"></div>
+
         <div class="fnr-cell label">Κατηγορία 1</div>
         <div class="fnr-cell">
           <input type="hidden" name="category_1" value="{{ query_values.category_1 }}" data-fnr-multi-value="category_1">
@@ -187,8 +235,8 @@
             </div>
           </details>
         </div>
-        <div class="fnr-cell label">Overstock</div>
-        <div class="fnr-cell"><input name="overstock_weeks" type="number" step="0.1" value="{{ query_values.overstock_weeks }}"></div>
+        <div class="fnr-cell label">MO Εβδ 1</div>
+        <div class="fnr-cell"><input name="sales_avg_period_1_weeks" type="number" min="1" step="1" value="{{ query_values.sales_avg_period_1_weeks }}"></div>
 
         <div class="fnr-cell label">Κατηγορία 2</div>
         <div class="fnr-cell">
@@ -204,8 +252,8 @@
             </div>
           </details>
         </div>
-        <div class="fnr-cell label">MO Εβδ 1</div>
-        <div class="fnr-cell"><input name="sales_avg_period_1_weeks" type="number" min="1" step="1" value="{{ query_values.sales_avg_period_1_weeks }}"></div>
+        <div class="fnr-cell label">MO Εβδ 2</div>
+        <div class="fnr-cell"><input name="sales_avg_period_2_weeks" type="number" min="1" step="1" value="{{ query_values.sales_avg_period_2_weeks }}"></div>
 
         <div class="fnr-cell label">Κατηγορία 3</div>
         <div class="fnr-cell">
@@ -221,8 +269,8 @@
             </div>
           </details>
         </div>
-        <div class="fnr-cell label">MO Εβδ 2</div>
-        <div class="fnr-cell"><input name="sales_avg_period_2_weeks" type="number" min="1" step="1" value="{{ query_values.sales_avg_period_2_weeks }}"></div>
+        <div class="fnr-cell label">Αναζήτηση</div>
+        <div class="fnr-cell"><input name="search" value="{{ query_values.search }}" placeholder="κωδικός ή περιγραφή"></div>
 
         <div class="fnr-cell label">Προμηθευτής</div>
         <div class="fnr-cell">
@@ -238,15 +286,31 @@
             </div>
           </details>
         </div>
-        <div class="fnr-cell label">Αναζήτηση</div>
-        <div class="fnr-cell"><input name="search" value="{{ query_values.search }}" placeholder="κωδικός ή περιγραφή"></div>
       </div>
       <div class="fnr-actions">
         <a class="btn btn-light" href="/tenant/fnr">Καθαρισμός</a>
+        <a class="btn {{ 'btn-primary' if fnr_view != 'expected' else 'btn-outline-secondary' }}" href="/tenant/fnr{% if fnr_query_no_view %}?{{ fnr_query_no_view }}{% endif %}"><i class="fe fe-file-text"></i> FNR Worksheet</a>
+        <a class="btn {{ 'btn-primary' if fnr_view == 'expected' else 'btn-outline-secondary' }}" href="/tenant/fnr?{{ fnr_query_no_view ~ '&' if fnr_query_no_view else '' }}view=expected"><i class="fe fe-list"></i> Αναμενόμενες παραγγελίες</a>
+        <button class="btn btn-outline-primary" type="submit" form="fnrExpectedSyncForm"><i class="fe fe-refresh-cw"></i> Συγχρονισμός αναμενόμενων</button>
         <button class="btn btn-primary" type="submit"><i class="fe fe-filter"></i> Εφαρμογή</button>
         <a class="btn btn-success" href="/tenant/fnr/export{% if request.url.query %}?{{ request.url.query }}{% endif %}"><i class="fe fe-download"></i> Export Excel</a>
       </div>
+      <div class="fnr-sync-note">
+        <span><strong>Πριν την τελική παραγγελία:</strong> συγχρόνισε τα αναμενόμενα για να αφαιρεθούν παραγγελίες που μόλις μετασχηματίστηκαν ή ακυρώθηκαν.</span>
+        {% if request.query_params.get('expected_sync') == 'queued' %}
+        <span class="fnr-sync-ok">Ο συγχρονισμός μπήκε στην priority ουρά. Κάνε ανανέωση/Εφαρμογή μόλις ολοκληρωθεί.</span>
+        {% endif %}
+      </div>
+      <div class="fnr-sync-progress{% if request.query_params.get('expected_sync') == 'queued' %} is-visible{% endif %}" data-fnr-sync-progress>
+        <div class="fnr-progress-head">
+          <span data-fnr-sync-label>Συγχρονισμός αναμενόμενων σε αναμονή...</span>
+          <strong data-fnr-sync-pct>0%</strong>
+        </div>
+        <div class="fnr-progress-track"><div class="fnr-progress-fill" data-fnr-sync-fill></div></div>
+        <div class="fnr-progress-meta" data-fnr-sync-meta>Ελέγχουμε την priority ουρά.</div>
+      </div>
     </form>
+    <form id="fnrExpectedSyncForm" method="post" action="/tenant/fnr/sync-expected{% if request.url.query %}?{{ request.url.query }}{% endif %}"></form>
 
     <aside class="fnr-notes">
       <h2>Notes Excel</h2>
@@ -266,6 +330,56 @@
     <div class="fnr-kpi"><span>Είδη με ανάγκη</span><strong>{{ summary.products_with_need or 0 }}</strong></div>
   </section>
 
+  {% if fnr_view == 'expected' %}
+  <section class="fnr-sheet">
+    <div class="fnr-sheet-toolbar">
+      <div>
+        <h2>Αναμενόμενες Παραγγελίες Προμηθευτών</h2>
+        <div class="fnr-muted">
+          Ανοιχτές παραγγελίες χωρίς μετασχηματισμό και χωρίς ακυρωμένο/καλυμμένο υπόλοιπο. Αυτές τροφοδοτούν τα Expected Logica. Προβολή πρώτων {{ expected_order_rows[:500]|length }} γραμμών.
+        </div>
+      </div>
+      <div class="fnr-muted">{{ summary.expected_order_rows_count or 0 }} γραμμές · {{ "%.0f"|format(summary.expected_order_qty or 0) }} τεμ. expected</div>
+    </div>
+    <div class="fnr-table-wrap fnr-expected-wrap">
+      <table class="fnr-expected-table">
+        <thead>
+          <tr>
+            <th>Ημερομηνία</th>
+            <th>Παραστατικό</th>
+            <th>Προμηθευτής</th>
+            <th>Κωδικός</th>
+            <th>Περιγραφή</th>
+            <th>Κατηγ. 1</th>
+            <th class="fnr-number">Παραγγ.</th>
+            <th class="fnr-number">Καλυμ.</th>
+            <th class="fnr-number">Ακυρ.</th>
+            <th class="fnr-number">Expected</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in expected_order_rows[:500] %}
+          <tr>
+            <td>{{ row.doc_date }}</td>
+            <td>{{ row.document_no }}</td>
+            <td>{{ row.supplier_name }}</td>
+            <td>{{ row.item_code }}</td>
+            <td title="{{ row.item_name }}">{{ row.item_name }}</td>
+            <td title="{{ row.category_1 }}">{{ row.category_1 }}</td>
+            <td class="fnr-number">{{ "%.1f"|format(row.order_qty or 0) }}</td>
+            <td class="fnr-number">{{ "%.1f"|format(row.covered_qty or 0) }}</td>
+            <td class="fnr-number">{{ "%.1f"|format(row.cancelled_qty or 0) }}</td>
+            <td class="fnr-number fnr-order-cell">{{ "%.1f"|format(row.expected_qty or 0) }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="10" class="text-center py-4 fnr-muted">Δεν υπάρχουν ανοιχτές μη μετασχηματισμένες παραγγελίες προμηθευτών για τα τρέχοντα φίλτρα.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  {% else %}
   <section class="fnr-sheet">
     <div class="fnr-sheet-toolbar">
       <div>
@@ -276,6 +390,30 @@
     </div>
     <div class="fnr-table-wrap">
       <table class="fnr-table">
+        <colgroup>
+          <col class="fnr-id">
+          <col class="fnr-name">
+          <col class="fnr-cat1">
+          <col class="fnr-cat2">
+          <col class="fnr-cat3">
+          <col class="fnr-status">
+          <col class="fnr-status">
+          <col class="fnr-small">
+          <col class="fnr-small">
+          <col class="fnr-small">
+          {% for code in store_codes %}<col class="fnr-store-col">{% endfor %}
+          {% for code in store_codes %}<col class="fnr-store-col">{% endfor %}
+          {% for code in store_codes %}<col class="fnr-store-col">{% endfor %}
+          {% for code in store_codes %}<col class="fnr-store-col">{% endfor %}
+          {% for code in store_codes %}<col class="fnr-store-col">{% endfor %}
+          {% for code in store_codes %}<col class="fnr-store-col">{% endfor %}
+          {% for code in store_codes %}<col class="fnr-store-col">{% endfor %}
+          {% for code in store_codes %}<col class="fnr-store-col">{% endfor %}
+          <col class="fnr-order-col">
+          <col class="fnr-order-col">
+          <col class="fnr-order-col">
+          <col class="fnr-order-col">
+        </colgroup>
         <thead>
           <tr class="group">
             <th class="fnr-g-base" colspan="10">Output</th>
@@ -292,14 +430,14 @@
           <tr class="headers">
             <th class="fnr-id fnr-g-base">Κωδικός</th>
             <th class="fnr-name fnr-g-base">Περιγραφή</th>
-            <th class="fnr-g-base">Κατηγ. 1</th>
-            <th class="fnr-g-base">Κατηγ. 2</th>
-            <th class="fnr-g-base">Κατηγ. 3</th>
-            <th class="fnr-g-base">Status 1</th>
-            <th class="fnr-g-base">Status 2</th>
-            <th class="fnr-g-base">Min</th>
-            <th class="fnr-g-base">Repl MOQ</th>
-            <th class="fnr-g-base">Vendor MOQ</th>
+            <th class="fnr-cat1 fnr-g-base">Κατηγ. 1</th>
+            <th class="fnr-cat2 fnr-g-base">Κατηγ. 2</th>
+            <th class="fnr-cat3 fnr-g-base">Κατηγ. 3</th>
+            <th class="fnr-status fnr-g-base">Status 1</th>
+            <th class="fnr-status fnr-g-base">Status 2</th>
+            <th class="fnr-small fnr-g-base">Min</th>
+            <th class="fnr-small fnr-g-base">Repl MOQ</th>
+            <th class="fnr-small fnr-g-base">Vendor MOQ</th>
             {% for code in store_codes %}<th class="fnr-g-mo1">{{ store_labels.get(code, code) }}</th>{% endfor %}
             {% for code in store_codes %}<th class="fnr-g-mo2">{{ store_labels.get(code, code) }}</th>{% endfor %}
             {% for code in store_codes %}<th class="fnr-g-stock">{{ store_labels.get(code, code) }}</th>{% endfor %}
@@ -319,11 +457,11 @@
           <tr>
             <td class="fnr-id">{{ row.item_code }}</td>
             <td class="fnr-name">{{ row.item_name }}</td>
-            <td>{{ row.category_1 }}</td>
-            <td>{{ row.category_2 }}</td>
-            <td>{{ row.category_3 }}</td>
-            <td>{{ row.status_1 }}</td>
-            <td>{{ row.status_2 }}</td>
+            <td class="fnr-cat1" title="{{ row.category_1 }}">{{ row.category_1 }}</td>
+            <td class="fnr-cat2" title="{{ row.category_2 }}">{{ row.category_2 }}</td>
+            <td class="fnr-cat3" title="{{ row.category_3 }}">{{ row.category_3 }}</td>
+            <td class="fnr-status">{{ row.status_1 }}</td>
+            <td class="fnr-status">{{ row.status_2 }}</td>
             <td class="fnr-number">{{ "%.1f"|format(row.min_stock or 0) }}</td>
             <td class="fnr-number">{{ "%.1f"|format(row.repl_moq or 0) }}</td>
             <td class="fnr-number">{{ "%.1f"|format(row.vendor_moq or 0) }}</td>
@@ -347,6 +485,7 @@
       </table>
     </div>
   </section>
+  {% endif %}
   {% endif %}
 </div>
 <script>
@@ -385,6 +524,63 @@
         if (!dropdown.contains(event.target)) dropdown.removeAttribute('open');
       });
     });
+    const progressBox = document.querySelector('[data-fnr-sync-progress]');
+    if (progressBox) {
+      const label = progressBox.querySelector('[data-fnr-sync-label]');
+      const pctEl = progressBox.querySelector('[data-fnr-sync-pct]');
+      const fill = progressBox.querySelector('[data-fnr-sync-fill]');
+      const meta = progressBox.querySelector('[data-fnr-sync-meta]');
+      let pollTimer = null;
+      const renderProgress = (payload) => {
+        const status = String(payload.status || 'idle');
+        const pct = Math.max(0, Math.min(100, Number(payload.progress_pct || 0)));
+        const queueLeft = Number(payload.queue_left || 0);
+        if (fill) fill.style.width = `${pct}%`;
+        if (pctEl) pctEl.textContent = `${pct.toFixed(pct % 1 ? 1 : 0)}%`;
+        if (status === 'idle') {
+          if (!progressBox.classList.contains('is-visible')) return false;
+          if (label) label.textContent = 'Δεν υπάρχει ενεργός συγχρονισμός αναμενόμενων.';
+          if (meta) meta.textContent = 'Πάτησε Συγχρονισμός αναμενόμενων πριν την τελική παραγγελία.';
+          return false;
+        }
+        progressBox.classList.add('is-visible');
+        if (status === 'completed') {
+          if (label) label.textContent = 'Ο συγχρονισμός αναμενόμενων ολοκληρώθηκε.';
+          if (meta) meta.textContent = 'Πάτησε Εφαρμογή ή ανανέωση για να υπολογιστεί ξανά το FNR με τα νέα expected.';
+          if (fill) fill.style.width = '100%';
+          if (pctEl) pctEl.textContent = '100%';
+          return false;
+        }
+        if (status === 'failed' || status === 'error') {
+          if (label) label.textContent = 'Ο συγχρονισμός απέτυχε.';
+          if (meta) meta.textContent = payload.last_error || 'Δοκίμασε ξανά ή έλεγξε το sync status.';
+          return false;
+        }
+        if (label) label.textContent = status === 'queued' ? 'Ο συγχρονισμός είναι στην ουρά...' : 'Ο συγχρονισμός τρέχει...';
+        if (meta) {
+          const stream = payload.current_stream || payload.current_entity || 'supplier_orders';
+          meta.textContent = `Stream: ${stream} · εργασίες που απομένουν: ${queueLeft}`;
+        }
+        return true;
+      };
+      const pollProgress = async () => {
+        try {
+          const response = await fetch('/tenant/fnr/sync-expected/progress', { headers: { Accept: 'application/json' } });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const payload = await response.json();
+          const keepPolling = renderProgress(payload);
+          if (keepPolling) pollTimer = window.setTimeout(pollProgress, 2000);
+        } catch (err) {
+          progressBox.classList.add('is-visible');
+          if (label) label.textContent = 'Δεν μπορέσαμε να διαβάσουμε την πρόοδο.';
+          if (meta) meta.textContent = 'Η διαδικασία μπορεί να τρέχει ακόμη. Κάνε ανανέωση σε λίγο.';
+        }
+      };
+      pollProgress();
+      window.addEventListener('beforeunload', () => {
+        if (pollTimer) window.clearTimeout(pollTimer);
+      });
+    }
   })();
 </script>
 {% endblock %}

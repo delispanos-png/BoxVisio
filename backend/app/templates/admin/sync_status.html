@@ -78,6 +78,10 @@
           {% set connector_type = (row[0].connector_type or '')|lower %}
           {% set shows_ingest_progress = connector_type in ['sql_connector', 'pharmacyone_sql', 'external_api'] %}
           {% set progress = progress_by_tenant.get(row[1].id, {}) if shows_ingest_progress else {} %}
+          {% set progress_connector = (progress.get('connector_type') or '')|lower %}
+          {# Live progress is per-tenant; attribute it to the connector that owns the run.
+             When no connector is attributed (idle/legacy), fall back to showing it. #}
+          {% set owns_progress = shows_ingest_progress and (not progress_connector or progress_connector == connector_type) %}
           {% set progress_status = progress.get('status', 'idle') %}
           {% set progress_pct = progress.get('progress_pct', 0) %}
           {% set queue_left = progress.get('current_queue_depth', 0) %}
@@ -90,7 +94,7 @@
               </span>
             </td>
             <td>
-              {% if shows_ingest_progress %}
+              {% if owns_progress %}
               <div class="bv-sync-progress">
                 <div class="bv-sync-progress-meta">
                   <span>{{ progress_status }}</span>
@@ -100,6 +104,8 @@
                   <div class="progress-bar" role="progressbar" style="width: {{ progress_pct }}%;" aria-valuenow="{{ progress_pct }}" aria-valuemin="0" aria-valuemax="100"></div>
                 </div>
               </div>
+              {% elif shows_ingest_progress %}
+              <span class="text-muted small">Σε αναμονή{% if progress_connector %} (τρέχει: {{ progress_connector }}){% endif %}</span>
               {% else %}
               <span class="text-muted small">Δεν συμμετέχει στο ERP sync queue</span>
               {% endif %}

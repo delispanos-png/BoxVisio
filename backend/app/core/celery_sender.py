@@ -19,6 +19,7 @@ TASK_ROUTES = {
     'worker.tasks.enqueue_external_ingest': {'queue': 'ingest'},
     'worker.tasks.enqueue_incremental_sync': {'queue': 'ingest'},
     'worker.tasks.enqueue_incremental_sync_all_tenants': {'queue': 'ingest'},
+    'worker.tasks.sync_3cx_call_center_due_tenants': {'queue': 'ingest'},
     'worker.tasks.enqueue_sql_backfill': {'queue': 'default'},
     'worker.tasks.enqueue_pharmacyone_backfill': {'queue': 'default'},
     'worker.tasks.auto_recover_stuck_ingest': {'queue': 'ingest'},

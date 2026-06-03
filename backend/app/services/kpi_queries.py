@@ -12532,7 +12532,11 @@ async def executive_dashboard_summary(
     prev_month_from = prev_month_date.replace(day=1)
     prev_month_to = _safe_same_day(prev_month_date.year, prev_month_date.month, anchor_date.day)
     prev_year_month_from = date(prev1_year, anchor_date.month, 1)
-    prev_year_month_to = _safe_same_day(prev1_year, anchor_date.month, completed_anchor_date.day)
+    prev_year_month_to = _safe_same_day(prev1_year, anchor_date.month, anchor_date.day)
+    # Prior-year window aligned to the last *completed* day (yesterday by default),
+    # so the monthly branch comparison is full-day vs full-day on both sides.
+    prev_year_month_completed_from = date(prev1_year, completed_anchor_date.month, 1)
+    prev_year_month_completed_to = _safe_same_day(prev1_year, completed_anchor_date.month, completed_anchor_date.day)
     prev_period_cmp_from = _safe_same_day(prev1_year, date_from.month, date_from.day)
     prev_period_cmp_to = _safe_same_day(prev1_year, comparison_period_to.month, comparison_period_to.day)
     prev_ytd_cmp_from = date(prev1_year, 1, 1)
@@ -12597,6 +12601,7 @@ async def executive_dashboard_summary(
             'year': (year_from, anchor_date),
             'prev_year': (prev_ytd_from, prev_ytd_to),
             'prev_year_month': (prev_year_month_from, prev_year_month_to),
+            'prev_year_month_completed': (prev_year_month_completed_from, prev_year_month_completed_to),
             'period_sales_cmp': (date_from, comparison_period_to),
             'period_sales_prev_cmp': (prev_period_cmp_from, prev_period_cmp_to),
         },
@@ -12612,6 +12617,7 @@ async def executive_dashboard_summary(
     year_by_branch = branch_windows.get('year', [])
     prev_year_by_branch = branch_windows.get('prev_year', [])
     prev_year_month_by_branch = branch_windows.get('prev_year_month', [])
+    prev_year_month_completed_by_branch = branch_windows.get('prev_year_month_completed', [])
     period_sales_by_branch = branch_windows.get('period_sales_cmp', [])
     period_sales_prev_by_branch = branch_windows.get('period_sales_prev_cmp', [])
     warehouse_windows = await _sales_by_warehouse_windows(
@@ -12760,6 +12766,8 @@ async def executive_dashboard_summary(
             'prev_month_to': prev_month_to.isoformat(),
             'prev_year_month_from': prev_year_month_from.isoformat(),
             'prev_year_month_to': prev_year_month_to.isoformat(),
+            'prev_year_month_completed_from': prev_year_month_completed_from.isoformat(),
+            'prev_year_month_completed_to': prev_year_month_completed_to.isoformat(),
             'current_year': current_year,
             'prev1_year': prev1_year,
             'prev2_year': prev2_year,
@@ -12811,6 +12819,7 @@ async def executive_dashboard_summary(
             'year': year_by_branch,
             'prev_year': prev_year_by_branch,
             'prev_year_month': prev_year_month_by_branch,
+            'prev_year_month_completed': prev_year_month_completed_by_branch,
             'period_sales': period_sales_by_branch,
             'period_sales_prev': period_sales_prev_by_branch,
             'warehouse_year': warehouse_windows.get('year', []),

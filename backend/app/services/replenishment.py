@@ -526,7 +526,7 @@ async def build_replenishment_from_facts(
                 MAX(di.category_1) AS category_1,
                 MAX(di.category_2) AS category_2,
                 MAX(di.category_3) AS category_3,
-                MAX(di.replenishment_status_1) AS status_1,
+                MAX(COALESCE(NULLIF(di.manual_order_category, ''), NULLIF(di.abc_category, ''), di.replenishment_status_1)) AS status_1,
                 MAX(di.replenishment_status_2) AS status_2,
                 MAX(COALESCE(di.min_stock, 1)) AS min_stock,
                 MAX(COALESCE(di.replenishment_moq, 1)) AS repl_moq,
@@ -612,7 +612,7 @@ async def build_replenishment_from_facts(
             COALESCE(inventory.category_1, dim_items.category_1) AS category_1,
             COALESCE(inventory.category_2, dim_items.category_2) AS category_2,
             COALESCE(inventory.category_3, dim_items.category_3) AS category_3,
-            COALESCE(inventory.status_1, dim_items.replenishment_status_1) AS status_1,
+            COALESCE(inventory.status_1, NULLIF(dim_items.manual_order_category, ''), NULLIF(dim_items.abc_category, ''), dim_items.replenishment_status_1) AS status_1,
             COALESCE(inventory.status_2, dim_items.replenishment_status_2) AS status_2,
             COALESCE(inventory.min_stock, dim_items.min_stock, 1) AS min_stock,
             COALESCE(inventory.repl_moq, dim_items.replenishment_moq, 1) AS repl_moq,
@@ -766,6 +766,10 @@ async def build_replenishment_from_facts(
 
 
 def _fnr_store_code(label: object) -> str:
+    # Already-resolved store codes (from the per-tenant warehouse->store map) pass through.
+    direct = str(label or '').strip().upper()
+    if direct in {'KAS', 'AGD', 'PER', 'ELL', 'SPA', 'LOGICA'}:
+        return direct
     text_value = str(label or '').strip().casefold()
     text_value = text_value.translate(str.maketrans({
         'ά': 'α',
@@ -804,7 +808,7 @@ def _fnr_store_code(label: object) -> str:
         return 'ELL'
     if any(token in compact for token in ('σπατα', 'spata', 'spa')):
         return 'SPA'
-    if any(token in compact for token in ('logica', 'λογικα')):
+    if any(token in compact for token in ('logica', 'λογικα', 'εδρα', 'headquarters', 'hq')):
         return 'LOGICA'
     return ''
 
@@ -820,6 +824,15 @@ def _fnr_status_code(value: object) -> str:
     text_value = str(value or '').strip().upper()
     if text_value in {'A', 'B', 'C', 'D', 'S'}:
         return text_value
+    # Normalize ABC sub-codes from manual_order_category to their base class.
+    if len(text_value) >= 2 and text_value[0] in {'A', 'B', 'C', 'D'} and text_value[1:].isdigit():
+        return text_value[0]  # D3->D, B1/B2->B, A2/A3->A
+    if text_value.isalpha() and text_value.startswith('S') and len(text_value) <= 3:
+        return 'S'  # S, SD, SC, SB -> S
+    if text_value.startswith('FIRST-A'):
+        return 'A'
+    if text_value in {'CONS', 'TESTER'}:
+        return 'D'
     folded = str(value or '').strip().casefold()
     folded = folded.translate(str.maketrans({
         'ά': 'α',
@@ -835,7 +848,7 @@ def _fnr_status_code(value: object) -> str:
         'ΰ': 'υ',
         'ς': 'σ',
     }))
-    if not folded or folded in {'χωρισ fnr status', 'χωρισ status', 'null'}:
+    if not folded or folded in {'χωρισ fnr status', 'χωρισ status', 'χωρισ abc', 'null'}:
         return ''
     if folded in {'τρεχον', 'new launch', 'αναμενομενο', 'παρακαταθηκη'}:
         return 'A'
@@ -873,6 +886,7 @@ async def build_fnr_excel_from_facts(
     *,
     as_of: date | None = None,
     pharmacies: list[str] | None = None,
+    groups: list[str] | None = None,
     category_1: list[str] | None = None,
     category_2: list[str] | None = None,
     category_3: list[str] | None = None,
@@ -883,6 +897,7 @@ async def build_fnr_excel_from_facts(
     sales_avg_period_1_weeks: int = 4,
     sales_avg_period_2_weeks: int = 12,
     limit: int = 5000,
+    store_warehouse_map: dict[str, object] | None = None,
 ) -> dict[str, object]:
     """Build the FNR worksheet using the same column logic as the provided Excel."""
     as_of = as_of or date.today()
@@ -894,6 +909,7 @@ async def build_fnr_excel_from_facts(
         sales_window_days=max(int(sales_avg_period_1_weeks or 4), 1) * 7,
         include_detail_rows=True,
         detail_limit=max(limit * len(STORE_CODES), 1000),
+        store_warehouse_map=store_warehouse_map,
     )
     period_2_days = max(int(sales_avg_period_2_weeks or 12), 1) * 7
     period_2_start = as_of - timedelta(days=period_2_days - 1)
@@ -902,24 +918,39 @@ async def build_fnr_excel_from_facts(
             """
             SELECT item_code,
                    COALESCE(branch_ext_id, '') AS branch_ext_id,
+                   COALESCE(warehouse_ext_id, '') AS warehouse_ext_id,
                    SUM(COALESCE(qty, 0)) AS sales_qty
             FROM fact_sales
             WHERE doc_date >= :period_start
               AND doc_date <= :as_of
               AND COALESCE(item_code, '') <> ''
-            GROUP BY item_code, COALESCE(branch_ext_id, '')
+            GROUP BY item_code, COALESCE(branch_ext_id, ''), COALESCE(warehouse_ext_id, '')
             """
         ),
         {'period_start': period_2_start, 'as_of': as_of},
     )
+    _wh_to_store: dict[str, str] = {}
+    if store_warehouse_map:
+        for _store, _whs in store_warehouse_map.items():
+            _st = str(_store or '').strip()
+            for _wh in (_whs or []):
+                _w = str(_wh or '').strip()
+                if _w and _st:
+                    _wh_to_store[_w] = _st
     sales2_by_key: dict[tuple[str, str], float] = {}
     for row in period_2_result.mappings().all():
-        store_code = _fnr_store_code(row.get('branch_ext_id'))
-        if store_code:
-            sales2_by_key[(str(row.get('item_code') or ''), store_code)] = _as_float(row.get('sales_qty')) / max(period_2_days / 7.0, 1.0)
+        if _wh_to_store:
+            store_code = _wh_to_store.get(str(row.get('warehouse_ext_id') or '').strip(), '')
+        else:
+            store_code = _fnr_store_code(row.get('branch_ext_id'))
+        if not store_code:
+            continue
+        key = (str(row.get('item_code') or ''), store_code)
+        sales2_by_key[key] = sales2_by_key.get(key, 0.0) + _as_float(row.get('sales_qty')) / max(period_2_days / 7.0, 1.0)
 
     selected_pharmacies = {_fnr_store_code(item) for item in pharmacies or []}
     selected_pharmacies.discard('')
+    group_filter = groups or []
     category_1_filter = category_1 or []
     category_2_filter = category_2 or []
     category_3_filter = category_3 or []
@@ -928,6 +959,7 @@ async def build_fnr_excel_from_facts(
     items: dict[str, dict[str, object]] = {}
     options = {
         'pharmacies': [STORE_NAMES[code] for code in STORE_CODES],
+        'group': set(),
         'category_1': set(),
         'category_2': set(),
         'category_3': set(),
@@ -945,8 +977,11 @@ async def build_fnr_excel_from_facts(
         c1 = str(detail.get('category_1') or detail.get('category') or '').strip()
         c2 = str(detail.get('category_2') or '').strip()
         c3 = str(detail.get('category_3') or '').strip()
+        grp = str(detail.get('group') or '').strip()
         supplier = str(detail.get('vendor') or '').strip()
         item_name = str(detail.get('item_name') or item_code)
+        if grp:
+            options['group'].add(grp)
         options['category_1'].add(c1)
         if c2:
             options['category_2'].add(c2)
@@ -954,6 +989,8 @@ async def build_fnr_excel_from_facts(
             options['category_3'].add(c3)
         if supplier:
             options['suppliers'].add(supplier)
+        if group_filter and not _fnr_allowed(grp, group_filter):
+            continue
         if not _fnr_allowed(c1, category_1_filter):
             continue
         if category_2_filter and not _fnr_allowed(c2, category_2_filter):
@@ -974,7 +1011,7 @@ async def build_fnr_excel_from_facts(
                 'category_1': c1,
                 'category_2': c2,
                 'category_3': c3,
-                'status_1': str(detail.get('status') or '').strip(),
+                'status_1': str(detail.get('abc_category') or '').strip(),
                 'status_2': str(detail.get('commercial_status') or '').strip(),
                 'supplier': supplier,
                 'min_stock': max(_as_float(detail.get('min_stock'), 1.0), 0.0),
@@ -1053,7 +1090,7 @@ async def build_fnr_excel_from_facts(
             'category_1': item.get('category_1') or '',
             'category_2': item.get('category_2') or '',
             'category_3': item.get('category_3') or '',
-            'status_1': item.get('status_1') or '',
+            'status_1': status_1 or '',
             'status_2': item.get('status_2') or '',
             'supplier': item.get('supplier') or '',
             'min_stock': min_stock,
@@ -1076,6 +1113,76 @@ async def build_fnr_excel_from_facts(
             order_rows.append(row)
     output_rows = sorted(output_rows, key=lambda row: (-_as_float(row.get('supplier_order_qty')), str(row.get('item_name') or '')))[:limit]
     order_rows = sorted(order_rows, key=lambda row: (-_as_float(row.get('supplier_order_qty')), str(row.get('item_name') or '')))
+    expected_detail_result = await db.execute(
+        text(
+            """
+            SELECT
+                fso.doc_date,
+                COALESCE(fso.document_no, fso.document_id, fso.external_id) AS document_no,
+                COALESCE(fso.supplier_name, ds.name, ds_ext.name, fso.supplier_ext_id, 'Χωρίς προμηθευτή') AS supplier_name,
+                COALESCE(di.external_id, fso.item_code) AS item_code,
+                COALESCE(fso.item_name, di.name, fso.item_code) AS item_name,
+                COALESCE(di.category_1, '') AS category_1,
+                COALESCE(di.category_2, '') AS category_2,
+                COALESCE(di.category_3, '') AS category_3,
+                COALESCE(fso.order_qty, 0) AS order_qty,
+                COALESCE(fso.covered_qty, 0) AS covered_qty,
+                COALESCE(fso.cancelled_qty, 0) AS cancelled_qty,
+                GREATEST(
+                    COALESCE(fso.order_qty, 0) - COALESCE(fso.covered_qty, 0) - COALESCE(fso.cancelled_qty, 0),
+                    0
+                ) AS expected_qty,
+                COALESCE(fso.order_status, 'open') AS order_status,
+                COALESCE(fso.has_transformation, false) AS has_transformation
+            FROM fact_supplier_orders fso
+            LEFT JOIN dim_items di ON di.id = fso.item_id OR di.external_id = fso.item_code
+            LEFT JOIN dim_suppliers ds ON ds.id = fso.supplier_id
+            LEFT JOIN dim_suppliers ds_ext ON ds_ext.external_id = fso.supplier_ext_id
+            WHERE COALESCE(fso.order_status, 'open') = 'open'
+              AND COALESCE(fso.has_transformation, false) = false
+              AND COALESCE(di.external_id, fso.item_code, '') <> ''
+              AND GREATEST(
+                    COALESCE(fso.order_qty, 0) - COALESCE(fso.covered_qty, 0) - COALESCE(fso.cancelled_qty, 0),
+                    0
+                  ) > 0
+            ORDER BY fso.doc_date DESC, COALESCE(fso.document_no, fso.document_id, fso.external_id), COALESCE(fso.item_name, di.name, fso.item_code)
+            """
+        )
+    )
+    expected_order_rows: list[dict[str, object]] = []
+    for row in expected_detail_result.mappings().all():
+        c1 = str(row.get('category_1') or '').strip()
+        c2 = str(row.get('category_2') or '').strip()
+        c3 = str(row.get('category_3') or '').strip()
+        supplier = str(row.get('supplier_name') or '').strip()
+        item_code = str(row.get('item_code') or '').strip()
+        item_name = str(row.get('item_name') or item_code).strip()
+        if not _fnr_allowed(c1, category_1_filter):
+            continue
+        if category_2_filter and not _fnr_allowed(c2, category_2_filter):
+            continue
+        if category_3_filter and not _fnr_allowed(c3, category_3_filter):
+            continue
+        if supplier_filter and not _fnr_allowed(supplier, supplier_filter):
+            continue
+        if search_filter:
+            haystack = ' '.join([item_code, item_name, c1, c2, c3, supplier, str(row.get('document_no') or '')]).casefold()
+            if search_filter not in haystack:
+                continue
+        expected_order_rows.append(
+            {
+                'doc_date': row.get('doc_date').isoformat() if hasattr(row.get('doc_date'), 'isoformat') else str(row.get('doc_date') or ''),
+                'document_no': row.get('document_no') or '',
+                'supplier_name': supplier,
+                'item_code': item_code,
+                'item_name': item_name,
+                'category_1': c1,
+                'order_qty': _fnr_round(row.get('order_qty')),
+                'covered_qty': _fnr_round(row.get('covered_qty')),
+                'cancelled_qty': _fnr_round(row.get('cancelled_qty')),
+                'expected_qty': _fnr_round(row.get('expected_qty')),
+            }
+        )
     summary = {
         'source': 'facts',
         'source_label': 'Live BI facts',
@@ -1086,6 +1193,8 @@ async def build_fnr_excel_from_facts(
         'total_supplier_order_value': sum(_as_float(row.get('supplier_order_value')) for row in order_rows),
         'products_with_need': sum(1 for row in output_rows if _as_float(row.get('total_need_qty')) > 0),
         'products_with_overstock': sum(1 for row in output_rows if _as_float(row.get('total_overstock_qty')) < 0),
+        'expected_order_rows_count': len(expected_order_rows),
+        'expected_order_qty': sum(_as_float(row.get('expected_qty')) for row in expected_order_rows),
     }
     return {
         'parameters': {
@@ -1097,6 +1206,7 @@ async def build_fnr_excel_from_facts(
         'summary': summary,
         'rows': output_rows,
         'order_rows': order_rows,
+        'expected_order_rows': expected_order_rows,
         'columns': FNR_OUTPUT_COLUMNS,
         'store_codes': STORE_CODES,
         'store_names': STORE_NAMES,
@@ -1184,6 +1294,7 @@ async def build_availability_brief_from_facts(
     category_2: list[str] | None = None,
     category_3: list[str] | None = None,
     suppliers: list[str] | None = None,
+    group: list[str] | None = None,
     status_abcd: list[str] | None = None,
     commercial_status: list[str] | None = None,
     period_from: date | None = None,
@@ -1205,6 +1316,7 @@ async def build_availability_brief_from_facts(
     category_2_filter = category_2 or []
     category_3_filter = category_3 or []
     supplier_filter = suppliers or []
+    group_filter = group or []
     status_abcd_filter = [str(item).strip().upper() for item in status_abcd or [] if str(item).strip()]
     commercial_filter = commercial_status or []
     sql = text(
@@ -1313,6 +1425,7 @@ async def build_availability_brief_from_facts(
             COALESCE(NULLIF(di.replenishment_status_1, ''), NULLIF(di.commercial_status, ''), '') AS raw_status,
             COALESCE(NULLIF(di.commercial_status, ''), 'Χωρίς status') AS commercial_status,
             COALESCE(NULLIF(supplier_rank.supplier_name, ''), 'Χωρίς προμηθευτή') AS supplier_name,
+            COALESCE(NULLIF(dg.name, ''), 'Χωρίς ομάδα') AS group_name,
             COALESCE(purchases.qty, 0) AS purchase_qty,
             COALESCE(purchases.value, 0) AS purchase_value,
             COALESCE(sales_total.qty, 0) AS sales_qty,
@@ -1325,6 +1438,7 @@ async def build_availability_brief_from_facts(
             stock1_branch.stock_by_branch AS stock_by_branch
         FROM scope
         LEFT JOIN dim_items di ON di.external_id = scope.item_code
+        LEFT JOIN dim_groups dg ON dg.id = di.group_id
         LEFT JOIN supplier_rank ON supplier_rank.item_code = scope.item_code
         LEFT JOIN purchases ON purchases.item_code = scope.item_code
         LEFT JOIN sales_total ON sales_total.item_code = scope.item_code
@@ -1347,7 +1461,7 @@ async def build_availability_brief_from_facts(
     groups: dict[tuple[str, str], dict[str, object]] = {}
     vendor_location: dict[tuple[str, str, str, str], dict[str, object]] = {}
     selected_item_codes: list[str] = []
-    options = {'pharmacies': [STORE_NAMES[code] for code in STORE_CODES], 'category_1': set(), 'category_2': set(), 'category_3': set(), 'suppliers': set(), 'status_abcd': set(), 'commercial_status': set()}
+    options = {'pharmacies': [STORE_NAMES[code] for code in STORE_CODES], 'category_1': set(), 'category_2': set(), 'category_3': set(), 'suppliers': set(), 'group': set(), 'status_abcd': set(), 'commercial_status': set()}
     total_sku = 0
     for row in rows:
         status_code = _fnr_status_code(row.get('raw_status'))
@@ -1356,18 +1470,22 @@ async def build_availability_brief_from_facts(
         c2 = str(row.get('category_2') or '')
         c3 = str(row.get('category_3') or '')
         supplier = str(row.get('supplier_name') or 'Χωρίς προμηθευτή')
+        grp = str(row.get('group_name') or 'Χωρίς ομάδα')
         options['category_1'].add(c1)
         if c2:
             options['category_2'].add(c2)
         if c3:
             options['category_3'].add(c3)
         options['suppliers'].add(supplier)
+        options['group'].add(grp)
         if status_code:
             options['status_abcd'].add(status_code)
         options['commercial_status'].add(comm)
         if not _availability_match(c1, category_1_filter) or not _availability_match(c2, category_2_filter) or not _availability_match(c3, category_3_filter):
             continue
         if not _availability_match(supplier, supplier_filter) or not _availability_match(comm, commercial_filter):
+            continue
+        if not _availability_match(grp, group_filter):
             continue
         if status_abcd_filter and status_code not in status_abcd_filter:
             continue
@@ -1569,7 +1687,7 @@ async def build_availability_brief_from_facts(
     }
     return {
         'parameters': {'period_from': period_from.isoformat(), 'period_to': period_to.isoformat(), 'stock_date_1': stock_date_1.isoformat(), 'stock_date_2': stock_date_2.isoformat(), 'step': step},
-        'filters': {'pharmacies': pharmacies or [], 'category_1': category_1 or [], 'category_2': category_2 or [], 'category_3': category_3 or [], 'suppliers': suppliers or [], 'status_abcd': status_abcd or [], 'commercial_status': commercial_status or []},
+        'filters': {'pharmacies': pharmacies or [], 'category_1': category_1 or [], 'category_2': category_2 or [], 'category_3': category_3 or [], 'suppliers': suppliers or [], 'group': group_filter, 'status_abcd': status_abcd or [], 'commercial_status': commercial_status or []},
         'options': {key: sorted(value) if isinstance(value, set) else value for key, value in options.items()},
         'store_codes': STORE_CODES,
         'store_labels': AVAILABILITY_STORE_LABELS,
@@ -1589,6 +1707,7 @@ async def build_destocking_brief_from_facts(
     category_2: list[str] | None = None,
     category_3: list[str] | None = None,
     suppliers: list[str] | None = None,
+    group: list[str] | None = None,
     status_abcd: list[str] | None = None,
     commercial_status: list[str] | None = None,
     period_from: date | None = None,
@@ -1608,6 +1727,7 @@ async def build_destocking_brief_from_facts(
     selected_pharmacies = {_fnr_store_code(item) for item in pharmacies or []}
     selected_pharmacies.discard('')
     status_filter = [str(item).strip().upper() for item in status_abcd or [] if str(item).strip()]
+    group_filter = group or []
     sql = text(
         """
         WITH stock_snapshot_quality AS (
@@ -1691,6 +1811,7 @@ async def build_destocking_brief_from_facts(
             COALESCE(NULLIF(di.replenishment_status_1, ''), NULLIF(di.commercial_status, ''), '') AS raw_status,
             COALESCE(NULLIF(di.commercial_status, ''), 'Χωρίς status') AS commercial_status,
             COALESCE(NULLIF(supplier_rank.supplier_name, ''), 'Χωρίς προμηθευτή') AS supplier_name,
+            COALESCE(NULLIF(dg.name, ''), 'Χωρίς ομάδα') AS group_name,
             COALESCE(stock1_total.qty, 0) AS stock1_qty,
             COALESCE(stock1_total.value, 0) AS stock1_value,
             COALESCE(stock2.qty, 0) AS stock2_qty,
@@ -1702,6 +1823,7 @@ async def build_destocking_brief_from_facts(
             sales_branch.sales_by_branch
         FROM scope
         LEFT JOIN dim_items di ON di.external_id = scope.item_code
+        LEFT JOIN dim_groups dg ON dg.id = di.group_id
         LEFT JOIN stock1_total ON stock1_total.item_code = scope.item_code
         LEFT JOIN stock1_branch ON stock1_branch.item_code = scope.item_code
         LEFT JOIN stock2 ON stock2.item_code = scope.item_code
@@ -1729,7 +1851,7 @@ async def build_destocking_brief_from_facts(
         'commercial_status': commercial_status or [],
     }
     groups: dict[tuple[str, str], dict[str, object]] = {}
-    options = {'pharmacies': [STORE_NAMES[code] for code in STORE_CODES], 'category_1': set(), 'category_2': set(), 'category_3': set(), 'suppliers': set(), 'status_abcd': set(), 'commercial_status': set()}
+    options = {'pharmacies': [STORE_NAMES[code] for code in STORE_CODES], 'category_1': set(), 'category_2': set(), 'category_3': set(), 'suppliers': set(), 'group': set(), 'status_abcd': set(), 'commercial_status': set()}
     recommendations_by_key: dict[tuple[str, str, str, str], dict[str, object]] = {}
     selected_item_codes: list[str] = []
     destocking_buckets = ('A over', 'B over', 'C', 'D', 'D3')
@@ -1748,12 +1870,14 @@ async def build_destocking_brief_from_facts(
         c2 = str(row.get('category_2') or '')
         c3 = str(row.get('category_3') or '')
         supplier = str(row.get('supplier_name') or 'Χωρίς προμηθευτή')
+        grp = str(row.get('group_name') or 'Χωρίς ομάδα')
         options['category_1'].add(c1)
         if c2:
             options['category_2'].add(c2)
         if c3:
             options['category_3'].add(c3)
         options['suppliers'].add(supplier)
+        options['group'].add(grp)
         options['status_abcd'].add(status_code)
         options['commercial_status'].add(comm)
         if status_filter and status_code not in status_filter:
@@ -1761,6 +1885,8 @@ async def build_destocking_brief_from_facts(
         if not _availability_match(c1, filters['category_1']) or not _availability_match(c2, filters['category_2']) or not _availability_match(c3, filters['category_3']):
             continue
         if not _availability_match(supplier, filters['suppliers']) or not _availability_match(comm, filters['commercial_status']):
+            continue
+        if not _availability_match(grp, group_filter):
             continue
         stock_by_branch = row.get('stock_by_branch') if isinstance(row.get('stock_by_branch'), dict) else {}
         sales_by_branch = row.get('sales_by_branch') if isinstance(row.get('sales_by_branch'), dict) else {}
@@ -1983,7 +2109,7 @@ async def build_destocking_brief_from_facts(
     )[:50]
     return {
         'parameters': {'period_from': period_from.isoformat(), 'period_to': period_to.isoformat(), 'stock_date_1': stock_date_1.isoformat(), 'stock_date_2': stock_date_2.isoformat(), 'threshold_weeks': threshold, 'step': step},
-        'filters': {'pharmacies': pharmacies or [], 'category_1': category_1 or [], 'category_2': category_2 or [], 'category_3': category_3 or [], 'suppliers': suppliers or [], 'status_abcd': status_abcd or [], 'commercial_status': commercial_status or []},
+        'filters': {'pharmacies': pharmacies or [], 'category_1': category_1 or [], 'category_2': category_2 or [], 'category_3': category_3 or [], 'suppliers': suppliers or [], 'group': group_filter, 'status_abcd': status_abcd or [], 'commercial_status': commercial_status or []},
         'options': {key: sorted(value) if isinstance(value, set) else value for key, value in options.items()},
         'table_rows': table_rows,
         'trends': trends,
@@ -1993,6 +2119,71 @@ async def build_destocking_brief_from_facts(
     }
 
 
+def _apply_store_map(sql_body: str, store_warehouse_map: dict[str, object] | None) -> tuple[str, dict[str, str]]:
+    """Per-tenant warehouse->store mapping for the FnR.
+
+    When a tenant supplies a {store_code: [warehouse_ext_ids]} map, stock and
+    sales are grouped by store (via a parameterized VALUES join) instead of by
+    branch; warehouses not listed are excluded. With no map (other callers /
+    tenants) the SQL is returned unchanged → current branch-level behaviour.
+    Anchors are asserted so a future SQL change fails loudly, never silently
+    mis-maps stock.
+    """
+    if not store_warehouse_map:
+        return sql_body, {}
+    pairs: list[tuple[str, str]] = []
+    for store_code, warehouses in store_warehouse_map.items():
+        store = str(store_code or '').strip()
+        if not store:
+            continue
+        for wh in (warehouses or []):
+            wh_id = str(wh or '').strip()
+            if wh_id:
+                pairs.append((wh_id, store))
+    if not pairs:
+        return sql_body, {}
+    values = ', '.join(f'(:wh_{i}, :st_{i})' for i in range(len(pairs)))
+    params: dict[str, str] = {}
+    for i, (wh_id, store) in enumerate(pairs):
+        params[f'wh_{i}'] = wh_id
+        params[f'st_{i}'] = store
+    cte = f"store_map AS (SELECT v.wh, v.store_code FROM (VALUES {values}) AS v(wh, store_code)),\n        "
+    replacements = [
+        ("WITH latest_stock AS (", f"WITH {cte}latest_stock AS ("),
+        (
+            "COALESCE(fi.branch_ext_id, '') AS branch_ext_id,\n"
+            "                MAX(COALESCE(db.name, db.branch_name, fi.branch_ext_id, 'Χωρίς σημείο')) AS branch_name,",
+            "COALESCE(smi.store_code, '') AS branch_ext_id,\n                '' AS branch_name,",
+        ),
+        (
+            "LEFT JOIN dim_branches db ON db.external_id = fi.branch_ext_id\n"
+            "            WHERE COALESCE(fi.movement_type, 'snapshot') = 'snapshot'\n"
+            "            GROUP BY COALESCE(fi.item_code, di.external_id), COALESCE(fi.branch_ext_id, '')",
+            "LEFT JOIN store_map smi ON smi.wh = COALESCE(fi.warehouse_ext_id, '')\n"
+            "            WHERE COALESCE(fi.movement_type, 'snapshot') = 'snapshot'\n"
+            "            GROUP BY 1, 2",
+        ),
+        (
+            "fs.item_code AS item_code,\n                COALESCE(fs.branch_ext_id, '') AS branch_ext_id,",
+            "fs.item_code AS item_code,\n                COALESCE(sms.store_code, '') AS branch_ext_id,",
+        ),
+        (
+            "FROM fact_sales fs\n            WHERE fs.doc_date >= :previous_start",
+            "FROM fact_sales fs\n            LEFT JOIN store_map sms ON sms.wh = COALESCE(fs.warehouse_ext_id, '')\n            WHERE fs.doc_date >= :previous_start",
+        ),
+        (
+            "GROUP BY fs.item_code, COALESCE(fs.branch_ext_id, '')",
+            "GROUP BY 1, 2",
+        ),
+    ]
+    out = sql_body
+    for old, new in replacements:
+        if old not in out:
+            raise ValueError('FnR store-map: SQL anchor not found; refusing to mis-map stock')
+        out = out.replace(old, new, 1)
+    return out, params
+
+
 async def build_availability_foundation(
     db: AsyncSession,
     *,
@@ -2000,9 +2191,11 @@ async def build_availability_foundation(
     target_stock_weeks: float = 4.0,
     overstock_weeks: float = 12.0,
     sales_window_days: int = 30,
+    store_warehouse_map: dict[str, object] | None = None,
     branch: str | None = None,
     status: str | None = None,
     category: str | None = None,
+    group: str | None = None,
     vendor: str | None = None,
     abc: str | None = None,
     search: str | None = None,
@@ -2019,24 +2212,27 @@ async def build_availability_foundation(
     previous_start = current_start - timedelta(days=window_days)
     purchase_start = as_of - timedelta(days=180)
     purchase_avg_start = as_of - timedelta(days=365)
-    sql = text(
+    sql_body = (
         """
         WITH latest_stock AS (
-            SELECT MAX(snapshot_date) AS snapshot_date
-            FROM agg_stock_aging
-            WHERE snapshot_date <= :as_of
+            SELECT MAX(doc_date) AS snapshot_date
+            FROM fact_inventory
+            WHERE doc_date <= :as_of
+              AND COALESCE(movement_type, 'snapshot') = 'snapshot'
         ),
         stock AS (
             SELECT
-                asa.item_external_id AS item_code,
-                COALESCE(asa.branch_ext_id, '') AS branch_ext_id,
-                MAX(COALESCE(db.name, asa.branch_ext_id, 'Χωρίς σημείο')) AS branch_name,
-                SUM(COALESCE(asa.qty_on_hand, 0)) AS stock_qty,
-                SUM(COALESCE(asa.stock_value, 0)) AS stock_value
-            FROM agg_stock_aging asa
-            JOIN latest_stock ls ON ls.snapshot_date = asa.snapshot_date
-            LEFT JOIN dim_branches db ON db.external_id = asa.branch_ext_id
-            GROUP BY asa.item_external_id, COALESCE(asa.branch_ext_id, '')
+                COALESCE(fi.item_code, di.external_id) AS item_code,
+                COALESCE(fi.branch_ext_id, '') AS branch_ext_id,
+                MAX(COALESCE(db.name, db.branch_name, fi.branch_ext_id, 'Χωρίς σημείο')) AS branch_name,
+                SUM(COALESCE(NULLIF(fi.qty_available, 0), fi.qty_on_hand, 0)) AS stock_qty,
+                SUM(COALESCE(NULLIF(fi.value_amount, 0), fi.cost_amount, 0)) AS stock_value
+            FROM fact_inventory fi
+            JOIN latest_stock ls ON ls.snapshot_date = fi.doc_date
+            LEFT JOIN dim_items di ON di.id = fi.item_id
+            LEFT JOIN dim_branches db ON db.external_id = fi.branch_ext_id
+            WHERE COALESCE(fi.movement_type, 'snapshot') = 'snapshot'
+            GROUP BY COALESCE(fi.item_code, di.external_id), COALESCE(fi.branch_ext_id, '')
         ),
         sales AS (
             SELECT
@@ -2140,6 +2336,7 @@ async def build_availability_foundation(
             COALESCE(NULLIF(di.category_1, ''), 'Χωρίς κατηγορία') AS category_1,
             COALESCE(NULLIF(di.category_2, ''), '') AS category_2,
             COALESCE(NULLIF(di.category_3, ''), '') AS category_3,
+            COALESCE(NULLIF(dg.name, ''), 'Χωρίς ομάδα') AS group_name,
             COALESCE(NULLIF(di.manual_order_category, ''), NULLIF(di.abc_category, ''), 'Χωρίς ABC') AS abc_category,
             COALESCE(NULLIF(di.commercial_status, ''), '-') AS commercial_status,
             COALESCE(NULLIF(supplier_rank.supplier_name, ''), NULLIF(expected.expected_supplier, ''), 'Χωρίς προμηθευτή') AS supplier_name,
@@ -2169,6 +2366,7 @@ async def build_availability_foundation(
         LEFT JOIN stock ON stock.item_code = scope.item_code AND stock.branch_ext_id = scope.branch_ext_id
         LEFT JOIN sales ON sales.item_code = scope.item_code AND sales.branch_ext_id = scope.branch_ext_id
         LEFT JOIN dim_items di ON di.external_id = scope.item_code
+        LEFT JOIN dim_groups dg ON dg.id = di.group_id
         LEFT JOIN dim_branches db ON db.external_id = scope.branch_ext_id
         LEFT JOIN expected ON expected.item_code = scope.item_code
         LEFT JOIN supplier_rank ON supplier_rank.item_code = scope.item_code
@@ -2178,6 +2376,8 @@ async def build_availability_foundation(
           AND COALESCE(di.is_active_source, true) = true
         """
     )
+    sql_body, store_map_params = _apply_store_map(sql_body, store_warehouse_map)
+    sql = text(sql_body)
     result = await db.execute(
         sql,
         {
@@ -2186,6 +2386,7 @@ async def build_availability_foundation(
             'previous_start': previous_start,
             'purchase_start': purchase_start,
             'purchase_avg_start': purchase_avg_start,
+            **store_map_params,
         },
     )
 
@@ -2210,6 +2411,7 @@ async def build_availability_foundation(
         'branches': set(),
         'statuses': set(),
         'categories': set(),
+        'groups': set(),
         'vendors': set(),
         'abcs': set(),
     }
@@ -2217,12 +2419,14 @@ async def build_availability_foundation(
     branch_value = (branch or '').strip()
     status_value = (status or '').strip()
     category_value = (category or '').strip()
+    group_value = (group or '').strip()
     vendor_value = (vendor or '').strip()
     abc_value = (abc or '').strip()
     search_value = (search or '').strip()
     branch_filter = branch_value.casefold()
     status_filter = status_value.casefold()
     category_filter = category_value.casefold()
+    group_filter = group_value.casefold()
     vendor_filter = vendor_value.casefold()
     abc_filter = abc_value.casefold()
     search_filter = search_value.casefold()
@@ -2235,6 +2439,7 @@ async def build_availability_foundation(
         branch = str(row.get('branch_name') or row.get('branch_ext_id') or 'Χωρίς σημείο').strip() or 'Χωρίς σημείο'
         status = str(row.get('status_1') or 'Χωρίς status').strip() or 'Χωρίς status'
         category = str(row.get('category_1') or 'Χωρίς κατηγορία').strip() or 'Χωρίς κατηγορία'
+        group_name = str(row.get('group_name') or 'Χωρίς ομάδα').strip() or 'Χωρίς ομάδα'
         vendor = str(row.get('supplier_name') or 'Χωρίς προμηθευτή').strip() or 'Χωρίς προμηθευτή'
         abc_category = str(row.get('abc_category') or 'Χωρίς ABC').strip() or 'Χωρίς ABC'
         commercial_status = str(row.get('commercial_status') or '-').strip() or '-'
@@ -2272,6 +2477,7 @@ async def build_availability_foundation(
         options['branches'].add(branch)
         options['statuses'].add(status)
         options['categories'].add(category)
+        options['groups'].add(group_name)
         options['vendors'].add(vendor)
         options['abcs'].add(abc_category)
         if branch_filter and branch.casefold() != branch_filter:
@@ -2279,6 +2485,8 @@ async def build_availability_foundation(
         if status_filter and status.casefold() != status_filter:
             continue
         if category_filter and category.casefold() != category_filter:
+            continue
+        if group_filter and group_name.casefold() != group_filter:
             continue
         if vendor_filter and vendor.casefold() != vendor_filter:
             continue
@@ -2306,6 +2514,7 @@ async def build_availability_foundation(
                 'store': branch,
                 'status': status,
                 'category': category,
+                'group': group_name,
                 'vendor': vendor,
             }.get(detail_dimension, '')
             dimension_match = dimension_value.casefold() == detail_value_fold
@@ -2328,6 +2537,7 @@ async def build_availability_foundation(
                     'category_1': category,
                     'category_2': str(row.get('category_2') or ''),
                     'category_3': str(row.get('category_3') or ''),
+                    'group': group_name,
                     'vendor': vendor,
                     'stock_qty': stock_qty,
                     'stock_value': stock_value,

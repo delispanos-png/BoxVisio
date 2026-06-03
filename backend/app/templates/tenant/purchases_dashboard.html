@@ -34,8 +34,11 @@
     <label class="form-label mb-1">Κατηγορία 3</label>
     {{ multiselect('purchasesCategoryL3') }}
   </div>
+  <div class="col-12 col-md-6 col-xl-2">
+    <label class="form-label mb-1">Ομάδα</label>
+    {{ multiselect('purchasesGroups', 'groups') }}
+  </div>
   <select name="categories" id="purchasesCategories" multiple hidden></select>
-  <select name="groups" id="purchasesGroups" multiple hidden></select>
   <div class="col-12 col-xl-2 d-grid gap-2 align-content-end">
     <button class="btn btn-primary" type="submit"><i class="fe fe-filter"></i> {{ tt(request, 'apply') }}</button>
     <button class="btn btn-outline-secondary" type="button" id="purchasesFiltersReset"><i class="fe fe-rotate-ccw"></i> Καθαρισμός</button>
@@ -731,6 +734,7 @@ const purchasesUiFieldDefs = [
   {selectId:'purchasesCategoryL1', label:'Κατηγορία 1'},
   {selectId:'purchasesCategoryL2', label:'Κατηγορία 2'},
   {selectId:'purchasesCategoryL3', label:'Κατηγορία 3'},
+  {selectId:'purchasesGroups', label:'Ομάδα'},
 ];
 let purchasesCategoryHierarchy = [];
 let purchasesInitCategoryIds = new Set(purchasesInitialMultiFilters.categories);
@@ -942,7 +946,7 @@ async function loadPurchasesFilterOptions(){
     const res=await fetch(`/v1/kpi/purchases/filter-options?${p.toString()}`);
     if(!res.ok) return;
     const options=await res.json();
-    ['branches','warehouses','brands'].forEach((key)=>{
+    ['branches','warehouses','brands','groups'].forEach((key)=>{
       const field = purchasesFieldDefs.find(f => f.key === key);
       if(!field) return;
       const vals=(options && options[key]) || [];
@@ -954,7 +958,6 @@ async function loadPurchasesFilterOptions(){
       (options && options.categories) || [],
       (options && options.labels && options.labels.categories) || {}
     );
-    document.getElementById('purchasesGroups').innerHTML = '';
   }catch(_err){}
 }
 

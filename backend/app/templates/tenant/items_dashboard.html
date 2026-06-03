@@ -43,6 +43,10 @@
     <label class="form-label">Κατηγορία 3</label>
     {{ multiselect('itCategoryL3', placeholder=tt(request, 'select'), search_placeholder=tt(request, 'search'), all_label=tt(request, 'all'), clear_label=tt(request, 'clear')) }}
   </div>
+  <div class="col-lg-2 col-md-6">
+    <label class="form-label">Ομάδα</label>
+    {{ multiselect('itGroups', placeholder=tt(request, 'select'), search_placeholder=tt(request, 'search'), all_label=tt(request, 'all'), clear_label=tt(request, 'clear')) }}
+  </div>
   <select id="itCategories" multiple hidden></select>
   <div class="col-lg-2 col-md-6 d-flex align-items-end">
     <button type="submit" class="btn btn-primary w-100"><i class="fe fe-filter me-1"></i>{{ tt(request, 'apply') }}</button>
@@ -549,12 +553,14 @@
   const fieldDefs = [
     {key:'brands', selectId:'itBrands', label:'{{ tt(request, "brands") }}'},
     {key:'categories', selectId:'itCategories', label:'{{ tt(request, "categories") }}'},
+    {key:'groups', selectId:'itGroups', label:'Ομάδα'},
   ];
   const uiFieldDefs = [
     {selectId:'itBrands', label:'{{ tt(request, "brands") }}'},
     {selectId:'itCategoryL1', label:'Κατηγορία 1'},
     {selectId:'itCategoryL2', label:'Κατηγορία 2'},
     {selectId:'itCategoryL3', label:'Κατηγορία 3'},
+    {selectId:'itGroups', label:'Ομάδα'},
   ];
   let categoryHierarchy = [];
 
@@ -750,6 +756,7 @@
       if(!res.ok) return;
       const data=await res.json();
       populateSelect('itBrands', '{{ tt(request, "brands") }}', data.brands || [], (data.labels && data.labels.brands) || {});
+      populateSelect('itGroups', 'Ομάδα', data.groups || [], (data.labels && data.labels.groups) || {});
       buildCategoryHierarchy(
         data.categories || [],
         (data.labels && data.labels.categories) || {}

@@ -22,6 +22,7 @@ artifacts/
 backend/artifacts/
 forensics/
 tools/
+.secrets/
 celerybeat-schedule
 *.bak-security-*
 

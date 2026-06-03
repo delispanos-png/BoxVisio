@@ -1,4 +1,5 @@
 {% extends "base_tenant.html" %}
+{% from "tenant/_components.html" import multiselect %}
 
 {% block filters %}
 <form id="centralFilters" class="row g-2">
@@ -12,19 +13,7 @@
   </div>
   <div class="col-12 col-md-6 col-xl-4">
     <label class="form-label mb-1">{{ tt(request, 'branches') }}</label>
-    <div class="bv-multi" id="centralBranchesMulti">
-      <button type="button" class="form-select bv-multi-toggle text-start" id="centralBranchesToggle">Επιλογή</button>
-      <div class="bv-multi-menu" id="centralBranchesMenu" hidden>
-        <div class="d-flex gap-2 mb-2">
-          <input type="text" class="form-control form-control-sm" id="centralBranchesSearch" placeholder="Αναζήτηση...">
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="centralBranchesAll">Όλα</button>
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="centralBranchesClear">Καθαρισμός</button>
-        </div>
-        <div id="centralBranchesOptions" class="bv-multi-options"></div>
-      </div>
-      <div id="centralBranchesChips" class="bv-chip-wrap mt-2"></div>
-      <select name="branches" id="centralBranches" multiple hidden></select>
-    </div>
+    {{ multiselect('centralBranches', 'branches') }}
   </div>
   <div class="col-12 col-md-6 col-xl-2 d-grid align-content-end">
     <button class="btn btn-primary" type="submit"><i class="fe fe-filter"></i> {{ tt(request, 'apply') }}</button>
@@ -1389,12 +1378,12 @@ function renderMonthlyBranchPerformance(rows, prevRows, anchors){
   const subtitle = document.getElementById('branchMonthPerfSubtitle');
   const currFrom = anchors?.month_completed_from || anchors?.month_from || '';
   const currTo = anchors?.month_completed_to || anchors?.month_to || anchors?.anchor_date || anchors?.to || '';
-  const prevFrom = anchors?.prev_year_month_from || '';
-  const prevTo = anchors?.prev_year_month_to || '';
+  const prevFrom = anchors?.prev_year_month_completed_from || anchors?.prev_year_month_from || '';
+  const prevTo = anchors?.prev_year_month_completed_to || anchors?.prev_year_month_to || '';
   if(subtitle && currFrom && currTo && prevFrom && prevTo){
-    subtitle.textContent = `Σύγκριση ολοκληρωμένων ημερών: ${formatDMY(currFrom)} - ${formatDMY(currTo)} vs ${formatDMY(prevFrom)} - ${formatDMY(prevTo)}`;
+    subtitle.textContent = `Σύγκριση τρέχοντος μήνα: ${formatDMY(currFrom)} - ${formatDMY(currTo)} vs ${formatDMY(prevFrom)} - ${formatDMY(prevTo)}`;
   }else if(subtitle){
-    subtitle.textContent = 'Σύγκριση month-to-date ανά κατάστημα με τις ολοκληρωμένες αντίστοιχες ημέρες πέρσι';
+    subtitle.textContent = 'Σύγκριση month-to-date ανά κατάστημα με την αντίστοιχη περίοδο πέρσι';
   }
   const curr = Array.isArray(rows) ? [...rows] : [];
   const prevMap = new Map((Array.isArray(prevRows) ? prevRows : []).map(r => [String(r.branch || ''), toNum(r.net_value)]));
@@ -1433,7 +1422,7 @@ function renderMonthlyBranchPerformance(rows, prevRows, anchors){
           <div class="branch-month-fill ${fillCls}" style="width:${width.toFixed(2)}%" aria-label="${shareLabel}"></div>
         </div>
         <div class="branch-month-foot">
-          <span>vs ολοκληρωμένες ίδιες ημέρες πέρσι</span>
+          <span>vs αντίστοιχη περίοδο πέρσι</span>
           <span class="${deltaCls}">${deltaText}</span>
         </div>
       </div>
@@ -2384,6 +2373,7 @@ async function reloadCentralDashboard(e){
     const yearByBranch = Array.isArray(branchBreakdown.year) ? branchBreakdown.year : [];
     const yearByWarehouse = Array.isArray(branchBreakdown.warehouse_year) ? branchBreakdown.warehouse_year : [];
     const prevYearMonthByBranch = Array.isArray(branchBreakdown.prev_year_month) ? branchBreakdown.prev_year_month : [];
+    const prevYearMonthCompletedByBranch = Array.isArray(branchBreakdown.prev_year_month_completed) ? branchBreakdown.prev_year_month_completed : prevYearMonthByBranch;
     const trendY0 = Array.isArray(trend?.y0?.rows) ? trend.y0.rows : [];
     const trendY1 = Array.isArray(trend?.y1?.rows) ? trend.y1.rows : [];
     const trendY2 = Array.isArray(trend?.y2?.rows) ? trend.y2.rows : [];
@@ -2463,7 +2453,7 @@ async function reloadCentralDashboard(e){
     renderSmallDonut('dayByBranchDonut', dayByBranch||[]);
     renderSmallDonut('monthByBranchDonut', monthByBranch||[]);
     renderYearDonut(yearByBranch||[]);
-    renderMonthlyBranchPerformance(monthCompletedByBranch||[], prevYearMonthByBranch||[], executive?.anchors || {});
+    renderMonthlyBranchPerformance(monthCompletedByBranch||[], prevYearMonthCompletedByBranch||[], executive?.anchors || {});
 
     renderDecisionInsights(Array.isArray(executive?.key_alerts) ? executive.key_alerts : []);
   }catch(err){

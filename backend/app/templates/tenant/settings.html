@@ -259,14 +259,12 @@
         <div class="settings-section cc-worksheet">
           <div class="cc-sheet-head">
             <div class="cc-sheet-title">
-              <i class="fe fe-table"></i>
-              <h6>3CX Worksheet</h6>
+              <i class="fe fe-phone-call"></i>
+              <h6>Τηλεφωνικό Κέντρο 3CX</h6>
             </div>
             <div class="cc-sheet-meta">
               <span class="cc-sheet-pill">{{ call_center_3cx.manual_import.rows or 0 }} rows</span>
               <span class="cc-sheet-pill">{{ call_center_3cx.stats.total_calls or 0 }} calls</span>
-              <span class="cc-sheet-pill">{{ call_center_3cx.agent_directory_rows|length }} extensions</span>
-              <span class="cc-sheet-pill">{{ call_center_3cx.queue_directory_rows|length }} groups</span>
               <a class="btn btn-outline-primary btn-sm" href="/tenant/call-center">
                 <i class="fe fe-bar-chart-2 me-1"></i> Άνοιγμα dashboard
               </a>
@@ -275,23 +273,8 @@
 
           <div class="cc-sheet-body">
           <div class="cc-sheet-alerts">
-          {% if request.query_params.get('call_center_upload') == '1' %}
-          <div class="alert alert-success py-2">Τα 3CX CSV ανέβηκαν και το dashboard ενημερώθηκε.</div>
-          {% elif request.query_params.get('call_center_upload') == '0' %}
-          <div class="alert alert-danger py-2">
-            {% if request.query_params.get('reason') == 'missing_file' %}
-            Δεν επιλέχθηκε αρχείο. Ανεβάστε τουλάχιστον ένα CSV.
-            {% elif request.query_params.get('reason') == 'permission' %}
-            Μόνο διαχειριστής tenant μπορεί να ανεβάσει 3CX CSV.
-            {% elif request.query_params.get('reason') == 'duplicate_file' %}
-            Τα ίδια 3CX CSV έχουν ήδη ανέβει. Δεν έγινε νέο import.
-            {% else %}
-            Δεν έγινε upload. Ελέγξτε ότι είναι CSV export του 3CX για Inbound Calls ή Outbound Calls.
-            {% endif %}
-          </div>
-          {% endif %}
           {% if request.query_params.get('call_center_clear') == '1' %}
-          <div class="alert alert-success py-2">Τα παλιά 3CX δεδομένα διαγράφηκαν. Μπορείτε να ανεβάσετε καθαρά CSV.</div>
+          <div class="alert alert-success py-2">Το παλιό 3CX snapshot διαγράφηκε. Ο επόμενος συγχρονισμός θα το ξαναχτίσει από τη βάση του 3CX.</div>
           {% elif request.query_params.get('call_center_clear') == '0' %}
           <div class="alert alert-danger py-2">
             {% if request.query_params.get('reason') == 'permission' %}
@@ -303,114 +286,17 @@
             {% endif %}
           </div>
           {% endif %}
-          {% if request.query_params.get('call_center_directory') == '1' %}
-          <div class="alert alert-success py-2">Η εσωτερική δομή 3CX αποθηκεύτηκε και θα χρησιμοποιηθεί στα agents, queues και στις διαδρομές κλήσεων.</div>
-          {% elif request.query_params.get('call_center_directory') == '0' %}
-          <div class="alert alert-danger py-2">
-            {% if request.query_params.get('reason') == 'permission' %}
-            Μόνο διαχειριστής tenant μπορεί να αλλάξει τη δομή 3CX.
-            {% elif request.query_params.get('reason') == 'extensions_empty' %}
-            Το extensions CSV δεν είχε αναγνωρίσιμα extensions.
-            {% elif request.query_params.get('reason') == 'extensions_invalid' %}
-            Δεν έγινε αποθήκευση. Ελέγξτε ότι το αρχείο είναι CSV export των 3CX extensions.
-            {% else %}
-            Δεν έγινε αποθήκευση της δομής 3CX.
-            {% endif %}
-          </div>
-          {% endif %}
 
           </div>
 
-          <form id="callCenterUploadForm" method="post" action="/tenant/settings/call-center" enctype="multipart/form-data">
-            <table class="cc-sheet">
-              <colgroup>
-                <col style="width: 24%;">
-                <col style="width: 44%;">
-                <col style="width: 32%;">
-              </colgroup>
-              <thead>
-                <tr>
-                  <th>Report</th>
-                  <th>File</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td><div class="cc-row-label">Master Call Reports<small>Call ID και hops</small></div></td>
-                  <td><input class="form-control" type="file" name="call_center_report_file" accept=".csv,text/csv"></td>
-                  <td><span class="cc-sheet-note">Προτεινόμενο master αρχείο.</span></td>
-                </tr>
-                <tr>
-                  <td><div class="cc-row-label">Inbound Calls<small>fallback</small></div></td>
-                  <td><input class="form-control" type="file" name="call_center_inbound_report_file" accept=".csv,text/csv"></td>
-                  <td><span class="cc-sheet-note">Μόνο αν δεν υπάρχει master.</span></td>
-                </tr>
-                <tr>
-                  <td><div class="cc-row-label">Outbound Calls<small>fallback</small></div></td>
-                  <td><input class="form-control" type="file" name="call_center_outbound_report_file" accept=".csv,text/csv"></td>
-                  <td><span class="cc-sheet-note">{{ call_center_3cx.stats.outbound_calls or 0 }} outbound στο snapshot.</span></td>
-                </tr>
-              </tbody>
-            </table>
-            <div class="cc-sheet-footer">
-              <span class="cc-sheet-note">
-                {% if call_center_3cx.manual_import.uploaded_at %}
-                Τελευταίο upload: {{ call_center_3cx.manual_import.uploaded_at }}.
-                {% if call_center_3cx.manual_import.internal_rows %} Αγνοήθηκαν {{ call_center_3cx.manual_import.internal_rows }} εσωτερικές κλήσεις.{% endif %}
-                {% else %}
-                Δεν υπάρχει ακόμη 3CX CSV import.
-                {% endif %}
-              </span>
-              <div class="cc-sheet-actions">
-                <button class="btn btn-primary" type="submit"><i class="fe fe-upload me-1"></i> Upload</button>
-                <button class="btn btn-outline-danger" type="submit" form="callCenterClearForm"><i class="fe fe-trash-2 me-1"></i> Clear</button>
-              </div>
+          <div class="p-3">
+            <p class="text-muted mb-2">Τα δεδομένα τηλεφωνικού κέντρου συγχρονίζονται αυτόματα από τη βάση του 3CX. Δεν χρειάζεται χειροκίνητη συντήρηση πινάκων από τον πελάτη.</p>
+            <div class="cc-sheet-actions">
+              <span class="cc-sheet-pill">Πηγή: 3CX DB / SSH</span>
+              <span class="cc-sheet-pill">Sync: κάθε {{ call_center_3cx.polling_interval_minutes or 5 }} λεπτά</span>
+              <span class="cc-sheet-pill">Τελευταίο sync: {{ call_center_3cx.last_sync_at or '-' }}</span>
             </div>
-          </form>
-          <form id="callCenterClearForm" method="post" action="/tenant/settings/call-center/clear" onsubmit="return confirm('Να διαγραφούν τα παλιά 3CX δεδομένα από το dashboard; Οι ρυθμίσεις 3CX θα μείνουν.');"></form>
-
-          <form id="callCenterDirectoryForm" method="post" action="/tenant/settings/call-center/directory" enctype="multipart/form-data">
-            <table class="cc-sheet">
-              <colgroup>
-                <col style="width: 24%;">
-                <col style="width: 38%;">
-                <col style="width: 38%;">
-              </colgroup>
-              <thead>
-                <tr>
-                  <th>Structure</th>
-                  <th>Agents / Extensions</th>
-                  <th>Queues / Groups / Menus</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td><div class="cc-row-label">Import<small>extensions.csv</small></div></td>
-                  <td>
-                    <input class="form-control" type="file" name="call_center_extensions_file" accept=".csv,text/csv">
-                    <span class="cc-sheet-note">Number, FirstName, LastName, Department.</span>
-                  </td>
-                  <td><span class="cc-sheet-note">Τα groups γράφονται χειροκίνητα δεξιά.</span></td>
-                </tr>
-                <tr>
-                  <td><div class="cc-row-label">Directory<small>κωδικός=όνομα</small></div></td>
-                  <td>
-                    <textarea id="ccAgentDirectory" class="form-control font-monospace" name="agent_directory_text" rows="8" placeholder="200=P1 Pharmacist [Agios Dimitrios]">{{ call_center_3cx.agent_directory_text }}</textarea>
-                    <span class="cc-sheet-note">{{ call_center_3cx.agent_directory_rows|length }} extensions</span>
-                  </td>
-                  <td>
-                    <textarea id="ccQueueDirectory" class="form-control font-monospace" name="queue_directory_text" rows="8" placeholder="851=Call Center (Queue)&#10;801=E-Shop Pharmacy (Ring Group)&#10;GRP4=ONLINESHOP-VOIP (Menu)">{{ call_center_3cx.queue_directory_text }}</textarea>
-                    <span class="cc-sheet-note">{{ call_center_3cx.queue_directory_rows|length }} groups / menus</span>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-            <div class="cc-sheet-footer">
-              <span class="cc-sheet-note">Τα labels εφαρμόζονται σε agents, queues και διαδρομές κλήσεων.</span>
-              <button class="btn btn-primary" type="submit"><i class="fe fe-save me-1"></i> Save worksheet</button>
-            </div>
-          </form>
+          </div>
           </div>
         </div>
       </div>

@@ -32,6 +32,7 @@ celery.conf.task_routes = {
     'worker.tasks.enqueue_external_ingest': {'queue': 'ingest'},
     'worker.tasks.enqueue_incremental_sync': {'queue': 'ingest'},
     'worker.tasks.enqueue_incremental_sync_all_tenants': {'queue': 'ingest'},
+    'worker.tasks.sync_3cx_call_center_due_tenants': {'queue': 'ingest'},
     'worker.tasks.enqueue_daily_recovery_sync_all_tenants': {'queue': 'ingest'},
     'worker.tasks.enqueue_daily_reconciliation_checks': {'queue': 'default'},
     'worker.tasks.run_daily_reconciliation_for_tenant': {'queue': 'default'},
@@ -60,6 +61,10 @@ celery.conf.beat_schedule = {
             'limit': int(settings.incremental_sync_limit or 500),
             'max_tenants': int(settings.incremental_sync_max_tenants_per_run or 100),
         },
+    },
+    '3cx-call-center-db-sync': {
+        'task': 'worker.tasks.sync_3cx_call_center_due_tenants',
+        'schedule': timedelta(minutes=1),
     },
     'auto-recover-stuck-ingest': {
         'task': 'worker.tasks.auto_recover_stuck_ingest',

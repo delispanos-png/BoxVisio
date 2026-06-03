@@ -160,48 +160,20 @@
               <div class="tenant-section-icon"><i class="fe fe-phone-call"></i></div>
               <div>
                 <h5>Τηλεφωνικό Κέντρο 3CX</h5>
-                <p>Credentials και KPI στόχοι για το dashboard τηλεφωνικού κέντρου του tenant.</p>
+                <p>Σύνδεση 3CX, αυτόματο directory από DB/API και KPI στόχοι για το dashboard τηλεφωνικού κέντρου.</p>
               </div>
             </div>
 
             <div class="tenant-rule-card">
+              <input type="hidden" name="call_center_queue_ids" value="{{ call_center_3cx.queue_ids or '' }}">
+              <input type="hidden" name="call_center_team_extensions" value="{{ call_center_3cx.team_extensions or '' }}">
               <div class="tenant-rule-grid">
-                <div>
-                  <label class="form-label">3CX FQDN</label>
-                  <input class="form-control" type="url" name="call_center_fqdn" value="{{ call_center_3cx.fqdn or '' }}" placeholder="https://customer.3cx.eu/">
-                  <span class="tenant-field-help">Το πλήρες URL του 3CX instance.</span>
+                <div class="col-12 col-xl-6">
+                  <label class="form-label">Connection mode</label>
+                  <div class="form-control bg-light">SSH DB ενεργό · API connection διατηρείται ως fallback</div>
+                  <span class="tenant-field-help">Τα call analytics έρχονται από SSH DB. Το API config μένει διαθέσιμο για πελάτες με 3CX άδεια που το υποστηρίζει.</span>
                 </div>
-                <div>
-                  <label class="form-label">Username</label>
-                  <input class="form-control" type="email" name="call_center_username" value="{{ call_center_3cx.username or '' }}" placeholder="user@example.com">
-                  <span class="tenant-field-help">Χρήστης σύνδεσης ή API account.</span>
-                </div>
-                <div>
-                  <label class="form-label d-flex align-items-center gap-2">
-                    <span>Password</span>
-                    {% if call_center_3cx.has_password %}
-                    <span class="badge bg-success">Αποθηκευμένο</span>
-                    {% endif %}
-                  </label>
-                  <input class="form-control" type="password" name="call_center_password" value="" placeholder="{{ 'Αφήστε κενό για να μείνει ίδιο' if call_center_3cx.has_password else '3CX password' }}">
-                  <span class="tenant-field-help">Αποθηκεύεται κρυπτογραφημένο. Κενό σημαίνει κρατάμε τον υπάρχοντα κωδικό.</span>
-                </div>
-                <div>
-                  <label class="form-label">Client ID / API key</label>
-                  <input class="form-control" type="text" name="call_center_client_id" value="{{ call_center_3cx.client_id or '' }}" placeholder="Προαιρετικό API credential">
-                  <span class="tenant-field-help">Συμπληρώνεται όταν το 3CX API το απαιτεί.</span>
-                </div>
-                <div>
-                  <label class="form-label">Queue IDs</label>
-                  <input class="form-control" type="text" name="call_center_queue_ids" value="{{ call_center_3cx.queue_ids or '' }}" placeholder="800,801">
-                  <span class="tenant-field-help">Οι ουρές που θα συμμετέχουν στα KPI. Χωρίζονται με κόμμα.</span>
-                </div>
-                <div>
-                  <label class="form-label">Extensions ομάδας</label>
-                  <input class="form-control" type="text" name="call_center_team_extensions" value="{{ call_center_3cx.team_extensions or '' }}" placeholder="101,102,103">
-                  <span class="tenant-field-help">Εσωτερικά χρηστών/agents που ανήκουν στην ομάδα.</span>
-                </div>
-                <div>
+                <div class="col-12 col-xl-6">
                   <label class="form-label">Sync κάθε</label>
                   <div class="input-group">
                     <input class="form-control" type="number" min="1" max="1440" name="call_center_polling_interval_minutes" value="{{ call_center_3cx.polling_interval_minutes or 5 }}">
@@ -219,17 +191,71 @@
                   <label class="form-label">Στόχος κλήσεων / agent</label>
                   <input class="form-control" type="number" min="1" max="1000" name="call_center_target_calls_per_agent" value="{{ call_center_3cx.target_calls_per_agent or 60 }}">
                 </div>
+                <div>
+                  <label class="form-label">Auto users / extensions</label>
+                  <div class="form-control bg-light">{{ call_center_3cx.auto_agent_directory_rows|length }} εγγραφές από 3CX</div>
+                  <span class="tenant-field-help">Τραβιούνται από users/extensions της βάσης ή, μελλοντικά, από API.</span>
+                </div>
+                <div>
+                  <label class="form-label">Auto call handling</label>
+                  <div class="form-control bg-light">{{ call_center_3cx.auto_queue_directory_rows|length }} queues / IVR / ring groups</div>
+                  <span class="tenant-field-help">Δεν χρειάζεται πλέον να συντηρούμε χειροκίνητα όλους τους πίνακες.</span>
+                </div>
+              </div>
+
+              <details class="mt-3">
+                <summary class="tenant-field-help fw-bold">API connection / credentials fallback</summary>
+                <div class="tenant-rule-grid mt-3">
+                  <div>
+                    <label class="form-label">3CX FQDN</label>
+                    <input class="form-control" type="url" name="call_center_fqdn" value="{{ call_center_3cx.fqdn or '' }}" placeholder="https://customer.3cx.eu/">
+                    <span class="tenant-field-help">Χρήσιμο για API connector σε πελάτες με κατάλληλη 3CX άδεια.</span>
+                  </div>
+                  <div>
+                    <label class="form-label">Username / API client</label>
+                    <input class="form-control" type="email" name="call_center_username" value="{{ call_center_3cx.username or '' }}" placeholder="user@example.com">
+                    <span class="tenant-field-help">Χρήστης σύνδεσης ή API account.</span>
+                  </div>
+                  <div>
+                    <label class="form-label d-flex align-items-center gap-2">
+                      <span>Password / API secret</span>
+                      {% if call_center_3cx.has_password %}
+                      <span class="badge bg-success">Αποθηκευμένο</span>
+                      {% endif %}
+                    </label>
+                    <input class="form-control" type="password" name="call_center_password" value="" placeholder="{{ 'Αφήστε κενό για να μείνει ίδιο' if call_center_3cx.has_password else '3CX password / API secret' }}">
+                    <span class="tenant-field-help">Αποθηκεύεται κρυπτογραφημένο. Κενό σημαίνει κρατάμε τον υπάρχοντα κωδικό.</span>
+                  </div>
+                  <div>
+                    <label class="form-label">3CX reference</label>
+                    <input class="form-control" type="text" name="call_center_client_id" value="{{ call_center_3cx.client_id or '' }}" placeholder="Προαιρετικό internal reference">
+                    <span class="tenant-field-help">Προαιρετικό αναγνωριστικό connector.</span>
+                  </div>
+                </div>
+              </details>
+
+              <div class="row g-3 mt-1">
+                <div class="col-12 col-xl-6">
+                  <label class="form-label">Auto users / extensions από 3CX</label>
+                  <textarea class="form-control bg-light" rows="8" readonly spellcheck="false">{{ call_center_3cx.auto_agent_directory_text or 'Δεν έχει γίνει ακόμη sync directory από 3CX.' }}</textarea>
+                  <span class="tenant-field-help">Read-only preview από users/extensions. Ανανεώνεται αυτόματα στο sync.</span>
+                </div>
+                <div class="col-12 col-xl-6">
+                  <label class="form-label">Overrides users / extensions</label>
+                  <textarea class="form-control" name="call_center_agent_directory_text" rows="8" spellcheck="false" placeholder="212=Kassaveti Pharmacist">{{ call_center_3cx.agent_override_text or '' }}</textarea>
+                  <span class="tenant-field-help">Μόνο διορθώσεις ονομάτων. Παράδειγμα: extension=όνομα.</span>
+                </div>
               </div>
               <div class="row g-3 mt-1">
                 <div class="col-12 col-xl-6">
-                  <label class="form-label">3CX users / extensions</label>
-                  <textarea class="form-control" name="call_center_agent_directory_text" rows="8" spellcheck="false" placeholder="212=kassaveti, p2pharmacist">{{ call_center_3cx.agent_directory_text or '' }}</textarea>
-                  <span class="tenant-field-help">Ένα ανά γραμμή: extension=όνομα. Αυτό διορθώνει τα ονόματα agents στο dashboard.</span>
+                  <label class="form-label">Auto call handling από 3CX</label>
+                  <textarea class="form-control bg-light" rows="8" readonly spellcheck="false">{{ call_center_3cx.auto_queue_directory_text or 'Δεν έχει γίνει ακόμη sync call handling από 3CX.' }}</textarea>
+                  <span class="tenant-field-help">Read-only preview από queues, IVR/digital receptionists και ring groups.</span>
                 </div>
                 <div class="col-12 col-xl-6">
-                  <label class="form-label">3CX call handling / queues</label>
-                  <textarea class="form-control" name="call_center_queue_directory_text" rows="8" spellcheck="false" placeholder="851=Call Center (Queue)">{{ call_center_3cx.queue_directory_text or '' }}</textarea>
-                  <span class="tenant-field-help">Ένα ανά γραμμή: extension=όνομα queue/ring group/digital receptionist.</span>
+                  <label class="form-label">Overrides call handling</label>
+                  <textarea class="form-control" name="call_center_queue_directory_text" rows="8" spellcheck="false" placeholder="851=Call Center">{{ call_center_3cx.queue_override_text or '' }}</textarea>
+                  <span class="tenant-field-help">Μόνο διορθώσεις/alias. Παράδειγμα: 851=Call Center.</span>
                 </div>
               </div>
             </div>
@@ -237,35 +263,24 @@
             <div class="tenant-rule-card mt-3">
               <div class="tenant-rule-grid">
                 <div>
-                  <label class="form-label">3CX CSV / CDR Report</label>
-                  <input class="form-control" type="file" name="call_center_report_file" accept=".csv,text/csv,.txt,text/plain">
-                  <span class="tenant-field-help">Legacy ενιαίο report. Προτιμήστε τα δύο ξεχωριστά reports παρακάτω για καλύτερα KPI.</span>
+                  <label class="form-label">Πηγή δεδομένων</label>
+                  <div class="form-control bg-light">3CX DB μέσω SSH</div>
+                  <span class="tenant-field-help">Το κύκλωμα ενημερώνεται μόνο από τη βάση του 3CX, χωρίς αρχεία.</span>
                 </div>
                 <div>
-                  <label class="form-label">Inbound Calls CSV</label>
-                  <input class="form-control" type="file" name="call_center_inbound_report_file" accept=".csv,text/csv,.txt,text/plain">
-                  <span class="tenant-field-help">Report από 3CX Inbound Calls. Περιέχει Caller ID, DID, Destination, Ringing, Talking.</span>
+                  <label class="form-label">Τελευταίος συγχρονισμός</label>
+                  <div class="form-control bg-light">{{ call_center_3cx.last_sync_at or call_center_3cx.manual_import.synced_at or '-' }}</div>
+                  <span class="tenant-field-help">Τα δεδομένα ανανεώνονται από το SSH sync του 3CX.</span>
                 </div>
                 <div>
-                  <label class="form-label">Outbound Calls CSV</label>
-                  <input class="form-control" type="file" name="call_center_outbound_report_file" accept=".csv,text/csv,.txt,text/plain">
-                  <span class="tenant-field-help">Report από 3CX Outbound Calls. Περιέχει agent, προορισμό, χρόνο ομιλίας και κόστος όπου υπάρχει.</span>
-                </div>
-                <div>
-                  <label class="form-label">Τρέχον import</label>
+                  <label class="form-label">Snapshot</label>
                   <div class="form-control bg-light">
-                    {{ call_center_3cx.manual_import.filename or 'Δεν έχει ανέβει 3CX report' }}
+                    {{ call_center_3cx.manual_import.rows or 0 }} γραμμές
                   </div>
-                  <span class="tenant-field-help">
-                    {% if call_center_3cx.manual_import.uploaded_at %}
-                    {{ call_center_3cx.manual_import.rows or 0 }} γραμμές · {{ call_center_3cx.manual_import.uploaded_at }}.
-                    {% else %}
-                    Το dashboard μένει άδειο μέχρι να ανέβει CSV/CDR report ή να ενεργοποιηθεί XAPI.
-                    {% endif %}
-                  </span>
+                  <span class="tenant-field-help">Canonical κλήσεις και hops που τραβήχτηκαν από τη 3CX βάση.</span>
                 </div>
                 <div>
-                  <label class="form-label">Import KPIs</label>
+                  <label class="form-label">3CX KPIs</label>
                   <div class="tenant-check-grid">
                     <span class="tenant-inline-check"><i class="fe fe-phone-call"></i><span>{{ call_center_3cx.stats.total_calls or 0 }} κλήσεις</span></span>
                     <span class="tenant-inline-check"><i class="fe fe-check-circle"></i><span>{{ call_center_3cx.stats.answered_calls or 0 }} απαντημένες</span></span>
@@ -303,7 +318,7 @@
                     {% if era_exploration_data.uploaded_at %}
                     Ανέβηκε {{ era_exploration_data.uploaded_at }} από {{ era_exploration_data.uploaded_by or 'admin' }}.
                     {% else %}
-                    Το dashboard μένει άδειο μέχρι να ανέβει CSV/CDR report ή να ενεργοποιηθεί 3CX API.
+                    Το dashboard μένει άδειο μέχρι να ανέβει eRA Excel.
                     {% endif %}
                   </span>
                 </div>

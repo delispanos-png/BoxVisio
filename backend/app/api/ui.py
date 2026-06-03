@@ -1,12 +1,12 @@
 import secrets
 import asyncio
-import csv
 import hashlib
 import io
 import json
 import logging
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import time
@@ -20,6 +20,7 @@ from zoneinfo import ZoneInfo
 from xml.sax.saxutils import escape as xml_escape
 
 import httpx
+import paramiko
 from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
@@ -543,6 +544,12 @@ _DEFAULT_3CX_USERNAME = ''
 _3CX_CONNECTOR_TYPE = '3cx_call_center'
 _DEFAULT_3CX_AGENT_DIRECTORY_TEXT = ''
 _DEFAULT_3CX_QUEUE_DIRECTORY_TEXT = ''
+_DEFAULT_3CX_SSH_HOST = '195.201.136.200'
+_DEFAULT_3CX_SSH_PORT = 22
+_DEFAULT_3CX_SSH_USER = 'root'
+_DEFAULT_3CX_SSH_KEY_PATH = '/opt/cloudon-bi/.secrets/3cx_id3_ed25519'
+_DEFAULT_3CX_DB_NAME = 'database_single'
+_DEFAULT_3CX_DB_SYNC_DAYS = 45
 
 
 def _parse_int_in_range(raw: object, *, default: int, min_value: int, max_value: int) -> int:
@@ -628,7 +635,26 @@ def _3cx_is_queue_endpoint(value: object) -> bool:
         or extension_code.upper().startswith('GRP')
         or 'queue' in text_value.lower()
         or 'call center' in text_value.lower()
+        or 'digital receptionist' in text_value.lower()
     )
+
+
+def _3cx_is_auto_answer_endpoint(value: object, *directories: dict[str, str]) -> bool:
+    text_value = str(value or '').strip().lower()
+    if 'digital receptionist' in text_value:
+        return True
+    extension_code = _extract_3cx_extension_code(value)
+    for directory in directories:
+        if not isinstance(directory, dict):
+            continue
+        if extension_code and 'digital receptionist' in str(directory.get(extension_code) or '').strip().lower():
+            return True
+        for code, label in directory.items():
+            if str(code or '').strip().lower() == str(value or '').strip().lower():
+                return 'digital receptionist' in str(label or '').strip().lower()
+            if str(label or '').strip().lower() == text_value:
+                return 'digital receptionist' in str(label or '').strip().lower()
+    return False
 
 
 def _3cx_activity_ended_by(activity: object) -> str:
@@ -696,17 +722,35 @@ def _apply_3cx_agent_directory(
                 'missed': 0,
                 'talk_seconds': 0,
                 'calls': 0,
+                'last_date': '',
                 'recent': [],
             },
         )
         bucket['agent'] = clean_row.get('agent') or bucket['agent']
         bucket['extension'] = extension_code or bucket.get('extension') or ''
-        for field in ('answered', 'outbound', 'inbound', 'missed', 'talk_seconds', 'calls'):
+        for field in (
+            'answered',
+            'outbound',
+            'inbound',
+            'missed',
+            'talk_seconds',
+            'calls',
+            'inbound_answered',
+            'outbound_answered',
+            'inbound_missed',
+            'outbound_missed',
+        ):
             bucket[field] = int(bucket.get(field) or 0) + int(clean_row.get(field) or 0)
+        clean_last_date = str(clean_row.get('last_date') or clean_row.get('last_call') or '').strip()
+        if clean_last_date:
+            bucket['last_date'] = max(str(bucket.get('last_date') or ''), clean_last_date)
         if isinstance(clean_row.get('recent'), list):
             recent_rows = bucket.get('recent') if isinstance(bucket.get('recent'), list) else []
             recent_rows.extend([item for item in clean_row['recent'] if isinstance(item, dict)])
-            bucket['recent'] = recent_rows[:8]
+            recent_rows = sorted(recent_rows, key=lambda item: str(item.get('date') or ''))[-8:]
+            bucket['recent'] = recent_rows
+            if recent_rows:
+                bucket['last_date'] = max(str(bucket.get('last_date') or ''), str(recent_rows[-1].get('date') or ''))
     out = list(grouped.values())
     for row in out:
         calls = max(1, int(row.get('calls') or 0))
@@ -737,6 +781,154 @@ def _3cx_directory_rows(directory: dict[str, str]) -> list[dict[str, str]]:
 
 def _format_3cx_directory_text(directory: dict[str, str]) -> str:
     return '\n'.join(f'{code}={label}' for code, label in directory.items() if code and label)
+
+
+def _xlsx_col_name(index: int) -> str:
+    name = ''
+    value = max(1, int(index))
+    while value:
+        value, remainder = divmod(value - 1, 26)
+        name = chr(65 + remainder) + name
+    return name
+
+
+def _xlsx_cell_xml(row_index: int, col_index: int, value: object, *, style_id: int = 0) -> str:
+    ref = f'{_xlsx_col_name(col_index)}{row_index}'
+    style_attr = f' s="{style_id}"' if style_id else ''
+    if isinstance(value, bool):
+        return f'<c r="{ref}"{style_attr} t="b"><v>{1 if value else 0}</v></c>'
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return f'<c r="{ref}"{style_attr}><v>{value}</v></c>'
+    text_value = xml_escape(str(value if value is not None else ''))
+    return f'<c r="{ref}"{style_attr} t="inlineStr"><is><t>{text_value}</t></is></c>'
+
+
+def _build_xlsx_bytes(
+    *,
+    sheet_name: str,
+    headers: list[str],
+    rows: list[list[object]],
+    column_widths: list[float] | None = None,
+    title: str | None = None,
+) -> bytes:
+    safe_sheet_name = str(sheet_name or 'Sheet1')[:31] or 'Sheet1'
+    sheet_rows: list[str] = []
+    all_rows = [headers] + rows
+    for row_index, row_values in enumerate(all_rows, start=1):
+        cells = ''.join(
+            _xlsx_cell_xml(
+                row_index,
+                col_index,
+                value,
+                style_id=1 if row_index == 1 else (2 if isinstance(value, (int, float)) and not isinstance(value, bool) else 3),
+            )
+            for col_index, value in enumerate(row_values, start=1)
+        )
+        sheet_rows.append(f'<row r="{row_index}">{cells}</row>')
+    dimension = f'A1:{_xlsx_col_name(max(1, len(headers)))}{max(1, len(all_rows))}'
+    widths = column_widths or []
+    cols_xml = ''.join(
+        f'<col min="{idx}" max="{idx}" width="{max(8.0, float(width)):.1f}" customWidth="1"/>'
+        for idx, width in enumerate(widths[: len(headers)], start=1)
+    )
+    auto_filter_ref = f'A1:{_xlsx_col_name(max(1, len(headers)))}1'
+    sheet_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+        f'<dimension ref="{dimension}"/>'
+        '<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>'
+        '<sheetFormatPr defaultRowHeight="18"/>'
+        f'<cols>{cols_xml}</cols>'
+        f'<sheetData>{"".join(sheet_rows)}</sheetData>'
+        f'<autoFilter ref="{auto_filter_ref}"/>'
+        '<pageMargins left="0.7" right="0.7" top="0.75" bottom="0.75" header="0.3" footer="0.3"/>'
+        '</worksheet>'
+    )
+    workbook_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+        '<sheets>'
+        f'<sheet name="{xml_escape(safe_sheet_name)}" sheetId="1" r:id="rId1"/>'
+        '</sheets>'
+        '</workbook>'
+    )
+    styles_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        '<fonts count="4">'
+        '<font><sz val="11"/><color rgb="FF111827"/><name val="Calibri"/></font>'
+        '<font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font>'
+        '<font><sz val="11"/><color rgb="FF111827"/><name val="Calibri"/></font>'
+        '<font><sz val="11"/><color rgb="FF111827"/><name val="Calibri"/></font>'
+        '</fonts>'
+        '<fills count="3">'
+        '<fill><patternFill patternType="none"/></fill>'
+        '<fill><patternFill patternType="gray125"/></fill>'
+        '<fill><patternFill patternType="solid"><fgColor rgb="FF1D4ED8"/><bgColor indexed="64"/></patternFill></fill>'
+        '</fills>'
+        '<borders count="2">'
+        '<border><left/><right/><top/><bottom/><diagonal/></border>'
+        '<border><left style="thin"><color rgb="FFD9E2F3"/></left><right style="thin"><color rgb="FFD9E2F3"/></right><top style="thin"><color rgb="FFD9E2F3"/></top><bottom style="thin"><color rgb="FFD9E2F3"/></bottom><diagonal/></border>'
+        '</borders>'
+        '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
+        '<cellXfs count="4">'
+        '<xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0"/>'
+        '<xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>'
+        '<xf numFmtId="0" fontId="2" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>'
+        '<xf numFmtId="0" fontId="3" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="center"/></xf>'
+        '</cellXfs>'
+        '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>'
+        '<dxfs count="0"/>'
+        '<tableStyles count="0" defaultTableStyle="TableStyleMedium2" defaultPivotStyle="PivotStyleLight16"/>'
+        '</styleSheet>'
+    )
+    content_types_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+        '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+        '<Default Extension="xml" ContentType="application/xml"/>'
+        '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+        '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+        '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'
+        '</Types>'
+    )
+    root_rels_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>'
+        '</Relationships>'
+    )
+    workbook_rels_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>'
+        '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>'
+        '</Relationships>'
+    )
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr('[Content_Types].xml', content_types_xml)
+        archive.writestr('_rels/.rels', root_rels_xml)
+        archive.writestr('xl/workbook.xml', workbook_xml)
+        archive.writestr('xl/_rels/workbook.xml.rels', workbook_rels_xml)
+        archive.writestr('xl/styles.xml', styles_xml)
+        archive.writestr('xl/worksheets/sheet1.xml', sheet_xml)
+    return buffer.getvalue()
+
+
+def _merge_3cx_directories(*directories: dict[str, str]) -> dict[str, str]:
+    merged: dict[str, str] = {}
+    for directory in directories:
+        if not isinstance(directory, dict):
+            continue
+        for code, label in directory.items():
+            code_clean = str(code or '').strip()
+            label_clean = str(label or '').strip()
+            if code_clean and label_clean:
+                merged[code_clean] = label_clean
+    return merged
 
 
 def _label_3cx_endpoint(value: object, agent_directory: dict[str, str], queue_directory: dict[str, str]) -> str:
@@ -792,43 +984,6 @@ def _label_3cx_journey_rows(
     return out
 
 
-def _parse_3cx_extensions_csv_text(raw: object) -> dict[str, str]:
-    text_value = str(raw or '').strip()
-    if not text_value:
-        return {}
-    reader = csv.DictReader(io.StringIO(text_value))
-    if not reader.fieldnames:
-        return {}
-    directory: dict[str, str] = {}
-    for row in reader:
-        code = str(
-            row.get('Number')
-            or row.get('Extension')
-            or row.get('Ext')
-            or row.get('DN')
-            or row.get('Code')
-            or ''
-        ).strip()
-        if not code:
-            continue
-        first_name = str(row.get('FirstName') or row.get('First Name') or row.get('Name') or '').strip()
-        last_name = str(row.get('LastName') or row.get('Last Name') or row.get('Surname') or '').strip()
-        department = str(row.get('Department') or '').strip()
-        label = ' '.join(part for part in (first_name, last_name) if part).strip()
-        if not label:
-            label = str(row.get('DisplayName') or row.get('FullName') or row.get('EmailAddress') or code).strip()
-        if department and department not in label:
-            label = f'{label} [{department}]'
-        directory[code] = label
-    return directory
-
-
-def _merge_3cx_directory_text(existing_text: object, imported_directory: dict[str, str]) -> str:
-    merged = _parse_3cx_directory_text(existing_text)
-    merged.update(imported_directory or {})
-    return _format_3cx_directory_text(merged)
-
-
 def _safe_tenant_3cx_return_url(raw: object, *, default: str = '/tenant/settings') -> str:
     value = str(raw or '').strip() or default
     if value.startswith('/tenant/call-center') or value.startswith('/tenant/settings'):
@@ -850,6 +1005,40 @@ def _parse_bool_enabled(raw: object, default: bool = True) -> bool:
     if isinstance(raw, str):
         return raw.strip().lower() not in {'0', 'false', 'no', 'off', 'disabled'}
     return bool(raw)
+
+
+def _json_safe_payload(value: object) -> object:
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {str(key): _json_safe_payload(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe_payload(item) for item in value]
+    return value
+
+
+def _summarize_3cx_audit_payload(value: object) -> dict[str, object]:
+    payload = value if isinstance(value, dict) else {}
+    manual_import = payload.get('manual_import') if isinstance(payload.get('manual_import'), dict) else {}
+    stats = payload.get('stats') if isinstance(payload.get('stats'), dict) else {}
+    if not stats and isinstance(manual_import.get('stats'), dict):
+        stats = manual_import.get('stats') or {}
+    return {
+        'configured': bool(payload.get('configured') or payload.get('fqdn') or manual_import),
+        'source_mode': str(payload.get('source_mode') or manual_import.get('source_mode') or ''),
+        'rows': int(manual_import.get('rows') or payload.get('rows') or 0),
+        'raw_rows': int(manual_import.get('raw_rows') or payload.get('raw_rows') or 0),
+        'total_calls': int(stats.get('total_calls') or 0),
+        'answered_calls': int(stats.get('answered_calls') or 0),
+        'missed_calls': int(stats.get('missed_calls') or 0),
+        'polling_interval_minutes': payload.get('polling_interval_minutes'),
+        'answer_sla_seconds': payload.get('answer_sla_seconds'),
+        'target_calls_per_agent': payload.get('target_calls_per_agent'),
+        'last_sync_at': _json_safe_payload(payload.get('last_sync_at')),
+        'last_test_ok_at': _json_safe_payload(payload.get('last_test_ok_at')),
+    }
 
 
 def _tenant_contact_settings(tenant: Tenant | None) -> dict[str, str]:
@@ -1170,10 +1359,22 @@ async def _tenant_call_center_settings(
     conn = await _find_tenant_connection(db, tenant_id=tenant_id, connector_type=_3CX_CONNECTOR_TYPE)
     params = conn.connection_parameters if conn is not None and isinstance(conn.connection_parameters, dict) else {}
     manual_import = params.get('manual_import') if isinstance(params.get('manual_import'), dict) else {}
-    agent_directory_text = str(params.get('agent_directory_text') or '')
-    queue_directory_text = str(params.get('queue_directory_text') or '')
-    agent_directory = _parse_3cx_directory_text(agent_directory_text)
-    queue_directory = _parse_3cx_directory_text(queue_directory_text)
+    agent_override_text = str(params.get('agent_directory_text') or '')
+    queue_override_text = str(params.get('queue_directory_text') or '')
+    auto_agent_directory = (
+        manual_import.get('auto_agent_directory')
+        if isinstance(manual_import.get('auto_agent_directory'), dict)
+        else {}
+    )
+    auto_queue_directory = (
+        manual_import.get('auto_queue_directory')
+        if isinstance(manual_import.get('auto_queue_directory'), dict)
+        else {}
+    )
+    agent_override_directory = _parse_3cx_directory_text(agent_override_text)
+    queue_override_directory = _parse_3cx_directory_text(queue_override_text)
+    agent_directory = _merge_3cx_directories(auto_agent_directory, agent_override_directory)
+    queue_directory = _merge_3cx_directories(auto_queue_directory, queue_override_directory)
     secret_payload: dict[str, Any] = {}
     if conn is not None and conn.enc_payload:
         try:
@@ -1197,10 +1398,17 @@ async def _tenant_call_center_settings(
         from_date=from_date,
         to_date=to_date,
         queues=queues,
+        agent_directory=agent_directory,
+        queue_directory=queue_directory,
         target_calls_per_agent=target_calls_per_agent,
         answer_sla_seconds=answer_sla_seconds,
     )
-    stats = view_import.get('stats') if isinstance(view_import.get('stats'), dict) else {}
+    stats = dict(view_import.get('stats') if isinstance(view_import.get('stats'), dict) else {})
+    if 'inbound_calls' not in stats:
+        stats['inbound_calls'] = max(
+            0,
+            int(stats.get('total_calls') or 0) - int(stats.get('outbound_calls') or 0),
+        )
     labeled_call_rows = _label_3cx_call_rows(
         view_import.get('call_rows'),
         agent_directory=agent_directory,
@@ -1212,14 +1420,20 @@ async def _tenant_call_center_settings(
         queue_directory=queue_directory,
     )
     return {
-        'configured': bool(conn and conn.is_active and str(params.get('fqdn') or '').strip()),
+        'configured': bool(conn and conn.is_active and (str(params.get('fqdn') or '').strip() or manual_import)),
         'fqdn': str(params.get('fqdn') or ''),
         'username': str(params.get('username') or secret_payload.get('username') or ''),
         'client_id': str(params.get('client_id') or ''),
         'queue_ids': str(params.get('queue_ids') or ''),
         'team_extensions': str(params.get('team_extensions') or ''),
-        'agent_directory_text': agent_directory_text,
-        'queue_directory_text': queue_directory_text,
+        'agent_directory_text': agent_override_text,
+        'queue_directory_text': queue_override_text,
+        'agent_override_text': agent_override_text,
+        'queue_override_text': queue_override_text,
+        'auto_agent_directory_text': _format_3cx_directory_text(auto_agent_directory),
+        'auto_queue_directory_text': _format_3cx_directory_text(auto_queue_directory),
+        'auto_agent_directory_rows': _3cx_directory_rows(auto_agent_directory),
+        'auto_queue_directory_rows': _3cx_directory_rows(auto_queue_directory),
         'agent_directory_rows': _3cx_directory_rows(agent_directory),
         'queue_directory_rows': _3cx_directory_rows(queue_directory),
         'polling_interval_minutes': _parse_int_in_range(
@@ -1239,7 +1453,10 @@ async def _tenant_call_center_settings(
         'stats': stats,
         'call_rows': labeled_call_rows,
         'daily_rows': view_import.get('daily_rows') if isinstance(view_import.get('daily_rows'), list) else [],
+        'weekly_rows': view_import.get('weekly_rows') if isinstance(view_import.get('weekly_rows'), list) else [],
+        'did_weekly_rows': view_import.get('did_weekly_rows') if isinstance(view_import.get('did_weekly_rows'), list) else [],
         'queue_rows': _apply_3cx_queue_directory(view_import.get('queue_rows'), queue_directory),
+        'did_rows': view_import.get('did_rows') if isinstance(view_import.get('did_rows'), list) else [],
         'agent_rows': _apply_3cx_agent_directory(
             view_import.get('agent_rows'),
             agent_directory,
@@ -1248,50 +1465,6 @@ async def _tenant_call_center_settings(
         'source_rows': view_import.get('source_rows') if isinstance(view_import.get('source_rows'), list) else [],
         'journey_rows': labeled_journey_rows,
     }
-
-
-def _as_3cx_report_text(upload: UploadFile) -> str:
-    raw = upload.file.read()
-    if isinstance(raw, str):
-        return raw
-    for encoding in ('utf-8-sig', 'utf-16', 'cp1253', 'latin-1'):
-        try:
-            return raw.decode(encoding)
-        except Exception:
-            continue
-    return raw.decode('utf-8', errors='replace')
-
-
-def _clean_3cx_header(value: object) -> str:
-    return re.sub(r'[^a-z0-9]+', '', str(value or '').strip().lower())
-
-
-def _pick_3cx_value(row: dict[str, object], *candidates: str) -> str:
-    normalized = {_clean_3cx_header(key): value for key, value in row.items()}
-    for candidate in candidates:
-        value = normalized.get(_clean_3cx_header(candidate))
-        if value is not None and str(value).strip():
-            return str(value).strip()
-    return ''
-
-
-def _parse_3cx_duration_seconds(raw: object) -> int:
-    text_value = str(raw or '').strip()
-    if not text_value:
-        return 0
-    if text_value.isdigit():
-        return int(text_value)
-    parts = [p for p in re.split(r'[:.]', text_value) if p != '']
-    try:
-        nums = [int(float(p)) for p in parts]
-    except Exception:
-        nums = []
-    if len(nums) >= 3:
-        return nums[-3] * 3600 + nums[-2] * 60 + nums[-1]
-    if len(nums) == 2:
-        return nums[0] * 60 + nums[1]
-    number_match = re.search(r'\d+', text_value)
-    return int(number_match.group(0)) if number_match else 0
 
 
 def _parse_3cx_date(raw: object) -> str:
@@ -1323,38 +1496,6 @@ def _parse_3cx_date(raw: object) -> str:
     return ''
 
 
-def _normalize_3cx_key_part(raw: object) -> str:
-    text_value = re.sub(r'\s+', ' ', str(raw or '').strip()).lower()
-    return text_value
-
-
-def _3cx_call_fingerprint(
-    *,
-    is_outbound: bool,
-    raw_call_time: object,
-    call_date: object,
-    source_number: object,
-    did_number: object,
-    queue: object,
-    agent: object,
-    extension: object,
-    status: object,
-    duration_seconds: int,
-) -> str:
-    parts = [
-        'out' if is_outbound else 'in',
-        _normalize_3cx_key_part(raw_call_time) or _normalize_3cx_key_part(call_date),
-        _normalize_3cx_key_part(source_number),
-        _normalize_3cx_key_part(did_number),
-        _normalize_3cx_key_part(queue),
-        _normalize_3cx_key_part(agent),
-        _normalize_3cx_key_part(extension),
-        _normalize_3cx_key_part(status),
-        str(int(duration_seconds or 0)),
-    ]
-    return '|'.join(parts)
-
-
 def _parse_3cx_filter_date_value(raw: object) -> date | None:
     text_value = str(raw or '').strip()
     if not text_value:
@@ -1373,12 +1514,199 @@ def _parse_3cx_filter_date_value(raw: object) -> date | None:
     return None
 
 
+def _parse_3cx_datetime_value(raw: object) -> datetime | None:
+    text_value = str(raw or '').strip()
+    if not text_value:
+        return None
+    normalized = text_value.replace('Z', '+00:00')
+    try:
+        return datetime.fromisoformat(normalized)
+    except ValueError:
+        pass
+    for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%dT%H:%M:%S', '%d/%m/%Y %H:%M:%S'):
+        try:
+            return datetime.strptime(text_value[:19], fmt)
+        except ValueError:
+            continue
+    return None
+
+
 def _split_3cx_filter_terms(raw: object) -> list[str]:
     return [
         item.strip().lower()
         for item in re.split(r'[,;\n|]+', str(raw or ''))
         if item.strip()
     ]
+
+
+def _3cx_filter_directory_tokens(value: object, *directories: dict[str, str]) -> list[str]:
+    text_value = str(value or '').strip()
+    if not text_value:
+        return []
+    tokens = [text_value]
+    extension_code = _extract_3cx_extension_code(text_value)
+    for directory in directories:
+        if not isinstance(directory, dict):
+            continue
+        if extension_code and directory.get(extension_code):
+            tokens.append(str(directory[extension_code]))
+        for code, label in directory.items():
+            label_value = str(label or '').strip()
+            if label_value and label_value.lower() == text_value.lower():
+                tokens.append(str(code))
+    return tokens
+
+
+def _3cx_filter_search_text(
+    row: dict[str, object],
+    fields: tuple[str, ...],
+    *,
+    agent_directory: dict[str, str] | None = None,
+    queue_directory: dict[str, str] | None = None,
+) -> str:
+    agent_directory = agent_directory or {}
+    queue_directory = queue_directory or {}
+    tokens: list[str] = []
+    for field in fields:
+        value = row.get(field)
+        if field in {'agent', 'extension', 'from', 'to', 'final_destination'}:
+            tokens.extend(_3cx_filter_directory_tokens(value, agent_directory, queue_directory))
+        elif field == 'queue':
+            tokens.extend(_3cx_filter_directory_tokens(value, queue_directory, agent_directory))
+        else:
+            text_value = str(value or '').strip()
+            if text_value:
+                tokens.append(text_value)
+        if field == 'direction_label':
+            if bool(row.get('is_outbound')):
+                tokens.extend(['outbound', 'out', 'εξερχόμενη', 'εξερχομενη', 'exerchomeni'])
+            else:
+                tokens.extend(['inbound', 'in', 'εισερχόμενη', 'εισερχομενη', 'eiserchomeni'])
+        if field == 'status_label':
+            if bool(row.get('is_answered')):
+                tokens.extend(['answered', 'answer', 'απαντημένη', 'απαντημενη', 'apantimeni'])
+            if bool(row.get('is_missed')):
+                tokens.extend(['missed', 'lost', 'χαμένη', 'χαμενη', 'xameni'])
+    return ' '.join(tokens).lower()
+
+
+def _3cx_filter_endpoint_codes(
+    row: dict[str, object],
+    fields: tuple[str, ...],
+    *,
+    agent_directory: dict[str, str] | None = None,
+    queue_directory: dict[str, str] | None = None,
+) -> set[str]:
+    agent_directory = agent_directory or {}
+    queue_directory = queue_directory or {}
+    endpoint_fields = {'agent', 'extension', 'queue', 'from', 'to', 'final_destination'}
+    codes: set[str] = set()
+    for field in fields:
+        if field not in endpoint_fields:
+            continue
+        text_value = str(row.get(field) or '').strip()
+        if not text_value:
+            continue
+        endpoint_code = _3cx_internal_extension_code(text_value)
+        if endpoint_code:
+            codes.add(endpoint_code.lower())
+        for directory in (agent_directory, queue_directory):
+            if not isinstance(directory, dict):
+                continue
+            if endpoint_code and directory.get(endpoint_code):
+                codes.add(endpoint_code.lower())
+            for code, label in directory.items():
+                if str(label or '').strip().lower() == text_value.lower():
+                    codes.add(str(code or '').strip().lower())
+    return {code for code in codes if code}
+
+
+def _3cx_matches_filter_terms(
+    row: dict[str, object],
+    terms: list[str],
+    fields: tuple[str, ...],
+    *,
+    agent_directory: dict[str, str] | None = None,
+    queue_directory: dict[str, str] | None = None,
+) -> bool:
+    if not terms:
+        return True
+    exact_endpoint_terms = [
+        term
+        for term in terms
+        if re.fullmatch(r'(?:grp[a-z0-9]*|\d{2,5})', term, flags=re.IGNORECASE)
+    ]
+    text_terms = [term for term in terms if term not in exact_endpoint_terms]
+    if exact_endpoint_terms:
+        endpoint_codes = _3cx_filter_endpoint_codes(
+            row,
+            fields,
+            agent_directory=agent_directory,
+            queue_directory=queue_directory,
+        )
+        if any(term.lower() in endpoint_codes for term in exact_endpoint_terms):
+            return True
+        if not text_terms:
+            return False
+    searchable = _3cx_filter_search_text(
+        row,
+        fields,
+        agent_directory=agent_directory,
+        queue_directory=queue_directory,
+    )
+    return any(term in searchable for term in text_terms)
+
+
+def _normalize_3cx_call_log_only_view(manual_import: dict[str, object]) -> dict[str, object]:
+    if not manual_import.get('master_report'):
+        return manual_import
+    normalized = dict(manual_import)
+    normalized['source_mode'] = 'call_log_only'
+    filename = str(normalized.get('filename') or '').strip()
+    filename_parts = [part.strip() for part in filename.split('+') if part.strip()]
+    if len(filename_parts) > 1:
+        master_filename = next(
+            (
+                part for part in filename_parts
+                if 'call_report' in part.lower() or 'call log' in part.lower()
+            ),
+            filename_parts[0],
+        )
+        normalized['filename'] = master_filename
+        if not isinstance(normalized.get('excluded_reports'), list):
+            normalized['excluded_reports'] = [{'filename': part} for part in filename_parts if part != master_filename]
+    return normalized
+
+
+def _3cx_journey_hop_order_key(hop: dict[str, object], index: int) -> tuple[int, float, int]:
+    try:
+        seq = int(hop.get('seq') or 0)
+    except Exception:
+        seq = 0
+    parsed_time = _parse_3cx_datetime_value(hop.get('time'))
+    if parsed_time is not None:
+        try:
+            time_key = parsed_time.timestamp()
+        except Exception:
+            time_key = 0.0
+    else:
+        time_key = 0.0
+    return (seq, time_key, index)
+
+
+def _3cx_final_journey_hops(journey_rows: list[dict[str, object]]) -> dict[str, dict[str, object]]:
+    final_hops: dict[str, tuple[tuple[int, float, int], dict[str, object]]] = {}
+    for index, hop in enumerate(journey_rows):
+        if not isinstance(hop, dict):
+            continue
+        call_id = str(hop.get('call_id') or '').strip()
+        if not call_id:
+            continue
+        order_key = _3cx_journey_hop_order_key(hop, index)
+        existing = final_hops.get(call_id)
+        if existing is None or order_key >= existing[0]:
+            final_hops[call_id] = (order_key, hop)
+    return {call_id: hop for call_id, (_, hop) in final_hops.items()}
 
 
 def _aggregate_3cx_call_rows(
@@ -1390,7 +1718,10 @@ def _aggregate_3cx_call_rows(
     total_calls = answered_calls = missed_calls = outbound_calls = total_wait_seconds = wait_count = 0
     inbound_answered_calls = outbound_answered_calls = inbound_missed_calls = outbound_missed_calls = 0
     daily: dict[str, dict[str, object]] = {}
+    weekly: dict[str, dict[str, object]] = {}
+    did_weekly: dict[str, dict[str, object]] = {}
     queues: dict[str, dict[str, object]] = {}
+    dids: dict[str, dict[str, object]] = {}
     agents: dict[str, dict[str, object]] = {}
     sources: dict[str, dict[str, object]] = {}
 
@@ -1404,10 +1735,12 @@ def _aggregate_3cx_call_rows(
         source_number = str(call.get('source') or 'Άγνωστη πηγή')
         did_number = str(call.get('did') or '')
         duration_seconds = int(call.get('duration_seconds') or 0)
+        talk_seconds = int(call.get('talk_seconds') or 0)
         wait_seconds = int(call.get('wait_seconds') or 0)
         is_outbound = bool(call.get('is_outbound'))
         is_missed = bool(call.get('is_missed'))
         is_answered = bool(call.get('is_answered'))
+        is_redirected = bool(call.get('is_redirected'))
         status_label = str(call.get('status_label') or ('Χαμένη' if is_missed else 'Απαντ.'))
         direction_label = str(call.get('direction_label') or ('Εξ.' if is_outbound else 'Εισ.'))
 
@@ -1431,13 +1764,106 @@ def _aggregate_3cx_call_rows(
             bucket['answered'] = int(bucket['answered']) + (1 if is_answered else 0)
             bucket['missed'] = int(bucket['missed']) + (1 if is_missed else 0)
             bucket['outbound'] = int(bucket.get('outbound') or 0) + (1 if is_outbound else 0)
+            try:
+                parsed_call_date = datetime.strptime(call_date, '%Y-%m-%d').date()
+            except ValueError:
+                parsed_call_date = None
+            if parsed_call_date is not None and not is_outbound:
+                iso_year, iso_week, _ = parsed_call_date.isocalendar()
+                week_start = parsed_call_date - timedelta(days=parsed_call_date.weekday())
+                week_end = week_start + timedelta(days=6)
+                week_key = f'{iso_year}-W{iso_week:02d}'
+                week_bucket = weekly.setdefault(
+                    week_key,
+                    {
+                        'week': week_key,
+                        'week_start': week_start.isoformat(),
+                        'week_end': week_end.isoformat(),
+                        'inbound_calls': 0,
+                        'answered': 0,
+                        'missed_calls': 0,
+                        'wait_seconds_total': 0,
+                        'wait_count': 0,
+                        'talk_seconds_total': 0,
+                        'talk_count': 0,
+                        'redirected_calls': 0,
+                        'sources': {},
+                    },
+                )
+                week_bucket['inbound_calls'] = int(week_bucket['inbound_calls']) + 1
+                week_bucket['answered'] = int(week_bucket['answered']) + (1 if is_answered else 0)
+                week_bucket['missed_calls'] = int(week_bucket['missed_calls']) + (1 if is_missed else 0)
+                week_bucket['wait_seconds_total'] = int(week_bucket['wait_seconds_total']) + wait_seconds
+                week_bucket['wait_count'] = int(week_bucket['wait_count']) + 1
+                if is_answered:
+                    week_bucket['talk_seconds_total'] = int(week_bucket['talk_seconds_total']) + talk_seconds
+                    week_bucket['talk_count'] = int(week_bucket['talk_count']) + 1
+                week_bucket['redirected_calls'] = int(week_bucket['redirected_calls']) + (1 if is_redirected else 0)
+                week_sources = week_bucket.get('sources') if isinstance(week_bucket.get('sources'), dict) else {}
+                week_sources[source_number] = int(week_sources.get(source_number) or 0) + 1
+                week_bucket['sources'] = week_sources
+
+                did_key = did_number or 'Χωρίς DID'
+                did_week_key = f'{did_key}|{week_key}'
+                did_week_bucket = did_weekly.setdefault(
+                    did_week_key,
+                    {
+                        'did': did_key,
+                        'week': week_key,
+                        'week_start': week_start.isoformat(),
+                        'week_end': week_end.isoformat(),
+                        'inbound_calls': 0,
+                        'answered': 0,
+                        'missed_calls': 0,
+                        'wait_seconds_total': 0,
+                        'wait_count': 0,
+                        'talk_seconds_total': 0,
+                        'talk_count': 0,
+                        'redirected_calls': 0,
+                        'sources': {},
+                        'queues': {},
+                    },
+                )
+                did_week_bucket['inbound_calls'] = int(did_week_bucket['inbound_calls']) + 1
+                did_week_bucket['answered'] = int(did_week_bucket['answered']) + (1 if is_answered else 0)
+                did_week_bucket['missed_calls'] = int(did_week_bucket['missed_calls']) + (1 if is_missed else 0)
+                did_week_bucket['wait_seconds_total'] = int(did_week_bucket['wait_seconds_total']) + wait_seconds
+                did_week_bucket['wait_count'] = int(did_week_bucket['wait_count']) + 1
+                if is_answered:
+                    did_week_bucket['talk_seconds_total'] = int(did_week_bucket['talk_seconds_total']) + talk_seconds
+                    did_week_bucket['talk_count'] = int(did_week_bucket['talk_count']) + 1
+                did_week_bucket['redirected_calls'] = int(did_week_bucket['redirected_calls']) + (1 if is_redirected else 0)
+                did_week_sources = did_week_bucket.get('sources') if isinstance(did_week_bucket.get('sources'), dict) else {}
+                did_week_sources[source_number] = int(did_week_sources.get(source_number) or 0) + 1
+                did_week_bucket['sources'] = did_week_sources
+                did_week_queues = did_week_bucket.get('queues') if isinstance(did_week_bucket.get('queues'), dict) else {}
+                did_week_queues[queue] = int(did_week_queues.get(queue) or 0) + 1
+                did_week_bucket['queues'] = did_week_queues
 
         queue_bucket = queues.setdefault(queue, {'queue': queue, 'calls': 0, 'answered': 0, 'missed': 0, 'sla': 0})
         queue_bucket['calls'] = int(queue_bucket['calls']) + 1
         queue_bucket['answered'] = int(queue_bucket['answered']) + (1 if is_answered else 0)
         queue_bucket['missed'] = int(queue_bucket['missed']) + (1 if is_missed else 0)
-        if wait_seconds and wait_seconds <= answer_sla_seconds:
+        if is_answered and wait_seconds and wait_seconds <= answer_sla_seconds:
             queue_bucket['sla'] = int(queue_bucket['sla']) + 1
+
+        if not is_outbound:
+            did_key = did_number or 'Χωρίς DID'
+            did_bucket = dids.setdefault(
+                did_key,
+                {'did': did_key, 'calls': 0, 'answered': 0, 'missed': 0, 'sla': 0, 'queues': {}, 'sources': {}},
+            )
+            did_bucket['calls'] = int(did_bucket['calls']) + 1
+            did_bucket['answered'] = int(did_bucket['answered']) + (1 if is_answered else 0)
+            did_bucket['missed'] = int(did_bucket['missed']) + (1 if is_missed else 0)
+            if is_answered and wait_seconds and wait_seconds <= answer_sla_seconds:
+                did_bucket['sla'] = int(did_bucket['sla']) + 1
+            did_queues = did_bucket.get('queues') if isinstance(did_bucket.get('queues'), dict) else {}
+            did_queues[queue] = int(did_queues.get(queue) or 0) + 1
+            did_bucket['queues'] = did_queues
+            did_sources = did_bucket.get('sources') if isinstance(did_bucket.get('sources'), dict) else {}
+            did_sources[source_number] = int(did_sources.get(source_number) or 0) + 1
+            did_bucket['sources'] = did_sources
 
         source_key = f'{source_number}|{did_number}|{queue}'
         source_bucket = sources.setdefault(
@@ -1497,6 +1923,7 @@ def _aggregate_3cx_call_rows(
                 'missed': 0,
                 'talk_seconds': 0,
                 'calls': 0,
+                'last_date': '',
                 'recent': [],
             },
         )
@@ -1512,27 +1939,85 @@ def _aggregate_3cx_call_rows(
             agent_bucket['inbound_answered'] = int(agent_bucket.get('inbound_answered') or 0) + (1 if is_answered else 0)
             agent_bucket['inbound_missed'] = int(agent_bucket.get('inbound_missed') or 0) + (1 if is_missed else 0)
         agent_bucket['talk_seconds'] = int(agent_bucket['talk_seconds']) + duration_seconds
+        if call_date:
+            agent_bucket['last_date'] = max(str(agent_bucket.get('last_date') or ''), call_date)
         agent_recent = agent_bucket.get('recent') if isinstance(agent_bucket.get('recent'), list) else []
-        if len(agent_recent) < 8:
-            agent_recent.append(
-                {
-                    'date': call_date,
-                    'source': source_number,
-                    'queue': queue,
-                    'direction': direction_label,
-                    'duration_seconds': duration_seconds,
-                    'status': status_label,
-                }
-            )
-            agent_bucket['recent'] = agent_recent
+        agent_recent.append(
+            {
+                'date': call_date,
+                'source': source_number,
+                'queue': queue,
+                'direction': direction_label,
+                'duration_seconds': duration_seconds,
+                'status': status_label,
+            }
+        )
+        agent_bucket['recent'] = agent_recent[-8:]
 
     for queue_row in queues.values():
         calls = max(1, int(queue_row['calls']))
+        queue_row['answer_pct'] = round((int(queue_row.get('answered') or 0) / calls) * 100, 1)
         queue_row['sla_pct'] = round((int(queue_row.get('sla') or 0) / calls) * 100, 1)
+    for did_row in dids.values():
+        calls = max(1, int(did_row.get('calls') or 0))
+        did_row['answer_pct'] = round((int(did_row.get('answered') or 0) / calls) * 100, 1)
+        did_row['sla_pct'] = round((int(did_row.get('sla') or 0) / calls) * 100, 1)
+        did_queues = did_row.get('queues') if isinstance(did_row.get('queues'), dict) else {}
+        did_sources = did_row.get('sources') if isinstance(did_row.get('sources'), dict) else {}
+        did_row['top_queue'] = max(did_queues.items(), key=lambda item: int(item[1]))[0] if did_queues else ''
+        did_row['unique_sources'] = len(did_sources)
+        did_row.pop('queues', None)
+        did_row.pop('sources', None)
     for agent_row in agents.values():
         calls = max(1, int(agent_row.get('calls') or 0))
         agent_row['avg_talk_seconds'] = int(int(agent_row.get('talk_seconds') or 0) / calls)
         agent_row['target_pct'] = round((int(agent_row.get('answered') or 0) / max(1, target_calls_per_agent)) * 100, 1)
+    for week_row in weekly.values():
+        inbound_calls = max(1, int(week_row.get('inbound_calls') or 0))
+        answered = int(week_row.get('answered') or 0)
+        missed = int(week_row.get('missed_calls') or 0)
+        wait_count = max(1, int(week_row.get('wait_count') or 0))
+        talk_count = max(1, int(week_row.get('talk_count') or 0))
+        redirected = int(week_row.get('redirected_calls') or 0)
+        sources_for_week = week_row.get('sources') if isinstance(week_row.get('sources'), dict) else {}
+        repeat_calls = sum(int(count) for count in sources_for_week.values() if int(count) > 1)
+        week_row['answer_rate_pct'] = round((answered / inbound_calls) * 100, 1)
+        week_row['avg_waiting_time_seconds'] = int(int(week_row.get('wait_seconds_total') or 0) / wait_count)
+        week_row['avg_talking_time_seconds'] = int(int(week_row.get('talk_seconds_total') or 0) / talk_count)
+        week_row['abandonment_rate_pct'] = round((missed / inbound_calls) * 100, 1)
+        week_row['call_repeat_rate_pct'] = round((repeat_calls / inbound_calls) * 100, 1)
+        week_row['call_redirected_pct'] = round((redirected / inbound_calls) * 100, 1)
+        week_row.pop('wait_seconds_total', None)
+        week_row.pop('wait_count', None)
+        week_row.pop('talk_seconds_total', None)
+        week_row.pop('talk_count', None)
+        week_row.pop('redirected_calls', None)
+        week_row.pop('sources', None)
+    for did_week_row in did_weekly.values():
+        inbound_calls = max(1, int(did_week_row.get('inbound_calls') or 0))
+        answered = int(did_week_row.get('answered') or 0)
+        missed = int(did_week_row.get('missed_calls') or 0)
+        wait_count = max(1, int(did_week_row.get('wait_count') or 0))
+        talk_count = max(1, int(did_week_row.get('talk_count') or 0))
+        redirected = int(did_week_row.get('redirected_calls') or 0)
+        sources_for_did_week = did_week_row.get('sources') if isinstance(did_week_row.get('sources'), dict) else {}
+        queues_for_did_week = did_week_row.get('queues') if isinstance(did_week_row.get('queues'), dict) else {}
+        repeat_calls = sum(int(count) for count in sources_for_did_week.values() if int(count) > 1)
+        did_week_row['answer_rate_pct'] = round((answered / inbound_calls) * 100, 1)
+        did_week_row['avg_waiting_time_seconds'] = int(int(did_week_row.get('wait_seconds_total') or 0) / wait_count)
+        did_week_row['avg_talking_time_seconds'] = int(int(did_week_row.get('talk_seconds_total') or 0) / talk_count)
+        did_week_row['abandonment_rate_pct'] = round((missed / inbound_calls) * 100, 1)
+        did_week_row['call_repeat_rate_pct'] = round((repeat_calls / inbound_calls) * 100, 1)
+        did_week_row['call_redirected_pct'] = round((redirected / inbound_calls) * 100, 1)
+        did_week_row['unique_sources'] = len(sources_for_did_week)
+        did_week_row['top_queue'] = max(queues_for_did_week.items(), key=lambda item: int(item[1]))[0] if queues_for_did_week else ''
+        did_week_row.pop('wait_seconds_total', None)
+        did_week_row.pop('wait_count', None)
+        did_week_row.pop('talk_seconds_total', None)
+        did_week_row.pop('talk_count', None)
+        did_week_row.pop('redirected_calls', None)
+        did_week_row.pop('sources', None)
+        did_week_row.pop('queues', None)
 
     source_rows: list[dict[str, object]] = []
     for source_row in sources.values():
@@ -1557,6 +2042,7 @@ def _aggregate_3cx_call_rows(
             'total_calls': total_calls,
             'answered_calls': answered_calls,
             'missed_calls': missed_calls,
+            'inbound_calls': total_calls - outbound_calls,
             'outbound_calls': outbound_calls,
             'inbound_answered_calls': inbound_answered_calls,
             'outbound_answered_calls': outbound_answered_calls,
@@ -1565,11 +2051,146 @@ def _aggregate_3cx_call_rows(
             'answer_rate_pct': round((answered_calls / total_calls) * 100, 1) if total_calls else 0,
             'avg_wait_seconds': int(total_wait_seconds / wait_count) if wait_count else 0,
         },
-        'daily_rows': sorted(daily.values(), key=lambda item: str(item.get('date') or ''))[-31:],
+        'daily_rows': sorted(daily.values(), key=lambda item: str(item.get('date') or '')),
+        'weekly_rows': sorted(weekly.values(), key=lambda item: str(item.get('week') or '')),
+        'did_weekly_rows': sorted(
+            did_weekly.values(),
+            key=lambda item: (
+                -int((dids.get(str(item.get('did') or '')) or {}).get('calls') or 0),
+                str(item.get('did') or ''),
+                str(item.get('week') or ''),
+            ),
+        ),
         'queue_rows': sorted(queues.values(), key=lambda item: int(item.get('calls') or 0), reverse=True)[:20],
+        'did_rows': sorted(dids.values(), key=lambda item: int(item.get('calls') or 0), reverse=True)[:50],
         'agent_rows': sorted(agents.values(), key=lambda item: int(item.get('answered') or 0), reverse=True)[:50],
         'source_rows': sorted(source_rows, key=lambda item: int(item.get('calls') or 0), reverse=True)[:50],
     }
+
+
+def _aggregate_3cx_journey_queue_rows(
+    journey_rows: list[dict[str, object]],
+    *,
+    answer_sla_seconds: int = 30,
+    queue_terms: list[str] | None = None,
+    agent_directory: dict[str, str] | None = None,
+    queue_directory: dict[str, str] | None = None,
+) -> list[dict[str, object]]:
+    queue_terms = queue_terms or []
+    agent_directory = agent_directory or {}
+    queue_directory = queue_directory or {}
+    queues: dict[str, dict[str, object]] = {}
+    final_answered_by_call_id: dict[str, bool] = {}
+    seen_queue_calls: set[tuple[str, str]] = set()
+    for call_id, hop in _3cx_final_journey_hops(journey_rows).items():
+        status = str(hop.get('status') or '').strip().lower()
+        destination = str(hop.get('to') or '').strip()
+        final_answered_by_call_id[call_id] = status == 'answered' and not _3cx_is_auto_answer_endpoint(
+            destination,
+            queue_directory,
+            agent_directory,
+        )
+    for hop in journey_rows:
+        if not isinstance(hop, dict):
+            continue
+        queue = str(hop.get('to') or '').strip()
+        if not queue or not _3cx_is_queue_endpoint(queue):
+            continue
+        if queue_terms and not _3cx_matches_filter_terms(
+            hop,
+            queue_terms,
+            ('from', 'to', 'direction', 'status', 'activity'),
+            agent_directory=agent_directory,
+            queue_directory=queue_directory,
+        ):
+            continue
+        call_id = str(hop.get('call_id') or '').strip()
+        if not call_id:
+            continue
+        queue_key = _extract_3cx_extension_code(queue) or queue
+        pair_key = (queue_key, call_id)
+        if pair_key in seen_queue_calls:
+            continue
+        seen_queue_calls.add(pair_key)
+        status = str(hop.get('status') or '').strip().lower()
+        ringing_seconds = int(hop.get('ringing_seconds') or 0)
+        is_auto_answer = _3cx_is_auto_answer_endpoint(queue, queue_directory, agent_directory) and status == 'answered'
+        final_answered = final_answered_by_call_id.get(call_id, False)
+        is_answered = final_answered
+        is_missed = not final_answered
+        bucket = queues.setdefault(queue, {'queue': queue, 'calls': 0, 'answered': 0, 'missed': 0, 'sla': 0, 'auto_answered': 0})
+        bucket['calls'] = int(bucket['calls']) + 1
+        bucket['answered'] = int(bucket['answered']) + (1 if is_answered else 0)
+        bucket['missed'] = int(bucket['missed']) + (1 if is_missed else 0)
+        bucket['auto_answered'] = int(bucket.get('auto_answered') or 0) + (1 if is_auto_answer else 0)
+        if is_answered and ringing_seconds <= answer_sla_seconds:
+            bucket['sla'] = int(bucket['sla']) + 1
+    for queue_row in queues.values():
+        calls = max(1, int(queue_row.get('calls') or 0))
+        queue_row['answer_pct'] = round((int(queue_row.get('answered') or 0) / calls) * 100, 1)
+        queue_row['sla_pct'] = round((int(queue_row.get('sla') or 0) / calls) * 100, 1)
+    return sorted(queues.values(), key=lambda item: int(item.get('calls') or 0), reverse=True)[:50]
+
+
+def _normalize_3cx_auto_answer_call_rows(
+    call_rows: list[dict[str, object]],
+    *,
+    agent_directory: dict[str, str] | None = None,
+    queue_directory: dict[str, str] | None = None,
+) -> list[dict[str, object]]:
+    agent_directory = agent_directory or {}
+    queue_directory = queue_directory or {}
+    normalized_rows: list[dict[str, object]] = []
+    for row in call_rows:
+        if not isinstance(row, dict):
+            continue
+        clean_row = dict(row)
+        final_destination = clean_row.get('final_destination') or clean_row.get('queue')
+        if _3cx_is_auto_answer_endpoint(final_destination, queue_directory, agent_directory):
+            clean_row['is_answered'] = False
+            clean_row['is_missed'] = True
+            clean_row['duration_seconds'] = 0
+            clean_row['status_label'] = 'Χαμένη'
+        normalized_rows.append(clean_row)
+    return normalized_rows
+
+
+def _apply_3cx_journey_outcomes_to_call_rows(
+    call_rows: list[dict[str, object]],
+    journey_rows: list[dict[str, object]],
+    *,
+    agent_directory: dict[str, str] | None = None,
+    queue_directory: dict[str, str] | None = None,
+) -> list[dict[str, object]]:
+    agent_directory = agent_directory or {}
+    queue_directory = queue_directory or {}
+    final_outcomes: dict[str, bool] = {}
+    for call_id, hop in _3cx_final_journey_hops(journey_rows).items():
+        status = str(hop.get('status') or '').strip().lower()
+        destination = str(hop.get('to') or '').strip()
+        final_outcomes[call_id] = status == 'answered' and not _3cx_is_auto_answer_endpoint(
+            destination,
+            queue_directory,
+            agent_directory,
+        )
+    normalized_rows = _normalize_3cx_auto_answer_call_rows(
+        call_rows,
+        agent_directory=agent_directory,
+        queue_directory=queue_directory,
+    )
+    out: list[dict[str, object]] = []
+    for row in normalized_rows:
+        clean_row = dict(row)
+        call_id = str(clean_row.get('call_id') or clean_row.get('fingerprint') or '').strip()
+        if call_id in final_outcomes:
+            is_answered = bool(final_outcomes[call_id])
+            clean_row['is_answered'] = is_answered
+            clean_row['is_missed'] = not is_answered
+            clean_row['status_label'] = 'Απαντ.' if is_answered else 'Χαμένη'
+            if not is_answered:
+                clean_row['duration_seconds'] = 0
+        out.append(clean_row)
+    return out
 
 
 def _filter_3cx_manual_import(
@@ -1578,11 +2199,16 @@ def _filter_3cx_manual_import(
     from_date: date | None = None,
     to_date: date | None = None,
     queues: object = '',
+    agent_directory: dict[str, str] | None = None,
+    queue_directory: dict[str, str] | None = None,
     target_calls_per_agent: int = 60,
     answer_sla_seconds: int = 30,
 ) -> dict[str, object]:
+    manual_import = _normalize_3cx_call_log_only_view(manual_import)
     call_rows = manual_import.get('call_rows')
     queue_terms = _split_3cx_filter_terms(queues)
+    agent_directory = agent_directory or {}
+    queue_directory = queue_directory or {}
     if not isinstance(call_rows, list):
         if from_date is None and to_date is None and not queue_terms:
             return manual_import
@@ -1616,24 +2242,47 @@ def _filter_3cx_manual_import(
             filtered['stats'] = stats
             filtered['rows'] = total_calls
         if queue_terms:
-            def _matches_queue(row: dict[str, object]) -> bool:
-                searchable = ' '.join(str(row.get(field) or '').lower() for field in ('queue', 'extension', 'source', 'did'))
-                return any(term in searchable for term in queue_terms)
-
             queue_rows = [
                 row for row in (manual_import.get('queue_rows') if isinstance(manual_import.get('queue_rows'), list) else [])
-                if isinstance(row, dict) and _matches_queue(row)
+                if isinstance(row, dict)
+                and _3cx_matches_filter_terms(
+                    row,
+                    queue_terms,
+                    ('queue', 'extension', 'agent', 'source', 'did'),
+                    agent_directory=agent_directory,
+                    queue_directory=queue_directory,
+                )
+            ]
+            agent_rows = [
+                row for row in (manual_import.get('agent_rows') if isinstance(manual_import.get('agent_rows'), list) else [])
+                if isinstance(row, dict)
+                and _3cx_matches_filter_terms(
+                    row,
+                    queue_terms,
+                    ('agent', 'extension', 'queue'),
+                    agent_directory=agent_directory,
+                    queue_directory=queue_directory,
+                )
             ]
             source_rows = [
                 row for row in (manual_import.get('source_rows') if isinstance(manual_import.get('source_rows'), list) else [])
-                if isinstance(row, dict) and _matches_queue(row)
+                if isinstance(row, dict)
+                and _3cx_matches_filter_terms(
+                    row,
+                    queue_terms,
+                    ('queue', 'extension', 'agent', 'source', 'did'),
+                    agent_directory=agent_directory,
+                    queue_directory=queue_directory,
+                )
             ]
             filtered['queue_rows'] = queue_rows
+            filtered['agent_rows'] = agent_rows
             filtered['source_rows'] = source_rows
             if from_date is None and to_date is None:
-                total_calls = sum(int(row.get('calls') or 0) for row in queue_rows)
-                answered_calls = sum(int(row.get('answered') or 0) for row in queue_rows)
-                missed_calls = sum(int(row.get('missed') or 0) for row in queue_rows)
+                driver_rows = agent_rows if agent_rows and not queue_rows else queue_rows
+                total_calls = sum(int(row.get('calls') or 0) for row in driver_rows)
+                answered_calls = sum(int(row.get('answered') or 0) for row in driver_rows)
+                missed_calls = sum(int(row.get('missed') or 0) for row in driver_rows)
                 stats = dict(filtered.get('stats') if isinstance(filtered.get('stats'), dict) else {})
                 stats.update(
                     {
@@ -1649,7 +2298,47 @@ def _filter_3cx_manual_import(
         filtered['legacy_filter_mode'] = True
         return filtered
     if from_date is None and to_date is None and not queue_terms:
-        return manual_import
+        if manual_import.get('master_report') and isinstance(manual_import.get('journey_rows'), list):
+            refreshed = dict(manual_import)
+            refreshed_call_rows = _apply_3cx_journey_outcomes_to_call_rows(
+                call_rows,
+                manual_import.get('journey_rows') or [],
+                agent_directory=agent_directory,
+                queue_directory=queue_directory,
+            )
+            refreshed['call_rows'] = refreshed_call_rows
+            refreshed.update(
+                _aggregate_3cx_call_rows(
+                    refreshed_call_rows,
+                    target_calls_per_agent=target_calls_per_agent,
+                    answer_sla_seconds=answer_sla_seconds,
+                )
+            )
+            refreshed['queue_rows'] = _aggregate_3cx_journey_queue_rows(
+                manual_import.get('journey_rows') or [],
+                answer_sla_seconds=answer_sla_seconds,
+                agent_directory=agent_directory,
+                queue_directory=queue_directory,
+            )
+            return refreshed
+        refreshed = dict(manual_import)
+        refreshed.update(
+            _aggregate_3cx_call_rows(
+                [dict(row) for row in call_rows if isinstance(row, dict)],
+                target_calls_per_agent=target_calls_per_agent,
+                answer_sla_seconds=answer_sla_seconds,
+            )
+        )
+        return refreshed
+
+    journeys_by_call_id: dict[str, list[dict[str, object]]] = {}
+    if queue_terms and isinstance(manual_import.get('journey_rows'), list):
+        for journey in manual_import.get('journey_rows') or []:
+            if not isinstance(journey, dict):
+                continue
+            call_id = str(journey.get('call_id') or '').strip()
+            if call_id:
+                journeys_by_call_id.setdefault(call_id, []).append(journey)
 
     filtered_rows: list[dict[str, object]] = []
     for row in call_rows:
@@ -1661,11 +2350,36 @@ def _filter_3cx_manual_import(
         if to_date is not None and (call_date is None or call_date > to_date):
             continue
         if queue_terms:
-            searchable = ' '.join(
-                str(row.get(field) or '').lower()
-                for field in ('queue', 'extension', 'agent', 'source', 'did')
+            row_matches = _3cx_matches_filter_terms(
+                row,
+                queue_terms,
+                (
+                    'call_id',
+                    'fingerprint',
+                    'queue',
+                    'extension',
+                    'agent',
+                    'source',
+                    'did',
+                    'final_destination',
+                    'direction_label',
+                    'status_label',
+                ),
+                agent_directory=agent_directory,
+                queue_directory=queue_directory,
             )
-            if not any(term in searchable for term in queue_terms):
+            call_id = str(row.get('call_id') or row.get('fingerprint') or '').strip()
+            journey_matches = any(
+                _3cx_matches_filter_terms(
+                    journey,
+                    queue_terms,
+                    ('call_id', 'from', 'to', 'direction', 'status', 'activity'),
+                    agent_directory=agent_directory,
+                    queue_directory=queue_directory,
+                )
+                for journey in journeys_by_call_id.get(call_id, [])
+            )
+            if not row_matches and not journey_matches:
                 continue
         filtered_rows.append(row)
 
@@ -1677,6 +2391,14 @@ def _filter_3cx_manual_import(
             row for row in manual_import.get('journey_rows') or []
             if isinstance(row, dict) and str(row.get('call_id') or '') in filtered_call_ids
         ]
+    if filtered.get('master_report') and isinstance(filtered.get('journey_rows'), list):
+        filtered_rows = _apply_3cx_journey_outcomes_to_call_rows(
+            filtered_rows,
+            filtered.get('journey_rows') or [],
+            agent_directory=agent_directory,
+            queue_directory=queue_directory,
+        )
+        filtered['call_rows'] = filtered_rows
     filtered['rows'] = len(filtered_rows)
     filtered['filtered_rows'] = len(filtered_rows)
     filtered['filters_applied'] = True
@@ -1687,725 +2409,610 @@ def _filter_3cx_manual_import(
             answer_sla_seconds=answer_sla_seconds,
         )
     )
+    if filtered.get('master_report') and isinstance(filtered.get('journey_rows'), list):
+        filtered['queue_rows'] = _aggregate_3cx_journey_queue_rows(
+            filtered.get('journey_rows') or [],
+            answer_sla_seconds=answer_sla_seconds,
+            queue_terms=queue_terms,
+            agent_directory=agent_directory,
+            queue_directory=queue_directory,
+        )
     return filtered
 
 
-def _parse_3cx_master_call_report(
-    *,
-    filename: str,
-    text_value: str,
-    rows: list[dict[str, object]],
-    user_identity: str,
-) -> dict[str, object]:
-    grouped: dict[str, list[dict[str, object]]] = {}
-    missing_call_id_rows = 0
-    for row in rows:
-        call_id = _pick_3cx_value(row, 'Call ID', 'CallId', 'Call Unique ID', 'Unique ID')
-        if not call_id:
-            missing_call_id_rows += 1
-            continue
-        grouped.setdefault(call_id, []).append(row)
-
-    call_rows: list[dict[str, object]] = []
-    journey_rows: list[dict[str, object]] = []
-    internal_rows = 0
-    duplicate_rows = 0
-
-    for call_id, legs in grouped.items():
-        clean_legs = sorted(legs, key=lambda item: _pick_3cx_value(item, 'Call Time', 'Date', 'Start Time', 'Start', 'Time'))
-        if not clean_legs:
-            continue
-        has_external = any(
-            _3cx_has_external_endpoint(_pick_3cx_value(leg, 'From'), _pick_3cx_value(leg, 'To'))
-            or str(_pick_3cx_value(leg, 'Direction')).strip().lower() != 'internal'
-            for leg in clean_legs
-        )
-        if not has_external:
-            internal_rows += len(clean_legs)
-            continue
-
-        first_leg = clean_legs[0]
-        first_time = _pick_3cx_value(first_leg, 'Call Time', 'Date', 'Start Time', 'Start', 'Time')
-        call_date = _parse_3cx_date(first_time)
-        external_source = ''
-        first_external_to = ''
-        first_queue = ''
-        first_answered_agent = ''
-        first_answered_extension = ''
-        outbound_agent = ''
-        outbound_extension = ''
-        final_status = ''
-        final_destination = ''
-        answered = False
-        outbound = False
-        total_ring_seconds = 0
-        total_talk_seconds = 0
-
-        for index, leg in enumerate(clean_legs):
-            direction = _pick_3cx_value(leg, 'Direction', 'Call Type', 'Type')
-            status = _pick_3cx_value(leg, 'Status', 'Call Status', 'Result', 'Disposition')
-            from_value = _pick_3cx_value(leg, 'From', 'Caller ID', 'Caller', 'Source')
-            to_value = _pick_3cx_value(leg, 'To', 'Destination', 'Called Number', 'Final Destination')
-            ringing_seconds = _parse_3cx_duration_seconds(_pick_3cx_value(leg, 'Ringing', 'Ring Time', 'Wait Time', 'Waiting Time'))
-            talking_seconds = _parse_3cx_duration_seconds(_pick_3cx_value(leg, 'Talking', 'Talk Time', 'Duration'))
-            activity = _pick_3cx_value(leg, 'Call Activity Details', 'Activity', 'Details')
-            leg_from_external = _3cx_external_endpoint(from_value)
-            leg_to_external = _3cx_external_endpoint(to_value)
-            if not external_source and leg_from_external:
-                external_source = leg_from_external
-            if not external_source and leg_to_external:
-                external_source = leg_to_external
-            if not first_external_to and not leg_to_external:
-                first_external_to = to_value
-            if not first_queue and ('queue' in direction.lower() or 'queue' in to_value.lower() or re.search(r'\(8\d{2}\)\s*$', to_value)):
-                first_queue = to_value
-            if not outbound and direction.lower() == 'outbound':
-                outbound = True
-            if direction.lower() == 'outbound' and not outbound_agent and not leg_from_external and not _3cx_is_queue_endpoint(from_value):
-                outbound_agent = from_value
-                outbound_extension = _3cx_internal_extension_code(from_value)
-            if status.lower() == 'answered' and talking_seconds > 0:
-                answered = True
-                ended_by = _3cx_activity_ended_by(activity)
-                if ended_by and not _3cx_external_endpoint(ended_by) and not _3cx_is_queue_endpoint(ended_by):
-                    first_answered_agent = ended_by
-                    first_answered_extension = _3cx_internal_extension_code(ended_by)
-                elif not first_answered_agent and not leg_to_external and not _3cx_is_queue_endpoint(to_value):
-                    first_answered_agent = to_value
-                    first_answered_extension = _3cx_internal_extension_code(to_value)
-            total_ring_seconds += ringing_seconds
-            total_talk_seconds += talking_seconds
-            final_status = status
-            final_destination = to_value
-            journey_rows.append(
-                {
-                    'call_id': call_id,
-                    'seq': index + 1,
-                    'time': first_time if index == 0 else _pick_3cx_value(leg, 'Call Time', 'Date', 'Start Time', 'Start', 'Time'),
-                    'date': _parse_3cx_date(_pick_3cx_value(leg, 'Call Time', 'Date', 'Start Time', 'Start', 'Time')),
-                    'from': from_value,
-                    'to': to_value,
-                    'direction': direction,
-                    'status': status,
-                    'ringing_seconds': ringing_seconds,
-                    'talking_seconds': talking_seconds,
-                    'activity': activity,
-                    'is_internal_leg': not (_3cx_has_external_endpoint(from_value, to_value) or direction.lower() != 'internal'),
-                }
-            )
-
-        if not external_source:
-            internal_rows += len(clean_legs)
-            continue
-        is_missed = not answered
-        queue = first_queue or first_external_to or final_destination or ('Outbound' if outbound else 'Χωρίς queue')
-        if outbound:
-            agent = outbound_agent or 'Χωρίς agent'
-            extension = outbound_extension
-        elif first_answered_agent:
-            agent = first_answered_agent
-            extension = first_answered_extension
-        elif final_destination and not _3cx_external_endpoint(final_destination) and not _3cx_is_queue_endpoint(final_destination):
-            agent = final_destination
-            extension = _3cx_internal_extension_code(final_destination)
-        else:
-            agent = 'Χωρίς agent'
-            extension = ''
-        call_rows.append(
-            {
-                'date': call_date,
-                'raw_call_time': first_time,
-                'call_id': call_id,
-                'queue': queue,
-                'agent': agent,
-                'extension': extension,
-                'source': external_source,
-                'did': first_external_to,
-                'duration_seconds': total_talk_seconds,
-                'wait_seconds': total_ring_seconds,
-                'is_outbound': outbound,
-                'is_answered': answered,
-                'is_missed': is_missed,
-                'direction_label': 'Εξ.' if outbound else 'Εισ.',
-                'status_label': 'Χαμένη' if is_missed else 'Απαντ.',
-                'fingerprint': call_id,
-                'journey_legs': len(clean_legs),
-                'final_status': final_status,
-                'final_destination': final_destination,
-            }
-        )
-        duplicate_rows += max(0, len(clean_legs) - 1)
-
-    parsed = {
-        'filename': filename,
-        'uploaded_at': datetime.utcnow().isoformat(timespec='seconds') + 'Z',
-        'uploaded_by': user_identity or 'admin',
-        'source_sha256': hashlib.sha256(text_value.encode('utf-8')).hexdigest(),
-        'rows': len(call_rows),
-        'raw_rows': len(rows),
-        'duplicate_rows': duplicate_rows,
-        'internal_rows': internal_rows,
-        'missing_call_id_rows': missing_call_id_rows,
-        'master_report': True,
-        'call_rows': call_rows,
-        'journey_rows': journey_rows,
-    }
-    parsed.update(_aggregate_3cx_call_rows(call_rows))
-    return parsed
-
-
-def _parse_3cx_report_upload(upload: UploadFile, *, user_identity: str, report_kind: str = 'auto') -> dict[str, object]:
-    filename = Path(upload.filename or '').name
-    if not filename.lower().endswith(('.csv', '.txt')):
-        raise ValueError('3CX report import supports CSV/TXT exports only.')
-    text_value = _as_3cx_report_text(upload)
-    sample = text_value[:4096]
-    try:
-        dialect = csv.Sniffer().sniff(sample, delimiters=',;\t')
-    except Exception:
-        dialect = csv.excel
-    reader = csv.DictReader(io.StringIO(text_value), dialect=dialect)
-    rows = [row for row in reader if any(str(value or '').strip() for value in row.values())]
-    if not rows:
-        raise ValueError('Το 3CX CSV δεν έχει γραμμές δεδομένων.')
-    headers = {_clean_3cx_header(key) for key in (reader.fieldnames or [])}
-    if {'calltime', 'callid', 'from', 'to', 'callactivitydetails'}.issubset(headers):
-        return _parse_3cx_master_call_report(
-            filename=filename,
-            text_value=text_value,
-            rows=rows,
-            user_identity=user_identity,
-        )
-    kind = str(report_kind or 'auto').strip().lower()
-    if kind not in {'inbound', 'outbound'}:
-        lower_filename = filename.lower()
-        if 'outbound' in lower_filename or 'callerdisplayname' in headers or 'destinationcalleeid' in headers:
-            kind = 'outbound'
-        elif 'inbound' in lower_filename or 'did' in headers:
-            kind = 'inbound'
-        else:
-            kind = 'auto'
-
-    total_calls = answered_calls = missed_calls = outbound_calls = total_wait_seconds = wait_count = 0
-    inbound_answered_calls = outbound_answered_calls = inbound_missed_calls = outbound_missed_calls = 0
-    daily: dict[str, dict[str, object]] = {}
-    queues: dict[str, dict[str, object]] = {}
-    agents: dict[str, dict[str, object]] = {}
-    sources: dict[str, dict[str, object]] = {}
-    seen_call_keys: set[str] = set()
-    duplicate_rows = 0
-    internal_rows = 0
-    call_rows: list[dict[str, object]] = []
-
-    for row in rows:
-        direction = _pick_3cx_value(row, 'Direction', 'Call Type', 'Type').lower()
-        status = _pick_3cx_value(row, 'Status', 'Call Status', 'Result', 'Disposition').lower()
-        is_outbound = kind == 'outbound' or ('out' in direction)
-        destination_value = _pick_3cx_value(row, 'Destination', 'To', 'Destination Name', 'Final Destination')
-        if is_outbound:
-            queue = _pick_3cx_value(row, 'Trunk', 'Trunk number', 'Department') or 'Outbound'
-            agent = (
-                _pick_3cx_value(row, 'Caller Display name', 'Caller Display Name', 'Agent', 'User', 'Name')
-                or 'Χωρίς agent'
-            )
-            extension = _pick_3cx_value(row, 'Caller ID', 'Caller Extension', 'Extension', 'Ext', 'DN')
-            source_number = (
-                _pick_3cx_value(
-                    row,
-                    'Destination Callee Id',
-                    'Destination Callee ID',
-                    'Destination Display Name',
-                    'Destination',
-                    'Called Number',
-                    'To Number',
-                    'To',
-                )
-                or 'Άγνωστη πηγή'
-            )
-            did_number = ''
-        else:
-            queue = (
-                _pick_3cx_value(
-                    row,
-                    'Queue',
-                    'Queue Name',
-                    'Call Queue',
-                    'Group',
-                    'Ring Group',
-                    'Department',
-                    'Destination Group',
-                    'Destination Queue',
-                    'Queue Extension',
-                    'Final Destination',
-                    'Destination',
-                )
-                or 'Χωρίς queue'
-            )
-            agent = _pick_3cx_value(
-                row,
-                'Agent',
-                'User',
-                'Answered By',
-                'Destination Display Name',
-                'Destination Name',
-                'To Name',
-                'Name',
-            )
-            agent = agent or destination_value or 'Χωρίς agent'
-            extension = _pick_3cx_value(row, 'Extension', 'Ext', 'Agent Extension', 'Destination', 'To', 'DN')
-            source_number = (
-                _pick_3cx_value(
-                    row,
-                    'Caller ID',
-                    'Caller',
-                    'Caller Number',
-                    'From',
-                    'From Number',
-                    'Source',
-                    'Originator',
-                    'External Number',
-                    'Αριθμός Καλούντος',
-                    'Καλών',
-                )
-                or 'Άγνωστη πηγή'
-            )
-            did_number = _pick_3cx_value(row, 'DID', 'DDI', 'Dialed Number', 'Called Number', 'To Number', 'Line', 'Εισερχόμενος Αριθμός')
-        if _is_3cx_internal_only_call(
-            source_number=source_number,
-            destination_value=destination_value,
-            extension=extension,
-            agent=agent,
-            queue=queue,
-            did_number=did_number,
-        ):
-            internal_rows += 1
-            continue
-        raw_call_time = _pick_3cx_value(row, 'Date', 'Start Time', 'Start', 'Time', 'Call Time')
-        call_date = _parse_3cx_date(raw_call_time)
-        duration_seconds = _parse_3cx_duration_seconds(
-            _pick_3cx_value(
-                row,
-                'Duration',
-                'Talk Time',
-                'Talking Time',
-                'Talk Duration',
-                'Talking',
-                'Conversation Time',
-                'Connected Time',
-                'Call Duration',
-                'Answered Duration',
-                'Billable Duration',
-                'Total Talk Time',
-                'Total Talking Time',
-                'Συνολικός Χρόνος',
-                'Συν. Χρόνος',
-                'Χρόνος Ομιλίας',
-                'Διάρκεια Ομιλίας',
-                'Ομιλία',
-            )
-        )
-        wait_seconds = _parse_3cx_duration_seconds(
-            _pick_3cx_value(row, 'Wait Time', 'Waiting Time', 'Ring Time', 'Queue Wait', 'Ringing', 'Χρόνος Αναμονής', 'Αναμονή')
-        )
-
-        is_missed = any(token in status for token in ('miss', 'abandon', 'unanswer', 'no answer', 'failed'))
-        is_answered = not is_missed and (duration_seconds > 0 or any(token in status for token in ('answer', 'complete', 'connected')))
-        agent_key = f'{agent}|{extension}'
-        call_key = _3cx_call_fingerprint(
-            is_outbound=is_outbound,
-            raw_call_time=raw_call_time,
-            call_date=call_date,
-            source_number=source_number,
-            did_number=did_number,
-            queue=queue,
-            agent=agent,
-            extension=extension,
-            status=status,
-            duration_seconds=duration_seconds,
-        )
-        if call_key in seen_call_keys:
-            duplicate_rows += 1
-            continue
-        else:
-            seen_call_keys.add(call_key)
-        call_rows.append(
-            {
-                'date': call_date,
-                'raw_call_time': raw_call_time,
-                'queue': queue,
-                'agent': agent,
-                'extension': extension,
-                'source': source_number,
-                'did': did_number,
-                'duration_seconds': duration_seconds,
-                'wait_seconds': wait_seconds,
-                'is_outbound': is_outbound,
-                'is_answered': is_answered,
-                'is_missed': is_missed,
-                'direction_label': 'Εξ.' if is_outbound else 'Εισ.',
-                'status_label': 'Χαμένη' if is_missed else 'Απαντ.',
-                'fingerprint': call_key,
-            }
-        )
-
-        total_calls += 1
-        answered_calls += 1 if is_answered else 0
-        missed_calls += 1 if is_missed else 0
-        outbound_calls += 1 if is_outbound else 0
-        if is_outbound:
-            outbound_answered_calls += 1 if is_answered else 0
-            outbound_missed_calls += 1 if is_missed else 0
-        else:
-            inbound_answered_calls += 1 if is_answered else 0
-            inbound_missed_calls += 1 if is_missed else 0
-        if wait_seconds:
-            total_wait_seconds += wait_seconds
-            wait_count += 1
-
-        if call_date:
-            bucket = daily.setdefault(call_date, {'date': call_date, 'calls': 0, 'answered': 0, 'missed': 0, 'outbound': 0})
-            bucket['calls'] = int(bucket['calls']) + 1
-            bucket['answered'] = int(bucket['answered']) + (1 if is_answered else 0)
-            bucket['missed'] = int(bucket['missed']) + (1 if is_missed else 0)
-            bucket['outbound'] = int(bucket.get('outbound') or 0) + (1 if is_outbound else 0)
-
-        queue_bucket = queues.setdefault(queue, {'queue': queue, 'calls': 0, 'answered': 0, 'missed': 0, 'sla': 0})
-        queue_bucket['calls'] = int(queue_bucket['calls']) + 1
-        queue_bucket['answered'] = int(queue_bucket['answered']) + (1 if is_answered else 0)
-        queue_bucket['missed'] = int(queue_bucket['missed']) + (1 if is_missed else 0)
-        if wait_seconds and wait_seconds <= 30:
-            queue_bucket['sla'] = int(queue_bucket['sla']) + 1
-
-        source_key = f'{source_number}|{did_number}|{queue}'
-        source_bucket = sources.setdefault(
-            source_key,
-            {
-                'source': source_number,
-                'did': did_number,
-                'queue': queue,
-                'calls': 0,
-                'answered': 0,
-                'missed': 0,
-                'outbound': 0,
-                'talk_seconds': 0,
-                'last_call': '',
-                'agents': {},
-                'recent': [],
-            },
-        )
-        source_bucket['calls'] = int(source_bucket['calls']) + 1
-        source_bucket['answered'] = int(source_bucket['answered']) + (1 if is_answered else 0)
-        source_bucket['missed'] = int(source_bucket['missed']) + (1 if is_missed else 0)
-        source_bucket['outbound'] = int(source_bucket['outbound']) + (1 if is_outbound else 0)
-        source_bucket['talk_seconds'] = int(source_bucket['talk_seconds']) + duration_seconds
-        if call_date:
-            source_bucket['last_call'] = max(str(source_bucket.get('last_call') or ''), call_date)
-        source_agents = source_bucket.get('agents') if isinstance(source_bucket.get('agents'), dict) else {}
-        agent_source_bucket = source_agents.setdefault(
-            agent_key,
-            {'agent': agent, 'extension': extension, 'calls': 0, 'talk_seconds': 0},
-        )
-        agent_source_bucket['calls'] = int(agent_source_bucket['calls']) + 1
-        agent_source_bucket['talk_seconds'] = int(agent_source_bucket['talk_seconds']) + duration_seconds
-        source_bucket['agents'] = source_agents
-        recent_calls = source_bucket.get('recent') if isinstance(source_bucket.get('recent'), list) else []
-        if len(recent_calls) < 5:
-            recent_calls.append(
-                {
-                    'date': call_date,
-                    'agent': agent,
-                    'extension': extension,
-                    'direction': 'Εξ.' if is_outbound else 'Εισ.',
-                    'duration_seconds': duration_seconds,
-                    'status': 'Χαμένη' if is_missed else 'Απαντ.',
-                }
-            )
-            source_bucket['recent'] = recent_calls
-
-        agent_bucket = agents.setdefault(
-            agent_key,
-            {
-                'agent': agent,
-                'extension': extension,
-                'answered': 0,
-                'outbound': 0,
-                'inbound_answered': 0,
-                'outbound_answered': 0,
-                'inbound_missed': 0,
-                'outbound_missed': 0,
-                'inbound': 0,
-                'missed': 0,
-                'talk_seconds': 0,
-                'calls': 0,
-                'recent': [],
-            },
-        )
-        agent_bucket['calls'] = int(agent_bucket['calls']) + 1
-        agent_bucket['answered'] = int(agent_bucket['answered']) + (1 if is_answered else 0)
-        agent_bucket['outbound'] = int(agent_bucket['outbound']) + (1 if is_outbound else 0)
-        agent_bucket['inbound'] = int(agent_bucket['inbound']) + (0 if is_outbound else 1)
-        agent_bucket['missed'] = int(agent_bucket['missed']) + (1 if is_missed else 0)
-        if is_outbound:
-            agent_bucket['outbound_answered'] = int(agent_bucket.get('outbound_answered') or 0) + (1 if is_answered else 0)
-            agent_bucket['outbound_missed'] = int(agent_bucket.get('outbound_missed') or 0) + (1 if is_missed else 0)
-        else:
-            agent_bucket['inbound_answered'] = int(agent_bucket.get('inbound_answered') or 0) + (1 if is_answered else 0)
-            agent_bucket['inbound_missed'] = int(agent_bucket.get('inbound_missed') or 0) + (1 if is_missed else 0)
-        agent_bucket['talk_seconds'] = int(agent_bucket['talk_seconds']) + duration_seconds
-        agent_recent = agent_bucket.get('recent') if isinstance(agent_bucket.get('recent'), list) else []
-        if len(agent_recent) < 8:
-            agent_recent.append(
-                {
-                    'date': call_date,
-                    'source': source_number,
-                    'queue': queue,
-                    'direction': 'Εξ.' if is_outbound else 'Εισ.',
-                    'duration_seconds': duration_seconds,
-                    'status': 'Χαμένη' if is_missed else 'Απαντ.',
-                }
-            )
-            agent_bucket['recent'] = agent_recent
-
-    for queue_row in queues.values():
-        calls = max(1, int(queue_row['calls']))
-        queue_row['sla_pct'] = round((int(queue_row.get('sla') or 0) / calls) * 100, 1)
-    target_calls_per_agent = 60
-    for agent_row in agents.values():
-        calls = max(1, int(agent_row.get('calls') or 0))
-        agent_row['avg_talk_seconds'] = int(int(agent_row.get('talk_seconds') or 0) / calls)
-        agent_row['target_pct'] = round((int(agent_row.get('answered') or 0) / target_calls_per_agent) * 100, 1)
-    source_rows: list[dict[str, object]] = []
-    for source_row in sources.values():
-        calls = max(1, int(source_row.get('calls') or 0))
-        source_agents = source_row.get('agents') if isinstance(source_row.get('agents'), dict) else {}
-        agent_rows = []
-        for agent_source_row in source_agents.values():
-            agent_calls = max(1, int(agent_source_row.get('calls') or 0))
-            agent_rows.append(
-                {
-                    **agent_source_row,
-                    'avg_talk_seconds': int(int(agent_source_row.get('talk_seconds') or 0) / agent_calls),
-                }
-            )
-        clean_source_row = dict(source_row)
-        clean_source_row['avg_talk_seconds'] = int(int(source_row.get('talk_seconds') or 0) / calls)
-        clean_source_row['agents'] = sorted(agent_rows, key=lambda item: int(item.get('calls') or 0), reverse=True)[:5]
-        source_rows.append(clean_source_row)
-
+def _3cx_ssh_db_config(params: dict[str, object]) -> dict[str, object]:
     return {
-        'filename': filename,
-        'uploaded_at': datetime.utcnow().isoformat(timespec='seconds') + 'Z',
-        'uploaded_by': user_identity or 'admin',
-        'source_sha256': hashlib.sha256(text_value.encode('utf-8')).hexdigest(),
-        'rows': len(call_rows),
-        'raw_rows': len(rows),
-        'duplicate_rows': duplicate_rows,
-        'internal_rows': internal_rows,
-        'call_rows': call_rows,
-        'stats': {
-            'total_calls': total_calls,
-            'answered_calls': answered_calls,
-            'missed_calls': missed_calls,
-            'outbound_calls': outbound_calls,
-            'inbound_answered_calls': inbound_answered_calls,
-            'outbound_answered_calls': outbound_answered_calls,
-            'inbound_missed_calls': inbound_missed_calls,
-            'outbound_missed_calls': outbound_missed_calls,
-            'answer_rate_pct': round((answered_calls / total_calls) * 100, 1) if total_calls else 0,
-            'avg_wait_seconds': int(total_wait_seconds / wait_count) if wait_count else 0,
-        },
-        'daily_rows': sorted(daily.values(), key=lambda item: str(item.get('date') or ''))[-31:],
-        'queue_rows': sorted(queues.values(), key=lambda item: int(item.get('calls') or 0), reverse=True)[:20],
-        'agent_rows': sorted(agents.values(), key=lambda item: int(item.get('answered') or 0), reverse=True)[:50],
-        'source_rows': sorted(source_rows, key=lambda item: int(item.get('calls') or 0), reverse=True)[:50],
+        'host': str(params.get('ssh_host') or _DEFAULT_3CX_SSH_HOST).strip(),
+        'port': _parse_int_in_range(params.get('ssh_port'), default=_DEFAULT_3CX_SSH_PORT, min_value=1, max_value=65535),
+        'user': str(params.get('ssh_user') or _DEFAULT_3CX_SSH_USER).strip(),
+        'key_path': str(params.get('ssh_key_path') or _DEFAULT_3CX_SSH_KEY_PATH).strip(),
+        'db_name': str(params.get('db_name') or _DEFAULT_3CX_DB_NAME).strip(),
+        'sync_days': _parse_int_in_range(params.get('ssh_sync_days'), default=_DEFAULT_3CX_DB_SYNC_DAYS, min_value=1, max_value=3660),
+        'sync_start_date': str(params.get('ssh_sync_start_date') or '').strip(),
     }
 
 
-def _merge_3cx_manual_imports(imports: list[dict[str, object]], *, user_identity: str) -> dict[str, object]:
-    valid_imports = [item for item in imports if isinstance(item, dict)]
-    if not valid_imports:
-        raise ValueError('Δεν υπάρχει έγκυρο 3CX import.')
-    merged: dict[str, object] = {
-        'filename': ' + '.join(str(item.get('filename') or '') for item in valid_imports if item.get('filename')),
-        'uploaded_at': datetime.utcnow().isoformat(timespec='seconds') + 'Z',
-        'uploaded_by': user_identity or 'admin',
-        'rows': sum(int(item.get('rows') or 0) for item in valid_imports),
-        'raw_rows': sum(int(item.get('raw_rows') or item.get('rows') or 0) for item in valid_imports),
-        'duplicate_rows': sum(int(item.get('duplicate_rows') or 0) for item in valid_imports),
-        'internal_rows': sum(int(item.get('internal_rows') or 0) for item in valid_imports),
-        'import_fingerprints': sorted(
-            str(item.get('source_sha256') or '')
-            for item in valid_imports
-            if str(item.get('source_sha256') or '').strip()
+def _run_3cx_ssh_command_sync(ssh_config: dict[str, object], command: str, *, timeout_seconds: int = 60) -> str:
+    key_path = Path(str(ssh_config.get('key_path') or ''))
+    if not key_path.exists():
+        raise FileNotFoundError(f'3CX SSH key not found: {key_path}')
+    client = paramiko.SSHClient()
+    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    try:
+        client.connect(
+            hostname=str(ssh_config.get('host') or ''),
+            port=int(ssh_config.get('port') or 22),
+            username=str(ssh_config.get('user') or 'root'),
+            key_filename=str(key_path),
+            look_for_keys=False,
+            allow_agent=False,
+            timeout=15,
+            banner_timeout=15,
+            auth_timeout=15,
+        )
+        stdin, stdout, stderr = client.exec_command(command, timeout=timeout_seconds)
+        del stdin
+        out = stdout.read().decode('utf-8', errors='replace')
+        err = stderr.read().decode('utf-8', errors='replace')
+        status = stdout.channel.recv_exit_status()
+        if status != 0:
+            raise RuntimeError(f'3CX SSH command failed ({status}): {err.strip() or out.strip()}')
+        return out
+    finally:
+        client.close()
+
+
+def _fetch_3cx_db_snapshot_sync(
+    *,
+    params: dict[str, object],
+    user_identity: str,
+    from_date: date | None = None,
+    to_date: date | None = None,
+) -> dict[str, object]:
+    ssh_config = _3cx_ssh_db_config(params)
+    athens_tz = ZoneInfo('Europe/Athens')
+    today_athens = datetime.now(athens_tz).date()
+    sync_days = int(ssh_config.get('sync_days') or _DEFAULT_3CX_DB_SYNC_DAYS)
+    configured_start_date = _parse_3cx_filter_date_value(ssh_config.get('sync_start_date'))
+    start_date = from_date or configured_start_date or (today_athens - timedelta(days=sync_days - 1))
+    end_date = to_date or today_athens
+    if start_date > end_date:
+        start_date, end_date = end_date, start_date
+    start_literal = f'{start_date.isoformat()} 00:00:00+03'
+    end_exclusive = end_date + timedelta(days=1)
+    end_literal = f'{end_exclusive.isoformat()} 00:00:00+03'
+    db_name = str(ssh_config.get('db_name') or _DEFAULT_3CX_DB_NAME)
+    answer_sla_seconds = _parse_int_in_range(
+        params.get('answer_sla_seconds'),
+        default=30,
+        min_value=1,
+        max_value=3600,
+    )
+    sql = f"""
+WITH bounds AS (
+    SELECT
+        timestamp with time zone '{start_literal}' AS start_at,
+        timestamp with time zone '{end_literal}' AS end_at
+),
+queue_names AS (
+    SELECT dn.value AS q_num, q.name AS q_name
+    FROM public.queue q
+    JOIN public.dn dn ON dn.iddn = q.fkiddn
+),
+agent_directory AS (
+    SELECT
+        uv.dn::text AS code,
+        coalesce(nullif(uv.display_name, ''), uv.dn)::text AS label
+    FROM public.users_view uv
+    WHERE nullif(uv.dn::text, '') IS NOT NULL
+),
+call_handling_directory AS (
+    SELECT
+        qv.dn::text AS code,
+        coalesce(nullif(qv.display_name, ''), qv.dn)::text AS label
+    FROM public.queue_view qv
+    WHERE nullif(qv.dn::text, '') IS NOT NULL
+    UNION ALL
+    SELECT
+        dn.value::text AS code,
+        (coalesce(nullif(ivr.name, ''), dn.value) || ' (Digital Receptionist)')::text AS label
+    FROM public.ivr ivr
+    JOIN public.dn dn ON dn.iddn = ivr.fkiddn
+    WHERE nullif(dn.value::text, '') IS NOT NULL
+    UNION ALL
+    SELECT
+        rgv.dn::text AS code,
+        (coalesce(nullif(rgv.display_name, ''), rgv.dn) || ' (Ring Group)')::text AS label
+    FROM public.ring_groups_view rgv
+    WHERE nullif(rgv.dn::text, '') IS NOT NULL
+),
+cdr_base AS (
+    SELECT
+        coalesce(main_call_history_id, call_history_id)::text AS root_id,
+        cdr.*
+    FROM public.cdroutput cdr
+    CROSS JOIN bounds b
+    WHERE cdr.cdr_started_at >= b.start_at
+      AND cdr.cdr_started_at < b.end_at
+      AND coalesce(main_call_history_id, call_history_id) IS NOT NULL
+),
+root_calls AS (
+    SELECT
+        root_id,
+        min(cdr_started_at) AS started_at,
+        max(cdr_ended_at) AS ended_at,
+        count(*)::int AS hop_count,
+        bool_or(source_entity_type = 'external_line' AND destination_entity_type IN ('inbound_routing', 'ivr', 'queue', 'extension', 'ring_group_ring_all', 'voicemail')) AS inbound_signal,
+        bool_or(source_entity_type = 'extension' AND destination_entity_type IN ('outbound_rule', 'external_line')) AS outbound_signal,
+        bool_or(destination_entity_type = 'queue') AS has_queue,
+        bool_or(destination_entity_type = 'extension') AS has_extension,
+        bool_or(destination_entity_type = 'extension' AND cdr_answered_at IS NOT NULL) AS inbound_human_answered,
+        bool_or(source_entity_type = 'extension' AND destination_entity_type = 'external_line' AND cdr_answered_at IS NOT NULL) AS outbound_answered,
+        min(cdr_answered_at) FILTER (WHERE destination_entity_type = 'extension' AND cdr_answered_at IS NOT NULL) AS first_extension_answered_at,
+        sum(greatest(0, extract(epoch FROM coalesce(cdr_ended_at, cdr_answered_at) - cdr_answered_at)::int)) FILTER (WHERE cdr_answered_at IS NOT NULL AND (destination_entity_type = 'extension' OR destination_entity_type = 'external_line')) AS talk_seconds,
+        bool_or(
+            creation_method = 'transfer'
+            OR (
+                creation_method = 'divert'
+                AND creation_forward_reason IN ('no_answer', 'out_of_office', 'busy', 'forward_all', 'not_registered')
+            )
+            OR termination_reason = 'redirected'
+        ) AS was_redirected
+    FROM cdr_base
+    GROUP BY root_id
+),
+first_hop AS (
+    SELECT DISTINCT ON (root_id)
+        root_id,
+        source_entity_type,
+        source_dn_number,
+        source_dn_name,
+        source_participant_name,
+        source_participant_phone_number,
+        source_participant_trunk_did,
+        source_participant_group_name,
+        destination_entity_type,
+        destination_dn_number,
+        destination_dn_name,
+        destination_participant_name,
+        destination_participant_phone_number,
+        destination_participant_trunk_did,
+        destination_participant_group_name
+    FROM cdr_base
+    ORDER BY root_id, cdr_started_at, cdr_id
+),
+answered_extension AS (
+    SELECT DISTINCT ON (root_id)
+        root_id,
+        destination_dn_number AS extension,
+        destination_dn_name AS agent
+    FROM cdr_base
+    WHERE destination_entity_type = 'extension'
+      AND cdr_answered_at IS NOT NULL
+    ORDER BY root_id, cdr_answered_at, cdr_started_at
+),
+outbound_target AS (
+    SELECT DISTINCT ON (root_id)
+        root_id,
+        source_dn_number AS extension,
+        source_dn_name AS agent,
+        destination_participant_phone_number AS external_number
+    FROM cdr_base
+    WHERE source_entity_type = 'extension'
+      AND destination_entity_type = 'external_line'
+    ORDER BY root_id, cdr_started_at DESC
+),
+did_by_call AS (
+    SELECT DISTINCT ON (root_id)
+        root_id AS call_id,
+        coalesce(
+            nullif(destination_participant_phone_number, ''),
+            nullif(destination_dn_number, ''),
+            nullif(source_participant_trunk_did, '')
+        ) AS called_number
+    FROM cdr_base
+    WHERE root_id IS NOT NULL
+      AND destination_entity_type = 'inbound_routing'
+    ORDER BY root_id, cdr_started_at
+),
+last_q AS (
+    SELECT DISTINCT ON (qc.q_num, qc.call_history_id)
+        qc.call_history_id::text AS call_id,
+        qc.q_num,
+        coalesce(qn.q_name, qc.q_num) AS q_name,
+        qc.time_start,
+        qc.time_end,
+        extract(epoch FROM coalesce(qc.ts_waiting, interval '0 seconds'))::int AS wait_seconds,
+        extract(epoch FROM coalesce(qc.ts_servicing, interval '0 seconds'))::int AS service_seconds,
+        qc.from_userpart,
+        qc.from_displayname,
+        qc.to_dialednum,
+        did.called_number,
+        qc.to_dn,
+        qc.call_result,
+        qc.reason_noanswerdesc,
+        qc.reason_faildesc
+    FROM public.callcent_queuecalls qc
+    LEFT JOIN queue_names qn ON qn.q_num = qc.q_num
+    LEFT JOIN did_by_call did ON did.call_id = qc.call_history_id::text
+    CROSS JOIN bounds b
+    WHERE qc.time_start >= b.start_at
+      AND qc.time_start < b.end_at
+      AND qc.call_history_id IS NOT NULL
+      AND coalesce(qc.is_visible, true)
+    ORDER BY qc.q_num, qc.call_history_id, qc.time_end DESC NULLS LAST, qc.time_start DESC
+),
+primary_queue AS (
+    SELECT DISTINCT ON (call_id)
+        call_id,
+        q_num,
+        q_name,
+        time_start,
+        time_end,
+        wait_seconds,
+        service_seconds
+    FROM last_q
+    ORDER BY call_id, time_end DESC NULLS LAST, time_start DESC
+),
+queue_summary AS (
+    SELECT
+        q_num,
+        q_name,
+        count(*)::int AS calls,
+        count(*) FILTER (WHERE service_seconds > 0)::int AS answered,
+        count(*) FILTER (WHERE service_seconds <= 0)::int AS missed,
+        count(*) FILTER (WHERE service_seconds > 0 AND wait_seconds <= {answer_sla_seconds})::int AS sla,
+        round(100.0 * count(*) FILTER (WHERE service_seconds > 0) / nullif(count(*), 0), 1) AS answer_pct
+    FROM last_q
+    GROUP BY q_num, q_name
+),
+call_payload AS (
+    SELECT coalesce(jsonb_agg(jsonb_build_object(
+        'date', to_char(rc.started_at AT TIME ZONE 'Europe/Athens', 'YYYY-MM-DD'),
+        'raw_call_time', to_char(rc.started_at, 'YYYY-MM-DD"T"HH24:MI:SSOF'),
+        'call_id', rc.root_id,
+        'queue', CASE
+            WHEN pq.q_num IS NOT NULL THEN pq.q_name || ' (' || pq.q_num || ')'
+            WHEN rc.outbound_signal AND NOT rc.inbound_signal THEN 'Outbound'
+            ELSE 'Κανάλι: ' || coalesce(
+                nullif(btrim(split_part(coalesce(fh.source_participant_name, ''), ':', 2)), ''),
+                nullif(fh.source_participant_group_name, ''),
+                nullif(fh.source_dn_name, ''),
+                nullif(did.called_number, ''),
+                nullif(fh.destination_dn_name, ''),
+                'Χωρίς κανάλι'
+            )
+        END,
+        'inbound_channel', CASE
+            WHEN rc.outbound_signal AND NOT rc.inbound_signal THEN ''
+            ELSE coalesce(
+                nullif(btrim(split_part(coalesce(fh.source_participant_name, ''), ':', 2)), ''),
+                nullif(fh.source_participant_group_name, ''),
+                nullif(fh.source_dn_name, ''),
+                nullif(did.called_number, ''),
+                nullif(fh.destination_dn_name, ''),
+                'Χωρίς κανάλι'
+            )
+        END,
+        'trunk', coalesce(nullif(fh.source_dn_name, ''), nullif(fh.source_dn_number, ''), ''),
+        'agent', coalesce(nullif(ae.agent, ''), nullif(ot.agent, ''), nullif(ae.extension, ''), nullif(ot.extension, ''), 'Χωρίς agent'),
+        'extension', coalesce(nullif(ae.extension, ''), nullif(ot.extension, ''), ''),
+        'source', CASE
+            WHEN rc.outbound_signal AND NOT rc.inbound_signal THEN coalesce(nullif(ot.extension, ''), nullif(fh.source_dn_number, ''), 'Άγνωστη πηγή')
+            ELSE coalesce(nullif(fh.source_participant_phone_number, ''), nullif(fh.source_dn_number, ''), 'Άγνωστη πηγή')
+        END,
+        'did', CASE
+            WHEN rc.outbound_signal AND NOT rc.inbound_signal THEN coalesce(nullif(ot.external_number, ''), nullif(fh.destination_participant_phone_number, ''), '')
+            ELSE coalesce(nullif(did.called_number, ''), nullif(fh.destination_participant_phone_number, ''), nullif(fh.destination_dn_number, ''), '')
+        END,
+        'duration_seconds', greatest(0, extract(epoch FROM coalesce(rc.ended_at, rc.started_at) - rc.started_at)::int),
+        'talk_seconds', coalesce(rc.talk_seconds, 0),
+        'wait_seconds', CASE
+            WHEN pq.call_id IS NOT NULL THEN pq.wait_seconds
+            WHEN rc.first_extension_answered_at IS NOT NULL THEN greatest(0, extract(epoch FROM rc.first_extension_answered_at - rc.started_at)::int)
+            ELSE 0
+        END,
+        'is_outbound', rc.outbound_signal AND NOT rc.inbound_signal,
+        'is_answered', CASE
+            WHEN rc.outbound_signal AND NOT rc.inbound_signal THEN rc.outbound_answered
+            WHEN pq.call_id IS NOT NULL THEN pq.service_seconds > 0
+            ELSE rc.inbound_human_answered
+        END,
+        'is_missed', NOT CASE
+            WHEN rc.outbound_signal AND NOT rc.inbound_signal THEN rc.outbound_answered
+            WHEN pq.call_id IS NOT NULL THEN pq.service_seconds > 0
+            ELSE rc.inbound_human_answered
+        END,
+        'direction_label', CASE WHEN rc.outbound_signal AND NOT rc.inbound_signal THEN 'Εξ.' ELSE 'Εισ.' END,
+        'status_label', CASE
+            WHEN CASE
+                WHEN rc.outbound_signal AND NOT rc.inbound_signal THEN rc.outbound_answered
+                WHEN pq.call_id IS NOT NULL THEN pq.service_seconds > 0
+                ELSE rc.inbound_human_answered
+            END THEN 'Απαντ.' ELSE 'Χαμένη' END,
+        'fingerprint', rc.root_id,
+        'journey_legs', rc.hop_count,
+        'is_redirected', rc.was_redirected,
+        'final_destination', coalesce(pq.q_num, fh.destination_dn_number, ''),
+        'source_type', '3cx_cdroutput'
+    ) ORDER BY rc.started_at), '[]'::jsonb) AS rows
+    FROM root_calls rc
+    JOIN first_hop fh ON fh.root_id = rc.root_id
+    LEFT JOIN answered_extension ae ON ae.root_id = rc.root_id
+    LEFT JOIN outbound_target ot ON ot.root_id = rc.root_id
+    LEFT JOIN did_by_call did ON did.call_id = rc.root_id
+    LEFT JOIN primary_queue pq ON pq.call_id = rc.root_id
+    WHERE rc.inbound_signal OR rc.outbound_signal
+),
+queue_payload AS (
+    SELECT coalesce(jsonb_agg(jsonb_build_object(
+        'queue', q_name || ' (' || q_num || ')',
+        'extension', q_num,
+        'calls', calls,
+        'answered', answered,
+        'missed', missed,
+        'sla', sla,
+        'auto_answered', 0,
+        'answer_pct', answer_pct,
+        'sla_pct', round(100.0 * sla / nullif(calls, 0), 1)
+    ) ORDER BY calls DESC), '[]'::jsonb) AS rows
+    FROM queue_summary
+),
+meta_payload AS (
+    SELECT jsonb_build_object(
+        'start_date', '{start_date.isoformat()}',
+        'end_date', '{end_date.isoformat()}',
+        'raw_cdr_hops', (SELECT count(*) FROM cdr_base),
+        'raw_queue_events', (SELECT count(*) FROM public.callcent_queuecalls qc CROSS JOIN bounds b WHERE qc.time_start >= b.start_at AND qc.time_start < b.end_at),
+        'canonical_calls', (SELECT count(*) FROM root_calls WHERE inbound_signal OR outbound_signal),
+        'unique_queue_calls', (SELECT count(*) FROM last_q),
+        'queue_count', (SELECT count(*) FROM queue_summary),
+        'source_max_time', (SELECT max(time_start) FROM last_q)
+    ) AS meta
+),
+directory_payload AS (
+    SELECT jsonb_build_object(
+        'agent_directory', coalesce(
+            (SELECT jsonb_object_agg(code, label ORDER BY code) FROM agent_directory),
+            '{{}}'::jsonb
         ),
+        'queue_directory', coalesce(
+            (SELECT jsonb_object_agg(code, label ORDER BY code) FROM call_handling_directory),
+            '{{}}'::jsonb
+        )
+    ) AS rows
+)
+SELECT jsonb_build_object(
+    'call_rows', (SELECT rows FROM call_payload),
+    'queue_rows', (SELECT rows FROM queue_payload),
+    'directory', (SELECT rows FROM directory_payload),
+    'meta', (SELECT meta FROM meta_payload)
+)::text;
+"""
+    remote_command = (
+        f"sudo -u postgres psql -d {shlex.quote(db_name)} -AtX --set ON_ERROR_STOP=1 "
+        f"-c {shlex.quote(sql)}"
+    )
+    raw_output = _run_3cx_ssh_command_sync(ssh_config, remote_command, timeout_seconds=120).strip()
+    if not raw_output:
+        raise ValueError('3CX DB returned empty payload.')
+    payload = json.loads(raw_output)
+    call_rows = [row for row in payload.get('call_rows') or [] if isinstance(row, dict)]
+    queue_rows = [row for row in payload.get('queue_rows') or [] if isinstance(row, dict)]
+    directory_payload = payload.get('directory') if isinstance(payload.get('directory'), dict) else {}
+    auto_agent_directory = (
+        directory_payload.get('agent_directory')
+        if isinstance(directory_payload.get('agent_directory'), dict)
+        else {}
+    )
+    auto_queue_directory = (
+        directory_payload.get('queue_directory')
+        if isinstance(directory_payload.get('queue_directory'), dict)
+        else {}
+    )
+    aggregated = _aggregate_3cx_call_rows(call_rows)
+    meta = payload.get('meta') if isinstance(payload.get('meta'), dict) else {}
+    manual_import: dict[str, object] = {
+        'filename': f"3CX DB via SSH ({start_date.isoformat()}..{end_date.isoformat()})",
+        'uploaded_at': datetime.utcnow().isoformat(timespec='seconds') + 'Z',
+        'uploaded_by': user_identity or 'system',
+        'source_mode': '3cx_db_ssh',
+        'source_sha256': hashlib.sha256(raw_output.encode('utf-8')).hexdigest(),
+        'import_fingerprints': [hashlib.sha256(raw_output.encode('utf-8')).hexdigest()],
+        'rows': len(call_rows),
+        'raw_rows': int(meta.get('raw_cdr_hops') or len(call_rows)),
+        'duplicate_rows': 0,
+        'internal_rows': 0,
+        'master_report': False,
+        'db_snapshot': True,
+        'excluded_reports': [],
+        'sync_period': {'from': start_date.isoformat(), 'to': end_date.isoformat()},
+        'source_meta': meta,
+        'auto_agent_directory': auto_agent_directory,
+        'auto_queue_directory': auto_queue_directory,
+        'auto_agent_directory_text': _format_3cx_directory_text(auto_agent_directory),
+        'auto_queue_directory_text': _format_3cx_directory_text(auto_queue_directory),
+        'call_rows': call_rows,
+        'journey_rows': [],
     }
-    merged_call_rows: list[dict[str, object]] = []
-    merged_call_fingerprints: set[str] = set()
-    cross_import_duplicate_rows = 0
-    stats = {
-        'total_calls': 0,
-        'answered_calls': 0,
-        'missed_calls': 0,
-        'outbound_calls': 0,
-        'avg_wait_seconds': 0,
-    }
-    daily: dict[str, dict[str, object]] = {}
-    queues: dict[str, dict[str, object]] = {}
-    agents: dict[str, dict[str, object]] = {}
-    sources: dict[str, dict[str, object]] = {}
-    master_import = next((item for item in valid_imports if item.get('master_report')), None)
-    if isinstance(master_import, dict):
-        valid_imports = [master_import]
-    for item in valid_imports:
-        item_has_call_rows = isinstance(item.get('call_rows'), list)
-        for row in item.get('call_rows') if isinstance(item.get('call_rows'), list) else []:
-            if not isinstance(row, dict):
-                continue
-            fingerprint = str(row.get('fingerprint') or '').strip()
-            if fingerprint and fingerprint in merged_call_fingerprints:
-                cross_import_duplicate_rows += 1
-                continue
-            if fingerprint:
-                merged_call_fingerprints.add(fingerprint)
-            merged_call_rows.append(dict(row))
-        if item_has_call_rows:
-            continue
-        item_stats = item.get('stats') if isinstance(item.get('stats'), dict) else {}
-        stats['total_calls'] += int(item_stats.get('total_calls') or 0)
-        stats['answered_calls'] += int(item_stats.get('answered_calls') or 0)
-        stats['missed_calls'] += int(item_stats.get('missed_calls') or 0)
-        stats['outbound_calls'] += int(item_stats.get('outbound_calls') or 0)
-        stats['avg_wait_seconds'] = max(int(stats['avg_wait_seconds']), int(item_stats.get('avg_wait_seconds') or 0))
-        for row in item.get('daily_rows') if isinstance(item.get('daily_rows'), list) else []:
-            if not isinstance(row, dict):
-                continue
-            key = str(row.get('date') or '')
-            bucket = daily.setdefault(key, {'date': key, 'calls': 0, 'answered': 0, 'missed': 0, 'outbound': 0})
-            for field in ('calls', 'answered', 'missed', 'outbound'):
-                bucket[field] = int(bucket.get(field) or 0) + int(row.get(field) or 0)
-        for row in item.get('queue_rows') if isinstance(item.get('queue_rows'), list) else []:
-            if not isinstance(row, dict):
-                continue
-            key = str(row.get('queue') or 'Χωρίς queue')
-            bucket = queues.setdefault(key, {'queue': key, 'calls': 0, 'answered': 0, 'missed': 0, 'sla': 0})
-            for field in ('calls', 'answered', 'missed', 'sla'):
-                bucket[field] = int(bucket.get(field) or 0) + int(row.get(field) or 0)
-        for row in item.get('agent_rows') if isinstance(item.get('agent_rows'), list) else []:
-            if not isinstance(row, dict):
-                continue
-            key = f"{row.get('agent') or ''}|{row.get('extension') or ''}"
-            bucket = agents.setdefault(
-                key,
-                {
-                    'agent': row.get('agent') or 'Χωρίς agent',
-                    'extension': row.get('extension') or '',
-                    'answered': 0,
-                    'outbound': 0,
-                    'inbound_answered': 0,
-                    'outbound_answered': 0,
-                    'inbound_missed': 0,
-                    'outbound_missed': 0,
-                    'inbound': 0,
-                    'missed': 0,
-                    'talk_seconds': 0,
-                    'calls': 0,
-                    'recent': [],
-                },
-            )
-            for field in ('answered', 'outbound', 'inbound_answered', 'outbound_answered', 'inbound_missed', 'outbound_missed', 'inbound', 'missed', 'talk_seconds', 'calls'):
-                bucket[field] = int(bucket.get(field) or 0) + int(row.get(field) or 0)
-            if isinstance(row.get('recent'), list):
-                recent_rows = bucket.get('recent') if isinstance(bucket.get('recent'), list) else []
-                recent_rows.extend([item for item in row['recent'] if isinstance(item, dict)])
-                bucket['recent'] = recent_rows[:8]
-        for row in item.get('source_rows') if isinstance(item.get('source_rows'), list) else []:
-            if not isinstance(row, dict):
-                continue
-            key = f"{row.get('source') or ''}|{row.get('did') or ''}|{row.get('queue') or ''}"
-            bucket = sources.setdefault(
-                key,
-                {'source': row.get('source') or '', 'did': row.get('did') or '', 'queue': row.get('queue') or '', 'calls': 0, 'answered': 0, 'missed': 0, 'outbound': 0, 'talk_seconds': 0, 'last_call': '', 'agents': [], 'recent': []},
-            )
-            for field in ('calls', 'answered', 'missed', 'outbound', 'talk_seconds'):
-                bucket[field] = int(bucket.get(field) or 0) + int(row.get(field) or 0)
-            bucket['last_call'] = max(str(bucket.get('last_call') or ''), str(row.get('last_call') or ''))
-            bucket['agents'] = list(bucket.get('agents') or []) + list(row.get('agents') or [])
-            bucket['recent'] = (list(bucket.get('recent') or []) + list(row.get('recent') or []))[:5]
-    if merged_call_rows:
-        merged['rows'] = len(merged_call_rows)
-        merged['duplicate_rows'] = int(merged.get('duplicate_rows') or 0) + cross_import_duplicate_rows
-        merged['call_rows'] = merged_call_rows
-        if isinstance(master_import, dict):
-            merged['master_report'] = True
-            merged['journey_rows'] = [
-                dict(row)
-                for row in (master_import.get('journey_rows') if isinstance(master_import.get('journey_rows'), list) else [])
-                if isinstance(row, dict)
-            ]
-            for field in ('missing_call_id_rows',):
-                if field in master_import:
-                    merged[field] = master_import[field]
-        merged.update(_aggregate_3cx_call_rows(merged_call_rows))
-        return merged
+    manual_import.update(aggregated)
+    manual_import['queue_rows'] = queue_rows
+    return manual_import
 
-    stats['answer_rate_pct'] = round((stats['answered_calls'] / stats['total_calls']) * 100, 1) if stats['total_calls'] else 0
-    for queue_row in queues.values():
-        calls = max(1, int(queue_row.get('calls') or 0))
-        queue_row['sla_pct'] = round((int(queue_row.get('sla') or 0) / calls) * 100, 1)
-    for agent_row in agents.values():
-        calls = max(1, int(agent_row.get('calls') or 0))
-        agent_row['avg_talk_seconds'] = int(int(agent_row.get('talk_seconds') or 0) / calls)
-        agent_row['target_pct'] = round((int(agent_row.get('answered') or 0) / 60) * 100, 1)
-    for source_row in sources.values():
-        calls = max(1, int(source_row.get('calls') or 0))
-        source_row['avg_talk_seconds'] = int(int(source_row.get('talk_seconds') or 0) / calls)
-    merged['stats'] = stats
-    merged['call_rows'] = merged_call_rows
-    merged['daily_rows'] = sorted(daily.values(), key=lambda row: str(row.get('date') or ''))[-31:]
-    merged['queue_rows'] = sorted(queues.values(), key=lambda row: int(row.get('calls') or 0), reverse=True)[:20]
-    merged['agent_rows'] = sorted(agents.values(), key=lambda row: int(row.get('answered') or 0), reverse=True)[:50]
-    merged['source_rows'] = sorted(sources.values(), key=lambda row: int(row.get('calls') or 0), reverse=True)[:50]
+
+def _3cx_call_row_key(row: dict[str, object]) -> str:
+    return str(row.get('call_id') or row.get('fingerprint') or '').strip()
+
+
+def _3cx_snapshot_max_date(snapshot: dict[str, object]) -> date | None:
+    max_date: date | None = None
+    rows = snapshot.get('call_rows') if isinstance(snapshot.get('call_rows'), list) else []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        row_date = _parse_3cx_filter_date_value(row.get('date'))
+        if row_date is not None and (max_date is None or row_date > max_date):
+            max_date = row_date
+    return max_date
+
+
+def _merge_3cx_db_snapshots(
+    existing: dict[str, object],
+    incoming: dict[str, object],
+    *,
+    params: dict[str, object],
+) -> dict[str, object]:
+    existing_rows = [row for row in (existing.get('call_rows') or []) if isinstance(row, dict)]
+    incoming_rows = [row for row in (incoming.get('call_rows') or []) if isinstance(row, dict)]
+    merged_by_key: dict[str, dict[str, object]] = {}
+    fallback_index = 0
+    for row in existing_rows + incoming_rows:
+        key = _3cx_call_row_key(row)
+        if not key:
+            fallback_index += 1
+            key = f'fallback:{fallback_index}'
+        merged_by_key[key] = dict(row)
+    merged_rows = sorted(
+        merged_by_key.values(),
+        key=lambda row: (
+            str(row.get('raw_call_time') or ''),
+            str(row.get('date') or ''),
+            _3cx_call_row_key(row),
+        ),
+    )
+    answer_sla_seconds = _parse_int_in_range(
+        params.get('answer_sla_seconds'),
+        default=30,
+        min_value=1,
+        max_value=3600,
+    )
+    target_calls_per_agent = _parse_int_in_range(
+        params.get('target_calls_per_agent'),
+        default=60,
+        min_value=1,
+        max_value=1000,
+    )
+    aggregated = _aggregate_3cx_call_rows(
+        merged_rows,
+        target_calls_per_agent=target_calls_per_agent,
+        answer_sla_seconds=answer_sla_seconds,
+    )
+    incoming_meta = incoming.get('source_meta') if isinstance(incoming.get('source_meta'), dict) else {}
+    existing_period = existing.get('sync_period') if isinstance(existing.get('sync_period'), dict) else {}
+    incoming_period = incoming.get('sync_period') if isinstance(incoming.get('sync_period'), dict) else {}
+    configured_start = str(params.get('ssh_sync_start_date') or '').strip()
+    period_from = configured_start or str(existing_period.get('from') or incoming_period.get('from') or '')
+    period_to = str(incoming_period.get('to') or existing_period.get('to') or '')
+    merged: dict[str, object] = {
+        **incoming,
+        'filename': f"3CX DB incremental ({period_from or '-'}..{period_to or '-'})",
+        'uploaded_at': datetime.utcnow().isoformat(timespec='seconds') + 'Z',
+        'source_mode': '3cx_db_ssh',
+        'source_sha256': hashlib.sha256(json.dumps(merged_rows, sort_keys=True, default=str).encode('utf-8')).hexdigest(),
+        'import_fingerprints': [hashlib.sha256(json.dumps(merged_rows, sort_keys=True, default=str).encode('utf-8')).hexdigest()],
+        'rows': len(merged_rows),
+        'duplicate_rows': max(0, len(existing_rows) + len(incoming_rows) - len(merged_rows)),
+        'sync_period': {'from': period_from, 'to': period_to},
+        'source_meta': {
+            **incoming_meta,
+            'incremental': True,
+            'previous_rows': len(existing_rows),
+            'incoming_rows': len(incoming_rows),
+            'merged_rows': len(merged_rows),
+            'overlap_duplicate_rows': max(0, len(existing_rows) + len(incoming_rows) - len(merged_rows)),
+        },
+        'call_rows': merged_rows,
+        'journey_rows': [],
+    }
+    merged.update(aggregated)
+    merged['queue_rows'] = aggregated.get('queue_rows') if isinstance(aggregated.get('queue_rows'), list) else []
+    # Raw CDR hop counts overlap during incremental sync, so keep the best known snapshot value
+    # instead of adding the overlap on every 5-minute run.
+    merged['raw_rows'] = max(int(existing.get('raw_rows') or 0), int(incoming.get('raw_rows') or 0), len(merged_rows))
     return merged
 
 
-async def _replace_3cx_manual_import(
+async def _sync_3cx_db_snapshot(
     db: AsyncSession,
     *,
     tenant_id: int,
-    imports: list[dict[str, object]],
     user_identity: str,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    incremental: bool = False,
 ) -> dict[str, object]:
-    manual_import = _merge_3cx_manual_imports(imports, user_identity=user_identity)
     conn = await _find_tenant_connection(db, tenant_id=tenant_id, connector_type=_3CX_CONNECTOR_TYPE)
     if conn is None:
         conn = TenantConnection(
             tenant_id=tenant_id,
             connector_type=_3CX_CONNECTOR_TYPE,
-            source_type='file',
+            source_type='ssh_db',
             is_active=True,
             supported_streams=['call_center_kpis'],
             enabled_streams=['call_center_kpis'],
         )
         db.add(conn)
+        await db.flush()
     params = dict(conn.connection_parameters if isinstance(conn.connection_parameters, dict) else {})
-    params.setdefault('fqdn', _DEFAULT_3CX_FQDN)
-    params.setdefault('username', _DEFAULT_3CX_USERNAME)
-    params.setdefault('client_id', '')
-    params.setdefault('queue_ids', '')
-    params.setdefault('team_extensions', '')
+    params.setdefault('ssh_host', _DEFAULT_3CX_SSH_HOST)
+    params.setdefault('ssh_port', _DEFAULT_3CX_SSH_PORT)
+    params.setdefault('ssh_user', _DEFAULT_3CX_SSH_USER)
+    params.setdefault('ssh_key_path', _DEFAULT_3CX_SSH_KEY_PATH)
+    params.setdefault('db_name', _DEFAULT_3CX_DB_NAME)
+    params.setdefault('ssh_sync_days', _DEFAULT_3CX_DB_SYNC_DAYS)
     params.setdefault('agent_directory_text', _DEFAULT_3CX_AGENT_DIRECTORY_TEXT)
     params.setdefault('queue_directory_text', _DEFAULT_3CX_QUEUE_DIRECTORY_TEXT)
-    params.setdefault('polling_interval_minutes', 5)
     params.setdefault('answer_sla_seconds', 30)
     params.setdefault('target_calls_per_agent', 60)
+    existing_manual_import = params.get('manual_import') if isinstance(params.get('manual_import'), dict) else {}
+    incremental_from_date = from_date
+    if incremental and from_date is None and existing_manual_import:
+        latest_existing_date = _3cx_snapshot_max_date(existing_manual_import)
+        if latest_existing_date is not None:
+            configured_start = _parse_3cx_filter_date_value(params.get('ssh_sync_start_date'))
+            incremental_from_date = latest_existing_date - timedelta(days=1)
+            if configured_start is not None and incremental_from_date < configured_start:
+                incremental_from_date = configured_start
+    fetched_import = await asyncio.to_thread(
+        _fetch_3cx_db_snapshot_sync,
+        params=params,
+        user_identity=user_identity,
+        from_date=incremental_from_date,
+        to_date=to_date,
+    )
+    manual_import = (
+        _merge_3cx_db_snapshots(existing_manual_import, fetched_import, params=params)
+        if incremental and existing_manual_import
+        else fetched_import
+    )
     params['manual_import'] = manual_import
-    params['import_mode'] = 'replace_snapshot'
+    params['source_mode'] = '3cx_db_ssh'
+    params['import_mode'] = 'ssh_db_snapshot'
     conn.connection_parameters = params
-    conn.source_type = conn.source_type or 'file'
+    conn.source_type = 'ssh_db'
     conn.is_active = True
-    conn.sync_status = 'imported'
+    conn.sync_status = 'ok'
+    conn.last_sync_at = datetime.utcnow()
+    conn.last_test_ok_at = datetime.utcnow()
+    conn.last_test_error = None
     flag_modified(conn, 'connection_parameters')
     db.add(conn)
+    db.add(
+        AuditLog(
+            tenant_id=tenant_id,
+            action='tenant_3cx_ssh_db_synced',
+            entity_type='tenant_connection',
+            entity_id=str(conn.id),
+            payload={
+                'filename': manual_import.get('filename'),
+                'rows': manual_import.get('rows'),
+                'raw_rows': manual_import.get('raw_rows'),
+                'stats': manual_import.get('stats'),
+                'source_mode': manual_import.get('source_mode'),
+            },
+        )
+    )
+    await db.commit()
     return manual_import
 
 
@@ -2414,99 +3021,29 @@ async def _run_3cx_manual_sync_check(db: AsyncSession, tenant: Tenant) -> dict[s
     if conn is None or not conn.is_active:
         return {'ok': False, 'message': 'Δεν υπάρχει ενεργή ρύθμιση 3CX για τον tenant.'}
     params = conn.connection_parameters if isinstance(conn.connection_parameters, dict) else {}
-    fqdn = str(params.get('fqdn') or _DEFAULT_3CX_FQDN).strip().rstrip('/')
-    client_id = str(params.get('client_id') or '').strip()
-    secret_payload: dict[str, Any] = {}
-    if conn.enc_payload:
-        try:
-            secret_payload = decrypt_json_secret(conn.enc_payload)
-        except Exception:
-            logger.exception('tenant_3cx_manual_secret_decrypt_failed', extra={'tenant_id': tenant.id})
-    client_secret = str(secret_payload.get('password') or '').strip()
-    if not fqdn:
-        conn.sync_status = 'failed'
-        conn.last_test_error = 'Λείπει το 3CX FQDN.'
-        await db.commit()
-        return {'ok': False, 'message': conn.last_test_error}
-    if not client_id:
-        message = 'Λείπει το Client ID / API key. Το 3CX XAPI χρειάζεται Service Principal client_id και client_secret για manual sync.'
-        conn.sync_status = 'failed'
-        conn.last_test_error = message
-        await db.commit()
-        return {'ok': False, 'message': message}
-    if not client_secret:
-        message = 'Λείπει το API secret/password για το 3CX Service Principal.'
-        conn.sync_status = 'failed'
-        conn.last_test_error = message
-        await db.commit()
-        return {'ok': False, 'message': message}
-
-    token_url = f'{fqdn}/connect/token'
-    defs_url = f'{fqdn}/xapi/v1/Defs?$select=Id'
     try:
-        async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
-            token_response = await client.post(
-                token_url,
-                data={
-                    'client_id': client_id,
-                    'client_secret': client_secret,
-                    'grant_type': 'client_credentials',
-                },
-                headers={'Accept': 'application/json'},
-            )
-            if token_response.status_code >= 400:
-                message = f'3CX token failed: HTTP {token_response.status_code}'
-                conn.sync_status = 'failed'
-                conn.last_test_error = message
-                await db.commit()
-                return {'ok': False, 'message': message}
-            token_payload = token_response.json()
-            access_token = str(token_payload.get('access_token') or '').strip()
-            if not access_token:
-                message = 'Το 3CX δεν επέστρεψε access_token.'
-                conn.sync_status = 'failed'
-                conn.last_test_error = message
-                await db.commit()
-                return {'ok': False, 'message': message}
-            defs_response = await client.get(
-                defs_url,
-                headers={'Accept': 'application/json', 'Authorization': f'Bearer {access_token}'},
-            )
-            if defs_response.status_code >= 400:
-                message = f'3CX XAPI quick check failed: HTTP {defs_response.status_code}'
-                conn.sync_status = 'failed'
-                conn.last_test_error = message
-                await db.commit()
-                return {'ok': False, 'message': message}
-    except httpx.RequestError as exc:
-        message = f'Αποτυχία σύνδεσης με 3CX: {exc.__class__.__name__}'
-        conn.sync_status = 'failed'
-        conn.last_test_error = message
-        await db.commit()
-        return {'ok': False, 'message': message}
+        manual_import = await _sync_3cx_db_snapshot(
+            db,
+            tenant_id=tenant.id,
+            user_identity='manual_sync',
+        )
     except Exception as exc:
-        logger.exception('tenant_3cx_manual_sync_failed', extra={'tenant_id': tenant.id})
-        message = f'Αποτυχία manual 3CX sync: {exc.__class__.__name__}'
+        logger.exception('tenant_3cx_ssh_db_sync_failed', extra={'tenant_id': tenant.id})
+        message = f'Αποτυχία SSH 3CX DB sync: {exc.__class__.__name__}'
         conn.sync_status = 'failed'
         conn.last_test_error = message
         await db.commit()
         return {'ok': False, 'message': message}
 
-    conn.last_test_ok_at = datetime.utcnow()
-    conn.last_sync_at = datetime.utcnow()
-    conn.last_test_error = None
-    conn.sync_status = 'ok'
-    db.add(
-        AuditLog(
-            tenant_id=tenant.id,
-            action='tenant_3cx_manual_sync_check_ok',
-            entity_type='tenant_connection',
-            entity_id=str(conn.id),
-            payload={'fqdn': fqdn, 'client_id': client_id, 'quick_check': 'xapi_defs'},
-        )
-    )
-    await db.commit()
-    return {'ok': True, 'message': 'Το 3CX XAPI απάντησε σωστά. Το επόμενο βήμα είναι mapping report endpoint για να γεμίσουν τα KPI.'}
+    stats = manual_import.get('stats') if isinstance(manual_import.get('stats'), dict) else {}
+    return {
+        'ok': True,
+        'message': (
+            f"3CX DB sync OK: {int(stats.get('total_calls') or 0)} κλήσεις, "
+            f"{int(stats.get('answered_calls') or 0)} answered, "
+            f"{int(stats.get('missed_calls') or 0)} missed."
+        ),
+    }
 
 
 def _save_era_exploration_upload(
@@ -5618,9 +6155,6 @@ async def admin_tenant_edit(
     call_center_polling_interval_minutes: str = Form(default='5'),
     call_center_answer_sla_seconds: str = Form(default='30'),
     call_center_target_calls_per_agent: str = Form(default='60'),
-    call_center_report_file: UploadFile | None = File(default=None),
-    call_center_inbound_report_file: UploadFile | None = File(default=None),
-    call_center_outbound_report_file: UploadFile | None = File(default=None),
     era_exploration_file: UploadFile | None = File(default=None),
     next_url: str = Form(default='/admin/tenants'),
     admin_user: object = Depends(require_roles(RoleName.cloudon_admin)),
@@ -6110,52 +6644,11 @@ async def admin_tenant_edit(
         if call_center_conn is not None and isinstance(call_center_conn.connection_parameters, dict)
         else {}
     )
+    for preserved_key in ('fqdn', 'username', 'client_id', 'queue_ids', 'team_extensions'):
+        if not str(call_center_payload.get(preserved_key) or '').strip():
+            call_center_payload[preserved_key] = str(existing_call_center_params.get(preserved_key) or '').strip()
     if isinstance(existing_call_center_params.get('manual_import'), dict):
         call_center_payload['manual_import'] = existing_call_center_params['manual_import']
-    call_center_imports: list[dict[str, object]] = []
-    if call_center_report_file is not None and call_center_report_file.filename:
-        try:
-            call_center_imports.append(
-                _parse_3cx_report_upload(
-                    call_center_report_file,
-                    user_identity=str(getattr(admin_user, 'email', '') or getattr(admin_user, 'username', '') or 'admin'),
-                )
-            )
-        except ValueError as exc:
-            sep = '&' if '?' in redirect_target else '?'
-            return RedirectResponse(
-                url=f'{redirect_target}{sep}{urlencode({"updated": "0", "reason": "3cx_report_invalid", "message": str(exc)})}',
-                status_code=303,
-            )
-    if call_center_inbound_report_file is not None and call_center_inbound_report_file.filename:
-        try:
-            call_center_imports.append(
-                _parse_3cx_report_upload(
-                    call_center_inbound_report_file,
-                    user_identity=str(getattr(admin_user, 'email', '') or getattr(admin_user, 'username', '') or 'admin'),
-                    report_kind='inbound',
-                )
-            )
-        except ValueError as exc:
-            sep = '&' if '?' in redirect_target else '?'
-            return RedirectResponse(url=f'{redirect_target}{sep}{urlencode({"updated": "0", "reason": "3cx_inbound_invalid", "message": str(exc)})}', status_code=303)
-    if call_center_outbound_report_file is not None and call_center_outbound_report_file.filename:
-        try:
-            call_center_imports.append(
-                _parse_3cx_report_upload(
-                    call_center_outbound_report_file,
-                    user_identity=str(getattr(admin_user, 'email', '') or getattr(admin_user, 'username', '') or 'admin'),
-                    report_kind='outbound',
-                )
-            )
-        except ValueError as exc:
-            sep = '&' if '?' in redirect_target else '?'
-            return RedirectResponse(url=f'{redirect_target}{sep}{urlencode({"updated": "0", "reason": "3cx_outbound_invalid", "message": str(exc)})}', status_code=303)
-    if call_center_imports:
-        call_center_payload['manual_import'] = _merge_3cx_manual_imports(
-            call_center_imports,
-            user_identity=str(getattr(admin_user, 'email', '') or getattr(admin_user, 'username', '') or 'admin'),
-        )
     existing_call_center_secret: dict[str, Any] = {}
     if call_center_conn is not None and call_center_conn.enc_payload:
         try:
@@ -6181,13 +6674,13 @@ async def admin_tenant_edit(
             'agent_directory_text',
             'queue_directory_text',
         )
-    ) or bool(call_center_imports) or bool(call_center_payload.get('manual_import'))
+    ) or bool(call_center_payload.get('manual_import'))
     if call_center_conn is None:
         if call_center_has_config:
             call_center_conn = TenantConnection(
                 tenant_id=tenant.id,
                 connector_type=_3CX_CONNECTOR_TYPE,
-                source_type='api',
+                source_type='ssh_db',
                 is_active=True,
                 supported_streams=['call_center_kpis'],
                 enabled_streams=['call_center_kpis'],
@@ -6195,40 +6688,46 @@ async def admin_tenant_edit(
             db.add(call_center_conn)
     if call_center_conn is not None:
         call_center_conn.is_active = bool(call_center_has_config)
-        call_center_conn.source_type = 'api'
+        call_center_conn.source_type = str(call_center_conn.source_type or 'ssh_db')
         call_center_conn.connection_parameters = call_center_payload if call_center_has_config else {}
         call_center_conn.enc_payload = encrypt_json_secret(call_center_secret) if call_center_has_config else ''
         call_center_conn.sync_status = call_center_conn.sync_status or ('configured' if call_center_has_config else 'disabled')
         db.add(call_center_conn)
 
+    audit_payload = {
+        'before': {
+            **previous,
+            'call_center_3cx': _summarize_3cx_audit_payload(previous.get('call_center_3cx')),
+        },
+        'after': {
+            'name': tenant.name,
+            'slug': tenant.slug,
+            'plan': tenant.plan.value,
+            'source': tenant.source,
+            'tenant_status': tenant.status.value,
+            'subscription_status': sub.status.value,
+            'contact': contact_payload,
+            'auto_sync': auto_sync_payload,
+            'daily_reconciliation': reconciliation_payload,
+            'duplicate_protection': duplicate_protection_payload,
+            'inventory_item_classification': settings_payload,
+            'eshop_fulfillment': eshop_fulfillment_payload,
+            'document_series_labels': flags['document_series_labels'],
+            'price_margin_targets': price_margin_targets_payload,
+            'business_advisor_targets': business_advisor_targets_payload,
+            'era_exploration_data': era_upload_payload,
+            'call_center_3cx': _summarize_3cx_audit_payload(
+                {**call_center_payload, 'password': '***' if call_center_secret.get('password') else ''}
+            ),
+        },
+    }
     db.add(
         AuditLog(
             tenant_id=tenant.id,
             action='tenant_updated_ui',
             entity_type='tenant',
             entity_id=str(tenant.id),
-            payload={
-                'before': previous,
-                'after': {
-                    'name': tenant.name,
-                    'slug': tenant.slug,
-                    'plan': tenant.plan.value,
-                    'source': tenant.source,
-                    'tenant_status': tenant.status.value,
-                    'subscription_status': sub.status.value,
-                    'contact': contact_payload,
-                    'auto_sync': auto_sync_payload,
-                    'daily_reconciliation': reconciliation_payload,
-                    'duplicate_protection': duplicate_protection_payload,
-                    'inventory_item_classification': settings_payload,
-                    'eshop_fulfillment': eshop_fulfillment_payload,
-                    'document_series_labels': flags['document_series_labels'],
-                    'price_margin_targets': price_margin_targets_payload,
-                    'business_advisor_targets': business_advisor_targets_payload,
-                    'era_exploration_data': era_upload_payload,
-                    'call_center_3cx': {**call_center_payload, 'password': '***' if call_center_secret.get('password') else ''},
-                },
-            },
+            payload=_json_safe_payload(audit_payload),
         )
     )
     try:
@@ -7867,6 +8366,7 @@ async def admin_connections_backfill(
             to_date=to_dt.isoformat(),
             chunk_records=selected_chunk_records,
             chunk_days=selected_chunk_days,
+            connector=connector_type,
         )
     else:
         begin_ingest_progress(
@@ -7879,6 +8379,7 @@ async def admin_connections_backfill(
             from_date=from_dt.isoformat(),
             to_date=to_dt.isoformat(),
             chunk_days=selected_chunk_days,
+            connector=connector_type,
         )
         task = celery_client.send_task(
             task_name,
@@ -11122,158 +11623,6 @@ async def tenant_settings_call_center_clear(
     return _tenant_3cx_redirect(return_to, call_center_clear=1)
 
 
-@router.post('/tenant/settings/call-center/directory')
-async def tenant_settings_call_center_directory(
-    call_center_extensions_file: UploadFile | None = File(default=None),
-    agent_directory_text: str = Form(default=''),
-    queue_directory_text: str = Form(default=''),
-    return_to: str = Form(default='/tenant/settings'),
-    tenant: Tenant = Depends(get_request_tenant),
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_control_db),
-):
-    if user.role not in {RoleName.tenant_admin, RoleName.cloudon_admin}:
-        return _tenant_3cx_redirect(return_to, call_center_directory=0, reason='permission')
-    db_tenant = (await db.execute(select(Tenant).where(Tenant.id == tenant.id))).scalar_one_or_none()
-    if db_tenant is None:
-        return _tenant_3cx_redirect(return_to, call_center_directory=0, reason='tenant_not_found')
-
-    imported_agents: dict[str, str] = {}
-    if call_center_extensions_file is not None and call_center_extensions_file.filename:
-        try:
-            imported_agents = _parse_3cx_extensions_csv_text(_as_3cx_report_text(call_center_extensions_file))
-        except Exception as exc:
-            return _tenant_3cx_redirect(return_to, call_center_directory=0, reason='extensions_invalid', message=str(exc))
-        if not imported_agents:
-            return _tenant_3cx_redirect(return_to, call_center_directory=0, reason='extensions_empty')
-
-    conn = await _find_tenant_connection(db, tenant_id=db_tenant.id, connector_type=_3CX_CONNECTOR_TYPE)
-    if conn is None:
-        conn = TenantConnection(
-            tenant_id=db_tenant.id,
-            connector_type=_3CX_CONNECTOR_TYPE,
-            source_type='file',
-            is_active=True,
-            supported_streams=['call_center_kpis'],
-            enabled_streams=['call_center_kpis'],
-        )
-        db.add(conn)
-
-    params = dict(conn.connection_parameters if isinstance(conn.connection_parameters, dict) else {})
-    params.setdefault('fqdn', _DEFAULT_3CX_FQDN)
-    params.setdefault('username', _DEFAULT_3CX_USERNAME)
-    params.setdefault('client_id', '')
-    params.setdefault('queue_ids', '')
-    params.setdefault('team_extensions', '')
-    params.setdefault('polling_interval_minutes', 5)
-    params.setdefault('answer_sla_seconds', 30)
-    params.setdefault('target_calls_per_agent', 60)
-    params['agent_directory_text'] = _merge_3cx_directory_text(agent_directory_text, imported_agents)
-    params['queue_directory_text'] = _format_3cx_directory_text(_parse_3cx_directory_text(queue_directory_text))
-    params['directory_updated_at'] = datetime.now(timezone.utc).isoformat()
-    params['directory_updated_by'] = str(user.email or user.full_name or user.id)
-    conn.connection_parameters = params
-    conn.source_type = conn.source_type or 'file'
-    conn.is_active = True
-    flag_modified(conn, 'connection_parameters')
-    await db.flush()
-    db.add(
-        AuditLog(
-            tenant_id=db_tenant.id,
-            actor_user_id=user.id,
-            action='tenant_3cx_call_center_directory_saved',
-            entity_type='tenant_connection',
-            entity_id=str(conn.id),
-            payload={
-                'agents': len(_parse_3cx_directory_text(params.get('agent_directory_text'))),
-                'queues': len(_parse_3cx_directory_text(params.get('queue_directory_text'))),
-                'extensions_file': str(call_center_extensions_file.filename or '') if call_center_extensions_file else '',
-            },
-        )
-    )
-    await db.commit()
-    return _tenant_3cx_redirect(return_to, call_center_directory=1)
-
-
-@router.post('/tenant/settings/call-center')
-async def tenant_settings_call_center_upload(
-    call_center_inbound_report_file: UploadFile | None = File(default=None),
-    call_center_outbound_report_file: UploadFile | None = File(default=None),
-    call_center_report_file: UploadFile | None = File(default=None),
-    return_to: str = Form(default='/tenant/settings'),
-    tenant: Tenant = Depends(get_request_tenant),
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_control_db),
-):
-    if user.role not in {RoleName.tenant_admin, RoleName.cloudon_admin}:
-        return _tenant_3cx_redirect(return_to, call_center_upload=0, reason='permission')
-    db_tenant = (await db.execute(select(Tenant).where(Tenant.id == tenant.id))).scalar_one_or_none()
-    if db_tenant is None:
-        return _tenant_3cx_redirect(return_to, call_center_upload=0, reason='tenant_not_found')
-    user_identity = str(user.email or user.full_name or user.id)
-    imports: list[dict[str, object]] = []
-    try:
-        if call_center_report_file is not None and call_center_report_file.filename:
-            imports.append(_parse_3cx_report_upload(call_center_report_file, user_identity=user_identity))
-        if call_center_inbound_report_file is not None and call_center_inbound_report_file.filename:
-            imports.append(
-                _parse_3cx_report_upload(
-                    call_center_inbound_report_file,
-                    user_identity=user_identity,
-                    report_kind='inbound',
-                )
-            )
-        if call_center_outbound_report_file is not None and call_center_outbound_report_file.filename:
-            imports.append(
-                _parse_3cx_report_upload(
-                    call_center_outbound_report_file,
-                    user_identity=user_identity,
-                    report_kind='outbound',
-                )
-            )
-    except ValueError as exc:
-        return _tenant_3cx_redirect(return_to, call_center_upload=0, reason='3cx_file_invalid', message=str(exc))
-    if not imports:
-        return _tenant_3cx_redirect(return_to, call_center_upload=0, reason='missing_file')
-    incoming_fingerprints = sorted(
-        str(item.get('source_sha256') or '')
-        for item in imports
-        if str(item.get('source_sha256') or '').strip()
-    )
-    existing_call_center = await _tenant_call_center_settings(db, db_tenant.id)
-    existing_import = existing_call_center.get('manual_import') if isinstance(existing_call_center.get('manual_import'), dict) else {}
-    existing_fingerprints = sorted(
-        str(item or '')
-        for item in (existing_import.get('import_fingerprints') if isinstance(existing_import, dict) else []) or []
-        if str(item or '').strip()
-    )
-    if incoming_fingerprints and incoming_fingerprints == existing_fingerprints:
-        return _tenant_3cx_redirect(return_to, call_center_upload=0, reason='duplicate_file')
-    manual_import = await _replace_3cx_manual_import(
-        db,
-        tenant_id=db_tenant.id,
-        imports=imports,
-        user_identity=user_identity,
-    )
-    db.add(
-        AuditLog(
-            tenant_id=db_tenant.id,
-            actor_user_id=user.id,
-            action='tenant_3cx_call_center_uploaded',
-            entity_type='tenant_connection',
-            entity_id=str(db_tenant.id),
-            payload={
-                'rows': manual_import.get('rows'),
-                'filename': manual_import.get('filename'),
-                'stats': manual_import.get('stats'),
-                'mode': 'replace_snapshot',
-            },
-        )
-    )
-    await db.commit()
-    return _tenant_3cx_redirect(return_to, call_center_upload=1)
-
-
 @router.post('/tenant/settings/era-exploration')
 async def tenant_settings_era_exploration_upload(
     era_exploration_file: UploadFile | None = File(default=None),
@@ -11659,6 +12008,20 @@ async def tenant_call_center_dashboard(
     to_date = _parse_call_center_filter_date(request.query_params.get('to'), default_to)
     if from_date is not None and to_date is not None and from_date > to_date:
         from_date, to_date = to_date, from_date
+    selected_call_center_scope = (
+        request.query_params.get('queues')
+        or request.query_params.get('queue')
+        or request.query_params.get('q')
+        or request.query_params.get('did')
+        or request.query_params.get('caller')
+        or request.query_params.get('source')
+        or request.query_params.get('agent')
+        or request.query_params.get('extension')
+        or request.query_params.get('ext')
+        or request.query_params.get('direction')
+        or request.query_params.get('status')
+        or ''
+    )
     return templates.TemplateResponse(
         'tenant/call_center_dashboard.html',
         {
@@ -11670,13 +12033,435 @@ async def tenant_call_center_dashboard(
                 tenant.id,
                 from_date=from_date,
                 to_date=to_date,
-                queues=request.query_params.get('queues') or '',
+                queues=selected_call_center_scope,
             ),
+            'call_center_selected_scope': selected_call_center_scope,
             'default_from': from_date,
             'default_to': to_date,
             'active_page': 'call_center',
             'title': 'Τηλεφωνικό Κέντρο',
         },
+    )
+
+
+@router.get('/tenant/call-center/report/export.xlsx')
+async def tenant_call_center_report_export_xlsx(
+    request: Request,
+    tenant: Tenant = Depends(get_request_tenant),
+    _user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_control_db),
+):
+    today = date.today()
+
+    def _parse_call_center_filter_date(raw: str | None, fallback: date | None) -> date | None:
+        text_value = str(raw or '').strip()
+        if not text_value:
+            return fallback
+        for fmt in ('%Y-%m-%d', '%d/%m/%Y'):
+            try:
+                return datetime.strptime(text_value, fmt).date()
+            except ValueError:
+                continue
+        return fallback
+
+    period = str(request.query_params.get('period') or 'month').strip().lower()
+    if period == 'today':
+        default_from: date | None = today
+        default_to: date | None = today
+    elif period == 'yesterday':
+        default_from = today - timedelta(days=1)
+        default_to = default_from
+    elif period == 'week':
+        default_to = today
+        default_from = today - timedelta(days=6)
+    elif period == 'all':
+        default_from = None
+        default_to = None
+    else:
+        default_to = today
+        default_from = today - timedelta(days=30)
+    from_date = _parse_call_center_filter_date(request.query_params.get('from'), default_from)
+    to_date = _parse_call_center_filter_date(request.query_params.get('to'), default_to)
+    if from_date is not None and to_date is not None and from_date > to_date:
+        from_date, to_date = to_date, from_date
+    selected_call_center_scope = (
+        request.query_params.get('queues')
+        or request.query_params.get('queue')
+        or request.query_params.get('q')
+        or request.query_params.get('did')
+        or request.query_params.get('caller')
+        or request.query_params.get('source')
+        or request.query_params.get('agent')
+        or request.query_params.get('extension')
+        or request.query_params.get('ext')
+        or request.query_params.get('direction')
+        or request.query_params.get('status')
+        or ''
+    )
+    call_center = await _tenant_call_center_settings(
+        db,
+        tenant.id,
+        from_date=from_date,
+        to_date=to_date,
+        queues=selected_call_center_scope,
+    )
+    headers = [
+        'Called Number',
+        'Week',
+        'Week Start',
+        'Week End',
+        'Inbound Calls',
+        'Answer Rate %',
+        'Answered',
+        'Missed Calls',
+        'Avg Wait (sec)',
+        'Avg Talk (sec)',
+        'Abandonment %',
+        'Repeat Rate %',
+        'Redirected %',
+        'Channel / Queue',
+        'Unique Callers',
+    ]
+    export_rows: list[list[object]] = []
+    for row in call_center.get('did_weekly_rows') or []:
+        if not isinstance(row, dict):
+            continue
+        export_rows.append(
+            [
+                row.get('did') or '',
+                row.get('week') or '',
+                row.get('week_start') or '',
+                row.get('week_end') or '',
+                int(row.get('inbound_calls') or 0),
+                float(row.get('answer_rate_pct') or 0),
+                int(row.get('answered') or 0),
+                int(row.get('missed_calls') or 0),
+                int(row.get('avg_waiting_time_seconds') or 0),
+                int(row.get('avg_talking_time_seconds') or 0),
+                float(row.get('abandonment_rate_pct') or 0),
+                float(row.get('call_repeat_rate_pct') or 0),
+                float(row.get('call_redirected_pct') or 0),
+                row.get('top_queue') or '',
+                int(row.get('unique_sources') or 0),
+            ]
+        )
+    content = _build_xlsx_bytes(
+        sheet_name='Call Center Report',
+        headers=headers,
+        rows=export_rows,
+        column_widths=[16, 12, 14, 14, 15, 15, 12, 13, 15, 15, 16, 14, 14, 28, 15],
+    )
+    filename_from = from_date.isoformat() if from_date else 'all'
+    filename_to = to_date.isoformat() if to_date else today.isoformat()
+    filename = f'call_center_report_{filename_from}_{filename_to}.xlsx'
+    return Response(
+        content=content,
+        media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        headers={'Content-Disposition': f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get('/tenant/call-center/traffic/export.xlsx')
+async def tenant_call_center_traffic_export_xlsx(
+    request: Request,
+    tenant: Tenant = Depends(get_request_tenant),
+    _user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_control_db),
+):
+    today = date.today()
+
+    def _parse_call_center_filter_date(raw: str | None, fallback: date | None) -> date | None:
+        text_value = str(raw or '').strip()
+        if not text_value:
+            return fallback
+        for fmt in ('%Y-%m-%d', '%d/%m/%Y'):
+            try:
+                return datetime.strptime(text_value, fmt).date()
+            except ValueError:
+                continue
+        return fallback
+
+    period = str(request.query_params.get('period') or 'month').strip().lower()
+    if period == 'today':
+        default_from: date | None = today
+        default_to: date | None = today
+    elif period == 'yesterday':
+        default_from = today - timedelta(days=1)
+        default_to = default_from
+    elif period == 'week':
+        default_to = today
+        default_from = today - timedelta(days=6)
+    elif period == 'all':
+        default_from = None
+        default_to = None
+    else:
+        default_to = today
+        default_from = today - timedelta(days=30)
+    from_date = _parse_call_center_filter_date(request.query_params.get('from'), default_from)
+    to_date = _parse_call_center_filter_date(request.query_params.get('to'), default_to)
+    if from_date is not None and to_date is not None and from_date > to_date:
+        from_date, to_date = to_date, from_date
+    selected_call_center_scope = (
+        request.query_params.get('queues')
+        or request.query_params.get('queue')
+        or request.query_params.get('q')
+        or request.query_params.get('did')
+        or request.query_params.get('caller')
+        or request.query_params.get('source')
+        or request.query_params.get('agent')
+        or request.query_params.get('extension')
+        or request.query_params.get('ext')
+        or request.query_params.get('direction')
+        or request.query_params.get('status')
+        or ''
+    )
+    call_center = await _tenant_call_center_settings(
+        db,
+        tenant.id,
+        from_date=from_date,
+        to_date=to_date,
+        queues=selected_call_center_scope,
+    )
+    headers = ['Date', 'Calls', 'Inbound', 'Outbound', 'Answered', 'Missed']
+    export_rows: list[list[object]] = []
+    for row in call_center.get('daily_rows') or []:
+        if not isinstance(row, dict):
+            continue
+        calls = int(row.get('calls') or 0)
+        outbound = int(row.get('outbound') or 0)
+        inbound = calls - outbound if calls >= outbound else calls
+        export_rows.append(
+            [
+                row.get('date') or '',
+                calls,
+                inbound,
+                outbound,
+                int(row.get('answered') or 0),
+                int(row.get('missed') or 0),
+            ]
+        )
+    content = _build_xlsx_bytes(
+        sheet_name='Call Traffic',
+        headers=headers,
+        rows=export_rows,
+        column_widths=[14, 12, 12, 12, 12, 12],
+    )
+    filename_from = from_date.isoformat() if from_date else 'all'
+    filename_to = to_date.isoformat() if to_date else today.isoformat()
+    filename = f'call_traffic_{filename_from}_{filename_to}.xlsx'
+    return Response(
+        content=content,
+        media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        headers={'Content-Disposition': f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get('/tenant/call-center/inbound/export.xlsx')
+async def tenant_call_center_inbound_export_xlsx(
+    request: Request,
+    tenant: Tenant = Depends(get_request_tenant),
+    _user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_control_db),
+):
+    today = date.today()
+
+    def _parse_call_center_filter_date(raw: str | None, fallback: date | None) -> date | None:
+        text_value = str(raw or '').strip()
+        if not text_value:
+            return fallback
+        for fmt in ('%Y-%m-%d', '%d/%m/%Y'):
+            try:
+                return datetime.strptime(text_value, fmt).date()
+            except ValueError:
+                continue
+        return fallback
+
+    period = str(request.query_params.get('period') or 'month').strip().lower()
+    if period == 'today':
+        default_from: date | None = today
+        default_to: date | None = today
+    elif period == 'yesterday':
+        default_from = today - timedelta(days=1)
+        default_to = default_from
+    elif period == 'week':
+        default_to = today
+        default_from = today - timedelta(days=6)
+    elif period == 'all':
+        default_from = None
+        default_to = None
+    else:
+        default_to = today
+        default_from = today - timedelta(days=30)
+    from_date = _parse_call_center_filter_date(request.query_params.get('from'), default_from)
+    to_date = _parse_call_center_filter_date(request.query_params.get('to'), default_to)
+    if from_date is not None and to_date is not None and from_date > to_date:
+        from_date, to_date = to_date, from_date
+    selected_call_center_scope = (
+        request.query_params.get('queues')
+        or request.query_params.get('queue')
+        or request.query_params.get('q')
+        or request.query_params.get('did')
+        or request.query_params.get('caller')
+        or request.query_params.get('source')
+        or request.query_params.get('agent')
+        or request.query_params.get('extension')
+        or request.query_params.get('ext')
+        or request.query_params.get('direction')
+        or request.query_params.get('status')
+        or ''
+    )
+    call_center = await _tenant_call_center_settings(
+        db,
+        tenant.id,
+        from_date=from_date,
+        to_date=to_date,
+        queues=selected_call_center_scope,
+    )
+    headers = ['Agent', 'Extension', 'Answer Rate (%)', 'Inbound', 'Inbound Answered', 'Inbound Missed', 'Outbound']
+    export_rows: list[list[object]] = []
+    for row in call_center.get('agent_rows') or []:
+        if not isinstance(row, dict):
+            continue
+        agent_total = int(row.get('calls') or (int(row.get('inbound') or 0) + int(row.get('outbound') or 0)))
+        outbound = int(row.get('outbound') or 0)
+        inbound = int(row.get('inbound') if row.get('inbound') is not None else (agent_total - outbound if agent_total >= outbound else 0))
+        inbound_answered = int(row.get('inbound_answered') if row.get('inbound_answered') is not None else row.get('answered') or 0)
+        inbound_missed = int(row.get('inbound_missed') if row.get('inbound_missed') is not None else row.get('missed') or 0)
+        answer_rate = round((inbound_answered / inbound) * 100, 1) if inbound else 0
+        export_rows.append(
+            [
+                row.get('agent') or '',
+                row.get('extension') or '',
+                answer_rate,
+                inbound,
+                inbound_answered,
+                inbound_missed,
+                outbound,
+            ]
+        )
+    content = _build_xlsx_bytes(
+        sheet_name='Inbound Calls',
+        headers=headers,
+        rows=export_rows,
+        column_widths=[28, 12, 16, 12, 18, 16, 12],
+    )
+    filename_from = from_date.isoformat() if from_date else 'all'
+    filename_to = to_date.isoformat() if to_date else today.isoformat()
+    filename = f'inbound_calls_{filename_from}_{filename_to}.xlsx'
+    return Response(
+        content=content,
+        media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        headers={'Content-Disposition': f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get('/tenant/call-center/outbound/export.xlsx')
+async def tenant_call_center_outbound_export_xlsx(
+    request: Request,
+    tenant: Tenant = Depends(get_request_tenant),
+    _user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_control_db),
+):
+    today = date.today()
+
+    def _parse_call_center_filter_date(raw: str | None, fallback: date | None) -> date | None:
+        text_value = str(raw or '').strip()
+        if not text_value:
+            return fallback
+        for fmt in ('%Y-%m-%d', '%d/%m/%Y'):
+            try:
+                return datetime.strptime(text_value, fmt).date()
+            except ValueError:
+                continue
+        return fallback
+
+    period = str(request.query_params.get('period') or 'month').strip().lower()
+    if period == 'today':
+        default_from: date | None = today
+        default_to: date | None = today
+    elif period == 'yesterday':
+        default_from = today - timedelta(days=1)
+        default_to = default_from
+    elif period == 'week':
+        default_to = today
+        default_from = today - timedelta(days=6)
+    elif period == 'all':
+        default_from = None
+        default_to = None
+    else:
+        default_to = today
+        default_from = today - timedelta(days=30)
+    from_date = _parse_call_center_filter_date(request.query_params.get('from'), default_from)
+    to_date = _parse_call_center_filter_date(request.query_params.get('to'), default_to)
+    if from_date is not None and to_date is not None and from_date > to_date:
+        from_date, to_date = to_date, from_date
+    selected_call_center_scope = (
+        request.query_params.get('queues')
+        or request.query_params.get('queue')
+        or request.query_params.get('q')
+        or request.query_params.get('did')
+        or request.query_params.get('caller')
+        or request.query_params.get('source')
+        or request.query_params.get('agent')
+        or request.query_params.get('extension')
+        or request.query_params.get('ext')
+        or request.query_params.get('direction')
+        or request.query_params.get('status')
+        or ''
+    )
+    call_center = await _tenant_call_center_settings(
+        db,
+        tenant.id,
+        from_date=from_date,
+        to_date=to_date,
+        queues=selected_call_center_scope,
+    )
+    headers = [
+        'Agent',
+        'Extension',
+        'Answer Rate (%)',
+        'Inbound',
+        'Outbound',
+        'Inbound Answered',
+        'Outbound Answered',
+        'Missed',
+        'Total',
+    ]
+    export_rows: list[list[object]] = []
+    for row in call_center.get('agent_rows') or []:
+        if not isinstance(row, dict):
+            continue
+        agent_total = int(row.get('calls') or (int(row.get('inbound') or 0) + int(row.get('outbound') or 0)))
+        outbound = int(row.get('outbound') or 0)
+        inbound = int(row.get('inbound') if row.get('inbound') is not None else (agent_total - outbound if agent_total >= outbound else 0))
+        outbound_answered = int(row.get('outbound_answered') or 0)
+        outbound_answer_rate = round((outbound_answered / outbound) * 100, 1) if outbound else 0
+        export_rows.append(
+            [
+                row.get('agent') or '',
+                row.get('extension') or '',
+                outbound_answer_rate,
+                inbound,
+                outbound,
+                int(row.get('inbound_answered') if row.get('inbound_answered') is not None else row.get('answered') or 0),
+                outbound_answered,
+                int(row.get('missed') or 0),
+                agent_total,
+            ]
+        )
+    content = _build_xlsx_bytes(
+        sheet_name='Outbound Calls',
+        headers=headers,
+        rows=export_rows,
+        column_widths=[28, 12, 16, 12, 12, 18, 18, 12, 12],
+    )
+    filename_from = from_date.isoformat() if from_date else 'all'
+    filename_to = to_date.isoformat() if to_date else today.isoformat()
+    filename = f'outbound_calls_{filename_from}_{filename_to}.xlsx'
+    return Response(
+        content=content,
+        media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        headers={'Content-Disposition': f'attachment; filename="{filename}"'},
     )
 
 
@@ -12278,10 +13063,18 @@ def _build_fnr_order_xlsx(fnr: dict[str, object], *, tenant_name: str = '') -> b
     return _build_xlsx_workbook(sheets)
 
 
+def _tenant_fnr_store_map(tenant) -> dict[str, object] | None:
+    """Per-tenant FnR warehouse->store map from feature_flags (None = branch-level)."""
+    flags = getattr(tenant, 'feature_flags', None)
+    raw = flags.get('fnr_store_warehouses') if isinstance(flags, dict) else None
+    return raw if isinstance(raw, dict) and raw else None
+
+
 async def _build_fnr_context(
     tenant_db: AsyncSession,
     *,
     pharmacies: str | None = None,
+    group: str | None = None,
     category_1: str | None = None,
     category_2: str | None = None,
     category_3: str | None = None,
@@ -12292,10 +13085,12 @@ async def _build_fnr_context(
     sales_avg_period_1_weeks: str | None = None,
     sales_avg_period_2_weeks: str | None = None,
     limit: int = 5000,
+    store_warehouse_map: dict[str, object] | None = None,
 ) -> dict[str, object]:
     return await build_fnr_excel_from_facts(
         tenant_db,
         pharmacies=_fnr_query_list(pharmacies),
+        groups=_fnr_query_list(group),
         category_1=_fnr_query_list(category_1),
         category_2=_fnr_query_list(category_2),
         category_3=_fnr_query_list(category_3),
@@ -12306,11 +13101,57 @@ async def _build_fnr_context(
         sales_avg_period_1_weeks=_fnr_int(sales_avg_period_1_weeks, 4),
         sales_avg_period_2_weeks=_fnr_int(sales_avg_period_2_weeks, 12),
         limit=limit,
+        store_warehouse_map=store_warehouse_map,
     )
 
 
 def _worksheet_cache_params(**values: object) -> dict[str, object]:
     return {key: '' if value is None else str(value) for key, value in sorted(values.items())}
+
+
+async def _enqueue_fnr_expected_orders_sync(tenant: Tenant) -> dict[str, object]:
+    stream = 'supplier_orders'
+    job = {
+        'connector': 'sql_connector',
+        'stream': stream,
+        'entity': STREAM_TO_ENTITY[stream],
+        'tenant_slug': tenant.slug,
+        'payload': {
+            'limit': 5000,
+            'bulk_upsert': True,
+            'ignore_sync_state': True,
+            'ensure_complete': True,
+            'live_priority': True,
+            'front_of_queue': True,
+            'reason': 'fnr_expected_orders_refresh',
+        },
+        'attempt': 0,
+        'max_retries': settings.ingest_job_max_retries,
+        'priority': 'critical',
+        'live_priority': True,
+        'front_of_queue': True,
+    }
+    queued = enqueue_tenant_job(tenant.slug, job)
+    current_depth = queue_depth(tenant.slug)
+    begin_ingest_progress(
+        tenant_slug=tenant.slug,
+        operation='fnr_expected_orders',
+        status='queued',
+        total_jobs=max(1, int(queued or 1)),
+        start_queue_depth=current_depth,
+        target_queue_depth=max(0, current_depth - max(1, int(queued or 1))),
+    )
+    task_id = ''
+    try:
+        task = celery_client.send_task('worker.tasks.drain_tenant_ingest_queue', kwargs={'tenant_slug': tenant.slug, 'max_jobs': 3})
+        task_id = str(getattr(task, 'id', '') or '')
+    except Exception:
+        logger.exception('fnr_expected_orders_drain_enqueue_failed', extra={'tenant_id': tenant.id, 'tenant_slug': tenant.slug})
+    try:
+        await invalidate_tenant_cache(str(tenant.id), namespace_prefix='tenant:worksheet:fnr')
+    except Exception:
+        logger.exception('fnr_expected_orders_cache_invalidation_failed', extra={'tenant_id': tenant.id, 'tenant_slug': tenant.slug})
+    return {'status': 'queued', 'queued': queued, 'task_id': task_id, 'stream': stream}
 
 
 def _availability_date(value: object, default: date) -> date:
@@ -12325,6 +13166,7 @@ async def _build_availability_context(
     category_2: str | None = None,
     category_3: str | None = None,
     suppliers: str | None = None,
+    group: str | None = None,
     status_abcd: str | None = None,
     commercial_status: str | None = None,
     period_from: str | None = None,
@@ -12343,6 +13185,7 @@ async def _build_availability_context(
         category_2=_fnr_query_list(category_2),
         category_3=_fnr_query_list(category_3),
         suppliers=_fnr_query_list(suppliers),
+        group=_fnr_query_list(group),
         status_abcd=_fnr_query_list(status_abcd),
         commercial_status=_fnr_query_list(commercial_status),
         period_from=_availability_date(period_from, default_from),
@@ -12386,6 +13229,7 @@ async def _build_destocking_context(tenant_db: AsyncSession, **kwargs: object) -
         category_2=_fnr_query_list(kwargs.get('category_2')),
         category_3=_fnr_query_list(kwargs.get('category_3')),
         suppliers=_fnr_query_list(kwargs.get('suppliers')),
+        group=_fnr_query_list(kwargs.get('group')),
         status_abcd=_fnr_query_list(kwargs.get('status_abcd')),
         commercial_status=_fnr_query_list(kwargs.get('commercial_status')),
         period_from=_availability_date(kwargs.get('period_from'), default_from),
@@ -12535,14 +13379,14 @@ async def tenant_destocking_dashboard(
             destocking, _cache_hit = await get_or_set_cache(
                 namespace='tenant:worksheet:destocking',
                 tenant_key=str(tenant.id),
-                params=_worksheet_cache_params(version='destocking-d3-period-v2', **dict(request.query_params)),
+                params=_worksheet_cache_params(version='destocking-d3-period-v3', **dict(request.query_params)),
                 ttl_seconds=300,
                 producer=lambda: _build_destocking_context(tenant_db, **dict(request.query_params)),
             )
         except Exception:
             logger.exception('tenant_destocking_load_failed', extra={'tenant_id': tenant.id})
             await tenant_db.rollback()
-    query_values = {key: request.query_params.get(key, '') for key in ['pharmacies', 'category_1', 'category_2', 'category_3', 'suppliers', 'status_abcd', 'commercial_status', 'period_from', 'period_to', 'stock_date_1', 'stock_date_2', 'step']}
+    query_values = {key: request.query_params.get(key, '') for key in ['pharmacies', 'category_1', 'category_2', 'category_3', 'suppliers', 'group', 'status_abcd', 'commercial_status', 'period_from', 'period_to', 'stock_date_1', 'stock_date_2', 'step']}
     query_values['threshold_weeks'] = request.query_params.get('threshold_weeks', '8')
     return templates.TemplateResponse(
         'tenant/destocking_dashboard.html',
@@ -12573,7 +13417,7 @@ async def tenant_destocking_export(
     destocking, _cache_hit = await get_or_set_cache(
         namespace='tenant:worksheet:destocking',
         tenant_key=str(tenant.id),
-        params=_worksheet_cache_params(version='destocking-d3-period-v2', **dict(request.query_params)),
+        params=_worksheet_cache_params(version='destocking-d3-period-v3', **dict(request.query_params)),
         ttl_seconds=300,
         producer=lambda: _build_destocking_context(tenant_db, **dict(request.query_params)),
     )
@@ -12590,6 +13434,7 @@ async def tenant_availability_dashboard(
     category_2: str | None = Query(default=''),
     category_3: str | None = Query(default=''),
     suppliers: str | None = Query(default=''),
+    group: str | None = Query(default=''),
     status_abcd: str | None = Query(default=''),
     commercial_status: str | None = Query(default=''),
     period_from: str | None = Query(default=''),
@@ -12610,12 +13455,13 @@ async def tenant_availability_dashboard(
                 namespace='tenant:worksheet:availability',
                 tenant_key=str(tenant.id),
                 params=_worksheet_cache_params(
-                    version='availability-worksheet-v2',
+                    version='availability-worksheet-v3',
                     pharmacies=pharmacies,
                     category_1=category_1,
                     category_2=category_2,
                     category_3=category_3,
                     suppliers=suppliers,
+                    group=group,
                     status_abcd=status_abcd,
                     commercial_status=commercial_status,
                     period_from=period_from,
@@ -12632,6 +13478,7 @@ async def tenant_availability_dashboard(
                     category_2=category_2,
                     category_3=category_3,
                     suppliers=suppliers,
+                    group=group,
                     status_abcd=status_abcd,
                     commercial_status=commercial_status,
                     period_from=period_from,
@@ -12661,6 +13508,7 @@ async def tenant_availability_dashboard(
                 'category_2': category_2 or '',
                 'category_3': category_3 or '',
                 'suppliers': suppliers or '',
+                'group': group or '',
                 'status_abcd': status_abcd or '',
                 'commercial_status': commercial_status or '',
                 'period_from': period_from or '',
@@ -12681,6 +13529,7 @@ async def tenant_availability_export(
     category_2: str | None = Query(default=''),
     category_3: str | None = Query(default=''),
     suppliers: str | None = Query(default=''),
+    group: str | None = Query(default=''),
     status_abcd: str | None = Query(default=''),
     commercial_status: str | None = Query(default=''),
     period_from: str | None = Query(default=''),
@@ -12699,12 +13548,13 @@ async def tenant_availability_export(
         namespace='tenant:worksheet:availability',
         tenant_key=str(tenant.id),
         params=_worksheet_cache_params(
-            version='availability-worksheet-v2',
+            version='availability-worksheet-v3',
             pharmacies=pharmacies,
             category_1=category_1,
             category_2=category_2,
             category_3=category_3,
             suppliers=suppliers,
+            group=group,
             status_abcd=status_abcd,
             commercial_status=commercial_status,
             period_from=period_from,
@@ -12721,6 +13571,7 @@ async def tenant_availability_export(
             category_2=category_2,
             category_3=category_3,
             suppliers=suppliers,
+            group=group,
             status_abcd=status_abcd,
             commercial_status=commercial_status,
             period_from=period_from,
@@ -12743,6 +13594,7 @@ async def tenant_availability_export(
 async def tenant_fnr_dashboard(
     request: Request,
     pharmacies: str | None = Query(default=''),
+    group: str | None = Query(default=''),
     category_1: str | None = Query(default=''),
     category_2: str | None = Query(default=''),
     category_3: str | None = Query(default=''),
@@ -12765,8 +13617,9 @@ async def tenant_fnr_dashboard(
                 namespace='tenant:worksheet:fnr',
                 tenant_key=str(tenant.id),
                 params=_worksheet_cache_params(
-                    version='fnr-worksheet-v2',
+                    version='fnr-worksheet-v6',
                     pharmacies=pharmacies,
+                    group=group,
                     category_1=category_1,
                     category_2=category_2,
                     category_3=category_3,
@@ -12782,6 +13635,7 @@ async def tenant_fnr_dashboard(
                 producer=lambda: _build_fnr_context(
                     tenant_db,
                     pharmacies=pharmacies,
+                    group=group,
                     category_1=category_1,
                     category_2=category_2,
                     category_3=category_3,
@@ -12792,11 +13646,18 @@ async def tenant_fnr_dashboard(
                     sales_avg_period_1_weeks=sales_avg_period_1_weeks,
                     sales_avg_period_2_weeks=sales_avg_period_2_weeks,
                     limit=5000,
+                    store_warehouse_map=_tenant_fnr_store_map(tenant),
                 ),
             )
         except Exception:
             logger.exception('tenant_fnr_load_failed', extra={'tenant_id': tenant.id})
             await tenant_db.rollback()
+    fnr_query_pairs = [
+        (key, value)
+        for key, value in request.query_params.multi_items()
+        if key not in {'view', 'expected_sync'}
+    ]
+    fnr_query_no_view = urlencode(fnr_query_pairs)
     return templates.TemplateResponse(
         'tenant/fnr_dashboard.html',
         {
@@ -12809,8 +13670,10 @@ async def tenant_fnr_dashboard(
             'fnr': fnr,
             'columns': FNR_OUTPUT_COLUMNS,
             'hide_page_filters': True,
+            'fnr_query_no_view': fnr_query_no_view,
             'query_values': {
                 'pharmacies': pharmacies or '',
+                'group': group or '',
                 'category_1': category_1 or '',
                 'category_2': category_2 or '',
                 'category_3': category_3 or '',
@@ -12825,10 +13688,52 @@ async def tenant_fnr_dashboard(
     )
 
 
+@router.post('/tenant/fnr/sync-expected')
+async def tenant_fnr_sync_expected_orders(
+    request: Request,
+    tenant: Tenant = Depends(get_request_tenant),
+    _user=Depends(get_current_user),
+):
+    await _enqueue_fnr_expected_orders_sync(tenant)
+    query = dict(request.query_params)
+    query['expected_sync'] = 'queued'
+    redirect_url = '/tenant/fnr'
+    if query:
+        redirect_url = f'{redirect_url}?{urlencode(query)}'
+    return RedirectResponse(url=redirect_url, status_code=303)
+
+
+@router.get('/tenant/fnr/sync-expected/progress')
+async def tenant_fnr_sync_expected_orders_progress(
+    tenant: Tenant = Depends(get_request_tenant),
+    _user=Depends(get_current_user),
+):
+    payload = get_ingest_progress(tenant.slug)
+    status = str(payload.get('status') or 'idle')
+    queue_left = int(payload.get('current_queue_depth') or 0)
+    pct = float(payload.get('progress_pct') or 0)
+    if str(payload.get('operation') or '') != 'fnr_expected_orders':
+        status = 'idle'
+        pct = 0.0
+        queue_left = 0
+    return JSONResponse(
+        {
+            'status': status,
+            'progress_pct': pct,
+            'queue_left': queue_left,
+            'current_stream': payload.get('current_stream'),
+            'current_entity': payload.get('current_entity'),
+            'updated_at': payload.get('updated_at'),
+            'last_error': payload.get('last_error'),
+        }
+    )
+
+
 @router.get('/tenant/fnr/export')
 async def tenant_fnr_export(
     request: Request,
     pharmacies: str | None = Query(default=''),
+    group: str | None = Query(default=''),
     category_1: str | None = Query(default=''),
     category_2: str | None = Query(default=''),
     category_3: str | None = Query(default=''),
@@ -12849,8 +13754,9 @@ async def tenant_fnr_export(
         namespace='tenant:worksheet:fnr',
         tenant_key=str(tenant.id),
         params=_worksheet_cache_params(
-            version='fnr-worksheet-v2',
+            version='fnr-worksheet-v6',
             pharmacies=pharmacies,
+            group=group,
             category_1=category_1,
             category_2=category_2,
             category_3=category_3,
@@ -12866,6 +13772,7 @@ async def tenant_fnr_export(
         producer=lambda: _build_fnr_context(
             tenant_db,
             pharmacies=pharmacies,
+            group=group,
             category_1=category_1,
             category_2=category_2,
             category_3=category_3,
@@ -12876,6 +13783,7 @@ async def tenant_fnr_export(
             sales_avg_period_1_weeks=sales_avg_period_1_weeks,
             sales_avg_period_2_weeks=sales_avg_period_2_weeks,
             limit=20000,
+            store_warehouse_map=_tenant_fnr_store_map(tenant),
         ),
     )
     content = _build_fnr_order_xlsx(fnr, tenant_name=str(tenant.name or tenant.slug or 'Tenant'))

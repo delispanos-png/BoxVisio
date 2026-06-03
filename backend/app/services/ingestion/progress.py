@@ -5,7 +5,7 @@ from datetime import datetime
 from redis import Redis
 
 from app.core.config import settings
-from app.services.ingestion.queueing import tenant_delete_active_key, tenant_lock_name, tenant_queue_name
+from app.services.ingestion.queueing import tenant_delete_active_key, tenant_live_queue_name, tenant_lock_name, tenant_queue_name
 
 PROGRESS_TTL_SECONDS = 7 * 24 * 60 * 60
 
@@ -18,8 +18,12 @@ def progress_key(tenant_slug: str) -> str:
     return f'ingest:progress:{tenant_slug}'
 
 
+def _queue_depth(redis: Redis, tenant_slug: str) -> int:
+    return int(redis.llen(tenant_queue_name(tenant_slug)) + redis.llen(tenant_live_queue_name(tenant_slug)))
+
+
 def queue_depth(tenant_slug: str) -> int:
-    return int(_redis().llen(tenant_queue_name(tenant_slug)))
+    return _queue_depth(_redis(), tenant_slug)
 
 
 def clear_ingest_progress(tenant_slug: str) -> None:
@@ -38,13 +42,14 @@ def begin_ingest_progress(
     to_date: str | None = None,
     chunk_records: int | None = None,
     chunk_days: int | None = None,
+    connector: str | None = None,
 ) -> dict[str, object]:
     redis = _redis()
     key = progress_key(tenant_slug)
     # Reset stale fields from previous runs (e.g. completed_at/last_error).
     redis.delete(key)
     now = datetime.utcnow().isoformat()
-    current_depth = int(start_queue_depth) if start_queue_depth is not None else int(redis.llen(tenant_queue_name(tenant_slug)))
+    current_depth = int(start_queue_depth) if start_queue_depth is not None else _queue_depth(redis, tenant_slug)
     total_value = max(0, int(total_jobs or 0))
     if target_queue_depth is None:
         target_queue_depth = max(0, current_depth - total_value)
@@ -73,6 +78,11 @@ def begin_ingest_progress(
         payload['chunk_records'] = str(max(1, int(chunk_records)))
     if chunk_days is not None:
         payload['chunk_days'] = str(max(1, int(chunk_days)))
+    if connector:
+        # Attribute this run to the connector that owns it, so the sync-status
+        # UI shows live progress only on that connector's row (not every
+        # ingest-capable connector of the tenant).
+        payload['connector_type'] = str(connector).strip().lower()
     redis.hset(key, mapping=payload)
     redis.expire(key, PROGRESS_TTL_SECONDS)
     return get_ingest_progress(tenant_slug)
@@ -92,6 +102,7 @@ def update_ingest_progress(
     current_entity: str | None = None,
     current_from_date: str | None = None,
     current_to_date: str | None = None,
+    connector: str | None = None,
 ) -> dict[str, object]:
     redis = _redis()
     key = progress_key(tenant_slug)
@@ -100,7 +111,7 @@ def update_ingest_progress(
         return get_ingest_progress(tenant_slug)
 
     operation = str(existing.get('operation') or 'backfill')
-    queue_depth_now = int(redis.llen(tenant_queue_name(tenant_slug)))
+    queue_depth_now = _queue_depth(redis, tenant_slug)
     start_depth = int(existing.get('start_queue_depth') or queue_depth_now)
     target_depth = int(existing.get('target_queue_depth') or 0)
     total_jobs = int(existing.get('total_jobs') or max(0, start_depth - target_depth))
@@ -149,6 +160,8 @@ def update_ingest_progress(
         update_map['from_date'] = str(current_from_date or '')
     if current_to_date is not None:
         update_map['to_date'] = str(current_to_date or '')
+    if connector:
+        update_map['connector_type'] = str(connector).strip().lower()
     if next_status in {'completed', 'stopped', 'failed'}:
         update_map.setdefault('completed_at', now)
     if error:
@@ -170,7 +183,7 @@ def get_ingest_progress(tenant_slug: str) -> dict[str, object]:
     redis = _redis()
     key = progress_key(tenant_slug)
     raw = redis.hgetall(key)
-    current_depth = int(redis.llen(tenant_queue_name(tenant_slug)))
+    current_depth = _queue_depth(redis, tenant_slug)
     lock_value = redis.get(tenant_lock_name(tenant_slug))
     delete_active = bool(redis.get(tenant_delete_active_key(tenant_slug)))
     if not raw:
@@ -248,6 +261,7 @@ def get_ingest_progress(tenant_slug: str) -> dict[str, object]:
         'to_date': raw.get('to_date') or None,
         'current_stream': raw.get('current_stream') or None,
         'current_entity': raw.get('current_entity') or None,
+        'connector_type': raw.get('connector_type') or None,
         'chunk_records': int(raw.get('chunk_records') or 0),
         'chunk_days': int(raw.get('chunk_days') or 0),
         'started_at': raw.get('started_at') or None,

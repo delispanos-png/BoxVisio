@@ -963,6 +963,119 @@ def audit_sync_completeness() -> dict:
     return {'status': 'ok', 'checked': checked, 'skipped': skipped, 'warnings': warnings}
 
 
+def _parse_3cx_interval_minutes(raw: object, default: int = 5) -> int:
+    try:
+        value = int(str(raw or '').strip())
+    except Exception:
+        value = default
+    return max(1, min(1440, value))
+
+
+def _is_3cx_sync_due(last_sync_at: datetime | None, *, interval_minutes: int, now: datetime) -> bool:
+    if last_sync_at is None:
+        return True
+    if last_sync_at.tzinfo is not None:
+        last_sync_at = last_sync_at.replace(tzinfo=None)
+    return last_sync_at <= now - timedelta(minutes=interval_minutes)
+
+
+async def _sync_3cx_call_center_due_tenants(*, max_tenants: int = 25) -> dict[str, object]:
+    from app.api.ui import _sync_3cx_db_snapshot
+
+    now = datetime.utcnow()
+    checked = 0
+    synced: list[dict[str, object]] = []
+    skipped: list[dict[str, object]] = []
+    failed: list[dict[str, object]] = []
+    redis = Redis.from_url(settings.redis_url, decode_responses=True)
+
+    async with ControlSessionLocal() as control_db:
+        rows = (
+            await control_db.execute(
+                select(TenantConnection, Tenant)
+                .join(Tenant, Tenant.id == TenantConnection.tenant_id)
+                .where(
+                    TenantConnection.connector_type == '3cx_call_center',
+                    TenantConnection.is_active.is_(True),
+                    Tenant.status == TenantStatus.active,
+                )
+                .order_by(TenantConnection.last_sync_at.asc().nullsfirst(), TenantConnection.id.asc())
+                .limit(max(1, int(max_tenants or 25)) * 3)
+            )
+        ).all()
+
+        for conn, tenant in rows:
+            if len(synced) >= max(1, int(max_tenants or 25)):
+                break
+            checked += 1
+            params = conn.connection_parameters if isinstance(conn.connection_parameters, dict) else {}
+            if str(conn.source_type or '').strip().lower() not in {'ssh_db', ''} and str(params.get('source_mode') or '').strip() != '3cx_db_ssh':
+                skipped.append({'tenant': tenant.slug, 'reason': 'not_ssh_db'})
+                continue
+            interval_minutes = _parse_3cx_interval_minutes(params.get('polling_interval_minutes'), default=5)
+            if not _is_3cx_sync_due(conn.last_sync_at, interval_minutes=interval_minutes, now=now):
+                skipped.append({'tenant': tenant.slug, 'reason': 'not_due', 'interval_minutes': interval_minutes})
+                continue
+
+            lock_key = f'3cx:db-sync:{tenant.id}'
+            lock_ttl = max(300, interval_minutes * 120)
+            try:
+                acquired = bool(redis.set(lock_key, '1', nx=True, ex=lock_ttl))
+            except Exception:
+                acquired = True
+            if not acquired:
+                skipped.append({'tenant': tenant.slug, 'reason': 'lock_active'})
+                continue
+
+            try:
+                manual_import = await _sync_3cx_db_snapshot(
+                    control_db,
+                    tenant_id=int(tenant.id),
+                    user_identity='worker:auto-3cx-db-sync',
+                    incremental=True,
+                )
+                synced.append(
+                    {
+                        'tenant': tenant.slug,
+                        'rows': int(manual_import.get('rows') or 0),
+                        'raw_rows': int(manual_import.get('raw_rows') or 0),
+                        'interval_minutes': interval_minutes,
+                        'mode': 'incremental',
+                    }
+                )
+            except Exception as exc:
+                err = str(exc)[:500]
+                failed.append({'tenant': tenant.slug, 'error': err})
+                conn.sync_status = 'error'
+                conn.last_test_error = err
+                control_db.add(conn)
+                await control_db.commit()
+                logger.exception('3cx_auto_db_sync_failed tenant=%s', tenant.slug)
+            finally:
+                try:
+                    redis.delete(lock_key)
+                except Exception:
+                    pass
+
+    return {
+        'status': 'ok' if not failed else 'partial',
+        'checked': checked,
+        'synced': synced,
+        'skipped': skipped[:50],
+        'failed': failed,
+    }
+
+
+@shared_task(
+    name='worker.tasks.sync_3cx_call_center_due_tenants',
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_kwargs={'max_retries': 2},
+)
+def sync_3cx_call_center_due_tenants(max_tenants: int = 25) -> dict[str, object]:
+    return _run_coro(_sync_3cx_call_center_due_tenants(max_tenants=max_tenants))
+
+
 def _build_tenant_sync_engine(tenant: Tenant):
     return create_engine(
         settings.tenant_database_url_template_sync.format(
@@ -3001,6 +3114,7 @@ async def _drain_tenant_ingest_queue(tenant_slug: str, max_jobs: int) -> dict:
                 current_entity=entity,
                 current_from_date=str(job_payload.get('from_date') or ''),
                 current_to_date=str(job_payload.get('to_date') or ''),
+                connector=connector if connector not in {'unknown', ''} else None,
             )
 
             try:
