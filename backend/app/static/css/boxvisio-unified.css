@@ -74,3 +74,77 @@ body.bv-ui-next.tenant-shell .bv-metric-card .mc-icon {
 body.bv-ui-next.tenant-shell .bv-metric-card .mc-icon i {
   font-size: 11px !important;
 }
+
+/* --- Compact KPI cards/tiles across ALL circuits (same compact scale) --- */
+body.bv-ui-next.tenant-shell .bv-stat-strip.bv-kpi-style,
+body.bv-ui-next.tenant-shell .bv-kpi-box,
+body.bv-ui-next.tenant-shell .eshop-kpi-card,
+body.bv-ui-next.tenant-shell .eshop-details-kpi,
+body.bv-ui-next.tenant-shell .inventory-value-tile,
+body.bv-ui-next.tenant-shell .pc-metric-card,
+body.bv-ui-next.tenant-shell .sellout-kpi-card,
+body.bv-ui-next.tenant-shell .fnr-kpi,
+body.bv-ui-next.tenant-shell .cc-kpi,
+body.bv-ui-next.tenant-shell .cc-modal-stat {
+  min-height: 56px !important;
+  padding: 8px 12px !important;
+}
+
+/* KPI value numbers — one compact scale everywhere */
+body.bv-ui-next.tenant-shell .kpi-value,
+body.bv-ui-next.tenant-shell .cc-value,
+body.bv-ui-next.tenant-shell .cc-report-value,
+body.bv-ui-next.tenant-shell .pc-value,
+body.bv-ui-next.tenant-shell .pc-metric-value,
+body.bv-ui-next.tenant-shell .iv-value,
+body.bv-ui-next.tenant-shell .smart-value,
+body.bv-ui-next.tenant-shell .eshop-kpi-value,
+body.bv-ui-next.tenant-shell .bv-stat-strip .value {
+  font-size: clamp(.85rem, 1vw, .98rem) !important;
+  line-height: 1.12 !important;
+}
+
+/* KPI labels/captions — slightly smaller */
+body.bv-ui-next.tenant-shell .kpi-title,
+body.bv-ui-next.tenant-shell .pc-metric-label,
+body.bv-ui-next.tenant-shell .pc-metric-caption,
+body.bv-ui-next.tenant-shell .iv-label,
+body.bv-ui-next.tenant-shell .eshop-kpi-label,
+body.bv-ui-next.tenant-shell .bv-stat-strip .label {
+  font-size: .58rem !important;
+}
+
+/* --- Compact pop-ups (modals) at the same density --- */
+body.bv-ui-next .modal-body,
+body.bv-ui-next .bv-modal .modal-body,
+body.bv-ui-next .bv-modal-panel {
+  padding: 14px 16px !important;
+}
+
+body.bv-ui-next .modal-header,
+body.bv-ui-next .bv-modal .modal-header {
+  padding: 11px 16px !important;
+}
+
+body.bv-ui-next .modal-footer,
+body.bv-ui-next .bv-modal .modal-footer {
+  padding: 10px 16px !important;
+}
+
+body.bv-ui-next .modal-title,
+body.bv-ui-next .bv-modal .modal-title {
+  font-size: 1rem !important;
+}
+
+body.bv-ui-next .modal-content .table,
+body.bv-ui-next .bv-modal .table,
+body.bv-ui-next .bv-modal-raw-table {
+  font-size: .8rem !important;
+}
+
+body.bv-ui-next .modal-content .table td,
+body.bv-ui-next .modal-content .table th,
+body.bv-ui-next .bv-modal .table td,
+body.bv-ui-next .bv-modal .table th {
+  padding: .35rem .5rem !important;
+}
