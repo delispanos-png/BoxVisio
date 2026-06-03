@@ -97,6 +97,11 @@
           <i class="fe fe-menu"></i>
         </button>
       </div>
+      {# Canary rollout: gate the (non-zero-risk) sidebar menu search to an allowlist of tenants.
+         Expand this list as the feature is verified. JS/CSS are inert when the markup is absent. #}
+      {% set _ui_next_tenants = [1] %}
+      {% set _ui_next = (request.state.tenant.id in _ui_next_tenants) if (request.state.tenant is defined and request.state.tenant) else false %}
+      {% if _ui_next %}
       <div class="bv-sidebar-search" data-sidebar-search>
         <i class="fe fe-search" aria-hidden="true"></i>
         <input id="tenantNavSearch" type="search" autocomplete="off"
@@ -106,6 +111,7 @@
           <i class="fe fe-x" aria-hidden="true"></i>
         </button>
       </div>
+      {% endif %}
       <div class="menu main-sidebar">
         {% set _inventory_ok = inventory_enabled if inventory_enabled is defined else false %}
         {% set _cashflow_ok = cashflow_enabled if cashflow_enabled is defined else false %}
