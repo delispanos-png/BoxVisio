@@ -302,13 +302,13 @@
                   <i class="fe fe-edit-2"></i>
                 </a>
                 {% if not is_infra_tenant %}
-                <form method="post" action="/admin/tenants/{{ t.id }}/resend-welcome" onsubmit="return confirm('Να σταλούν νέα στοιχεία πρόσβασης στον tenant admin του {{ t.name }}; Θα δημιουργηθεί νέος προσωρινός κωδικός.');">
+                <form method="post" action="/admin/tenants/{{ t.id }}/resend-welcome" data-bv-confirm="Να σταλούν νέα στοιχεία πρόσβασης στον tenant admin του {{ t.name }}; Θα δημιουργηθεί νέος προσωρινός κωδικός.">
                   <input type="hidden" name="next_url" value="/admin/tenants">
                   <button class="btn btn-sm bv-action-btn" type="submit" title="Αποστολή πρόσβασης" aria-label="Αποστολή πρόσβασης {{ t.name }}"><i class="fe fe-mail"></i></button>
                 </form>
                 {% endif %}
                 {% if not is_infra_tenant %}
-                  <form method="post" action="/admin/tenants/{{ t.id }}/delete" onsubmit="return confirm('Οριστική διαγραφή πελάτη {{ t.name }}; Θα διαγραφούν οι χρήστες, οι συνδέσεις και η βάση δεδομένων του tenant. Δεν αναιρείται.');">
+                  <form method="post" action="/admin/tenants/{{ t.id }}/delete" data-bv-confirm="Οριστική διαγραφή πελάτη {{ t.name }}; Θα διαγραφούν οι χρήστες, οι συνδέσεις και η βάση δεδομένων του tenant. Δεν αναιρείται.">
                     <input type="hidden" name="next_url" value="/admin/tenants">
                     <button class="btn btn-sm bv-action-btn bv-action-delete" type="submit" title="Διαγραφή" aria-label="Διαγραφή {{ t.name }}"><i class="fe fe-trash-2"></i></button>
                   </form>

@@ -812,6 +812,71 @@
         bvRefreshDmyDateInputs(panel);
       }, true);
 
+      /* Styled confirmation dialogs for [data-bv-confirm], fail-safe to native confirm(). */
+      (function bindBvConfirm() {
+        function showConfirm(message, onYes) {
+          try {
+            let overlay = document.getElementById('bvConfirmOverlay');
+            if (!overlay) {
+              overlay = document.createElement('div');
+              overlay.id = 'bvConfirmOverlay';
+              overlay.className = 'bv-confirm-overlay';
+              overlay.innerHTML =
+                '<div class="bv-confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="bvConfirmMsg">'
+                + '<div class="bv-confirm-icon"><i class="fe fe-alert-triangle"></i></div>'
+                + '<p id="bvConfirmMsg" class="bv-confirm-message"></p>'
+                + '<div class="bv-confirm-actions">'
+                + '<button type="button" class="btn btn-outline-secondary" data-bv-confirm-cancel></button>'
+                + '<button type="button" class="btn btn-danger" data-bv-confirm-ok></button>'
+                + '</div></div>';
+              document.body.appendChild(overlay);
+            }
+            overlay.querySelector('#bvConfirmMsg').textContent = message;
+            const okSrc = overlay.querySelector('[data-bv-confirm-ok]');
+            const cancelSrc = overlay.querySelector('[data-bv-confirm-cancel]');
+            okSrc.textContent = overlay.dataset.okLabel || 'Επιβεβαίωση';
+            cancelSrc.textContent = overlay.dataset.cancelLabel || 'Άκυρο';
+            const ok = okSrc.cloneNode(true); okSrc.replaceWith(ok);
+            const cancel = cancelSrc.cloneNode(true); cancelSrc.replaceWith(cancel);
+            function close() { overlay.classList.remove('is-open'); document.removeEventListener('keydown', onKey); }
+            function onKey(e) { if (e.key === 'Escape') close(); }
+            ok.addEventListener('click', () => { close(); onYes(); });
+            cancel.addEventListener('click', close);
+            overlay.onclick = (e) => { if (e.target === overlay) close(); };
+            document.addEventListener('keydown', onKey);
+            overlay.classList.add('is-open');
+            ok.focus();
+          } catch (err) {
+            if (window.confirm(message)) onYes();
+          }
+        }
+        document.addEventListener('submit', (event) => {
+          const form = event.target;
+          if (!(form instanceof HTMLFormElement)) return;
+          if (form.dataset.bvConfirmed === '1') { form.dataset.bvConfirmed = ''; return; }
+          const msg = form.getAttribute('data-bv-confirm');
+          if (!msg) return;
+          event.preventDefault();
+          showConfirm(msg, () => {
+            form.dataset.bvConfirmed = '1';
+            if (form.requestSubmit) form.requestSubmit(); else form.submit();
+          });
+        }, true);
+        document.addEventListener('click', (event) => {
+          const btn = event.target.closest?.('button[data-bv-confirm], a[data-bv-confirm]');
+          if (!btn) return;
+          if (btn.dataset.bvConfirmed === '1') { btn.dataset.bvConfirmed = ''; return; }
+          const msg = btn.getAttribute('data-bv-confirm');
+          if (!msg) return;
+          event.preventDefault();
+          showConfirm(msg, () => {
+            const form = btn.closest('form');
+            if (form) { form.dataset.bvConfirmed = '1'; if (form.requestSubmit) form.requestSubmit(btn); else form.submit(); }
+            else if (btn.tagName === 'A' && btn.href) { window.location.href = btn.href; }
+          });
+        }, true);
+      })();
+
       applyDateFormatGlobal();
       const observer = new MutationObserver((mutations) => {
         for (const m of mutations) {

@@ -320,7 +320,7 @@
             <form method="post" action="/admin/business-rules/document-type-rules/clear-tenant-overrides" class="d-flex gap-2">
               <input type="hidden" name="redirect_to" value="{{ request.url.path }}">
               <input type="hidden" name="tenant_id" value="{{ selected_tenant_id }}">
-              <button class="btn btn-sm btn-outline-danger" type="submit" onclick="return confirm('Να διαγραφούν όλα τα tenant overrides και να μείνουν μόνο οι γενικοί κανόνες;');">
+              <button class="btn btn-sm btn-outline-danger" type="submit" data-bv-confirm="Να διαγραφούν όλα τα tenant overrides και να μείνουν μόνο οι γενικοί κανόνες;">
                 Καθαρισμός tenant overrides
               </button>
             </form>
@@ -472,7 +472,7 @@
                       <input type="hidden" name="ruleset_code" value="{{ row.ruleset_code }}">
                       <input type="hidden" name="stream_value" value="{{ row.stream }}">
                       <input type="hidden" name="rule_key" value="{{ row.rule_key }}">
-                      <button class="btn btn-sm btn-outline-danger" type="submit" onclick="return confirm('Να διαγραφεί ο κανόνας;');">
+                      <button class="btn btn-sm btn-outline-danger" type="submit" data-bv-confirm="Να διαγραφεί ο κανόνας;">
                         Διαγραφή
                       </button>
                     </form>
@@ -570,7 +570,7 @@
                       <input type="hidden" name="tenant_id" value="{{ row.tenant_id }}">
                       <input type="hidden" name="stream_value" value="{{ row.stream }}">
                       <input type="hidden" name="rule_key" value="{{ row.rule_key }}">
-                      <button class="btn btn-sm btn-outline-danger" type="submit" onclick="return confirm('Να διαγραφεί το tenant override;');">
+                      <button class="btn btn-sm btn-outline-danger" type="submit" data-bv-confirm="Να διαγραφεί το tenant override;">
                         Διαγραφή
                       </button>
                     </form>
@@ -672,7 +672,7 @@
                         <input type="hidden" name="tenant_id" value="{{ selected_tenant_id }}">
                         <input type="hidden" name="stream_value" value="{{ row.stream }}">
                         <input type="hidden" name="rule_key" value="{{ row.rule_key }}">
-                        <button class="btn btn-sm btn-outline-danger" type="submit" onclick="return confirm('Να διαγραφεί το tenant override;');">
+                        <button class="btn btn-sm btn-outline-danger" type="submit" data-bv-confirm="Να διαγραφεί το tenant override;">
                           Διαγραφή
                         </button>
                       </form>

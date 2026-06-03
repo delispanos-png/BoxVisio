@@ -201,7 +201,7 @@
                     <i class="fe fe-refresh-cw"></i>
                   </button>
                 </form>
-                <form method="post" action="/admin/users/{{ u.id }}/delete" onsubmit="return confirm('Διαγραφή χρήστη {{ u.email }};');">
+                <form method="post" action="/admin/users/{{ u.id }}/delete" data-bv-confirm="Διαγραφή χρήστη {{ u.email }};">
                   <button class="btn btn-sm bv-action-btn bv-action-delete" type="submit" title="Διαγραφή" aria-label="Διαγραφή">
                     <i class="fe fe-trash-2"></i>
                   </button>

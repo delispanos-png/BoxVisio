@@ -144,7 +144,7 @@
             <td>{{ mark(status.get('custom', 'Όχι')) }}</td>
             <td>{% if tenant %}{{ tenant.name }}{% else %}<span class="text-muted">Γενικό</span>{% endif %}</td>
             <td>
-              <form method="post" action="/admin/plans/custom-features/{{ feature.feature_key }}/archive" onsubmit="return confirm('Αρχειοθέτηση δυνατότητας {{ feature.label }};');">
+              <form method="post" action="/admin/plans/custom-features/{{ feature.feature_key }}/archive" data-bv-confirm="Αρχειοθέτηση δυνατότητας {{ feature.label }};">
                 <button class="btn btn-sm btn-outline-danger" type="submit"><i class="fe fe-archive"></i></button>
               </form>
             </td>

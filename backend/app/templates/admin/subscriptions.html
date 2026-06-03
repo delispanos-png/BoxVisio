@@ -64,7 +64,7 @@
           <a class="btn btn-sm bv-action-btn bv-action-edit" href="/admin/tenants/{{ t.id }}/edit?next=/admin/subscriptions" title="Επεξεργασία" aria-label="Επεξεργασία {{ t.name }}">
             <i class="fe fe-edit-2"></i>
           </a>
-          <form method="post" action="/admin/tenants/{{ t.id }}/delete" onsubmit="return confirm('Οριστική διαγραφή πελάτη {{ t.name }}; Θα διαγραφούν οι χρήστες, οι συνδέσεις και η βάση δεδομένων του tenant. Δεν αναιρείται.');">
+          <form method="post" action="/admin/tenants/{{ t.id }}/delete" data-bv-confirm="Οριστική διαγραφή πελάτη {{ t.name }}; Θα διαγραφούν οι χρήστες, οι συνδέσεις και η βάση δεδομένων του tenant. Δεν αναιρείται.">
             <input type="hidden" name="next_url" value="/admin/subscriptions">
             <button class="btn btn-sm bv-action-btn bv-action-delete" type="submit" title="Διαγραφή" aria-label="Διαγραφή {{ t.name }}"><i class="fe fe-trash-2"></i></button>
           </form>

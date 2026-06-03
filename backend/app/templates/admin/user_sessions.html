@@ -180,7 +180,7 @@
                 <div class="text-muted small session-agent" title="{{ row.user_agent }}">{{ row.user_agent }}</div>
               </td>
               <td class="text-end" data-label="Ενέργεια">
-                <form method="post" action="/admin/user-sessions/{{ row.token.id }}/revoke" onsubmit="return confirm('Τερματισμός session για {{ row.user.email }};');">
+                <form method="post" action="/admin/user-sessions/{{ row.token.id }}/revoke" data-bv-confirm="Τερματισμός session για {{ row.user.email }};">
                   <button class="btn btn-sm bv-action-btn bv-action-delete" type="submit" title="Τερματισμός session">
                     <i class="fe fe-log-out"></i>
                   </button>
