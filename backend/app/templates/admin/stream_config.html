@@ -16,68 +16,6 @@
 </div>
 {% endif %}
 
-<style>
-  .stream-toggle-wrap {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-  }
-  .stream-toggle-wrap .stream-toggle {
-    width: 18px;
-    height: 18px;
-    margin: 0;
-    opacity: 1 !important;
-    position: static !important;
-    pointer-events: auto !important;
-    appearance: auto;
-    -webkit-appearance: checkbox;
-  }
-  .stream-toggle-state {
-    min-width: 34px;
-    font-size: .72rem;
-    font-weight: 700;
-    line-height: 1;
-  }
-  .stream-toggle-state.is-on {
-    color: #15803d;
-  }
-  .stream-toggle-state.is-off {
-    color: #b91c1c;
-  }
-  .stream-behavior-card {
-    border: 1px solid #d9e2f2;
-    border-radius: 10px;
-    background: #f8fbff;
-    padding: 10px 12px;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    min-height: 48px;
-  }
-  .stream-behavior-code {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 40px;
-    height: 28px;
-    padding: 0 10px;
-    border-radius: 999px;
-    background: #5b6675;
-    color: #fff;
-    font-size: .8rem;
-    font-weight: 700;
-    line-height: 1;
-    flex-shrink: 0;
-  }
-  .stream-behavior-label {
-    color: #1f2937;
-    font-size: .88rem;
-    font-weight: 600;
-    line-height: 1.25;
-  }
-</style>
-
 {# Stream tab nav #}
 <ul class="nav nav-tabs mb-0" id="streamTabs">
   {% for s in streams %}

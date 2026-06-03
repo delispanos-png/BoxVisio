@@ -11,7 +11,11 @@
   --bv-admin-accent-soft: #eaf1ff;
   --bv-admin-teal: #0f9f8f;
   --bv-admin-amber: #b7791f;
+  --bv-admin-amber-soft: #fff7e6;
   --bv-admin-red: #c2413a;
+  --bv-admin-red-soft: #fdecef;
+  --bv-admin-green: #1f8a4c;
+  --bv-admin-green-soft: #eaf8ee;
   --bv-admin-shadow: 0 1px 2px rgba(15, 23, 42, .045), 0 8px 22px rgba(15, 23, 42, .04);
   --bv-admin-radius: 8px;
 }
@@ -392,7 +396,11 @@ body.bv-admin-shell[data-theme='dark'] {
   --bv-admin-accent-soft: #172846;
   --bv-admin-teal: #57d4c6;
   --bv-admin-amber: #f4c36d;
+  --bv-admin-amber-soft: #2e2412;
   --bv-admin-red: #ff8a80;
+  --bv-admin-red-soft: #3a1d20;
+  --bv-admin-green: #6ee7a8;
+  --bv-admin-green-soft: #15291f;
   --bv-admin-shadow: 0 14px 30px rgba(0, 0, 0, 0.28);
 }
 
@@ -3484,4 +3492,215 @@ body.bv-admin-shell .bv-mail-status-row strong { color: var(--bv-admin-text); te
 
 @media (max-width: 991.98px) {
   body.bv-admin-shell .bv-mail-grid { grid-template-columns: 1fr; }
+}
+
+/* ===== SoftOne rule/template preview chips (migrated from inline <style>, Phase 3) =====
+   Shared by business_rules_document_type_templates + _rules_wizard. Tokenized for dark mode. */
+body.bv-admin-shell .bv-softone-preview .table thead th,
+body.bv-admin-shell .bv-softone-wizard-preview .table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bv-admin-surface-soft);
+  border-bottom: 2px solid var(--bv-admin-border);
+  white-space: nowrap;
+  font-size: .78rem;
+  letter-spacing: .02em;
+  text-transform: uppercase;
+  color: var(--bv-admin-muted);
+}
+
+body.bv-admin-shell .bv-softone-preview .table tbody td { vertical-align: middle; }
+
+body.bv-admin-shell .bv-stream-chip {
+  display: inline-block;
+  padding: .2rem .55rem;
+  border-radius: 999px;
+  background: var(--bv-admin-accent-soft);
+  color: var(--bv-admin-accent);
+  font-size: .75rem;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+body.bv-admin-shell .bv-sign-chip {
+  display: inline-block;
+  padding: .2rem .55rem;
+  border-radius: 999px;
+  font-size: .75rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+body.bv-admin-shell .bv-sign-pos { background: var(--bv-admin-green-soft); color: var(--bv-admin-green); }
+body.bv-admin-shell .bv-sign-neg { background: var(--bv-admin-red-soft); color: var(--bv-admin-red); }
+body.bv-admin-shell .bv-sign-none { background: color-mix(in srgb, var(--bv-admin-muted) 14%, transparent); color: var(--bv-admin-muted); }
+
+/* ===== Stream config toggles + behavior cards (migrated from inline <style>, Phase 3) ===== */
+body.bv-admin-shell .stream-toggle-wrap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+body.bv-admin-shell .stream-toggle-wrap .stream-toggle {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  opacity: 1 !important;
+  position: static !important;
+  pointer-events: auto !important;
+  appearance: auto;
+  -webkit-appearance: checkbox;
+}
+
+body.bv-admin-shell .stream-toggle-state {
+  min-width: 34px;
+  font-size: .72rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+body.bv-admin-shell .stream-toggle-state.is-on { color: var(--bv-admin-green); }
+body.bv-admin-shell .stream-toggle-state.is-off { color: var(--bv-admin-red); }
+
+body.bv-admin-shell .stream-behavior-card {
+  border: 1px solid var(--bv-admin-border);
+  border-radius: 10px;
+  background: var(--bv-admin-surface-soft);
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+}
+
+body.bv-admin-shell .stream-behavior-code {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 40px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: #5b6675;
+  color: #fff;
+  font-size: .8rem;
+  font-weight: 700;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+body.bv-admin-shell .stream-behavior-label {
+  color: var(--bv-admin-text);
+  font-size: .88rem;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+/* ===== Tenant provisioning wizard (migrated from inline <style>, Phase 3) ===== */
+body.bv-admin-shell .bv-wizard-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: 16px;
+}
+
+body.bv-admin-shell .bv-wizard-steps {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+body.bv-admin-shell .bv-wizard-step {
+  border: 1px solid var(--bv-admin-border);
+  background: var(--bv-admin-surface-soft);
+  color: var(--bv-admin-muted);
+  border-radius: var(--bv-admin-radius);
+  padding: 10px 12px;
+  text-align: left;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+body.bv-admin-shell .bv-wizard-step span {
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: var(--bv-admin-accent-soft);
+  color: var(--bv-admin-accent);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+
+body.bv-admin-shell .bv-wizard-step.is-active {
+  border-color: var(--bv-admin-accent);
+  background: var(--bv-admin-accent-soft);
+  color: var(--bv-admin-text);
+}
+
+body.bv-admin-shell .bv-wizard-step.is-done span {
+  background: var(--bv-admin-green);
+  color: white;
+}
+
+body.bv-admin-shell .bv-wizard-pane { display: none; }
+body.bv-admin-shell .bv-wizard-pane.is-active { display: block; }
+
+body.bv-admin-shell .bv-wizard-actions {
+  border-top: 1px solid var(--bv-admin-border);
+  margin-top: 16px;
+  padding-top: 16px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+body.bv-admin-shell .bv-wizard-summary {
+  border: 1px solid var(--bv-admin-border);
+  border-radius: var(--bv-admin-radius);
+  padding: 16px;
+  background: var(--bv-admin-surface-soft);
+  align-self: start;
+  position: sticky;
+  top: 90px;
+}
+
+body.bv-admin-shell .bv-wizard-summary h6 { font-weight: 800; margin-bottom: 12px; }
+body.bv-admin-shell .bv-wizard-summary dl { margin: 0; }
+
+body.bv-admin-shell .bv-wizard-summary dt {
+  color: var(--bv-admin-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .02em;
+  margin-top: 10px;
+}
+
+body.bv-admin-shell .bv-wizard-summary dd {
+  margin: 2px 0 0;
+  font-weight: 700;
+  color: var(--bv-admin-text);
+  overflow-wrap: anywhere;
+}
+
+body.bv-admin-shell .bv-wizard-duplicate {
+  display: none;
+  margin-top: 8px;
+  color: var(--bv-admin-amber);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+body.bv-admin-shell .bv-wizard-duplicate.is-visible { display: block; }
+
+@media (max-width: 992px) {
+  body.bv-admin-shell .bv-wizard-shell { grid-template-columns: 1fr; }
+  body.bv-admin-shell .bv-wizard-steps { grid-template-columns: 1fr 1fr; }
+  body.bv-admin-shell .bv-wizard-summary { position: static; }
 }
