@@ -1,0 +1,152 @@
+/* BoxVisio design tokens — single source of truth.
+   Loaded FIRST in the unified cascade, so every value here acts as a shared
+   default/reference. Where a later layer (boxvisio-ui, tenant-shell, saas,
+   admin-redesign…) redefines a token, that layer still wins — this file does
+   NOT override the current look. It centralizes the scattered scales (colors,
+   radius, shadows, spacing, typography) that today live in 6+ places, and is
+   the migration target the other layers will gradually point at.
+
+   Additive only: no business behavior, endpoints or data flow live here. */
+
+:root {
+  /* ===== Brand ===== */
+  --bv-brand-primary: #2563eb;          /* effective tenant/admin primary today */
+  --bv-brand-primary-strong: #1d4ed8;
+  --bv-brand-primary-soft: #eef4ff;
+  --bv-brand-violet: #6554f2;
+  --bv-brand-violet-soft: #f1efff;
+  --bv-brand-cyan: #06a6d9;
+  --bv-brand-cyan-soft: #e9faff;
+
+  /* ===== Status ===== */
+  --bv-success: #13b981;
+  --bv-success-soft: #e9fbf4;
+  --bv-warning: #f59e0b;
+  --bv-warning-soft: #fff7e6;
+  --bv-danger: #ef4444;
+  --bv-danger-soft: #fff0f0;
+  --bv-info: #06a6d9;
+  --bv-info-soft: #e9faff;
+
+  /* ===== Neutral surfaces & text (light) ===== */
+  --bv-bg: #f7f9fd;
+  --bv-surface: #ffffff;
+  --bv-surface-2: #fbfcff;
+  --bv-surface-3: #f3f6fb;
+  --bv-border: #e2e8f2;
+  --bv-border-strong: #cfdae9;
+  --bv-text: #1f2a44;
+  --bv-heading: #111827;
+  --bv-muted: #64748b;
+  --bv-soft: #8a99ae;
+
+  /* ===== Radius scale ===== */
+  --bv-radius-xs: 6px;
+  --bv-radius-sm: 8px;
+  --bv-radius-md: 10px;
+  --bv-radius-lg: 12px;
+  --bv-radius-xl: 16px;
+  --bv-radius-pill: 999px;
+
+  /* ===== Elevation / shadow scale ===== */
+  --bv-shadow-xs: 0 1px 2px rgba(15, 23, 42, .05);
+  --bv-shadow-sm: 0 6px 18px rgba(15, 23, 42, .05);
+  --bv-shadow-md: 0 1px 2px rgba(15, 23, 42, .04), 0 14px 34px rgba(15, 23, 42, .055);
+  --bv-shadow-lg: 0 18px 48px rgba(15, 23, 42, .12);
+  --bv-shadow-pop: 0 24px 70px rgba(16, 24, 40, .16);
+
+  /* ===== Spacing scale (4px base) ===== */
+  --bv-space-1: 4px;
+  --bv-space-2: 8px;
+  --bv-space-3: 12px;
+  --bv-space-4: 16px;
+  --bv-space-5: 20px;
+  --bv-space-6: 24px;
+  --bv-space-8: 32px;
+  --bv-space-10: 40px;
+
+  /* ===== Typography ===== */
+  --bv-font-sans: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --bv-fs-xs: 0.72rem;
+  --bv-fs-sm: 0.8125rem;
+  --bv-fs-base: 0.875rem;
+  --bv-fs-md: 1rem;
+  --bv-fs-lg: 1.125rem;
+  --bv-fs-xl: 1.4rem;
+  --bv-fs-2xl: 1.9rem;
+  --bv-fw-regular: 450;
+  --bv-fw-medium: 550;
+  --bv-fw-semibold: 650;
+  --bv-fw-bold: 750;
+  --bv-lh-tight: 1.2;
+  --bv-lh-normal: 1.5;
+
+  /* ===== Controls ===== */
+  --bv-control-h: 40px;
+  --bv-control-h-sm: 34px;
+
+  /* ===== Motion ===== */
+  --bv-ease: cubic-bezier(.2, .8, .2, 1);
+  --bv-transition-fast: 120ms var(--bv-ease);
+  --bv-transition: 200ms var(--bv-ease);
+
+  /* ===== Focus ring (shared) ===== */
+  --bv-focus-ring: 0 0 0 3px color-mix(in srgb, var(--bv-brand-primary) 22%, transparent);
+  --bv-focus-outline: color-mix(in srgb, var(--bv-brand-primary) 55%, transparent);
+}
+
+/* ===== Dark theme token values ===== */
+body.bv-shell.dark-mode,
+body.bv-shell[data-theme='dark'],
+body[data-theme='dark'] {
+  --bv-bg: #0f172a;
+  --bv-surface: #111827;
+  --bv-surface-2: #152033;
+  --bv-surface-3: #1b2638;
+  --bv-border: #2b3a4d;
+  --bv-border-strong: #3a4b61;
+  --bv-text: #e9eef6;
+  --bv-heading: #f8fafc;
+  --bv-muted: #9aa8ba;
+  --bv-soft: #7c8aa1;
+  --bv-brand-primary: #8fb2ff;
+  --bv-brand-primary-soft: #172846;
+  --bv-success: #57d4c6;
+  --bv-warning: #f4c36d;
+  --bv-danger: #ff8a80;
+  --bv-shadow-xs: 0 1px 2px rgba(0, 0, 0, .3);
+  --bv-shadow-sm: 0 6px 18px rgba(0, 0, 0, .28);
+  --bv-shadow-md: 0 14px 30px rgba(0, 0, 0, .28);
+  --bv-shadow-lg: 0 18px 48px rgba(0, 0, 0, .35);
+  --bv-shadow-pop: 0 24px 70px rgba(0, 0, 0, .45);
+}
+
+/* ===================================================================
+   Safe, additive global polish (no existing rule overrides these today)
+   =================================================================== */
+
+/* Consistent keyboard focus on shells that don't already define one
+   (the tenant shell sets its own more specific rule, which still wins). */
+body.bv-admin-shell *:focus-visible,
+body.bv-shell:not(.tenant-shell) *:focus-visible {
+  outline: 3px solid var(--bv-focus-outline);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Brand-tinted text selection. */
+body.bv-shell ::selection {
+  background: color-mix(in srgb, var(--bv-brand-primary) 22%, transparent);
+}
+
+/* Respect user motion preferences (accessibility, additive). */
+@media (prefers-reduced-motion: reduce) {
+  body.bv-shell *,
+  body.bv-shell *::before,
+  body.bv-shell *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}

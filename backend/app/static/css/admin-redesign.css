@@ -3411,3 +3411,77 @@ body.bv-admin-shell .bv-admin-panel {
     word-break: normal;
   }
 }
+
+/* ===== Mail settings (migrated from inline <style>, Phase 3) =====
+   Hardcoded colors replaced with --bv-admin-* tokens so dark mode adapts. */
+body.bv-admin-shell .bv-mail-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 16px;
+  align-items: start;
+}
+
+body.bv-admin-shell .bv-mail-card {
+  background: var(--bv-admin-surface);
+  border: 1px solid var(--bv-admin-border);
+  border-radius: var(--bv-admin-radius);
+  box-shadow: var(--bv-admin-shadow);
+}
+
+body.bv-admin-shell .bv-mail-card-header {
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--bv-admin-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+body.bv-admin-shell .bv-mail-card-body { padding: 20px; }
+
+body.bv-admin-shell .bv-mail-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+body.bv-admin-shell .bv-mail-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--bv-admin-radius);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bv-admin-accent-soft);
+  color: var(--bv-admin-accent);
+  flex: 0 0 auto;
+}
+
+body.bv-admin-shell .bv-mail-help {
+  color: var(--bv-admin-muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+body.bv-admin-shell .bv-mail-status {
+  display: grid;
+  gap: 10px;
+}
+
+body.bv-admin-shell .bv-mail-status-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--bv-admin-border);
+  padding-bottom: 10px;
+  font-size: 14px;
+}
+
+body.bv-admin-shell .bv-mail-status-row:last-child { border-bottom: 0; padding-bottom: 0; }
+body.bv-admin-shell .bv-mail-status-row span { color: var(--bv-admin-muted); }
+body.bv-admin-shell .bv-mail-status-row strong { color: var(--bv-admin-text); text-align: right; overflow-wrap: anywhere; }
+
+@media (max-width: 991.98px) {
+  body.bv-admin-shell .bv-mail-grid { grid-template-columns: 1fr; }
+}

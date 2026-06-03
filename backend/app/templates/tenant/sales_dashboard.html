@@ -1,4 +1,5 @@
 {% extends "base_tenant.html" %}
+{% from "tenant/_components.html" import multiselect %}
 
 {% block filters %}
 <form id="salesFilters" class="row g-2">
@@ -13,51 +14,15 @@
   </div>
   <div class="col-12 col-md-6 col-xl-2">
     <label class="form-label mb-1">Υποκατάστημα</label>
-    <div class="bv-multi" id="salesBranchesMulti">
-      <button type="button" class="form-select bv-multi-toggle text-start" id="salesBranchesToggle">Επιλογή</button>
-      <div class="bv-multi-menu" id="salesBranchesMenu" hidden>
-        <div class="d-flex gap-2 mb-2">
-          <input type="text" class="form-control form-control-sm" id="salesBranchesSearch" placeholder="Αναζήτηση...">
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="salesBranchesAll">Όλα</button>
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="salesBranchesClear">Καθαρισμός</button>
-        </div>
-        <div id="salesBranchesOptions" class="bv-multi-options"></div>
-      </div>
-      <div id="salesBranchesChips" class="bv-chip-wrap mt-2"></div>
-      <select name="branches" id="salesBranches" multiple hidden></select>
-    </div>
+    {{ multiselect('salesBranches', 'branches') }}
   </div>
   <div class="col-12 col-md-6 col-xl-2">
     <label class="form-label mb-1">Αποθηκευτικός χώρος</label>
-    <div class="bv-multi" id="salesWarehousesMulti">
-      <button type="button" class="form-select bv-multi-toggle text-start" id="salesWarehousesToggle">Επιλογή</button>
-      <div class="bv-multi-menu" id="salesWarehousesMenu" hidden>
-        <div class="d-flex gap-2 mb-2">
-          <input type="text" class="form-control form-control-sm" id="salesWarehousesSearch" placeholder="Αναζήτηση...">
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="salesWarehousesAll">Όλα</button>
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="salesWarehousesClear">Καθαρισμός</button>
-        </div>
-        <div id="salesWarehousesOptions" class="bv-multi-options"></div>
-      </div>
-      <div id="salesWarehousesChips" class="bv-chip-wrap mt-2"></div>
-      <select name="warehouses" id="salesWarehouses" multiple hidden></select>
-    </div>
+    {{ multiselect('salesWarehouses', 'warehouses') }}
   </div>
   <div class="col-12 col-md-6 col-xl-2">
     <label class="form-label mb-1">Κανάλι</label>
-    <div class="bv-multi" id="salesDocChannelsMulti">
-      <button type="button" class="form-select bv-multi-toggle text-start" id="salesDocChannelsToggle">Επιλογή</button>
-      <div class="bv-multi-menu" id="salesDocChannelsMenu" hidden>
-        <div class="d-flex gap-2 mb-2">
-          <input type="text" class="form-control form-control-sm" id="salesDocChannelsSearch" placeholder="Αναζήτηση...">
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="salesDocChannelsAll">Όλα</button>
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="salesDocChannelsClear">Καθαρισμός</button>
-        </div>
-        <div id="salesDocChannelsOptions" class="bv-multi-options"></div>
-      </div>
-      <div id="salesDocChannelsChips" class="bv-chip-wrap mt-2"></div>
-      <select name="channels" id="salesDocChannels" multiple hidden></select>
-    </div>
+    {{ multiselect('salesDocChannels', 'channels') }}
   </div>
   <div class="col-12 col-md-6 col-xl-2">
     <label class="form-label mb-1">Σειρά</label>
@@ -115,99 +80,27 @@
   </div>
   <div class="col-12 col-md-6 col-xl-2">
     <label class="form-label mb-1">{{ tt(request, 'branches') }}</label>
-    <div class="bv-multi" id="salesBranchesMulti">
-      <button type="button" class="form-select bv-multi-toggle text-start" id="salesBranchesToggle">Επιλογή</button>
-      <div class="bv-multi-menu" id="salesBranchesMenu" hidden>
-        <div class="d-flex gap-2 mb-2">
-          <input type="text" class="form-control form-control-sm" id="salesBranchesSearch" placeholder="Αναζήτηση...">
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="salesBranchesAll">Όλα</button>
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="salesBranchesClear">Καθαρισμός</button>
-        </div>
-        <div id="salesBranchesOptions" class="bv-multi-options"></div>
-      </div>
-      <div id="salesBranchesChips" class="bv-chip-wrap mt-2"></div>
-      <select name="branches" id="salesBranches" multiple hidden></select>
-    </div>
+    {{ multiselect('salesBranches', 'branches') }}
   </div>
   <div class="col-12 col-md-6 col-xl-2">
     <label class="form-label mb-1">{{ tt(request, 'warehouses') }}</label>
-    <div class="bv-multi" id="salesWarehousesMulti">
-      <button type="button" class="form-select bv-multi-toggle text-start" id="salesWarehousesToggle">Επιλογή</button>
-      <div class="bv-multi-menu" id="salesWarehousesMenu" hidden>
-        <div class="d-flex gap-2 mb-2">
-          <input type="text" class="form-control form-control-sm" id="salesWarehousesSearch" placeholder="Αναζήτηση...">
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="salesWarehousesAll">Όλα</button>
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="salesWarehousesClear">Καθαρισμός</button>
-        </div>
-        <div id="salesWarehousesOptions" class="bv-multi-options"></div>
-      </div>
-      <div id="salesWarehousesChips" class="bv-chip-wrap mt-2"></div>
-      <select name="warehouses" id="salesWarehouses" multiple hidden></select>
-    </div>
+    {{ multiselect('salesWarehouses', 'warehouses') }}
   </div>
   <div class="col-12 col-md-6 col-xl-2">
     <label class="form-label mb-1">{{ tt(request, 'brands') }}</label>
-    <div class="bv-multi" id="salesBrandsMulti">
-      <button type="button" class="form-select bv-multi-toggle text-start" id="salesBrandsToggle">Επιλογή</button>
-      <div class="bv-multi-menu" id="salesBrandsMenu" hidden>
-        <div class="d-flex gap-2 mb-2">
-          <input type="text" class="form-control form-control-sm" id="salesBrandsSearch" placeholder="Αναζήτηση...">
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="salesBrandsAll">Όλα</button>
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="salesBrandsClear">Καθαρισμός</button>
-        </div>
-        <div id="salesBrandsOptions" class="bv-multi-options"></div>
-      </div>
-      <div id="salesBrandsChips" class="bv-chip-wrap mt-2"></div>
-      <select name="brands" id="salesBrands" multiple hidden></select>
-    </div>
+    {{ multiselect('salesBrands', 'brands') }}
   </div>
   <div class="col-12 col-md-6 col-xl-2">
     <label class="form-label mb-1">Κατηγορία 1</label>
-    <div class="bv-multi" id="salesCategoryL1Multi">
-      <button type="button" class="form-select bv-multi-toggle text-start" id="salesCategoryL1Toggle">Επιλογή</button>
-      <div class="bv-multi-menu" id="salesCategoryL1Menu" hidden>
-        <div class="d-flex gap-2 mb-2">
-          <input type="text" class="form-control form-control-sm" id="salesCategoryL1Search" placeholder="Αναζήτηση...">
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="salesCategoryL1All">Όλα</button>
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="salesCategoryL1Clear">Καθαρισμός</button>
-        </div>
-        <div id="salesCategoryL1Options" class="bv-multi-options"></div>
-      </div>
-      <div id="salesCategoryL1Chips" class="bv-chip-wrap mt-2"></div>
-      <select id="salesCategoryL1" multiple hidden></select>
-    </div>
+    {{ multiselect('salesCategoryL1') }}
   </div>
   <div class="col-12 col-md-6 col-xl-2">
     <label class="form-label mb-1">Κατηγορία 2</label>
-    <div class="bv-multi" id="salesCategoryL2Multi">
-      <button type="button" class="form-select bv-multi-toggle text-start" id="salesCategoryL2Toggle">Επιλογή</button>
-      <div class="bv-multi-menu" id="salesCategoryL2Menu" hidden>
-        <div class="d-flex gap-2 mb-2">
-          <input type="text" class="form-control form-control-sm" id="salesCategoryL2Search" placeholder="Αναζήτηση...">
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="salesCategoryL2All">Όλα</button>
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="salesCategoryL2Clear">Καθαρισμός</button>
-        </div>
-        <div id="salesCategoryL2Options" class="bv-multi-options"></div>
-      </div>
-      <div id="salesCategoryL2Chips" class="bv-chip-wrap mt-2"></div>
-      <select id="salesCategoryL2" multiple hidden></select>
-    </div>
+    {{ multiselect('salesCategoryL2') }}
   </div>
   <div class="col-12 col-md-6 col-xl-2">
     <label class="form-label mb-1">Κατηγορία 3</label>
-    <div class="bv-multi" id="salesCategoryL3Multi">
-      <button type="button" class="form-select bv-multi-toggle text-start" id="salesCategoryL3Toggle">Επιλογή</button>
-      <div class="bv-multi-menu" id="salesCategoryL3Menu" hidden>
-        <div class="d-flex gap-2 mb-2">
-          <input type="text" class="form-control form-control-sm" id="salesCategoryL3Search" placeholder="Αναζήτηση...">
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="salesCategoryL3All">Όλα</button>
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="salesCategoryL3Clear">Καθαρισμός</button>
-        </div>
-        <div id="salesCategoryL3Options" class="bv-multi-options"></div>
-      </div>
-      <div id="salesCategoryL3Chips" class="bv-chip-wrap mt-2"></div>
-      <select id="salesCategoryL3" multiple hidden></select>
-    </div>
+    {{ multiselect('salesCategoryL3') }}
   </div>
   {% endif %}
   <select name="categories" id="salesCategories" multiple hidden></select>

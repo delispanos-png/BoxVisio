@@ -1,4 +1,5 @@
 {% extends "base_tenant.html" %}
+{% from "tenant/_components.html" import multiselect %}
 
 {% block filters %}
 <form id="pcFiltersForm" class="row g-3">
@@ -33,51 +34,15 @@
 
   <div class="col-xl-4 col-md-6">
     <label class="form-label">{{ tt(request, 'categories') }}</label>
-    <div class="bv-multi" id="pcCategoriesMulti">
-      <button type="button" class="form-select bv-multi-toggle text-start" id="pcCategoriesToggle">Επιλογή</button>
-      <div class="bv-multi-menu" id="pcCategoriesMenu" hidden>
-        <div class="d-flex gap-2 mb-2">
-          <input type="text" class="form-control form-control-sm" id="pcCategoriesSearch" placeholder="Αναζήτηση...">
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="pcCategoriesAll">Όλα</button>
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="pcCategoriesClear">Καθαρισμός</button>
-        </div>
-        <div id="pcCategoriesOptions" class="bv-multi-options"></div>
-      </div>
-      <div id="pcCategoriesChips" class="bv-chip-wrap mt-2"></div>
-      <select id="pcCategories" multiple hidden></select>
-    </div>
+    {{ multiselect('pcCategories') }}
   </div>
   <div class="col-xl-4 col-md-6">
     <label class="form-label">{{ tt(request, 'groups') }}</label>
-    <div class="bv-multi" id="pcGroupsMulti">
-      <button type="button" class="form-select bv-multi-toggle text-start" id="pcGroupsToggle">Επιλογή</button>
-      <div class="bv-multi-menu" id="pcGroupsMenu" hidden>
-        <div class="d-flex gap-2 mb-2">
-          <input type="text" class="form-control form-control-sm" id="pcGroupsSearch" placeholder="Αναζήτηση...">
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="pcGroupsAll">Όλα</button>
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="pcGroupsClear">Καθαρισμός</button>
-        </div>
-        <div id="pcGroupsOptions" class="bv-multi-options"></div>
-      </div>
-      <div id="pcGroupsChips" class="bv-chip-wrap mt-2"></div>
-      <select id="pcGroups" multiple hidden></select>
-    </div>
+    {{ multiselect('pcGroups') }}
   </div>
   <div class="col-xl-4 col-md-12">
     <label class="form-label">{{ tt(request, 'item_codes') }}</label>
-    <div class="bv-multi" id="pcItemsMulti">
-      <button type="button" class="form-select bv-multi-toggle text-start" id="pcItemsToggle">Επιλογή</button>
-      <div class="bv-multi-menu" id="pcItemsMenu" hidden>
-        <div class="d-flex gap-2 mb-2">
-          <input type="text" class="form-control form-control-sm" id="pcItemsSearch" placeholder="Αναζήτηση...">
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="pcItemsAll">Όλα</button>
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="pcItemsClear">Καθαρισμός</button>
-        </div>
-        <div id="pcItemsOptions" class="bv-multi-options"></div>
-      </div>
-      <div id="pcItemsChips" class="bv-chip-wrap mt-2"></div>
-      <select id="pcItems" multiple hidden></select>
-    </div>
+    {{ multiselect('pcItems') }}
     <small class="text-muted">Όταν επιλέγεις στόχο, εμφανίζονται μόνο τα είδη του στόχου.</small>
   </div>
 

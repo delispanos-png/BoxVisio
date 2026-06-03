@@ -1,4 +1,5 @@
 {% extends "base_tenant.html" %}
+{% from "tenant/_components.html" import multiselect %}
 {% block filters %}
 <form class="row g-3" id="inventoryFiltersForm">
   <div class="col-lg-2 col-md-6">
@@ -7,83 +8,23 @@
   </div>
   <div class="col-lg-2 col-md-6">
     <label class="form-label">{{ tt(request, 'branches') }}</label>
-    <div class="bv-multi" id="invBranchesMulti">
-      <button type="button" class="form-select bv-multi-toggle text-start" id="invBranchesToggle">{{ tt(request, 'select') }}</button>
-      <div class="bv-multi-menu" id="invBranchesMenu" hidden>
-        <div class="d-flex gap-2 mb-2">
-          <input type="text" class="form-control form-control-sm" id="invBranchesSearch" placeholder="{{ tt(request, 'search') }}">
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="invBranchesAll">{{ tt(request, 'all') }}</button>
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="invBranchesClear">{{ tt(request, 'clear') }}</button>
-        </div>
-        <div id="invBranchesOptions" class="bv-multi-options"></div>
-      </div>
-      <div id="invBranchesChips" class="bv-chip-wrap mt-2"></div>
-      <select id="invBranches" multiple hidden></select>
-    </div>
+    {{ multiselect('invBranches', placeholder=tt(request, 'select'), search_placeholder=tt(request, 'search'), all_label=tt(request, 'all'), clear_label=tt(request, 'clear')) }}
   </div>
   <div class="col-lg-2 col-md-6">
     <label class="form-label">{{ tt(request, 'warehouses') }}</label>
-    <div class="bv-multi" id="invWarehousesMulti">
-      <button type="button" class="form-select bv-multi-toggle text-start" id="invWarehousesToggle">{{ tt(request, 'select') }}</button>
-      <div class="bv-multi-menu" id="invWarehousesMenu" hidden>
-        <div class="d-flex gap-2 mb-2">
-          <input type="text" class="form-control form-control-sm" id="invWarehousesSearch" placeholder="{{ tt(request, 'search') }}">
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="invWarehousesAll">{{ tt(request, 'all') }}</button>
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="invWarehousesClear">{{ tt(request, 'clear') }}</button>
-        </div>
-        <div id="invWarehousesOptions" class="bv-multi-options"></div>
-      </div>
-      <div id="invWarehousesChips" class="bv-chip-wrap mt-2"></div>
-      <select id="invWarehouses" multiple hidden></select>
-    </div>
+    {{ multiselect('invWarehouses', placeholder=tt(request, 'select'), search_placeholder=tt(request, 'search'), all_label=tt(request, 'all'), clear_label=tt(request, 'clear')) }}
   </div>
   <div class="col-lg-2 col-md-6">
     <label class="form-label">{{ tt(request, 'brands') }}</label>
-    <div class="bv-multi" id="invBrandsMulti">
-      <button type="button" class="form-select bv-multi-toggle text-start" id="invBrandsToggle">{{ tt(request, 'select') }}</button>
-      <div class="bv-multi-menu" id="invBrandsMenu" hidden>
-        <div class="d-flex gap-2 mb-2">
-          <input type="text" class="form-control form-control-sm" id="invBrandsSearch" placeholder="{{ tt(request, 'search') }}">
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="invBrandsAll">{{ tt(request, 'all') }}</button>
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="invBrandsClear">{{ tt(request, 'clear') }}</button>
-        </div>
-        <div id="invBrandsOptions" class="bv-multi-options"></div>
-      </div>
-      <div id="invBrandsChips" class="bv-chip-wrap mt-2"></div>
-      <select id="invBrands" multiple hidden></select>
-    </div>
+    {{ multiselect('invBrands', placeholder=tt(request, 'select'), search_placeholder=tt(request, 'search'), all_label=tt(request, 'all'), clear_label=tt(request, 'clear')) }}
   </div>
   <div class="col-lg-2 col-md-6">
     <label class="form-label">{{ tt(request, 'categories') }}</label>
-    <div class="bv-multi" id="invCategoriesMulti">
-      <button type="button" class="form-select bv-multi-toggle text-start" id="invCategoriesToggle">{{ tt(request, 'select') }}</button>
-      <div class="bv-multi-menu" id="invCategoriesMenu" hidden>
-        <div class="d-flex gap-2 mb-2">
-          <input type="text" class="form-control form-control-sm" id="invCategoriesSearch" placeholder="{{ tt(request, 'search') }}">
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="invCategoriesAll">{{ tt(request, 'all') }}</button>
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="invCategoriesClear">{{ tt(request, 'clear') }}</button>
-        </div>
-        <div id="invCategoriesOptions" class="bv-multi-options"></div>
-      </div>
-      <div id="invCategoriesChips" class="bv-chip-wrap mt-2"></div>
-      <select id="invCategories" multiple hidden></select>
-    </div>
+    {{ multiselect('invCategories', placeholder=tt(request, 'select'), search_placeholder=tt(request, 'search'), all_label=tt(request, 'all'), clear_label=tt(request, 'clear')) }}
   </div>
   <div class="col-lg-2 col-md-6">
     <label class="form-label">{{ tt(request, 'commercial_category') }}</label>
-    <div class="bv-multi" id="invGroupsMulti">
-      <button type="button" class="form-select bv-multi-toggle text-start" id="invGroupsToggle">{{ tt(request, 'select') }}</button>
-      <div class="bv-multi-menu" id="invGroupsMenu" hidden>
-        <div class="d-flex gap-2 mb-2">
-          <input type="text" class="form-control form-control-sm" id="invGroupsSearch" placeholder="{{ tt(request, 'search') }}">
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="invGroupsAll">{{ tt(request, 'all') }}</button>
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="invGroupsClear">{{ tt(request, 'clear') }}</button>
-        </div>
-        <div id="invGroupsOptions" class="bv-multi-options"></div>
-      </div>
-      <div id="invGroupsChips" class="bv-chip-wrap mt-2"></div>
-      <select id="invGroups" multiple hidden></select>
-    </div>
+    {{ multiselect('invGroups', placeholder=tt(request, 'select'), search_placeholder=tt(request, 'search'), all_label=tt(request, 'all'), clear_label=tt(request, 'clear')) }}
   </div>
   <div class="col-lg-2 col-md-6 d-flex align-items-end">
     <button type="submit" class="btn btn-primary w-100"><i class="fe fe-filter me-1"></i>{{ tt(request, 'apply') }}</button>

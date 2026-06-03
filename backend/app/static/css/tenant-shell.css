@@ -1741,3 +1741,88 @@ body.tenant-shell .bv-feature-locked .mc-delta {
     gap: 10px;
   }
 }
+
+/* ===== Sidebar menu search (Phase 1) ===== */
+body.tenant-shell .bv-sidebar-search {
+  position: relative;
+  margin: 4px 16px 10px;
+  display: flex;
+  align-items: center;
+}
+
+body.tenant-shell .bv-sidebar-search > .fe-search {
+  position: absolute;
+  left: 12px;
+  font-size: 14px;
+  color: var(--menu-muted, #7c8aa1);
+  pointer-events: none;
+}
+
+body.tenant-shell .bv-sidebar-search input {
+  width: 100%;
+  height: 38px;
+  padding: 0 32px 0 34px;
+  border: 1px solid var(--bv-border, #e2e8f2);
+  border-radius: var(--bv-radius-md, 10px);
+  background: var(--bv-surface, #ffffff);
+  color: var(--menu-text, #485872);
+  font-size: 0.82rem;
+  transition: border-color var(--bv-transition, .2s), box-shadow var(--bv-transition, .2s);
+}
+
+body.tenant-shell .bv-sidebar-search input::placeholder {
+  color: var(--menu-muted, #8a99ae);
+}
+
+body.tenant-shell .bv-sidebar-search input:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--bv-brand-primary, #2563eb) 55%, var(--bv-border, #cbd5e1));
+  box-shadow: var(--bv-focus-ring, 0 0 0 3px rgba(37, 99, 235, .16));
+}
+
+body.tenant-shell .bv-sidebar-search input::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+body.tenant-shell .bv-sidebar-search-clear {
+  position: absolute;
+  right: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--bv-radius-pill, 999px);
+  background: transparent;
+  color: var(--menu-muted, #7c8aa1);
+  cursor: pointer;
+}
+
+body.tenant-shell .bv-sidebar-search-clear:hover {
+  background: var(--bv-surface-3, #f3f6fb);
+  color: var(--menu-text, #485872);
+}
+
+/* Hide search when the sidebar is collapsed to icons. */
+body.tenant-shell.admin-sidebar-collapsed .bv-sidebar-search,
+body.tenant-shell.sidebar-icon-only .bv-sidebar-search {
+  display: none;
+}
+
+/* Comfortable touch targets on phones/tablets (Phase 1, a11y). */
+@media (max-width: 991.98px) {
+  body.tenant-shell .topbar .icon-btn,
+  body.tenant-shell .topbar .bv-profile-toggle {
+    min-width: 42px;
+    min-height: 42px;
+  }
+
+  body.tenant-shell .topbar .btn-sm {
+    min-height: 40px;
+    display: inline-flex;
+    align-items: center;
+  }
+}

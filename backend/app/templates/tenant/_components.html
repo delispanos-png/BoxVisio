@@ -1,0 +1,24 @@
+{# Reusable tenant UI components (Phase 2).
+   These macros reproduce the existing DOM exactly so the inline dashboard JS,
+   which targets elements by id, keeps working unchanged. #}
+
+{# Multi-select dropdown with search + chips, driven by bv-unified-ui.js.
+   `prefix` builds the element ids: {prefix}Multi/Toggle/Menu/Search/All/Clear/Options/Chips.
+   `select_name` is optional — when falsy the hidden <select> gets no name attribute.
+   `select_id` defaults to `prefix` (the original convention). #}
+{% macro multiselect(prefix, select_name=None, select_id=None, placeholder='Επιλογή', search_placeholder='Αναζήτηση...', all_label='Όλα', clear_label='Καθαρισμός') -%}
+{%- set sid = select_id or prefix -%}
+    <div class="bv-multi" id="{{ prefix }}Multi">
+      <button type="button" class="form-select bv-multi-toggle text-start" id="{{ prefix }}Toggle">{{ placeholder }}</button>
+      <div class="bv-multi-menu" id="{{ prefix }}Menu" hidden>
+        <div class="d-flex gap-2 mb-2">
+          <input type="text" class="form-control form-control-sm" id="{{ prefix }}Search" placeholder="{{ search_placeholder }}">
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="{{ prefix }}All">{{ all_label }}</button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="{{ prefix }}Clear">{{ clear_label }}</button>
+        </div>
+        <div id="{{ prefix }}Options" class="bv-multi-options"></div>
+      </div>
+      <div id="{{ prefix }}Chips" class="bv-chip-wrap mt-2"></div>
+      <select{% if select_name %} name="{{ select_name }}"{% endif %} id="{{ sid }}" multiple hidden></select>
+    </div>
+{%- endmacro %}

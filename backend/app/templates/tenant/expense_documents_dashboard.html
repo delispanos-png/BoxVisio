@@ -1,4 +1,5 @@
 {% extends "base_tenant.html" %}
+{% from "tenant/_components.html" import multiselect %}
 {% block filters %}
 <form id="expenseDocumentsFilters" class="row g-2">
   <div class="col-12 col-md-4 col-xl-3">
@@ -27,35 +28,11 @@
   </div>
   <div class="col-12 col-md-6 col-xl-3">
     <label class="form-label mb-1">{{ tt(request, 'branches') }}</label>
-    <div class="bv-multi" id="expenseDocsBranchesMulti">
-      <button type="button" class="form-select bv-multi-toggle text-start" id="expenseDocsBranchesToggle">Επιλογή</button>
-      <div class="bv-multi-menu" id="expenseDocsBranchesMenu" hidden>
-        <div class="d-flex gap-2 mb-2">
-          <input type="text" class="form-control form-control-sm" id="expenseDocsBranchesSearch" placeholder="Αναζήτηση...">
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="expenseDocsBranchesAll">Όλα</button>
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="expenseDocsBranchesClear">Καθαρισμός</button>
-        </div>
-        <div id="expenseDocsBranchesOptions" class="bv-multi-options"></div>
-      </div>
-      <div id="expenseDocsBranchesChips" class="bv-chip-wrap mt-2"></div>
-      <select name="branches" id="expenseDocsBranches" multiple hidden></select>
-    </div>
+    {{ multiselect('expenseDocsBranches', 'branches') }}
   </div>
   <div class="col-12 col-md-6 col-xl-3">
     <label class="form-label mb-1">Κατηγορίες εξόδων</label>
-    <div class="bv-multi" id="expenseDocsCategoriesMulti">
-      <button type="button" class="form-select bv-multi-toggle text-start" id="expenseDocsCategoriesToggle">Επιλογή</button>
-      <div class="bv-multi-menu" id="expenseDocsCategoriesMenu" hidden>
-        <div class="d-flex gap-2 mb-2">
-          <input type="text" class="form-control form-control-sm" id="expenseDocsCategoriesSearch" placeholder="Αναζήτηση...">
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="expenseDocsCategoriesAll">Όλα</button>
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="expenseDocsCategoriesClear">Καθαρισμός</button>
-        </div>
-        <div id="expenseDocsCategoriesOptions" class="bv-multi-options"></div>
-      </div>
-      <div id="expenseDocsCategoriesChips" class="bv-chip-wrap mt-2"></div>
-      <select name="categories" id="expenseDocsCategories" multiple hidden></select>
-    </div>
+    {{ multiselect('expenseDocsCategories', 'categories') }}
   </div>
   <div class="col-12 col-md-4 col-xl-3">
     <label class="form-label mb-1">Σειρά</label>

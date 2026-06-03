@@ -1,4 +1,5 @@
 {% extends "base_tenant.html" %}
+{% from "tenant/_components.html" import multiselect %}
 
 {% block filters %}
 <form id="posFilters" class="row g-2">
@@ -12,19 +13,7 @@
   </div>
   <div class="col-12 col-md-6 col-xl-4">
     <label class="form-label mb-1">{{ tt(request, 'branches') }}</label>
-    <div class="bv-multi" id="posBranchesMulti">
-      <button type="button" class="form-select bv-multi-toggle text-start" id="posBranchesToggle">Επιλογή</button>
-      <div class="bv-multi-menu" id="posBranchesMenu" hidden>
-        <div class="d-flex gap-2 mb-2">
-          <input type="text" class="form-control form-control-sm" id="posBranchesSearch" placeholder="Αναζήτηση...">
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="posBranchesAll">Όλα</button>
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="posBranchesClear">Καθαρισμός</button>
-        </div>
-        <div id="posBranchesOptions" class="bv-multi-options"></div>
-      </div>
-      <div id="posBranchesChips" class="bv-chip-wrap mt-2"></div>
-      <select name="branches" id="posBranches" multiple hidden></select>
-    </div>
+    {{ multiselect('posBranches', 'branches') }}
   </div>
   <div class="col-12 col-md-6 col-xl-2 d-grid align-content-end">
     <button class="btn btn-primary" type="submit"><i class="fe fe-filter"></i> {{ tt(request, 'apply') }}</button>

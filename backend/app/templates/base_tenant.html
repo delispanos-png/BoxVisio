@@ -6,7 +6,7 @@
   <title>{{ tt(request, title) if title else tt(request, 'app_tenant_title') }}</title>
   <link rel="icon" href="/static/brand/boxvisio-mark.svg?v=20260528logo1" type="image/svg+xml">
   <link href="/static/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
-  <link href="/static/css/boxvisio-unified.css?v=20260528saas10" rel="stylesheet">
+  <link href="/static/css/boxvisio-unified.css?v=20260603tokens1" rel="stylesheet">
   <script src="/static/js/bv-unified-ui.js?v=20260513multi"></script>
   {% block head_extra %}{% endblock %}
 </head>
@@ -95,6 +95,15 @@
       <div class="text-center">
         <button id="sidebarExpandMiniBtn" class="tenant-mini-expand" type="button" title="Άνοιγμα μενού">
           <i class="fe fe-menu"></i>
+        </button>
+      </div>
+      <div class="bv-sidebar-search" data-sidebar-search>
+        <i class="fe fe-search" aria-hidden="true"></i>
+        <input id="tenantNavSearch" type="search" autocomplete="off"
+               placeholder="{{ tt(request, 'search_placeholder') if tt(request, 'search_placeholder') != 'search_placeholder' else 'Αναζήτηση μενού…' }}"
+               aria-label="{{ tt(request, 'search_placeholder') if tt(request, 'search_placeholder') != 'search_placeholder' else 'Αναζήτηση μενού' }}">
+        <button type="button" class="bv-sidebar-search-clear" data-nav-search-clear hidden aria-label="{{ tt(request, 'clear') if tt(request, 'clear') != 'clear' else 'Καθαρισμός' }}">
+          <i class="fe fe-x" aria-hidden="true"></i>
         </button>
       </div>
       <div class="menu main-sidebar">
@@ -505,8 +514,8 @@
     <div class="container-fluid p-0">
       <div class="topbar d-flex align-items-center justify-content-between px-3">
         <div class="d-flex align-items-center gap-3 flex-grow-1 min-w-0">
-          <button class="icon-btn" id="sidebarToggleBtn" type="button" title="{{ tt(request, 'toggle_filters') }}">
-            <i class="fe fe-menu"></i>
+          <button class="icon-btn" id="sidebarToggleBtn" type="button" title="{{ tt(request, 'toggle_filters') }}" aria-label="{{ tt(request, 'toggle_filters') }}">
+            <i class="fe fe-menu" aria-hidden="true"></i>
           </button>
           <div class="bv-topbar-context">
             <span class="bv-topbar-kicker">{{ tt(request, 'live_business_intelligence') }}</span>
@@ -517,8 +526,8 @@
           {% set _lang = request.cookies.get('lang', 'el') %}
           {% set _target_lang = 'en' if _lang != 'en' else 'el' %}
           {% set _theme = request.cookies.get('theme', 'light') %}
-          <button class="icon-btn" id="themeToggleBtn" data-theme-toggle title="{{ tt(request, 'theme_toggle') }}" data-theme="{{ _theme }}"><i class="fe {{ 'fe-sun' if _theme == 'dark' else 'fe-moon' }}"></i></button>
-          <button class="icon-btn" id="fullscreenToggleBtn" type="button" title="{{ tt(request, 'full_screen') }}"><i class="fe fe-maximize"></i></button>
+          <button class="icon-btn" id="themeToggleBtn" data-theme-toggle title="{{ tt(request, 'theme_toggle') }}" aria-label="{{ tt(request, 'theme_toggle') }}" data-theme="{{ _theme }}"><i class="fe {{ 'fe-sun' if _theme == 'dark' else 'fe-moon' }}" aria-hidden="true"></i></button>
+          <button class="icon-btn" id="fullscreenToggleBtn" type="button" title="{{ tt(request, 'full_screen') }}" aria-label="{{ tt(request, 'full_screen') }}"><i class="fe fe-maximize" aria-hidden="true"></i></button>
           <a class="btn btn-outline-secondary btn-sm" href="/set-language/{{ _target_lang }}?next={{ request.url.path }}">{{ tt(request, 'lang_en') if _target_lang == 'en' else tt(request, 'lang_el') }}</a>
           <div
             class="sync-chip"
@@ -532,14 +541,17 @@
               <span class="sync-chip-value" data-last-sync-value>{{ tenant_softone_last_sync_display if tenant_softone_last_sync_display is defined else tt(request, 'not_available') }}</span>
             </div>
           </div>
+          {% set _bv_user = request.state.current_user if request.state.current_user is defined else none %}
+          {% set _bv_user_name = (_bv_user.full_name or _bv_user.email) if _bv_user else 'BoxVisio User' %}
+          {% set _bv_user_initial = (_bv_user_name[:1] | upper) if _bv_user_name else 'BV' %}
           <div class="bv-profile-menu">
-            <button class="bv-profile-toggle" type="button" data-profile-toggle aria-expanded="false" aria-haspopup="menu">
-              <span class="bv-avatar-initial">BV</span>
+            <button class="bv-profile-toggle" type="button" data-profile-toggle aria-expanded="false" aria-haspopup="menu" aria-label="{{ tt(request, 'profile') }}">
+              <span class="bv-avatar-initial">{{ _bv_user_initial }}</span>
               <i class="fe fe-chevron-down"></i>
             </button>
             <div class="bv-profile-dropdown" data-profile-dropdown hidden>
               <div class="bv-profile-head">
-                <div class="bv-profile-name">BoxVisio User</div>
+                <div class="bv-profile-name">{{ _bv_user_name }}</div>
                 <div class="bv-profile-role">{{ tt(request, 'tenant_portal_title') }} · {{ request.state.professional_profile_name if request.state.professional_profile_name is defined else tt(request, 'manager') }}</div>
               </div>
               <a class="bv-profile-item" href="/tenant/profile"><i class="fe fe-user"></i> {{ tt(request, 'profile') }}</a>
@@ -1625,6 +1637,69 @@
           localStorage.setItem(menuStorageKey, willOpen ? '1' : '0');
         });
       });
+
+      /* Sidebar menu search: filter leaf links and auto-expand matching groups. */
+      (function bindTenantNavSearch() {
+        const input = document.getElementById('tenantNavSearch');
+        if (!input || input.dataset.bound === '1') return;
+        input.dataset.bound = '1';
+        const sidebar = document.querySelector('.main-sidebar');
+        const clearBtn = document.querySelector('[data-nav-search-clear]');
+        if (!sidebar) return;
+        const groups = Array.from(sidebar.querySelectorAll('.list > .nav-item'));
+        const norm = (s) => (s || '').toString().trim().toLowerCase();
+        let saved = null;
+
+        function apply() {
+          const q = norm(input.value);
+          if (clearBtn) clearBtn.hidden = !q;
+          if (!q) {
+            document.body.classList.remove('bv-nav-searching');
+            groups.forEach((g) => { g.style.display = ''; });
+            sidebar.querySelectorAll('.bv-submenu li').forEach((li) => { li.style.display = ''; });
+            if (saved) {
+              saved.forEach((s) => {
+                s.submenu.hidden = s.hidden;
+                s.owner.classList.toggle('open', !s.hidden);
+                s.toggle?.setAttribute('aria-expanded', s.hidden ? 'false' : 'true');
+              });
+              saved = null;
+            }
+            return;
+          }
+          if (!saved) {
+            saved = groups.map((g) => {
+              const submenu = g.querySelector('.bv-submenu');
+              if (!submenu) return null;
+              return { submenu, hidden: submenu.hidden, owner: g, toggle: g.querySelector('[data-menu-group-toggle]') };
+            }).filter(Boolean);
+          }
+          document.body.classList.add('bv-nav-searching');
+          groups.forEach((g) => {
+            const submenu = g.querySelector('.bv-submenu');
+            if (!submenu) {
+              g.style.display = norm(g.innerText).includes(q) ? '' : 'none';
+              return;
+            }
+            let any = false;
+            submenu.querySelectorAll('li').forEach((li) => {
+              const match = norm(li.innerText).includes(q);
+              li.style.display = match ? '' : 'none';
+              if (match) any = true;
+            });
+            g.style.display = any ? '' : 'none';
+            submenu.hidden = !any;
+            g.classList.toggle('open', any);
+            g.querySelector('[data-menu-group-toggle]')?.setAttribute('aria-expanded', any ? 'true' : 'false');
+          });
+        }
+
+        input.addEventListener('input', apply);
+        input.addEventListener('keydown', (event) => {
+          if (event.key === 'Escape') { input.value = ''; apply(); input.blur(); }
+        });
+        clearBtn?.addEventListener('click', () => { input.value = ''; apply(); input.focus(); });
+      })();
 
       document.querySelectorAll('.main-sidebar .list .nav-item > .nav-link').forEach((navLink) => {
         if (navLink.dataset.bound === '1') return;

@@ -1,4 +1,5 @@
 {% extends "base_tenant.html" %}
+{% from "tenant/_components.html" import multiselect %}
 
 {% block filters %}
 <form id="compareFilters" class="row g-2">
@@ -9,83 +10,23 @@
 
   <div class="col-12 col-md-6 col-xl-2">
     <label class="form-label mb-1">{{ tt(request, 'branches') }}</label>
-    <div class="bv-multi" id="cmpBranchesMulti">
-      <button type="button" class="form-select bv-multi-toggle text-start" id="cmpBranchesToggle">Επιλογή</button>
-      <div class="bv-multi-menu" id="cmpBranchesMenu" hidden>
-        <div class="d-flex gap-2 mb-2">
-          <input type="text" class="form-control form-control-sm" id="cmpBranchesSearch" placeholder="Αναζήτηση...">
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="cmpBranchesAll">Όλα</button>
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="cmpBranchesClear">Καθαρισμός</button>
-        </div>
-        <div id="cmpBranchesOptions" class="bv-multi-options"></div>
-      </div>
-      <div id="cmpBranchesChips" class="bv-chip-wrap mt-2"></div>
-      <select id="cmpBranches" multiple hidden></select>
-    </div>
+    {{ multiselect('cmpBranches') }}
   </div>
   <div class="col-12 col-md-6 col-xl-2">
     <label class="form-label mb-1">{{ tt(request, 'warehouses') }}</label>
-    <div class="bv-multi" id="cmpWarehousesMulti">
-      <button type="button" class="form-select bv-multi-toggle text-start" id="cmpWarehousesToggle">Επιλογή</button>
-      <div class="bv-multi-menu" id="cmpWarehousesMenu" hidden>
-        <div class="d-flex gap-2 mb-2">
-          <input type="text" class="form-control form-control-sm" id="cmpWarehousesSearch" placeholder="Αναζήτηση...">
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="cmpWarehousesAll">Όλα</button>
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="cmpWarehousesClear">Καθαρισμός</button>
-        </div>
-        <div id="cmpWarehousesOptions" class="bv-multi-options"></div>
-      </div>
-      <div id="cmpWarehousesChips" class="bv-chip-wrap mt-2"></div>
-      <select id="cmpWarehouses" multiple hidden></select>
-    </div>
+    {{ multiselect('cmpWarehouses') }}
   </div>
   <div class="col-12 col-md-6 col-xl-2">
     <label class="form-label mb-1">{{ tt(request, 'brands') }}</label>
-    <div class="bv-multi" id="cmpBrandsMulti">
-      <button type="button" class="form-select bv-multi-toggle text-start" id="cmpBrandsToggle">Επιλογή</button>
-      <div class="bv-multi-menu" id="cmpBrandsMenu" hidden>
-        <div class="d-flex gap-2 mb-2">
-          <input type="text" class="form-control form-control-sm" id="cmpBrandsSearch" placeholder="Αναζήτηση...">
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="cmpBrandsAll">Όλα</button>
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="cmpBrandsClear">Καθαρισμός</button>
-        </div>
-        <div id="cmpBrandsOptions" class="bv-multi-options"></div>
-      </div>
-      <div id="cmpBrandsChips" class="bv-chip-wrap mt-2"></div>
-      <select id="cmpBrands" multiple hidden></select>
-    </div>
+    {{ multiselect('cmpBrands') }}
   </div>
   <div class="col-12 col-md-6 col-xl-3">
     <label class="form-label mb-1">{{ tt(request, 'categories') }}</label>
-    <div class="bv-multi" id="cmpCategoriesMulti">
-      <button type="button" class="form-select bv-multi-toggle text-start" id="cmpCategoriesToggle">Επιλογή κατηγοριών</button>
-      <div class="bv-multi-menu" id="cmpCategoriesMenu" hidden>
-        <div class="d-flex gap-2 mb-2">
-          <input type="text" class="form-control form-control-sm" id="cmpCategoriesSearch" placeholder="Αναζήτηση...">
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="cmpCategoriesAll">Όλα</button>
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="cmpCategoriesClear">Καθαρισμός</button>
-        </div>
-        <div id="cmpCategoriesOptions" class="bv-multi-options"></div>
-      </div>
-      <div id="cmpCategoriesChips" class="bv-chip-wrap mt-2"></div>
-      <select id="cmpCategories" multiple hidden></select>
-    </div>
+    {{ multiselect('cmpCategories', placeholder='Επιλογή κατηγοριών') }}
   </div>
   <div class="col-12 col-md-6 col-xl-2">
     <label class="form-label mb-1">{{ tt(request, 'groups') }}</label>
-    <div class="bv-multi" id="cmpGroupsMulti">
-      <button type="button" class="form-select bv-multi-toggle text-start" id="cmpGroupsToggle">Επιλογή</button>
-      <div class="bv-multi-menu" id="cmpGroupsMenu" hidden>
-        <div class="d-flex gap-2 mb-2">
-          <input type="text" class="form-control form-control-sm" id="cmpGroupsSearch" placeholder="Αναζήτηση...">
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="cmpGroupsAll">Όλα</button>
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="cmpGroupsClear">Καθαρισμός</button>
-        </div>
-        <div id="cmpGroupsOptions" class="bv-multi-options"></div>
-      </div>
-      <div id="cmpGroupsChips" class="bv-chip-wrap mt-2"></div>
-      <select id="cmpGroups" multiple hidden></select>
-    </div>
+    {{ multiselect('cmpGroups') }}
   </div>
   <div class="col-12 col-xl-1 d-grid align-content-end">
     <button class="btn btn-primary" type="submit">{{ tt(request, 'compare') }}</button>

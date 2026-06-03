@@ -6,7 +6,7 @@
   <title>{{ tt(request, title) if title else tt(request, 'app_admin_title') }}</title>
   <link rel="icon" href="/static/brand/boxvisio-mark.svg?v=20260528logo1" type="image/svg+xml">
   <link href="/static/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
-  <link href="/static/css/boxvisio-unified.css?v=20260528saas10" rel="stylesheet">
+  <link href="/static/css/boxvisio-unified.css?v=20260603tokens1" rel="stylesheet">
   <style>
     :root {
       --shell-bg: #f3f5fb;
@@ -441,14 +441,17 @@
           <button class="icon-btn" id="themeToggleBtnAdmin" data-theme-toggle title="{{ tt(request, 'theme_toggle') }}" data-theme="{{ _theme }}"><i class="fe {{ 'fe-sun' if _theme == 'dark' else 'fe-moon' }}"></i></button>
           <button class="icon-btn" id="fullscreenToggleBtn" type="button" title="{{ tt(request, 'full_screen') }}"><i class="fe fe-maximize"></i></button>
           <a class="btn btn-outline-secondary btn-sm bv-lang-btn" href="/set-language/{{ _target_lang }}?next={{ request.url.path }}">{{ tt(request, 'lang_en') if _target_lang == 'en' else tt(request, 'lang_el') }}</a>
+          {% set _bv_admin_user = request.state.current_user if request.state.current_user is defined else none %}
+          {% set _bv_admin_name = (_bv_admin_user.full_name or _bv_admin_user.email) if _bv_admin_user else 'CloudOn Admin' %}
+          {% set _bv_admin_initial = (_bv_admin_name[:1] | upper) if _bv_admin_name else 'AD' %}
           <div class="bv-profile-menu">
-            <button class="bv-profile-toggle" type="button" data-profile-toggle>
-              <span class="bv-avatar-initial">AD</span>
+            <button class="bv-profile-toggle" type="button" data-profile-toggle aria-label="{{ tt(request, 'profile') }}">
+              <span class="bv-avatar-initial">{{ _bv_admin_initial }}</span>
               <i class="fe fe-chevron-down"></i>
             </button>
             <div class="bv-profile-dropdown" data-profile-dropdown hidden>
               <div class="bv-profile-head">
-                <div class="bv-profile-name">CloudOn Admin</div>
+                <div class="bv-profile-name">{{ _bv_admin_name }}</div>
                 <div class="bv-profile-role">{{ tt(request, 'admin_panel') }}</div>
               </div>
               <a class="bv-profile-item" href="/admin/profile"><i class="fe fe-user"></i> {{ tt(request, 'profile') }}</a>

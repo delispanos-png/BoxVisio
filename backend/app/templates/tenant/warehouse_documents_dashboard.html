@@ -1,4 +1,5 @@
 {% extends "base_tenant.html" %}
+{% from "tenant/_components.html" import multiselect %}
 {% block filters %}
 <form id="warehouseDocumentsFilters" class="row g-2">
   <div class="col-12 col-md-4 col-xl-3">
@@ -27,35 +28,11 @@
   </div>
   <div class="col-12 col-md-6 col-xl-3">
     <label class="form-label mb-1">{{ tt(request, 'branches') }}</label>
-    <div class="bv-multi" id="warehouseDocsBranchesMulti">
-      <button type="button" class="form-select bv-multi-toggle text-start" id="warehouseDocsBranchesToggle">Επιλογή</button>
-      <div class="bv-multi-menu" id="warehouseDocsBranchesMenu" hidden>
-        <div class="d-flex gap-2 mb-2">
-          <input type="text" class="form-control form-control-sm" id="warehouseDocsBranchesSearch" placeholder="Αναζήτηση...">
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="warehouseDocsBranchesAll">Όλα</button>
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="warehouseDocsBranchesClear">Καθαρισμός</button>
-        </div>
-        <div id="warehouseDocsBranchesOptions" class="bv-multi-options"></div>
-      </div>
-      <div id="warehouseDocsBranchesChips" class="bv-chip-wrap mt-2"></div>
-      <select name="branches" id="warehouseDocsBranches" multiple hidden></select>
-    </div>
+    {{ multiselect('warehouseDocsBranches', 'branches') }}
   </div>
   <div class="col-12 col-md-6 col-xl-3">
     <label class="form-label mb-1">{{ tt(request, 'warehouses') }}</label>
-    <div class="bv-multi" id="warehouseDocsWarehousesMulti">
-      <button type="button" class="form-select bv-multi-toggle text-start" id="warehouseDocsWarehousesToggle">Επιλογή</button>
-      <div class="bv-multi-menu" id="warehouseDocsWarehousesMenu" hidden>
-        <div class="d-flex gap-2 mb-2">
-          <input type="text" class="form-control form-control-sm" id="warehouseDocsWarehousesSearch" placeholder="Αναζήτηση...">
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="warehouseDocsWarehousesAll">Όλα</button>
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="warehouseDocsWarehousesClear">Καθαρισμός</button>
-        </div>
-        <div id="warehouseDocsWarehousesOptions" class="bv-multi-options"></div>
-      </div>
-      <div id="warehouseDocsWarehousesChips" class="bv-chip-wrap mt-2"></div>
-      <select name="warehouses" id="warehouseDocsWarehouses" multiple hidden></select>
-    </div>
+    {{ multiselect('warehouseDocsWarehouses', 'warehouses') }}
   </div>
   <div class="col-12 col-md-4 col-xl-3">
     <label class="form-label mb-1">Σειρά</label>

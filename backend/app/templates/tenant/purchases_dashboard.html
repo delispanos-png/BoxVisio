@@ -1,4 +1,5 @@
 {% extends "base_tenant.html" %}
+{% from "tenant/_components.html" import multiselect %}
 {% block filters %}
 <form id="purchasesFilters" class="row g-2">
   <div class="col-12 col-md-6 col-xl-3">
@@ -11,99 +12,27 @@
   </div>
   <div class="col-12 col-md-6 col-xl-2">
     <label class="form-label mb-1">{{ tt(request, 'branches') }}</label>
-    <div class="bv-multi" id="purchasesBranchesMulti">
-      <button type="button" class="form-select bv-multi-toggle text-start" id="purchasesBranchesToggle">Επιλογή</button>
-      <div class="bv-multi-menu" id="purchasesBranchesMenu" hidden>
-        <div class="d-flex gap-2 mb-2">
-          <input type="text" class="form-control form-control-sm" id="purchasesBranchesSearch" placeholder="Αναζήτηση...">
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="purchasesBranchesAll">Όλα</button>
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="purchasesBranchesClear">Καθαρισμός</button>
-        </div>
-        <div id="purchasesBranchesOptions" class="bv-multi-options"></div>
-      </div>
-      <div id="purchasesBranchesChips" class="bv-chip-wrap mt-2"></div>
-      <select name="branches" id="purchasesBranches" multiple hidden></select>
-    </div>
+    {{ multiselect('purchasesBranches', 'branches') }}
   </div>
   <div class="col-12 col-md-6 col-xl-2">
     <label class="form-label mb-1">{{ tt(request, 'warehouses') }}</label>
-    <div class="bv-multi" id="purchasesWarehousesMulti">
-      <button type="button" class="form-select bv-multi-toggle text-start" id="purchasesWarehousesToggle">Επιλογή</button>
-      <div class="bv-multi-menu" id="purchasesWarehousesMenu" hidden>
-        <div class="d-flex gap-2 mb-2">
-          <input type="text" class="form-control form-control-sm" id="purchasesWarehousesSearch" placeholder="Αναζήτηση...">
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="purchasesWarehousesAll">Όλα</button>
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="purchasesWarehousesClear">Καθαρισμός</button>
-        </div>
-        <div id="purchasesWarehousesOptions" class="bv-multi-options"></div>
-      </div>
-      <div id="purchasesWarehousesChips" class="bv-chip-wrap mt-2"></div>
-      <select name="warehouses" id="purchasesWarehouses" multiple hidden></select>
-    </div>
+    {{ multiselect('purchasesWarehouses', 'warehouses') }}
   </div>
   <div class="col-12 col-md-6 col-xl-2">
     <label class="form-label mb-1">{{ tt(request, 'brands') }}</label>
-    <div class="bv-multi" id="purchasesBrandsMulti">
-      <button type="button" class="form-select bv-multi-toggle text-start" id="purchasesBrandsToggle">Επιλογή</button>
-      <div class="bv-multi-menu" id="purchasesBrandsMenu" hidden>
-        <div class="d-flex gap-2 mb-2">
-          <input type="text" class="form-control form-control-sm" id="purchasesBrandsSearch" placeholder="Αναζήτηση...">
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="purchasesBrandsAll">Όλα</button>
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="purchasesBrandsClear">Καθαρισμός</button>
-        </div>
-        <div id="purchasesBrandsOptions" class="bv-multi-options"></div>
-      </div>
-      <div id="purchasesBrandsChips" class="bv-chip-wrap mt-2"></div>
-      <select name="brands" id="purchasesBrands" multiple hidden></select>
-    </div>
+    {{ multiselect('purchasesBrands', 'brands') }}
   </div>
   <div class="col-12 col-md-6 col-xl-2">
     <label class="form-label mb-1">Κατηγορία 1</label>
-    <div class="bv-multi" id="purchasesCategoryL1Multi">
-      <button type="button" class="form-select bv-multi-toggle text-start" id="purchasesCategoryL1Toggle">Επιλογή</button>
-      <div class="bv-multi-menu" id="purchasesCategoryL1Menu" hidden>
-        <div class="d-flex gap-2 mb-2">
-          <input type="text" class="form-control form-control-sm" id="purchasesCategoryL1Search" placeholder="Αναζήτηση...">
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="purchasesCategoryL1All">Όλα</button>
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="purchasesCategoryL1Clear">Καθαρισμός</button>
-        </div>
-        <div id="purchasesCategoryL1Options" class="bv-multi-options"></div>
-      </div>
-      <div id="purchasesCategoryL1Chips" class="bv-chip-wrap mt-2"></div>
-      <select id="purchasesCategoryL1" multiple hidden></select>
-    </div>
+    {{ multiselect('purchasesCategoryL1') }}
   </div>
   <div class="col-12 col-md-6 col-xl-2">
     <label class="form-label mb-1">Κατηγορία 2</label>
-    <div class="bv-multi" id="purchasesCategoryL2Multi">
-      <button type="button" class="form-select bv-multi-toggle text-start" id="purchasesCategoryL2Toggle">Επιλογή</button>
-      <div class="bv-multi-menu" id="purchasesCategoryL2Menu" hidden>
-        <div class="d-flex gap-2 mb-2">
-          <input type="text" class="form-control form-control-sm" id="purchasesCategoryL2Search" placeholder="Αναζήτηση...">
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="purchasesCategoryL2All">Όλα</button>
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="purchasesCategoryL2Clear">Καθαρισμός</button>
-        </div>
-        <div id="purchasesCategoryL2Options" class="bv-multi-options"></div>
-      </div>
-      <div id="purchasesCategoryL2Chips" class="bv-chip-wrap mt-2"></div>
-      <select id="purchasesCategoryL2" multiple hidden></select>
-    </div>
+    {{ multiselect('purchasesCategoryL2') }}
   </div>
   <div class="col-12 col-md-6 col-xl-2">
     <label class="form-label mb-1">Κατηγορία 3</label>
-    <div class="bv-multi" id="purchasesCategoryL3Multi">
-      <button type="button" class="form-select bv-multi-toggle text-start" id="purchasesCategoryL3Toggle">Επιλογή</button>
-      <div class="bv-multi-menu" id="purchasesCategoryL3Menu" hidden>
-        <div class="d-flex gap-2 mb-2">
-          <input type="text" class="form-control form-control-sm" id="purchasesCategoryL3Search" placeholder="Αναζήτηση...">
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="purchasesCategoryL3All">Όλα</button>
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="purchasesCategoryL3Clear">Καθαρισμός</button>
-        </div>
-        <div id="purchasesCategoryL3Options" class="bv-multi-options"></div>
-      </div>
-      <div id="purchasesCategoryL3Chips" class="bv-chip-wrap mt-2"></div>
-      <select id="purchasesCategoryL3" multiple hidden></select>
-    </div>
+    {{ multiselect('purchasesCategoryL3') }}
   </div>
   <select name="categories" id="purchasesCategories" multiple hidden></select>
   <select name="groups" id="purchasesGroups" multiple hidden></select>

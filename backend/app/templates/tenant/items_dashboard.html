@@ -1,4 +1,5 @@
 {% extends "base_tenant.html" %}
+{% from "tenant/_components.html" import multiselect %}
 {% block filters %}
 <form class="row g-3" id="itemsFiltersForm">
   <div class="col-lg-2 col-md-6">
@@ -28,67 +29,19 @@
   </div>
   <div class="col-lg-2 col-md-6">
     <label class="form-label">{{ tt(request, 'brands') }}</label>
-    <div class="bv-multi" id="itBrandsMulti">
-      <button type="button" class="form-select bv-multi-toggle text-start" id="itBrandsToggle">{{ tt(request, 'select') }}</button>
-      <div class="bv-multi-menu" id="itBrandsMenu" hidden>
-        <div class="d-flex gap-2 mb-2">
-          <input type="text" class="form-control form-control-sm" id="itBrandsSearch" placeholder="{{ tt(request, 'search') }}">
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="itBrandsAll">{{ tt(request, 'all') }}</button>
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="itBrandsClear">{{ tt(request, 'clear') }}</button>
-        </div>
-        <div id="itBrandsOptions" class="bv-multi-options"></div>
-      </div>
-      <div id="itBrandsChips" class="bv-chip-wrap mt-2"></div>
-      <select id="itBrands" multiple hidden></select>
-    </div>
+    {{ multiselect('itBrands', placeholder=tt(request, 'select'), search_placeholder=tt(request, 'search'), all_label=tt(request, 'all'), clear_label=tt(request, 'clear')) }}
   </div>
   <div class="col-lg-2 col-md-6">
     <label class="form-label">Κατηγορία 1</label>
-    <div class="bv-multi" id="itCategoryL1Multi">
-      <button type="button" class="form-select bv-multi-toggle text-start" id="itCategoryL1Toggle">{{ tt(request, 'select') }}</button>
-      <div class="bv-multi-menu" id="itCategoryL1Menu" hidden>
-        <div class="d-flex gap-2 mb-2">
-          <input type="text" class="form-control form-control-sm" id="itCategoryL1Search" placeholder="{{ tt(request, 'search') }}">
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="itCategoryL1All">{{ tt(request, 'all') }}</button>
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="itCategoryL1Clear">{{ tt(request, 'clear') }}</button>
-        </div>
-        <div id="itCategoryL1Options" class="bv-multi-options"></div>
-      </div>
-      <div id="itCategoryL1Chips" class="bv-chip-wrap mt-2"></div>
-      <select id="itCategoryL1" multiple hidden></select>
-    </div>
+    {{ multiselect('itCategoryL1', placeholder=tt(request, 'select'), search_placeholder=tt(request, 'search'), all_label=tt(request, 'all'), clear_label=tt(request, 'clear')) }}
   </div>
   <div class="col-lg-2 col-md-6">
     <label class="form-label">Κατηγορία 2</label>
-    <div class="bv-multi" id="itCategoryL2Multi">
-      <button type="button" class="form-select bv-multi-toggle text-start" id="itCategoryL2Toggle">{{ tt(request, 'select') }}</button>
-      <div class="bv-multi-menu" id="itCategoryL2Menu" hidden>
-        <div class="d-flex gap-2 mb-2">
-          <input type="text" class="form-control form-control-sm" id="itCategoryL2Search" placeholder="{{ tt(request, 'search') }}">
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="itCategoryL2All">{{ tt(request, 'all') }}</button>
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="itCategoryL2Clear">{{ tt(request, 'clear') }}</button>
-        </div>
-        <div id="itCategoryL2Options" class="bv-multi-options"></div>
-      </div>
-      <div id="itCategoryL2Chips" class="bv-chip-wrap mt-2"></div>
-      <select id="itCategoryL2" multiple hidden></select>
-    </div>
+    {{ multiselect('itCategoryL2', placeholder=tt(request, 'select'), search_placeholder=tt(request, 'search'), all_label=tt(request, 'all'), clear_label=tt(request, 'clear')) }}
   </div>
   <div class="col-lg-2 col-md-6">
     <label class="form-label">Κατηγορία 3</label>
-    <div class="bv-multi" id="itCategoryL3Multi">
-      <button type="button" class="form-select bv-multi-toggle text-start" id="itCategoryL3Toggle">{{ tt(request, 'select') }}</button>
-      <div class="bv-multi-menu" id="itCategoryL3Menu" hidden>
-        <div class="d-flex gap-2 mb-2">
-          <input type="text" class="form-control form-control-sm" id="itCategoryL3Search" placeholder="{{ tt(request, 'search') }}">
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="itCategoryL3All">{{ tt(request, 'all') }}</button>
-          <button type="button" class="btn btn-outline-secondary btn-sm" id="itCategoryL3Clear">{{ tt(request, 'clear') }}</button>
-        </div>
-        <div id="itCategoryL3Options" class="bv-multi-options"></div>
-      </div>
-      <div id="itCategoryL3Chips" class="bv-chip-wrap mt-2"></div>
-      <select id="itCategoryL3" multiple hidden></select>
-    </div>
+    {{ multiselect('itCategoryL3', placeholder=tt(request, 'select'), search_placeholder=tt(request, 'search'), all_label=tt(request, 'all'), clear_label=tt(request, 'clear')) }}
   </div>
   <select id="itCategories" multiple hidden></select>
   <div class="col-lg-2 col-md-6 d-flex align-items-end">
