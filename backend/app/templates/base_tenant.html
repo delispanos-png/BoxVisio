@@ -6,12 +6,16 @@
   <title>{{ tt(request, title) if title else tt(request, 'app_tenant_title') }}</title>
   <link rel="icon" href="/static/brand/boxvisio-mark.svg?v=20260528logo1" type="image/svg+xml">
   <link href="/static/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
-  <link href="/static/css/boxvisio-unified.css?v=20260603tokens1" rel="stylesheet">
+  <link href="/static/css/boxvisio-unified.css?v=20260603uinext1" rel="stylesheet">
   <script src="/static/js/bv-unified-ui.js?v=20260513multi"></script>
   {% block head_extra %}{% endblock %}
 </head>
 {% set _theme = request.cookies.get('theme', 'light') %}
-<body class="bv-shell tenant-shell{% if _theme == 'dark' %} dark-mode{% endif %}" data-theme="{{ _theme }}">
+{# Canary: opt-in tenants get the experimental UI (compact dashboard cards, menu search).
+   Expand _ui_next_tenants as each piece is verified. #}
+{% set _ui_next_tenants = [1] %}
+{% set _ui_next = (request.state.tenant.id in _ui_next_tenants) if (request.state.tenant is defined and request.state.tenant) else false %}
+<body class="bv-shell tenant-shell{% if _ui_next %} bv-ui-next{% endif %}{% if _theme == 'dark' %} dark-mode{% endif %}" data-theme="{{ _theme }}">
   <div class="overlay"></div>
   <div class="sidebar-overlay" data-toggle="sidebar"></div>
   <div class="bv-sidebar-backdrop" id="bvSidebarBackdrop"></div>
@@ -97,10 +101,6 @@
           <i class="fe fe-menu"></i>
         </button>
       </div>
-      {# Canary rollout: gate the (non-zero-risk) sidebar menu search to an allowlist of tenants.
-         Expand this list as the feature is verified. JS/CSS are inert when the markup is absent. #}
-      {% set _ui_next_tenants = [1] %}
-      {% set _ui_next = (request.state.tenant.id in _ui_next_tenants) if (request.state.tenant is defined and request.state.tenant) else false %}
       {% if _ui_next %}
       <div class="bv-sidebar-search" data-sidebar-search>
         <i class="fe fe-search" aria-hidden="true"></i>
