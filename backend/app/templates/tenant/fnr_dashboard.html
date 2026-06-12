@@ -93,6 +93,8 @@
   .fnr-option-empty { color: var(--text-muted); font-size: 12px; font-weight: 800; padding: 8px; }
   .fnr-actions { align-items: center; display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; padding: 6px 10px; }
   .fnr-actions .btn { font-size: 12px; min-height: 30px; padding: 5px 10px; }
+  .fnr-include-toggle { align-items: center; cursor: pointer; display: inline-flex; font-size: 12px; gap: 5px; margin-right: auto; user-select: none; }
+  .fnr-include-toggle input { cursor: pointer; margin: 0; }
   .fnr-sync-note { align-items: center; background: #eff6ff; border-top: 1px solid #bfdbfe; color: #1e3a8a; display: flex; flex-wrap: wrap; font-size: 11px; font-weight: 900; gap: 6px; justify-content: space-between; padding: 6px 10px; }
   .fnr-sync-note strong { color: #172554; }
   .fnr-sync-ok { background: #ecfdf5; border: 1px solid #bbf7d0; border-radius: 8px; color: #166534; font-size: 12px; font-weight: 900; padding: 7px 10px; }
@@ -291,12 +293,22 @@
         <a class="btn btn-light" href="/tenant/fnr">Καθαρισμός</a>
         <a class="btn {{ 'btn-primary' if fnr_view != 'expected' else 'btn-outline-secondary' }}" href="/tenant/fnr{% if fnr_query_no_view %}?{{ fnr_query_no_view }}{% endif %}"><i class="fe fe-file-text"></i> FNR Worksheet</a>
         <a class="btn {{ 'btn-primary' if fnr_view == 'expected' else 'btn-outline-secondary' }}" href="/tenant/fnr?{{ fnr_query_no_view ~ '&' if fnr_query_no_view else '' }}view=expected"><i class="fe fe-list"></i> Αναμενόμενες παραγγελίες</a>
+        <button class="btn btn-outline-success" type="submit" form="fnrRefreshStockForm" title="Τραβά φρέσκο απόθεμα από το SoftOne πριν φτιάξεις παραγγελία."><i class="fe fe-refresh-ccw"></i> Ανανέωση αποθέματος</button>
         <button class="btn btn-outline-primary" type="submit" form="fnrExpectedSyncForm"><i class="fe fe-refresh-cw"></i> Συγχρονισμός αναμενόμενων</button>
+        <label class="fnr-include-toggle" title="Εμφανίζει στο worksheet & στο export και τα είδη χωρίς ανάγκη παραγγελίας (overstock πρώτα).">
+          <input type="checkbox" name="include_no_order" value="1"{% if query_values.include_no_order %} checked{% endif %}>
+          <span>Να συμπεριλαμβάνονται είδη χωρίς παραγγελία;</span>
+        </label>
         <button class="btn btn-primary" type="submit"><i class="fe fe-filter"></i> Εφαρμογή</button>
         <a class="btn btn-success" href="/tenant/fnr/export{% if request.url.query %}?{{ request.url.query }}{% endif %}"><i class="fe fe-download"></i> Export Excel</a>
       </div>
       <div class="fnr-sync-note">
-        <span><strong>Πριν την τελική παραγγελία:</strong> συγχρόνισε τα αναμενόμενα για να αφαιρεθούν παραγγελίες που μόλις μετασχηματίστηκαν ή ακυρώθηκαν.</span>
+        <span><strong>Πριν την τελική παραγγελία:</strong> ανανέωσε το απόθεμα &amp; συγχρόνισε τα αναμενόμενα για να αφαιρεθούν παραγγελίες που μόλις μετασχηματίστηκαν ή ακυρώθηκαν.</span>
+        {% if request.query_params.get('stock_refreshed') == '1' %}
+        <span class="fnr-sync-ok">Το απόθεμα ανανεώθηκε από το SoftOne{% if request.query_params.get('stock_items') %} ({{ request.query_params.get('stock_items') }} είδη){% endif %}.</span>
+        {% elif request.query_params.get('stock_refreshed') == 'err' %}
+        <span class="fnr-sync-ok" style="background:#fee2e2;color:#991b1b;">Αποτυχία ανανέωσης αποθέματος — δοκίμασε ξανά.</span>
+        {% endif %}
         {% if request.query_params.get('expected_sync') == 'queued' %}
         <span class="fnr-sync-ok">Ο συγχρονισμός μπήκε στην priority ουρά. Κάνε ανανέωση/Εφαρμογή μόλις ολοκληρωθεί.</span>
         {% endif %}
@@ -311,6 +323,7 @@
       </div>
     </form>
     <form id="fnrExpectedSyncForm" method="post" action="/tenant/fnr/sync-expected{% if request.url.query %}?{{ request.url.query }}{% endif %}"></form>
+    <form id="fnrRefreshStockForm" method="post" action="/tenant/fnr/refresh-stock{% if request.url.query %}?{{ request.url.query }}{% endif %}"></form>
 
     <aside class="fnr-notes">
       <h2>Notes Excel</h2>
@@ -384,7 +397,7 @@
     <div class="fnr-sheet-toolbar">
       <div>
         <h2>FNR Worksheet</h2>
-        <div class="fnr-muted">Προβολή πρώτων {{ rows[:300]|length }} γραμμών. Το export περιλαμβάνει τις γραμμές παραγγελίας.</div>
+        <div class="fnr-muted">Προβολή πρώτων {{ rows[:300]|length }} γραμμών.{% if summary.include_no_order %} Συμπεριλαμβάνονται και είδη χωρίς παραγγελία (overstock πρώτα)· το export περιλαμβάνει όλα τα είδη.{% else %} Το export περιλαμβάνει τις γραμμές παραγγελίας.{% endif %}</div>
       </div>
       <div class="fnr-muted">{{ columns|length }} στήλες όπως το Excel A:BJ</div>
     </div>

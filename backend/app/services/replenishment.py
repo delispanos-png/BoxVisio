@@ -898,6 +898,7 @@ async def build_fnr_excel_from_facts(
     sales_avg_period_2_weeks: int = 12,
     limit: int = 5000,
     store_warehouse_map: dict[str, object] | None = None,
+    include_no_order: bool = False,
 ) -> dict[str, object]:
     """Build the FNR worksheet using the same column logic as the provided Excel."""
     as_of = as_of or date.today()
@@ -1014,6 +1015,7 @@ async def build_fnr_excel_from_facts(
                 'status_1': str(detail.get('abc_category') or '').strip(),
                 'status_2': str(detail.get('commercial_status') or '').strip(),
                 'supplier': supplier,
+                'group': grp,
                 'min_stock': max(_as_float(detail.get('min_stock'), 1.0), 0.0),
                 'repl_moq': max(_as_float(detail.get('repl_moq'), 1.0), 1.0),
                 'vendor_moq': max(_as_float(detail.get('vendor_moq'), 1.0), 1.0),
@@ -1093,6 +1095,7 @@ async def build_fnr_excel_from_facts(
             'status_1': status_1 or '',
             'status_2': item.get('status_2') or '',
             'supplier': item.get('supplier') or '',
+            'group': item.get('group') or '',
             'min_stock': min_stock,
             'repl_moq': repl_moq,
             'vendor_moq': vendor_moq,
@@ -1111,7 +1114,15 @@ async def build_fnr_excel_from_facts(
         output_rows.append(row)
         if supplier_order_qty > 0:
             order_rows.append(row)
-    output_rows = sorted(output_rows, key=lambda row: (-_as_float(row.get('supplier_order_qty')), str(row.get('item_name') or '')))[:limit]
+    if include_no_order:
+        # Toggle: surface every item, biggest overstock first (total_overstock_qty is <= 0),
+        # then the order items by descending order quantity. Lets the user review overstock.
+        output_rows = sorted(
+            output_rows,
+            key=lambda row: (_as_float(row.get('total_overstock_qty')), -_as_float(row.get('supplier_order_qty')), str(row.get('item_name') or '')),
+        )[:limit]
+    else:
+        output_rows = sorted(output_rows, key=lambda row: (-_as_float(row.get('supplier_order_qty')), str(row.get('item_name') or '')))[:limit]
     order_rows = sorted(order_rows, key=lambda row: (-_as_float(row.get('supplier_order_qty')), str(row.get('item_name') or '')))
     expected_detail_result = await db.execute(
         text(
@@ -1195,6 +1206,7 @@ async def build_fnr_excel_from_facts(
         'products_with_overstock': sum(1 for row in output_rows if _as_float(row.get('total_overstock_qty')) < 0),
         'expected_order_rows_count': len(expected_order_rows),
         'expected_order_qty': sum(_as_float(row.get('expected_qty')) for row in expected_order_rows),
+        'include_no_order': bool(include_no_order),
     }
     return {
         'parameters': {
@@ -2227,7 +2239,21 @@ async def build_availability_foundation(
                 MAX(COALESCE(db.name, db.branch_name, fi.branch_ext_id, 'Χωρίς σημείο')) AS branch_name,
                 SUM(COALESCE(NULLIF(fi.qty_available, 0), fi.qty_on_hand, 0)) AS stock_qty,
                 SUM(COALESCE(NULLIF(fi.value_amount, 0), fi.cost_amount, 0)) AS stock_value
-            FROM fact_inventory fi
+            FROM (
+                -- Keep one row per (date, branch, warehouse, item): when more than one
+                -- snapshot set lands on a day (nightly STKSNAP refresh + a full-sync pull)
+                -- summing the raw rows would double-count stock. item_code is the stable
+                -- natural key across sources (item_id may be resolved inconsistently).
+                SELECT z.* FROM (
+                    SELECT fi2.*, ROW_NUMBER() OVER (
+                        PARTITION BY fi2.doc_date, COALESCE(fi2.branch_ext_id, ''), COALESCE(fi2.warehouse_ext_id, ''),
+                                     COALESCE(NULLIF(fi2.item_code, ''), fi2.item_id::text, '')
+                        ORDER BY fi2.updated_at DESC
+                    ) AS _rn
+                    FROM fact_inventory fi2
+                    WHERE COALESCE(fi2.movement_type, 'snapshot') = 'snapshot'
+                ) z WHERE z._rn = 1
+            ) fi
             JOIN latest_stock ls ON ls.snapshot_date = fi.doc_date
             LEFT JOIN dim_items di ON di.id = fi.item_id
             LEFT JOIN dim_branches db ON db.external_id = fi.branch_ext_id
@@ -2339,7 +2365,7 @@ async def build_availability_foundation(
             COALESCE(NULLIF(dg.name, ''), 'Χωρίς ομάδα') AS group_name,
             COALESCE(NULLIF(di.manual_order_category, ''), NULLIF(di.abc_category, ''), 'Χωρίς ABC') AS abc_category,
             COALESCE(NULLIF(di.commercial_status, ''), '-') AS commercial_status,
-            COALESCE(NULLIF(supplier_rank.supplier_name, ''), NULLIF(expected.expected_supplier, ''), 'Χωρίς προμηθευτή') AS supplier_name,
+            COALESCE(NULLIF(supplier_rank.supplier_name, ''), NULLIF(expected.expected_supplier, ''), NULLIF(di.preferred_supplier_name, ''), 'Χωρίς προμηθευτή') AS supplier_name,
             COALESCE(stock.stock_qty, 0) AS stock_qty,
             COALESCE(stock.stock_value, 0) AS stock_value,
             COALESCE(sales.sales_qty_current, 0) AS sales_qty_current,

@@ -3757,3 +3757,37 @@ body.bv-admin-shell .bv-confirm-actions {
 }
 
 body.bv-admin-shell .bv-confirm-actions .btn { min-width: 120px; }
+
+/* Tenant edit — grouped section navigation + dividers (2026-06-05) */
+body.bv-admin-shell .tenant-section-nav {
+  position: sticky; top: 8px; z-index: 5;
+  display: flex; flex-wrap: wrap; gap: 8px;
+  padding: 8px; margin-bottom: 14px;
+  background: var(--bv-admin-surface);
+  border: 1px solid var(--bv-admin-border);
+  border-radius: 12px;
+  box-shadow: 0 4px 16px rgba(6, 17, 39, 0.05);
+}
+body.bv-admin-shell .tenant-section-nav a {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 12px; font-size: 13px; font-weight: 600;
+  color: var(--bv-admin-muted); text-decoration: none;
+  border-radius: 8px; border: 1px solid transparent;
+  transition: background .15s, color .15s, border-color .15s;
+}
+body.bv-admin-shell .tenant-section-nav a:hover {
+  background: var(--bv-admin-accent-soft); color: var(--bv-admin-accent);
+  border-color: var(--bv-admin-border);
+}
+body.bv-admin-shell .tenant-group-divider {
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  margin: 24px 2px 12px; padding-bottom: 8px;
+  border-bottom: 2px solid var(--bv-admin-border-strong);
+  scroll-margin-top: 72px;
+}
+body.bv-admin-shell .tenant-group-divider span {
+  font-size: 16px; font-weight: 800; color: var(--bv-admin-text);
+}
+body.bv-admin-shell .tenant-group-divider small {
+  font-size: 12px; color: var(--bv-admin-muted);
+}

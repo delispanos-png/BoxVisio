@@ -81,16 +81,19 @@
     <div class="bv-metric-card" style="--mc-color:#3b82f6" data-kpi-what="Το συνολικό πλήθος ειδών που υπάρχουν στο tenant." data-kpi-formula="Σύνολο Ειδών = count(όλα τα item codes που πέρασαν τα ενεργά φίλτρα)."><div class="mc-icon"><i class="fe fe-box"></i></div><div class="mc-label">{{ tt(request, 'total_items') }}</div><div class="mc-value" id="itTotalItems">—</div></div>
   </div>
   <div class="col-xl-2 col-md-4">
-    <div class="bv-metric-card" style="--mc-color:#22c55e" data-kpi-what="Πόσα είδη θεωρούνται ενεργά με βάση τον κανόνα ενεργότητας." data-kpi-formula="Ενεργά Είδη = count(items) όπου τελευταία πώληση <= όριο ημερών ενεργού είδους."><div class="mc-icon"><i class="fe fe-check-circle"></i></div><div class="mc-label">{{ tt(request, 'active_items') }}</div><div class="mc-value" id="itActiveItems">—</div></div>
+    <div class="bv-metric-card" style="--mc-color:#22c55e" data-kpi-what="Πόσα είδη είναι ενεργά στο SoftOne (πρωτογενής πηγή, πεδίο ISACTIVE)." data-kpi-formula="Ενεργά Είδη = count(items) όπου ISACTIVE = true στο SoftOne."><div class="mc-icon"><i class="fe fe-check-circle"></i></div><div class="mc-label">{{ tt(request, 'active_items') }}</div><div class="mc-value" id="itActiveItems">—</div></div>
   </div>
   <div class="col-xl-2 col-md-4">
-    <div class="bv-metric-card" style="--mc-color:#f97316" data-kpi-what="Πόσα είδη θεωρούνται ανενεργά με βάση τον κανόνα ενεργότητας." data-kpi-formula="Ανενεργά Είδη = count(items) όπου τελευταία πώληση > όριο ημερών ενεργού είδους ή δεν υπάρχει πώληση."><div class="mc-icon"><i class="fe fe-x-circle"></i></div><div class="mc-label">{{ tt(request, 'inactive_items') }}</div><div class="mc-value" id="itInactiveItems">—</div></div>
+    <div class="bv-metric-card" style="--mc-color:#f97316" data-kpi-what="Πόσα είδη είναι ανενεργά στο SoftOne (πρωτογενής πηγή, πεδίο ISACTIVE)." data-kpi-formula="Ανενεργά Είδη = count(items) όπου ISACTIVE = false στο SoftOne."><div class="mc-icon"><i class="fe fe-x-circle"></i></div><div class="mc-label">{{ tt(request, 'inactive_items') }}</div><div class="mc-value" id="itInactiveItems">—</div></div>
   </div>
   <div class="col-xl-2 col-md-4">
     <div class="bv-metric-card" style="--mc-color:#8b5cf6" data-kpi-what="Πόσα είδη έχουν χαρακτηριστεί ως ταχυκίνητα με βάση το ruleset του tenant." data-kpi-formula="Ταχυκίνητα Είδη = count(items) όπου status_κίνησης = 'ταχυκίνητο'."><div class="mc-icon"><i class="fe fe-zap"></i></div><div class="mc-label">{{ tt(request, 'fast_items') }}</div><div class="mc-value" id="itFastItems">—</div></div>
   </div>
   <div class="col-xl-2 col-md-4">
     <div class="bv-metric-card" style="--mc-color:#ef4444" data-kpi-what="Πόσα είδη έχουν χαρακτηριστεί ως αργοκίνητα με βάση το ruleset του tenant." data-kpi-formula="Αργοκίνητα Είδη = count(items) όπου status_κίνησης = 'αργοκίνητο'."><div class="mc-icon"><i class="fe fe-clock"></i></div><div class="mc-label">{{ tt(request, 'slow_items') }}</div><div class="mc-value" id="itSlowItems">—</div></div>
+  </div>
+  <div class="col-xl-2 col-md-4">
+    <div class="bv-metric-card" style="--mc-color:#0ea5e9" data-kpi-what="Πόσα είδη είχαν τουλάχιστον μία πώληση μέσα στην περίοδο κίνησης (καθαρός δείκτης κίνησης, ανεξάρτητος από ενεργό/ανενεργό)." data-kpi-formula="Πουλήθηκαν σε περίοδο = count(items) με ≥1 πώληση στις τελευταίες X ημέρες (movement window)."><div class="mc-icon"><i class="fe fe-trending-up"></i></div><div class="mc-label">{{ tt(request, 'sold_period_items') }}</div><div class="mc-value" id="itSoldPeriod">—</div></div>
   </div>
   <div class="col-xl-2 col-md-4">
     <div class="bv-metric-card" style="--mc-color:#06b6d4" data-kpi-what="Η συνολική αξία αποθέματος των ειδών που πέρασαν τα φίλτρα." data-kpi-formula="Αξία Αποθέματος = άθροισμα value_amount όλων των ειδών που πέρασαν τα φίλτρα."><div class="mc-icon"><i class="fe fe-package"></i></div><div class="mc-label">{{ tt(request, 'stock_value') }}</div><div class="mc-value" id="itStockValue">—</div></div>
@@ -899,6 +902,7 @@
     document.getElementById('itInactiveItems').textContent = String(s.inactive_items || 0);
     document.getElementById('itFastItems').textContent = String(s.fast_items || 0);
     document.getElementById('itSlowItems').textContent = String(s.slow_items || 0);
+    { const el = document.getElementById('itSoldPeriod'); if (el) el.textContent = String(s.sold_period_items || 0); }
     document.getElementById('itStockValue').textContent = fmtMoney(s.stock_value || 0);
     renderAbcCards(s.abc_counts || []);
     renderCommercialStatusCards(s.commercial_status_counts || []);

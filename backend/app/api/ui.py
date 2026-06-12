@@ -463,9 +463,10 @@ def _normalize_source(raw: str) -> str:
 
 
 _DEFAULT_INVENTORY_ITEM_CLASSIFICATION_SETTINGS = {
-    'status_source': 'sales_window',
+    'status_source': 'softone',
     'active_last_sale_days': 60,
     'movement_window_days': 30,
+    'inventory_scope_sold_days': 90,
     'fast_sales_qty_30d_min': 50,
     'slow_sales_qty_30d_max': 5,
 }
@@ -1058,11 +1059,19 @@ def _tenant_inventory_item_classification_settings(tenant: Tenant | None) -> dic
     flags = tenant.feature_flags if tenant is not None else None
     source = {}
     if isinstance(flags, dict):
-        cfg = flags.get('inventory_item_classification')
+        cfg = flags.get('inventory_item_classification_config')
+        if not isinstance(cfg, dict):
+            legacy = flags.get('inventory_item_classification')
+            cfg = legacy if isinstance(legacy, dict) else None
         if isinstance(cfg, dict):
             source = cfg
     status_source_raw = str(source.get('status_source') or '').strip().lower()
-    status_source = 'softone' if status_source_raw in {'softone', 'source', 'source_flag'} else 'sales_window'
+    if status_source_raw in {'commercial', 'commercial_status', 'status'}:
+        status_source = 'commercial'
+    elif status_source_raw in {'softone', 'source', 'source_flag'}:
+        status_source = 'softone'
+    else:
+        status_source = 'sales_window'
     active_days = _parse_int_in_range(
         source.get('active_last_sale_days'),
         default=_DEFAULT_INVENTORY_ITEM_CLASSIFICATION_SETTINGS['active_last_sale_days'],
@@ -1072,6 +1081,12 @@ def _tenant_inventory_item_classification_settings(tenant: Tenant | None) -> dic
     movement_window_days = _parse_int_in_range(
         source.get('movement_window_days'),
         default=_DEFAULT_INVENTORY_ITEM_CLASSIFICATION_SETTINGS['movement_window_days'],
+        min_value=1,
+        max_value=3650,
+    )
+    inventory_scope_sold_days = _parse_int_in_range(
+        source.get('inventory_scope_sold_days'),
+        default=_DEFAULT_INVENTORY_ITEM_CLASSIFICATION_SETTINGS['inventory_scope_sold_days'],
         min_value=1,
         max_value=3650,
     )
@@ -1093,6 +1108,7 @@ def _tenant_inventory_item_classification_settings(tenant: Tenant | None) -> dic
         'status_source': status_source,
         'active_last_sale_days': active_days,
         'movement_window_days': movement_window_days,
+        'inventory_scope_sold_days': inventory_scope_sold_days,
         'fast_sales_qty_30d_min': fast_min,
         'slow_sales_qty_30d_max': slow_max,
     }
@@ -6127,9 +6143,10 @@ async def admin_tenant_edit(
     daily_reconciliation_streams: list[str] = Form(default=[]),
     duplicate_protection_enabled: bool = Form(default=False),
     duplicate_protection_mode: str = Form(default='natural_key'),
-    status_source: str = Form(default='sales_window'),
+    status_source: str = Form(default='softone'),
     active_last_sale_days: str = Form(default='60'),
     movement_window_days: str = Form(default='30'),
+    inventory_scope_sold_days: str = Form(default='90'),
     fast_sales_qty_30d_min: str = Form(default='50'),
     slow_sales_qty_30d_max: str = Form(default='5'),
     pickup_warehouses_text: str = Form(default=''),
@@ -6238,7 +6255,12 @@ async def admin_tenant_edit(
 
     settings_payload = _tenant_inventory_item_classification_settings(tenant)
     status_source_clean = str(status_source or '').strip().lower()
-    settings_payload['status_source'] = 'softone' if status_source_clean in {'softone', 'source', 'source_flag'} else 'sales_window'
+    if status_source_clean in {'commercial', 'commercial_status', 'status'}:
+        settings_payload['status_source'] = 'commercial'
+    elif status_source_clean in {'softone', 'source', 'source_flag'}:
+        settings_payload['status_source'] = 'softone'
+    else:
+        settings_payload['status_source'] = 'sales_window'
     settings_payload['active_last_sale_days'] = _parse_int_in_range(
         active_last_sale_days,
         default=settings_payload['active_last_sale_days'],
@@ -6248,6 +6270,12 @@ async def admin_tenant_edit(
     settings_payload['movement_window_days'] = _parse_int_in_range(
         movement_window_days,
         default=settings_payload['movement_window_days'],
+        min_value=1,
+        max_value=3650,
+    )
+    settings_payload['inventory_scope_sold_days'] = _parse_int_in_range(
+        inventory_scope_sold_days,
+        default=settings_payload['inventory_scope_sold_days'],
         min_value=1,
         max_value=3650,
     )
@@ -6562,7 +6590,9 @@ async def admin_tenant_edit(
     flags['auto_sync'] = auto_sync_payload
     flags['daily_reconciliation'] = reconciliation_payload
     flags['duplicate_protection'] = duplicate_protection_payload
-    flags['inventory_item_classification'] = settings_payload
+    # Persist the classification config under the non-managed '..._config' key so it survives
+    # subscription syncs (the managed 'inventory_item_classification' is just the on/off feature flag).
+    flags['inventory_item_classification_config'] = settings_payload
     flags['eshop_fulfillment'] = eshop_fulfillment_payload
     flags['document_series_labels'] = normalize_document_series_labels_config(document_series_label_map)
     flags['price_margin_targets'] = price_margin_targets_payload
@@ -12955,11 +12985,14 @@ def _build_xlsx_workbook(sheets: list[dict[str, object]]) -> bytes:
     return output.getvalue()
 
 
-def _build_fnr_order_xlsx(fnr: dict[str, object], *, tenant_name: str = '') -> bytes:
+def _build_fnr_order_xlsx(fnr: dict[str, object], *, tenant_name: str = '', include_no_order: bool = False) -> bytes:
     summary = fnr.get('summary') if isinstance(fnr.get('summary'), dict) else {}
     filters = fnr.get('filters') if isinstance(fnr.get('filters'), dict) else {}
     parameters = fnr.get('parameters') if isinstance(fnr.get('parameters'), dict) else {}
     order_rows = [row for row in (fnr.get('order_rows') or []) if isinstance(row, dict)]
+    # When the "include items without an order" toggle is on, the detail sheet covers every
+    # item (overstock-first); otherwise it stays scoped to the supplier-order lines.
+    detail_rows = [row for row in (fnr.get('rows') or []) if isinstance(row, dict)] if include_no_order else order_rows
     generated_at = datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')
 
     def joined(key: str) -> str:
@@ -13031,14 +13064,23 @@ def _build_fnr_order_xlsx(fnr: dict[str, object], *, tenant_name: str = '') -> b
     if current_supplier is not None:
         order_sheet.append(subtotal_row(current_supplier, supplier_qty, supplier_value))
 
+    detail_title = (
+        f'Όλα τα είδη (overstock πρώτα) - {generated_at}'
+        if include_no_order
+        else f'Πλήρης ανάλυση γραμμών παραγγελίας - {generated_at}'
+    )
+    # FNR Detail: insert Προμηθευτής (B) + Ομάδα (C) right after the item code, shifting the rest right.
+    detail_header = [FNR_OUTPUT_COLUMNS[0], 'Προμηθευτής', 'Ομάδα', *FNR_OUTPUT_COLUMNS[1:]]
     detail_sheet: list[list[tuple[object, int] | object]] = [
         [('FNR Detail', 1)],
-        [(f'Πλήρης ανάλυση γραμμών παραγγελίας - {generated_at}', 3)],
+        [(detail_title, 3)],
         [],
-        [(header, 2) for header in FNR_OUTPUT_COLUMNS],
+        [(header, 2) for header in detail_header],
     ]
-    for row in order_rows:
-        detail_sheet.append([(value, 4 if isinstance(value, (int, float)) else 0) for value in _fnr_export_row(row)])
+    for row in detail_rows:
+        cells = _fnr_export_row(row)
+        cells = [cells[0], row.get('supplier', ''), row.get('group', ''), *cells[1:]]
+        detail_sheet.append([(value, 4 if isinstance(value, (int, float)) else 0) for value in cells])
 
     sheets = [
         {
@@ -13054,7 +13096,7 @@ def _build_fnr_order_xlsx(fnr: dict[str, object], *, tenant_name: str = '') -> b
             'name': 'FNR Detail',
             'xml': _xlsx_sheet_xml(
                 detail_sheet,
-                widths=[14, 42, 18, 18, 18, 14, 18, 11, 11, 11] + [12] * (len(FNR_OUTPUT_COLUMNS) - 10),
+                widths=[14, 22, 18, 42, 18, 18, 18, 14, 18, 11, 11, 11] + [12] * (len(FNR_OUTPUT_COLUMNS) - 10),
                 freeze_row=4,
                 auto_filter_row=4,
             ),
@@ -13086,6 +13128,7 @@ async def _build_fnr_context(
     sales_avg_period_2_weeks: str | None = None,
     limit: int = 5000,
     store_warehouse_map: dict[str, object] | None = None,
+    include_no_order: bool = False,
 ) -> dict[str, object]:
     return await build_fnr_excel_from_facts(
         tenant_db,
@@ -13102,6 +13145,7 @@ async def _build_fnr_context(
         sales_avg_period_2_weeks=_fnr_int(sales_avg_period_2_weeks, 12),
         limit=limit,
         store_warehouse_map=store_warehouse_map,
+        include_no_order=include_no_order,
     )
 
 
@@ -13604,12 +13648,14 @@ async def tenant_fnr_dashboard(
     overstock_weeks: str | None = Query(default='12'),
     sales_avg_period_1_weeks: str | None = Query(default='4'),
     sales_avg_period_2_weeks: str | None = Query(default='12'),
+    include_no_order: str | None = Query(default=''),
     tenant: Tenant = Depends(get_request_tenant),
     tenant_db: AsyncSession = Depends(get_tenant_db),
     _user=Depends(get_current_user),
 ):
     feature_flags = await _tenant_navigation_context(tenant)
     feature_locked = not feature_flags['replenishment_enabled']
+    fnr_include_no_order = str(include_no_order or '').strip().lower() in {'1', 'true', 'on', 'yes'}
     fnr = {'summary': {}, 'rows': [], 'order_rows': [], 'options': {}, 'parameters': {}}
     if not feature_locked:
         try:
@@ -13617,7 +13663,7 @@ async def tenant_fnr_dashboard(
                 namespace='tenant:worksheet:fnr',
                 tenant_key=str(tenant.id),
                 params=_worksheet_cache_params(
-                    version='fnr-worksheet-v6',
+                    version='fnr-worksheet-v10',
                     pharmacies=pharmacies,
                     group=group,
                     category_1=category_1,
@@ -13629,6 +13675,7 @@ async def tenant_fnr_dashboard(
                     overstock_weeks=overstock_weeks,
                     sales_avg_period_1_weeks=sales_avg_period_1_weeks,
                     sales_avg_period_2_weeks=sales_avg_period_2_weeks,
+                    include_no_order=fnr_include_no_order,
                     limit=5000,
                 ),
                 ttl_seconds=300,
@@ -13647,6 +13694,7 @@ async def tenant_fnr_dashboard(
                     sales_avg_period_2_weeks=sales_avg_period_2_weeks,
                     limit=5000,
                     store_warehouse_map=_tenant_fnr_store_map(tenant),
+                    include_no_order=fnr_include_no_order,
                 ),
             )
         except Exception:
@@ -13683,6 +13731,7 @@ async def tenant_fnr_dashboard(
                 'overstock_weeks': overstock_weeks or '12',
                 'sales_avg_period_1_weeks': sales_avg_period_1_weeks or '4',
                 'sales_avg_period_2_weeks': sales_avg_period_2_weeks or '12',
+                'include_no_order': '1' if fnr_include_no_order else '',
             },
         },
     )
@@ -13697,6 +13746,44 @@ async def tenant_fnr_sync_expected_orders(
     await _enqueue_fnr_expected_orders_sync(tenant)
     query = dict(request.query_params)
     query['expected_sync'] = 'queued'
+    redirect_url = '/tenant/fnr'
+    if query:
+        redirect_url = f'{redirect_url}?{urlencode(query)}'
+    return RedirectResponse(url=redirect_url, status_code=303)
+
+
+@router.post('/tenant/fnr/refresh-stock')
+async def tenant_fnr_refresh_stock(
+    request: Request,
+    tenant: Tenant = Depends(get_request_tenant),
+    tenant_db: AsyncSession = Depends(get_tenant_db),
+    _user=Depends(get_current_user),
+):
+    """Pull fresh SoftOne net stock into today's snapshot, then bust the worksheet caches so
+    the FnR is generated against current inventory (not a stale balance)."""
+    from app.services.inventory_snapshot import refresh_inventory_snapshot
+
+    result: dict = {'status': 'error'}
+    try:
+        async with ControlSessionLocal() as control_db:
+            result = await refresh_inventory_snapshot(control_db, tenant_db, tenant_id=int(tenant.id))
+        if result.get('status') == 'ok':
+            # FnR reads fact_inventory directly (already fresh); rebuild the inventory aggregates
+            # on the worker so the agg-based circuits (Αξία/Availability/Destocking/Είδη) follow.
+            today_str = date.today().isoformat()
+            celery_client.send_task(
+                'worker.tasks.refresh_aggregates_for_entity',
+                kwargs={'tenant_slug': tenant.slug, 'entity': 'inventory', 'from_date_str': today_str, 'to_date_str': today_str},
+                queue='ingest',
+            )
+        await invalidate_tenant_cache(str(tenant.id))
+    except Exception:
+        logger.exception('fnr_refresh_stock_failed', extra={'tenant_id': tenant.id})
+
+    query = dict(request.query_params)
+    query['stock_refreshed'] = '1' if result.get('status') == 'ok' else 'err'
+    if result.get('items'):
+        query['stock_items'] = str(result.get('items'))
     redirect_url = '/tenant/fnr'
     if query:
         redirect_url = f'{redirect_url}?{urlencode(query)}'
@@ -13743,6 +13830,7 @@ async def tenant_fnr_export(
     overstock_weeks: str | None = Query(default='12'),
     sales_avg_period_1_weeks: str | None = Query(default='4'),
     sales_avg_period_2_weeks: str | None = Query(default='12'),
+    include_no_order: str | None = Query(default=''),
     tenant: Tenant = Depends(get_request_tenant),
     tenant_db: AsyncSession = Depends(get_tenant_db),
     _user=Depends(get_current_user),
@@ -13750,11 +13838,12 @@ async def tenant_fnr_export(
     feature_flags = await _tenant_navigation_context(tenant)
     if not feature_flags.get('replenishment_enabled', False):
         return Response('FNR feature is locked', status_code=403, media_type='text/plain')
+    fnr_include_no_order = str(include_no_order or '').strip().lower() in {'1', 'true', 'on', 'yes'}
     fnr, _cache_hit = await get_or_set_cache(
         namespace='tenant:worksheet:fnr',
         tenant_key=str(tenant.id),
         params=_worksheet_cache_params(
-            version='fnr-worksheet-v6',
+            version='fnr-worksheet-v10',
             pharmacies=pharmacies,
             group=group,
             category_1=category_1,
@@ -13766,6 +13855,7 @@ async def tenant_fnr_export(
             overstock_weeks=overstock_weeks,
             sales_avg_period_1_weeks=sales_avg_period_1_weeks,
             sales_avg_period_2_weeks=sales_avg_period_2_weeks,
+            include_no_order=fnr_include_no_order,
             limit=20000,
         ),
         ttl_seconds=300,
@@ -13784,9 +13874,10 @@ async def tenant_fnr_export(
             sales_avg_period_2_weeks=sales_avg_period_2_weeks,
             limit=20000,
             store_warehouse_map=_tenant_fnr_store_map(tenant),
+            include_no_order=fnr_include_no_order,
         ),
     )
-    content = _build_fnr_order_xlsx(fnr, tenant_name=str(tenant.name or tenant.slug or 'Tenant'))
+    content = _build_fnr_order_xlsx(fnr, tenant_name=str(tenant.name or tenant.slug or 'Tenant'), include_no_order=fnr_include_no_order)
     filename = f"FNR_order_{datetime.utcnow().strftime('%Y%m%d_%H%M')}.xlsx"
     return Response(
         content,

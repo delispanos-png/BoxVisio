@@ -1076,6 +1076,65 @@ def sync_3cx_call_center_due_tenants(max_tenants: int = 25) -> dict[str, object]
     return _run_coro(_sync_3cx_call_center_due_tenants(max_tenants=max_tenants))
 
 
+@shared_task(
+    name='worker.tasks.refresh_inventory_snapshots_all_tenants',
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_kwargs={'max_retries': 1},
+)
+def refresh_inventory_snapshots_all_tenants() -> dict:
+    """Nightly: re-pull current SoftOne net stock and refresh today's snapshot for every
+    operational tenant (fixes stale balances that incremental syncs never refresh)."""
+    return _run_coro(_refresh_inventory_snapshots_all_tenants())
+
+
+async def _refresh_inventory_snapshots_all_tenants() -> dict:
+    from app.services.inventory_snapshot import refresh_inventory_snapshot
+
+    results: list[dict] = []
+    async with ControlSessionLocal() as control_db:
+        tenants = (
+            await control_db.execute(
+                select(Tenant)
+                .where(
+                    Tenant.status == TenantStatus.active,
+                    Tenant.subscription_status.in_(
+                        [SubscriptionStatus.active, SubscriptionStatus.trial, SubscriptionStatus.past_due]
+                    ),
+                )
+                .order_by(Tenant.id.asc())
+            )
+        ).scalars().all()
+        for tenant in tenants:
+            if not _is_background_operational_tenant(tenant):
+                continue
+            try:
+                async for tenant_db in get_tenant_db_session(
+                    tenant_key=str(tenant.id),
+                    db_name=tenant.db_name,
+                    db_user=tenant.db_user,
+                    db_password=tenant.db_password,
+                ):
+                    res = await refresh_inventory_snapshot(control_db, tenant_db, tenant_id=int(tenant.id))
+                    if res.get('status') == 'ok':
+                        today = date.today()
+                        await _refresh_inventory_aggregates(tenant_db, today, today)
+                        await tenant_db.commit()
+                        # Drop cached inventory KPIs so every stock-dependent circuit
+                        # (Αποθέματα, Είδη, FnR, Availability, Destocking) reflects the fresh snapshot.
+                        try:
+                            await invalidate_tenant_cache(str(tenant.id))
+                        except Exception:  # noqa: BLE001
+                            logger.warning('inventory_snapshot_cache_invalidate_failed', extra={'tenant_slug': tenant.slug})
+                    results.append({'tenant': tenant.slug, **res})
+                    break
+            except Exception as exc:  # noqa: BLE001
+                logger.exception('inventory_snapshot_refresh_failed', extra={'tenant_slug': tenant.slug})
+                results.append({'tenant': tenant.slug, 'status': 'error', 'error': str(exc)[:200]})
+    logger.info('inventory_snapshot_refresh_all_tenants', extra={'results': results})
+    return {'status': 'ok', 'tenants': len(results), 'results': results}
+
+
 def _build_tenant_sync_engine(tenant: Tenant):
     return create_engine(
         settings.tenant_database_url_template_sync.format(
@@ -4214,8 +4273,8 @@ async def _refresh_inventory_aggregates(
                     ROW_NUMBER() OVER (
                         PARTITION BY
                             fi.doc_date,
-                            fi.branch_id,
-                            fi.warehouse_id,
+                            COALESCE(fi.branch_ext_id, ''),
+                            COALESCE(fi.warehouse_ext_id, ''),
                             COALESCE(fi.item_id::text, fi.item_code, '')
                         ORDER BY fi.doc_date DESC, fi.updated_at DESC, fi.id DESC
                     ) AS rn
@@ -4269,8 +4328,8 @@ async def _refresh_inventory_aggregates(
                     ROW_NUMBER() OVER (
                         PARTITION BY
                             fi.doc_date,
-                            fi.branch_id,
-                            fi.warehouse_id,
+                            COALESCE(fi.branch_ext_id, ''),
+                            COALESCE(fi.warehouse_ext_id, ''),
                             COALESCE(fi.item_id::text, fi.item_code, '')
                         ORDER BY fi.doc_date DESC, fi.updated_at DESC, fi.id DESC
                     ) AS rn
@@ -4306,11 +4365,15 @@ async def _refresh_inventory_aggregates(
                     sl.last_sale_date
                 FROM inventory_base ib
                 LEFT JOIN LATERAL (
+                    -- Aging is a per-ITEM signal (last sale anywhere), matching the
+                    -- company-wide dead-capital KPI. The per-branch correlation used to
+                    -- mark stock dead when the SAME item sold from another branch (and
+                    -- broke entirely on branch-id representation mismatches between sales
+                    -- and inventory), inflating "dead capital" by ~1M€ / ~123k units.
                     SELECT MAX(fs.doc_date) AS last_sale_date
                     FROM fact_sales fs
                     WHERE fs.doc_date <= ib.snapshot_date
                       AND fs.item_code = ib.item_code
-                      AND COALESCE(fs.branch_ext_id, '') = COALESCE(ib.branch_ext_id, '')
                 ) sl ON TRUE
             ),
             aging_base AS (

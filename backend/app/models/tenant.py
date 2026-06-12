@@ -189,6 +189,9 @@ class DimItem(TenantBase):
     min_stock: Mapped[float | None] = mapped_column(Numeric(18, 4), nullable=True)
     replenishment_moq: Mapped[float | None] = mapped_column(Numeric(18, 4), nullable=True)
     vendor_moq: Mapped[float | None] = mapped_column(Numeric(18, 4), nullable=True)
+    # Habitual/default supplier from the SoftOne item card (MTRL.MTRSUP -> TRDR).
+    preferred_supplier_ext_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    preferred_supplier_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     current_purchase_price: Mapped[float | None] = mapped_column(Numeric(18, 4), nullable=True)
     image_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     discount_pct: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)

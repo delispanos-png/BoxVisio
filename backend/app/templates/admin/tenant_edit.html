@@ -30,6 +30,12 @@
 
     <div class="tenant-settings-grid">
       <div class="tenant-main">
+        <nav class="tenant-section-nav">
+          <a href="#grp-identity"><i class="fe fe-briefcase"></i> Ταυτότητα &amp; Επικοινωνία</a>
+          <a href="#grp-data"><i class="fe fe-refresh-cw"></i> Δεδομένα &amp; Συγχρονισμός</a>
+          <a href="#grp-rules"><i class="fe fe-sliders"></i> Επιχειρησιακοί Κανόνες</a>
+        </nav>
+        <div class="tenant-group-divider" id="grp-identity"><span>Ταυτότητα &amp; Επικοινωνία</span><small>Στοιχεία πελάτη, επαφές, τηλεφωνικό κέντρο</small></div>
         <div class="card tenant-form-card">
           <div class="card-body">
             <div class="tenant-section-head">
@@ -292,6 +298,7 @@
           </div>
         </div>
 
+        <div class="tenant-group-divider" id="grp-data"><span>Δεδομένα &amp; Συγχρονισμός</span><small>Πηγές, αυτόματη ενημέρωση, έλεγχοι ποιότητας</small></div>
         <div class="card tenant-form-card">
           <div class="card-body">
             <div class="tenant-section-head">
@@ -575,6 +582,7 @@
           </div>
         </div>
 
+        <div class="tenant-group-divider" id="grp-rules"><span>Επιχειρησιακοί Κανόνες</span><small>Κανόνες κυκλωμάτων: είδη, περιθώρια, e-shop</small></div>
         <div class="card tenant-form-card">
           <div class="card-body">
             <div class="tenant-section-head">
@@ -590,20 +598,26 @@
                 <div>
                   <label class="form-label">Πηγή Κατάστασης Είδους</label>
                   <select class="form-select" name="status_source">
-                    <option value="sales_window" {% if inventory_item_classification.status_source != 'softone' %}selected{% endif %}>BI (βάσει τελευταίας πώλησης)</option>
-                    <option value="softone" {% if inventory_item_classification.status_source == 'softone' %}selected{% endif %}>SoftOne (is_active_source)</option>
+                    <option value="commercial" {% if inventory_item_classification.status_source == 'commercial' %}selected{% endif %}>SoftOne Εμπορικό Status (Καταργημένο/Ληγμένο = ανενεργό)</option>
+                    <option value="softone" {% if inventory_item_classification.status_source == 'softone' %}selected{% endif %}>SoftOne ISACTIVE (is_active_source)</option>
+                    <option value="sales_window" {% if inventory_item_classification.status_source == 'sales_window' %}selected{% endif %}>BI (βάσει τελευταίας πώλησης)</option>
                   </select>
-                  <span class="tenant-field-help">Με SoftOne το Ενεργό/Ανενεργό έρχεται από την καρτέλα είδους.</span>
+                  <span class="tenant-field-help">Εμπορικό Status = ο κύκλος ζωής του είδους στο SoftOne (συνιστάται). ISACTIVE = το raw flag. BI = recency πωλήσεων.</span>
                 </div>
                 <div>
                   <label class="form-label">Ημέρες για "Ενεργό Είδος"</label>
                   <input class="form-control" type="number" min="1" max="3650" name="active_last_sale_days" value="{{ inventory_item_classification.active_last_sale_days }}">
-                  <span class="tenant-field-help">Ενεργό αν έχει πώληση εντός αυτού του παραθύρου.</span>
+                  <span class="tenant-field-help">Μόνο για πηγή «BI»: ενεργό αν έχει πώληση εντός αυτού του παραθύρου.</span>
                 </div>
                 <div>
                   <label class="form-label">Παράθυρο Κίνησης (ημέρες)</label>
                   <input class="form-control" type="number" min="1" max="3650" name="movement_window_days" value="{{ inventory_item_classification.movement_window_days }}">
                   <span class="tenant-field-help">Διάστημα πωλήσεων για Ταχυκίνητο/Αργοκίνητο. Π.χ. 90 ημέρες = τρίμηνο.</span>
+                </div>
+                <div>
+                  <label class="form-label">Scope Αποθεμάτων — Πωλήσεις (ημέρες)</label>
+                  <input class="form-control" type="number" min="1" max="3650" name="inventory_scope_sold_days" value="{{ inventory_item_classification.inventory_scope_sold_days }}">
+                  <span class="tenant-field-help">Στο κύκλωμα «Αποθέματα»: τα είδη που μετράνε = όσα έχουν στοκ ή πούλησαν εντός αυτού του παραθύρου.</span>
                 </div>
                 <div>
                   <label class="form-label">Όριο Ταχυκίνητου (πωλήσεις παραθύρου)</label>

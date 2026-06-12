@@ -642,6 +642,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     'inactive_items': {'el': 'Ανενεργά Είδη', 'en': 'Inactive Items'},
     'fast_items': {'el': 'Ταχυκίνητα Είδη', 'en': 'Fast-moving Items'},
     'slow_items': {'el': 'Αργοκίνητα Είδη', 'en': 'Slow-moving Items'},
+    'sold_period_items': {'el': 'Πουλήθηκαν σε περίοδο', 'en': 'Sold in period'},
     'stock_qty': {'el': 'Ποσότητα Αποθέματος', 'en': 'Stock Qty'},
     'stock_value': {'el': 'Αξία Αποθέματος', 'en': 'Stock Value'},
     'last_sale': {'el': 'Τελ. Πώληση', 'en': 'Last Sale'},

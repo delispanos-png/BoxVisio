@@ -1826,6 +1826,14 @@ async def _upsert_dims_from_row(
                 get('manufacturer_name', 'manufacturer', 'manufacturer_label', 'mtrmanfctr_name'),
                 255,
             ),
+            'preferred_supplier_ext_id': _as_optional_text(
+                get('preferred_supplier_ext_id', 'preferred_supplier_code', 'mtrsup', 'default_supplier_ext_id'),
+                128,
+            ),
+            'preferred_supplier_name': _as_optional_softone_text(
+                get('preferred_supplier_name', 'preferred_supplier', 'mtrsup_supplier_name', 'default_supplier_name'),
+                255,
+            ),
             'model_name': _as_optional_text(get('model', 'model_name'), 255),
             'business_unit_name': _as_optional_text(get('business_unit', 'business_unit_name', 'businessunit'), 255),
             'unit2': _as_optional_text(get('unit2', 'second_unit', 'secondary_unit'), 64),
@@ -1962,6 +1970,8 @@ async def _upsert_dims_from_row(
                     'category_3': func.coalesce(ins.excluded.category_3, DimItem.category_3),
                     'manufacturer_code': func.coalesce(ins.excluded.manufacturer_code, DimItem.manufacturer_code),
                     'manufacturer_name': func.coalesce(ins.excluded.manufacturer_name, DimItem.manufacturer_name),
+                    'preferred_supplier_ext_id': func.coalesce(ins.excluded.preferred_supplier_ext_id, DimItem.preferred_supplier_ext_id),
+                    'preferred_supplier_name': func.coalesce(ins.excluded.preferred_supplier_name, DimItem.preferred_supplier_name),
                     'model_name': func.coalesce(ins.excluded.model_name, DimItem.model_name),
                     'business_unit_name': func.coalesce(ins.excluded.business_unit_name, DimItem.business_unit_name),
                     'unit2': func.coalesce(ins.excluded.unit2, DimItem.unit2),

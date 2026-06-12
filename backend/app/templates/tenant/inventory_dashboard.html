@@ -386,6 +386,37 @@
     </div>
   </div>
 
+  <div class="row g-3 mb-3">
+    <div class="col-xl-3 col-md-6">
+      <div class="bv-metric-card" style="--mc-color:#3b82f6" data-kpi-what="Πλήθος ειδών αποθήκης: όσα έχουν στοκ ή πούλησαν στο διαμορφωμένο παράθυρο." data-kpi-formula="Σύνολο = είδη σε στοκ ∪ είδη με πώληση στις τελευταίες X ημέρες.">
+        <div class="mc-icon"><i class="fe fe-box"></i></div>
+        <div class="mc-label">{{ tt(request, 'total_items') }}</div>
+        <div class="mc-value" id="invItemsTotal">—</div>
+      </div>
+    </div>
+    <div class="col-xl-3 col-md-6">
+      <div class="bv-metric-card" style="--mc-color:#22c55e" data-kpi-what="Ενεργά είδη με βάση το SoftOne (εμπορικό status, χωρίς Καταργημένο/Ληγμένο)." data-kpi-formula="Ενεργά = είδη με εμπορικό status & ΟΧΙ Καταργημένο/Ληγμένο.">
+        <div class="mc-icon"><i class="fe fe-check-circle"></i></div>
+        <div class="mc-label">{{ tt(request, 'active_items') }}</div>
+        <div class="mc-value" id="invItemsActive">—</div>
+      </div>
+    </div>
+    <div class="col-xl-3 col-md-6">
+      <div class="bv-metric-card" style="--mc-color:#f97316" data-kpi-what="Ανενεργά είδη με βάση το SoftOne (Καταργημένο/Ληγμένο ή χωρίς εμπορικό status)." data-kpi-formula="Ανενεργά = είδη με Καταργημένο/Ληγμένο ή χωρίς εμπορικό status.">
+        <div class="mc-icon"><i class="fe fe-x-circle"></i></div>
+        <div class="mc-label">{{ tt(request, 'inactive_items') }}</div>
+        <div class="mc-value" id="invItemsInactive">—</div>
+      </div>
+    </div>
+    <div class="col-xl-3 col-md-6">
+      <div class="bv-metric-card" style="--mc-color:#0ea5e9" data-kpi-what="Είδη με ≥1 πώληση στο παράθυρο κίνησης (καθαρός δείκτης κίνησης, ανεξάρτητος από ενεργό/ανενεργό)." data-kpi-formula="Πουλήθηκαν σε περίοδο = είδη με ≥1 πώληση στις τελευταίες X ημέρες.">
+        <div class="mc-icon"><i class="fe fe-trending-up"></i></div>
+        <div class="mc-label">{{ tt(request, 'sold_period_items') }}</div>
+        <div class="mc-value" id="invItemsSold">—</div>
+      </div>
+    </div>
+  </div>
+
   <div class="inventory-command-center">
     <div class="inventory-command-head">
       <div>
@@ -897,6 +928,19 @@
     }catch(err){
       setError(err.message || '{{ tt(request, "load_failed") }}');
     }
+    // Warehouse item classification (active/inactive από software + κίνηση), scope: stock ∪ πώληση σε παράθυρο.
+    try{
+      const ip = new URLSearchParams();
+      const asOf = params().get('as_of'); if(asOf) ip.set('as_of', asOf);
+      ip.set('item_scope', 'stock_sold');
+      ip.set('limit', '1');
+      const items = await fetchJsonStrict(`/v1/kpi/inventory/items?${ip.toString()}`);
+      const s = items?.summary || {};
+      setText('invItemsTotal', fmtNum(s.total_items || 0));
+      setText('invItemsActive', fmtNum(s.active_items || 0));
+      setText('invItemsInactive', fmtNum(s.inactive_items || 0));
+      setText('invItemsSold', fmtNum(s.sold_period_items || 0));
+    }catch(e){ /* non-fatal: item tiles stay '—' */ }
   }
 
   const initialAsOf = initialQuery.get('to') || initialQuery.get('as_of') || todayLocalIso();

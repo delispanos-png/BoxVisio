@@ -1,4 +1,5 @@
 from celery import Celery
+from celery.schedules import crontab
 from datetime import timedelta
 
 from app.core.config import settings
@@ -33,6 +34,7 @@ celery.conf.task_routes = {
     'worker.tasks.enqueue_incremental_sync': {'queue': 'ingest'},
     'worker.tasks.enqueue_incremental_sync_all_tenants': {'queue': 'ingest'},
     'worker.tasks.sync_3cx_call_center_due_tenants': {'queue': 'ingest'},
+    'worker.tasks.refresh_inventory_snapshots_all_tenants': {'queue': 'ingest'},
     'worker.tasks.enqueue_daily_recovery_sync_all_tenants': {'queue': 'ingest'},
     'worker.tasks.enqueue_daily_reconciliation_checks': {'queue': 'default'},
     'worker.tasks.run_daily_reconciliation_for_tenant': {'queue': 'default'},
@@ -82,6 +84,14 @@ celery.conf.beat_schedule = {
         'task': 'worker.tasks.audit_sync_completeness',
         'schedule': timedelta(minutes=30),
     },
+    # Nightly 22:00 Europe/Athens — re-pull SoftOne net stock so the daily snapshot is
+    # accurate (incremental syncs never refresh the balance). Timezone set below.
+    'nightly-inventory-stock-snapshot': {
+        'task': 'worker.tasks.refresh_inventory_snapshots_all_tenants',
+        'schedule': crontab(hour=22, minute=0),
+    },
 }
+celery.conf.timezone = 'Europe/Athens'
+celery.conf.enable_utc = True
 
 celery.autodiscover_tasks(['worker'])

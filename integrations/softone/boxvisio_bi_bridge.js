@@ -24,7 +24,7 @@
       /s1services/JS/myWS/GetAllForBI
 */
 
-var BVBI_VERSION = "2026-05-25_connector-parity";
+var BVBI_VERSION = "2026-06-05_preferred-supplier-purchase-channel-sales-payload";
 var _BVBI_COL_CACHE = {};
 
 function _bv_is_array(v) {
@@ -1190,6 +1190,10 @@ function _bv_purchases_sql(cfg) {
   var manualOrderCategoryExpr = manualOrderInfo.expr;
   var commercialStatusExpr = manualOrderInfo.commercialStatusExpr;
   var itemExtraJoinSql = manualOrderInfo.joinSql;
+  var hasPurchChannel = _bv_has_column("MTRL", "CCC88ECHANNEL") && _bv_table_exists("CCC88ECHANNEL");
+  var channelIdExpr = hasPurchChannel ? "I.CCC88ECHANNEL" : "NULL";
+  var channelNameSql = hasPurchChannel ? "CAST(ISNULL(EC.NAME, '') AS VARCHAR(255))" : "CAST('' AS VARCHAR(255))";
+  var channelJoinSql = hasPurchChannel ? "LEFT JOIN CCC88ECHANNEL EC ON EC.CCC88ECHANNEL = TRY_CAST(I.CCC88ECHANNEL AS INT) " : "";
   var grossLineExpr = "(ABS(ISNULL(" + lPrice + ",0)) * ABS(ISNULL(" + lQty + ",0)))";
   var discAmtExpr = "(CASE WHEN " + lPrice + " IS NOT NULL AND " + grossLineExpr + " > ABS(ISNULL(" + lNet + ",0))" +
     " THEN " + grossLineExpr + " - ABS(ISNULL(" + lNet + ",0)) ELSE 0 END)";
@@ -1304,6 +1308,8 @@ function _bv_purchases_sql(cfg) {
     c.trdr +
     ") AS VARCHAR(128)) AS SUPPLIER_EXT_ID," +
     "CAST(ISNULL(S.NAME, '') AS VARCHAR(255)) AS SUPPLIER_NAME," +
+    "CAST(NULLIF(CAST(ISNULL(" + channelIdExpr + ", 0) AS VARCHAR(64)), '0') AS VARCHAR(64)) AS CHANNEL_EXT_ID," +
+    channelNameSql + " AS CHANNEL_NAME," +
     "CAST(ISNULL(" +
     _bv_col_expr("S", "TRDR", ["AFM"], "''") +
     ", '') AS VARCHAR(64)) AS SUPPLIER_AFM," +
@@ -1439,6 +1445,7 @@ function _bv_purchases_sql(cfg) {
     "LEFT JOIN MTRL I ON I.MTRL=" +
     lMtrl +
     " AND I.COMPANY=F.COMPANY " +
+    channelJoinSql +
     itemExtraJoinSql +
     branchInfo.joinSql +
     seriesInfo.joinSql +
@@ -1835,6 +1842,10 @@ function _bv_item_master_sql(cfg) {
   var activeExpr = _bv_col_expr("I", "MTRL", ["ISACTIVE"], "1");
   var brandExpr = _bv_col_expr("I", "MTRL", ["MTRMARK"], "NULL");
   var manufacturerExpr = _bv_col_expr("I", "MTRL", ["MTRMANFCTR"], "NULL");
+  var hasMtrsup = _bv_has_column("MTRL", "MTRSUP");
+  var preferredSupplierIdExpr = hasMtrsup ? "I.MTRSUP" : "NULL";
+  var preferredSupplierNameSql = hasMtrsup ? "CAST(ISNULL(SUP.NAME, '') AS VARCHAR(255))" : "CAST('' AS VARCHAR(255))";
+  var preferredSupplierJoinSql = hasMtrsup ? "LEFT JOIN TRDR SUP ON SUP.TRDR = I.MTRSUP AND SUP.COMPANY = I.COMPANY " : "";
   var cat1Expr = _bv_col_expr("PC1", "CCC88POCAT1", ["NAME"], "''");
   var cat2Expr = _bv_col_expr("PC2", "CCC88POCAT2", ["NAME"], "''");
   var cat3Expr = _bv_col_expr("PC3", "CCC88POCAT3", ["NAME"], "''");
@@ -1886,6 +1897,11 @@ function _bv_item_master_sql(cfg) {
     manufacturerExpr +
     ", 0) AS VARCHAR(128)), '0') AS VARCHAR(128)) AS MANUFACTURER_CODE," +
     "CAST(ISNULL(MF.NAME, '') AS VARCHAR(255)) AS MANUFACTURER_NAME," +
+    "CAST(NULLIF(CAST(ISNULL(" +
+    preferredSupplierIdExpr +
+    ", 0) AS VARCHAR(128)), '0') AS VARCHAR(128)) AS PREFERRED_SUPPLIER_EXT_ID," +
+    preferredSupplierNameSql +
+    " AS PREFERRED_SUPPLIER_NAME," +
     "CAST(" + vatExpr + " AS DECIMAL(18,4)) AS VAT_RATE," +
     "CAST(ISNULL(VT.NAME, '') AS VARCHAR(255)) AS VAT_LABEL," +
     "CAST(ISNULL(" +
@@ -1924,6 +1940,7 @@ function _bv_item_master_sql(cfg) {
     "FROM MTRL I " +
     "LEFT JOIN MTRMARK MK ON MK.MTRMARK = I.MTRMARK AND MK.COMPANY = I.COMPANY " +
     "LEFT JOIN MTRMANFCTR MF ON MF.MTRMANFCTR = I.MTRMANFCTR AND MF.COMPANY = I.COMPANY " +
+    preferredSupplierJoinSql +
     itemExtraJoinSql +
     itemReplJoinSql +
     "LEFT JOIN MTRGROUP MG ON MG.MTRGROUP = I.MTRGROUP AND MG.COMPANY = I.COMPANY " +
@@ -2579,7 +2596,8 @@ function _bv_sales_record(ds) {
     doc_expenses_total: _bv_num(_bv_field(ds, "DOC_EXPENSES_TOTAL", 0), 0),
     doc_tax_total: _bv_num(_bv_field(ds, "DOC_TAX_TOTAL", 0), 0),
     doc_gross_total: _bv_num(_bv_field(ds, "DOC_GROSS_TOTAL", 0), 0),
-    cost_amount: _bv_num(_bv_field(ds, "COST_AMOUNT", 0), 0)
+    cost_amount: _bv_num(_bv_field(ds, "COST_AMOUNT", 0), 0),
+    source_payload_json: ds
   };
   return _bv_attach_org_fields(_bv_attach_common_doc_fields(rec, ds), ds);
 }
@@ -2610,6 +2628,8 @@ function _bv_purchase_record(ds) {
     supplier_name: _bv_text(_bv_field(ds, "SUPPLIER_NAME", ""), ""),
     supplier_afm: _bv_text(_bv_field(ds, "SUPPLIER_AFM", ""), ""),
     entity_ext_id: _bv_text(_bv_field(ds, "SUPPLIER_EXT_ID", ""), ""),
+    channel_ext_id: _bv_text(_bv_field(ds, "CHANNEL_EXT_ID", ""), ""),
+    channel_name: _bv_text(_bv_field(ds, "CHANNEL_NAME", ""), ""),
     item_code: _bv_text(_bv_field(ds, "ITEM_CODE", ""), ""),
     item_name: _bv_text(_bv_field(ds, "ITEM_NAME", ""), ""),
     manual_order_category: _bv_text(_bv_field(ds, "MANUAL_ORDER_CATEGORY", ""), ""),
@@ -2736,6 +2756,8 @@ function _bv_item_master_record(ds) {
     brand_name: _bv_text(_bv_field(ds, "BRAND_NAME", ""), ""),
     manufacturer_code: _bv_text(_bv_field(ds, "MANUFACTURER_CODE", ""), ""),
     manufacturer_name: _bv_text(_bv_field(ds, "MANUFACTURER_NAME", ""), ""),
+    preferred_supplier_ext_id: _bv_text(_bv_field(ds, "PREFERRED_SUPPLIER_EXT_ID", ""), ""),
+    preferred_supplier_name: _bv_text(_bv_field(ds, "PREFERRED_SUPPLIER_NAME", ""), ""),
     vat_rate: _bv_num(_bv_field(ds, "VAT_RATE", null), null),
     vat_label: _bv_text(_bv_field(ds, "VAT_LABEL", ""), ""),
     category_1: _bv_text(_bv_field(ds, "CATEGORY_1", ""), ""),

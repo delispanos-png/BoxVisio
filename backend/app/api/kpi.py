@@ -157,7 +157,12 @@ def _tenant_inventory_item_classification_from_request(request: Request) -> dict
     flags = getattr(tenant, 'feature_flags', None)
     raw = {}
     if isinstance(flags, dict):
-        cfg = flags.get('inventory_item_classification')
+        # The config dict lives under '..._config' (a non-managed key preserved across subscription
+        # syncs); 'inventory_item_classification' itself is a managed on/off feature boolean.
+        cfg = flags.get('inventory_item_classification_config')
+        if not isinstance(cfg, dict):
+            legacy = flags.get('inventory_item_classification')
+            cfg = legacy if isinstance(legacy, dict) else None
         if isinstance(cfg, dict):
             raw = cfg
     return normalize_inventory_item_classification_config(raw)
@@ -2503,6 +2508,7 @@ async def get_inventory_items(
     q: str | None = Query(default=None),
     limit: int = Query(default=200, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
+    item_scope: str | None = Query(default=None),
     tenant_db: AsyncSession = Depends(get_tenant_db),
 ):
     classification_config = _tenant_inventory_item_classification_from_request(request)
@@ -2520,6 +2526,7 @@ async def get_inventory_items(
         'q': str(q or ''),
         'limit': int(limit),
         'offset': int(offset),
+        'item_scope': str(item_scope or ''),
         'classification': classification_config,
     }
     result = await _cached_kpi_response(
@@ -2543,6 +2550,7 @@ async def get_inventory_items(
             limit=limit,
             offset=offset,
             classification_config=classification_config,
+            scope=item_scope,
         ),
     )
     result = dict(result or {})

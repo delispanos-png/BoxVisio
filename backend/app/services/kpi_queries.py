@@ -55,12 +55,18 @@ from app.models.tenant import (
 )
 
 _DEFAULT_INVENTORY_ITEM_CLASSIFICATION = {
-    'status_source': 'sales_window',
+    'status_source': 'softone',
     'active_last_sale_days': 60,
     'movement_window_days': 30,
+    # Inventory ("Αποθέματα") scope: items in stock OR sold within this many days.
+    'inventory_scope_sold_days': 90,
     'fast_sales_qty_30d_min': 50,
     'slow_sales_qty_30d_max': 5,
 }
+
+# For status_source='commercial': a commercial_status in this set marks the item as INACTIVE
+# (discontinued / expired). Everything else with a non-empty commercial_status is ACTIVE.
+_INACTIVE_COMMERCIAL_STATUSES = {'καταργημένο', 'ληγμένο'}
 
 _DEFAULT_ESHOP_FULFILLMENT_RULES = {
     'pickup_warehouses': {
@@ -153,7 +159,15 @@ def resolve_price_margin_target(
 def normalize_inventory_item_classification_config(raw: dict | None) -> dict[str, object]:
     source = raw if isinstance(raw, dict) else {}
     status_source_raw = str(source.get('status_source') or '').strip().lower()
-    status_source = 'softone' if status_source_raw in {'softone', 'source', 'source_flag'} else 'sales_window'
+    # Active/Inactive must come from the SoftOne primary source, not from a sales-recency policy.
+    # 'commercial' = lifecycle from commercial_status (master scope); 'softone' = ISACTIVE flag;
+    # 'sales_window' = legacy recency rule. Default 'softone'.
+    if status_source_raw in {'commercial', 'commercial_status', 'status'}:
+        status_source = 'commercial'
+    elif status_source_raw in {'sales_window', 'sales', 'window', 'recency'}:
+        status_source = 'sales_window'
+    else:
+        status_source = 'softone'
 
     def _int_value(key: str, default: int, min_value: int, max_value: int) -> int:
         val = source.get(key, default)
@@ -187,6 +201,12 @@ def normalize_inventory_item_classification_config(raw: dict | None) -> dict[str
         1,
         3650,
     )
+    inventory_scope_sold_days = _int_value(
+        'inventory_scope_sold_days',
+        _DEFAULT_INVENTORY_ITEM_CLASSIFICATION['inventory_scope_sold_days'],
+        1,
+        3650,
+    )
     if slow_max >= fast_min:
         slow_max = max(0, fast_min - 1)
 
@@ -194,6 +214,7 @@ def normalize_inventory_item_classification_config(raw: dict | None) -> dict[str
         'status_source': status_source,
         'active_last_sale_days': active_days,
         'movement_window_days': movement_window_days,
+        'inventory_scope_sold_days': inventory_scope_sold_days,
         'fast_sales_qty_30d_min': fast_min,
         'slow_sales_qty_30d_max': slow_max,
     }
@@ -323,13 +344,17 @@ def _classify_inventory_item(
     sales_qty: float,
     config: dict[str, object],
     is_active_source: bool | None = None,
+    commercial_status: str | None = None,
 ) -> tuple[str, str]:
-    status_source = str(config.get('status_source') or 'sales_window').strip().lower()
+    status_source = str(config.get('status_source') or 'softone').strip().lower()
     active_days = int(config.get('active_last_sale_days') or _DEFAULT_INVENTORY_ITEM_CLASSIFICATION['active_last_sale_days'])
     fast_min = int(config.get('fast_sales_qty_30d_min') or _DEFAULT_INVENTORY_ITEM_CLASSIFICATION['fast_sales_qty_30d_min'])
     slow_max = int(config.get('slow_sales_qty_30d_max') or _DEFAULT_INVENTORY_ITEM_CLASSIFICATION['slow_sales_qty_30d_max'])
 
-    if status_source == 'softone' and is_active_source is not None:
+    if status_source == 'commercial':
+        cs = str(commercial_status or '').strip().lower()
+        is_active = bool(cs) and cs not in _INACTIVE_COMMERCIAL_STATUSES
+    elif status_source == 'softone' and is_active_source is not None:
         is_active = bool(is_active_source)
     else:
         is_active = bool(last_sale_date and last_sale_date >= (as_of - timedelta(days=active_days)))
@@ -8587,6 +8612,37 @@ async def _latest_inventory_snapshot_date(db: AsyncSession, as_of: date) -> date
     return None
 
 
+def _deduped_snapshot_fact_ids(snapshot_date: date):
+    """IDs of the fact_inventory rows to keep for a snapshot date: one per
+    (branch, warehouse, item) — the freshest. Guards every raw fact_inventory
+    aggregation against double-counting when more than one snapshot set lands on a
+    day (the nightly STKSNAP refresh + a full-sync pull). item_code is the stable
+    cross-source key; item_id may be resolved inconsistently. Same partition as
+    inventory_summary_bundle_from_current_state and _refresh_inventory_aggregates.
+    """
+    ranked = (
+        select(
+            FactInventory.id.label('fid'),
+            func.row_number()
+            .over(
+                partition_by=(
+                    func.coalesce(FactInventory.branch_ext_id, literal('')),
+                    func.coalesce(FactInventory.warehouse_ext_id, literal('')),
+                    func.coalesce(func.nullif(FactInventory.item_code, ''), cast(FactInventory.item_id, String), literal('')),
+                ),
+                order_by=FactInventory.updated_at.desc(),
+            )
+            .label('rn'),
+        )
+        .where(
+            FactInventory.doc_date == snapshot_date,
+            FactInventory.movement_type == 'snapshot',
+        )
+        .subquery('deduped_snapshot_ranked')
+    )
+    return select(ranked.c.fid).where(ranked.c.rn == 1)
+
+
 async def stock_aging(
     db: AsyncSession,
     as_of: date,
@@ -8646,6 +8702,7 @@ async def stock_aging(
         group_label_col=_json_text(FactInventory.source_payload_json, 'group_name'),
         commercial_category_col=_json_text(FactInventory.source_payload_json, 'commercial_category'),
     )
+    stmt = stmt.where(FactInventory.id.in_(_deduped_snapshot_fact_ids(snapshot_date)))
     stmt = stmt.group_by(bucket).order_by(bucket)
 
     rows = (await db.execute(stmt)).all()
@@ -9064,6 +9121,23 @@ async def inventory_summary_bundle_from_current_state(
             FactInventory.source_payload_json['commercial_category'].astext.label('payload_commercial_category'),
             FactInventory.source_payload_json['manufacturer_code'].astext.label('payload_manufacturer_code'),
             FactInventory.source_payload_json['manufacturer_name'].astext.label('payload_manufacturer_name'),
+            # Dedup key: when more than one snapshot set lands on the same day
+            # (e.g. the nightly STKSNAP refresh + a full-sync IS pull), keep only the
+            # freshest row per (branch, warehouse, item) so totals are not double-counted.
+            # Same partition as _refresh_inventory_aggregates (ext_ids; item_id is NULL).
+            func.row_number()
+            .over(
+                partition_by=(
+                    func.coalesce(FactInventory.branch_ext_id, literal('')),
+                    func.coalesce(FactInventory.warehouse_ext_id, literal('')),
+                    # item_code is the stable natural key across snapshot sources; item_id
+                    # may be resolved inconsistently (or left NULL) by different ingests,
+                    # so prefer item_code and only fall back to item_id.
+                    func.coalesce(func.nullif(FactInventory.item_code, ''), cast(FactInventory.item_id, String), literal('')),
+                ),
+                order_by=FactInventory.updated_at.desc(),
+            )
+            .label('rn'),
         )
         .where(
             FactInventory.doc_date == latest_date,
@@ -9133,7 +9207,7 @@ async def inventory_summary_bundle_from_current_state(
         group_label_col=latest_inventory_rows.c.payload_group_name,
         commercial_category_col=latest_inventory_rows.c.payload_commercial_category,
     )
-    inv_base = inv_base.group_by(item_code_expr).subquery('inventory_current_state_base')
+    inv_base = inv_base.where(latest_inventory_rows.c.rn == 1).group_by(item_code_expr).subquery('inventory_current_state_base')
 
     sales_last = (
         select(
@@ -12099,6 +12173,7 @@ async def inventory_by_brand(
         group_label_col=_json_text(FactInventory.source_payload_json, 'group_name'),
         commercial_category_col=_json_text(FactInventory.source_payload_json, 'commercial_category'),
     )
+    stmt = stmt.where(FactInventory.id.in_(_deduped_snapshot_fact_ids(snapshot_date)))
     stmt = (
         stmt.group_by(DimBrand.name, DimBrand.external_id)
         .order_by(func.sum(FactInventory.value_amount).desc())
@@ -12165,6 +12240,7 @@ async def inventory_by_commercial_category(
         group_label_col=_json_text(FactInventory.source_payload_json, 'group_name'),
         commercial_category_col=_json_text(FactInventory.source_payload_json, 'commercial_category'),
     )
+    stmt = stmt.where(FactInventory.id.in_(_deduped_snapshot_fact_ids(snapshot_date)))
     stmt = (
         stmt.group_by(DimGroup.name, DimGroup.external_id)
         .order_by(func.sum(FactInventory.value_amount).desc())
@@ -12240,6 +12316,7 @@ async def inventory_by_manufacturer(
         group_label_col=_json_text(FactInventory.source_payload_json, 'group_name'),
         commercial_category_col=_json_text(FactInventory.source_payload_json, 'commercial_category'),
     )
+    stmt = stmt.where(FactInventory.id.in_(_deduped_snapshot_fact_ids(snapshot_date)))
     stmt = (
         stmt.group_by(manufacturer_label)
         .order_by(func.sum(FactInventory.value_amount).desc())
@@ -13782,12 +13859,28 @@ async def inventory_items_overview(
     limit: int = 200,
     offset: int = 0,
     classification_config: dict | None = None,
+    scope: str | None = None,
 ):
     resolved_classification = normalize_inventory_item_classification_config(classification_config)
     movement_window_days = int(
         resolved_classification.get('movement_window_days')
         or _DEFAULT_INVENTORY_ITEM_CLASSIFICATION['movement_window_days']
     )
+    # 'commercial' status source: active/inactive comes from the SoftOne commercial_status
+    # lifecycle (inactive = Καταργημένο/Ληγμένο). Scope modes:
+    #  - 'master'      : every item that carries a commercial_status (managed catalog), no-stock incl.
+    #  - 'stock_sold'  : items in stock OR sold within inventory_scope_sold_days (warehouse view).
+    #  - 'stock'       : legacy — only items in the latest snapshot.
+    _status_source = str(resolved_classification.get('status_source') or 'softone').strip().lower()
+    inventory_scope_sold_days = int(
+        resolved_classification.get('inventory_scope_sold_days')
+        or _DEFAULT_INVENTORY_ITEM_CLASSIFICATION['inventory_scope_sold_days']
+    )
+    scope_mode = str(scope or '').strip().lower()
+    if not scope_mode:
+        scope_mode = 'master' if _status_source == 'commercial' else 'stock'
+    master_scope = scope_mode == 'master'
+    stock_sold_scope = scope_mode == 'stock_sold'
     latest_date = await _latest_inventory_snapshot_date(db, as_of)
     if latest_date is None:
         return {'snapshot_date': None, 'summary': {}, 'rows': []}
@@ -13818,6 +13911,19 @@ async def inventory_items_overview(
             FactInventory.source_payload_json['is_active_source'].astext.label('payload_is_active_source'),
             FactInventory.qty_on_hand.label('qty_on_hand'),
             FactInventory.value_amount.label('value_amount'),
+            # Keep one row per (branch, warehouse, item) when more than one snapshot set
+            # lands on a day (nightly STKSNAP refresh + a full-sync pull) so the per-item
+            # SUM below does not double-count. item_code is the stable cross-source key.
+            func.row_number()
+            .over(
+                partition_by=(
+                    func.coalesce(FactInventory.branch_ext_id, literal('')),
+                    func.coalesce(FactInventory.warehouse_ext_id, literal('')),
+                    func.coalesce(func.nullif(FactInventory.item_code, ''), cast(FactInventory.item_id, String), literal('')),
+                ),
+                order_by=FactInventory.updated_at.desc(),
+            )
+            .label('rn'),
         )
         .where(
             FactInventory.doc_date == latest_date,
@@ -13931,7 +14037,7 @@ async def inventory_items_overview(
         group_label_col=latest_inventory_rows.c.payload_group_name,
         commercial_category_col=latest_inventory_rows.c.payload_commercial_category,
     )
-    inv_base = inv_base.group_by(item_code_expr).subquery('inv_base')
+    inv_base = inv_base.where(latest_inventory_rows.c.rn == 1).group_by(item_code_expr).subquery('inv_base')
 
     if not any([branches, warehouses, brands, categories, groups]) and _effective_branch_filter(None) is None:
         sales_30 = (
@@ -14036,7 +14142,99 @@ async def inventory_items_overview(
 
     if simple_sql_page:
         base_inventory = inv_base
-        if not any([branches, warehouses, brands, categories, groups]):
+        if master_scope:
+            # Master-scoped view: every item that carries a SoftOne commercial_status,
+            # regardless of current stock. Stock qty/value LEFT-joined from the latest snapshot.
+            snap_q = (
+                select(
+                    AggInventorySnapshotDaily.item_external_id.label('item_code'),
+                    AggInventorySnapshotDaily.qty_on_hand.label('qty_on_hand'),
+                    AggInventorySnapshotDaily.value_amount.label('value_amount'),
+                )
+                .where(AggInventorySnapshotDaily.snapshot_date == latest_date)
+                .subquery('snap_q')
+            )
+            base_inventory = (
+                select(
+                    DimItem.external_id.label('item_code'),
+                    func.coalesce(func.nullif(func.btrim(DimItem.name), ''), DimItem.external_id).label('item_name'),
+                    func.coalesce(func.nullif(func.btrim(DimItem.barcode), ''), literal('')).label('barcode'),
+                    func.coalesce(func.nullif(func.btrim(DimBrand.name), ''), literal('N/A')).label('brand'),
+                    func.coalesce(
+                        func.nullif(func.btrim(DimItem.manufacturer_name), ''),
+                        func.nullif(func.btrim(DimItem.manufacturer_code), ''),
+                        literal('N/A'),
+                    ).label('manufacturer'),
+                    func.coalesce(func.nullif(func.btrim(DimCategory.name), ''), literal('N/A')).label('category'),
+                    func.coalesce(func.nullif(func.btrim(DimGroup.name), ''), literal('N/A')).label('group_name'),
+                    func.coalesce(func.nullif(func.btrim(DimItem.category_1), ''), literal('')).label('category_1'),
+                    func.coalesce(func.nullif(func.btrim(DimItem.commercial_category), ''), literal('')).label('commercial_category'),
+                    func.coalesce(func.nullif(func.btrim(DimItem.manual_order_category), ''), func.nullif(func.btrim(DimItem.abc_category), ''), literal('Χωρίς ABC')).label('abc_category'),
+                    func.coalesce(func.nullif(func.btrim(DimItem.commercial_status), ''), literal('')).label('commercial_status'),
+                    DimItem.is_active_source.label('is_active_source'),
+                    func.coalesce(snap_q.c.qty_on_hand, 0).label('qty_on_hand'),
+                    func.coalesce(snap_q.c.value_amount, 0).label('stock_value'),
+                )
+                .select_from(DimItem)
+                .join(DimBrand, DimItem.brand_id == DimBrand.id, isouter=True)
+                .join(DimCategory, DimItem.category_id == DimCategory.id, isouter=True)
+                .join(DimGroup, DimItem.group_id == DimGroup.id, isouter=True)
+                .join(snap_q, snap_q.c.item_code == DimItem.external_id, isouter=True)
+                .where(func.coalesce(DimItem.softone_sotype, 51) == 51)
+                .where(func.btrim(func.coalesce(DimItem.commercial_status, literal(''))) != literal(''))
+                .subquery('agg_inventory_base')
+            )
+        elif stock_sold_scope:
+            # Warehouse view: items currently in stock OR sold within the configured window.
+            snap_q = (
+                select(
+                    AggInventorySnapshotDaily.item_external_id.label('item_code'),
+                    AggInventorySnapshotDaily.qty_on_hand.label('qty_on_hand'),
+                    AggInventorySnapshotDaily.value_amount.label('value_amount'),
+                )
+                .where(AggInventorySnapshotDaily.snapshot_date == latest_date)
+                .subquery('snap_q')
+            )
+            scope_codes = (
+                select(AggInventorySnapshotDaily.item_external_id.label('item_code'))
+                .where(AggInventorySnapshotDaily.snapshot_date == latest_date)
+                .union(
+                    select(AggSalesItemDaily.item_external_id.label('item_code'))
+                    .where(AggSalesItemDaily.doc_date >= (as_of - timedelta(days=inventory_scope_sold_days)))
+                    .where(AggSalesItemDaily.doc_date <= as_of)
+                )
+                .subquery('scope_codes')
+            )
+            base_inventory = (
+                select(
+                    scope_codes.c.item_code.label('item_code'),
+                    func.coalesce(func.nullif(func.btrim(DimItem.name), ''), scope_codes.c.item_code).label('item_name'),
+                    func.coalesce(func.nullif(func.btrim(DimItem.barcode), ''), literal('')).label('barcode'),
+                    func.coalesce(func.nullif(func.btrim(DimBrand.name), ''), literal('N/A')).label('brand'),
+                    func.coalesce(
+                        func.nullif(func.btrim(DimItem.manufacturer_name), ''),
+                        func.nullif(func.btrim(DimItem.manufacturer_code), ''),
+                        literal('N/A'),
+                    ).label('manufacturer'),
+                    func.coalesce(func.nullif(func.btrim(DimCategory.name), ''), literal('N/A')).label('category'),
+                    func.coalesce(func.nullif(func.btrim(DimGroup.name), ''), literal('N/A')).label('group_name'),
+                    func.coalesce(func.nullif(func.btrim(DimItem.category_1), ''), literal('')).label('category_1'),
+                    func.coalesce(func.nullif(func.btrim(DimItem.commercial_category), ''), literal('')).label('commercial_category'),
+                    func.coalesce(func.nullif(func.btrim(DimItem.manual_order_category), ''), func.nullif(func.btrim(DimItem.abc_category), ''), literal('Χωρίς ABC')).label('abc_category'),
+                    func.coalesce(func.nullif(func.btrim(DimItem.commercial_status), ''), literal('')).label('commercial_status'),
+                    DimItem.is_active_source.label('is_active_source'),
+                    func.coalesce(snap_q.c.qty_on_hand, 0).label('qty_on_hand'),
+                    func.coalesce(snap_q.c.value_amount, 0).label('stock_value'),
+                )
+                .select_from(scope_codes)
+                .join(DimItem, DimItem.external_id == scope_codes.c.item_code, isouter=True)
+                .join(DimBrand, DimItem.brand_id == DimBrand.id, isouter=True)
+                .join(DimCategory, DimItem.category_id == DimCategory.id, isouter=True)
+                .join(DimGroup, DimItem.group_id == DimGroup.id, isouter=True)
+                .join(snap_q, snap_q.c.item_code == scope_codes.c.item_code, isouter=True)
+                .subquery('agg_inventory_base')
+            )
+        elif not any([branches, warehouses, brands, categories, groups]):
             base_inventory = (
                 select(
                     AggInventorySnapshotDaily.item_external_id.label('item_code'),
@@ -14079,8 +14277,17 @@ async def inventory_items_overview(
             resolved_classification.get('slow_sales_qty_30d_max')
             or _DEFAULT_INVENTORY_ITEM_CLASSIFICATION['slow_sales_qty_30d_max']
         )
-        status_source = str(resolved_classification.get('status_source') or 'sales_window').strip().lower()
-        if status_source == 'softone':
+        status_source = _status_source
+        _commercial_norm = func.lower(func.btrim(func.coalesce(base_inventory.c.commercial_status, literal(''))))
+        if status_source == 'commercial':
+            active_sql = case(
+                (
+                    (_commercial_norm != literal('')) & _commercial_norm.notin_(list(_INACTIVE_COMMERCIAL_STATUSES)),
+                    1,
+                ),
+                else_=0,
+            )
+        elif status_source == 'softone':
             active_sql = case((base_inventory.c.is_active_source.is_(True), 1), else_=0)
         else:
             active_sql = case(
@@ -14089,6 +14296,7 @@ async def inventory_items_overview(
             )
         fast_sql = case((sales_qty_expr >= fast_min, 1), else_=0)
         slow_sql = case((sales_qty_expr <= slow_max, 1), else_=0)
+        sold_period_sql = case((sales_30.c.last_sale_date.isnot(None), 1), else_=0)
 
         summary_stmt = (
             select(
@@ -14097,6 +14305,7 @@ async def inventory_items_overview(
                 (func.count() - func.coalesce(func.sum(active_sql), 0)).label('inactive_items'),
                 func.coalesce(func.sum(fast_sql), 0).label('fast_items'),
                 func.coalesce(func.sum(slow_sql), 0).label('slow_items'),
+                func.coalesce(func.sum(sold_period_sql), 0).label('sold_period_items'),
                 func.coalesce(func.sum(base_inventory.c.stock_value), 0).label('stock_value'),
             )
             .select_from(base_inventory)
@@ -14201,6 +14410,7 @@ async def inventory_items_overview(
                 sales_qty=sales_qty_30,
                 config=resolved_classification,
                 is_active_source=(bool(is_active_source) if is_active_source is not None else None),
+                commercial_status=commercial_status,
             )
             mapped.append(
                 {
@@ -14231,6 +14441,8 @@ async def inventory_items_overview(
             'inactive_items': int(summary_row['inactive_items'] or 0),
             'fast_items': int(summary_row['fast_items'] or 0),
             'slow_items': int(summary_row['slow_items'] or 0),
+            'sold_period_items': int(summary_row['sold_period_items'] or 0),
+            'movement_window_days': movement_window_days,
             'stock_value': float(summary_row['stock_value'] or 0),
             'abc_counts': [
                 {
@@ -14282,6 +14494,7 @@ async def inventory_items_overview(
             sales_qty=sales_qty_30,
             config=resolved_classification,
             is_active_source=(bool(is_active_source) if is_active_source is not None else None),
+            commercial_status=commercial_status,
         )
         mapped.append(
             {
@@ -14361,6 +14574,8 @@ async def inventory_items_overview(
         'inactive_items': sum(1 for x in summary_source if x.get('status') == 'inactive'),
         'fast_items': sum(1 for x in summary_source if x.get('movement') == 'fast'),
         'slow_items': sum(1 for x in summary_source if x.get('movement') == 'slow'),
+        'sold_period_items': sum(1 for x in summary_source if x.get('last_sale_date')),
+        'movement_window_days': movement_window_days,
         'stock_value': float(sum(float(x.get('stock_value') or 0) for x in summary_source)),
         'abc_counts': [
             {
@@ -14437,8 +14652,8 @@ async def inventory_item_detail(
             func.row_number()
             .over(
                 partition_by=(
-                    FactInventory.branch_id,
-                    FactInventory.warehouse_id,
+                    func.coalesce(FactInventory.branch_ext_id, literal('')),
+                    func.coalesce(FactInventory.warehouse_ext_id, literal('')),
                     func.coalesce(cast(FactInventory.item_id, String), FactInventory.item_code, literal('')),
                 ),
                 order_by=(FactInventory.doc_date.desc(), FactInventory.updated_at.desc(), FactInventory.id.desc()),

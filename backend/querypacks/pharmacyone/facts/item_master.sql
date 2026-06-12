@@ -20,6 +20,8 @@ SELECT
   CAST(ISNULL(MK.NAME, '') AS nvarchar(255)) AS brand_name,
   CAST(NULLIF(CAST(ISNULL(I.MTRMANFCTR, 0) AS nvarchar(128)), '0') AS nvarchar(128)) AS manufacturer_code,
   CAST(ISNULL(MF.NAME, '') AS nvarchar(255)) AS manufacturer_name,
+  CAST(NULLIF(CAST(ISNULL(I.MTRSUP, 0) AS nvarchar(128)), '0') AS nvarchar(128)) AS preferred_supplier_ext_id,
+  CAST(ISNULL(SUP.NAME, '') AS nvarchar(255)) AS preferred_supplier_name,
   TRY_CAST(I.VAT AS decimal(18,4)) AS vat_rate,
   CAST(ISNULL(VT.NAME, '') AS nvarchar(255)) AS vat_label,
   CAST(ISNULL(CG.NAME, '') AS nvarchar(255)) AS commercial_category,
@@ -59,6 +61,9 @@ LEFT JOIN UTBL05 UT5 WITH (NOLOCK)
 LEFT JOIN MTRMANFCTR MF WITH (NOLOCK)
   ON MF.MTRMANFCTR = I.MTRMANFCTR
  AND MF.COMPANY = I.COMPANY
+LEFT JOIN TRDR SUP WITH (NOLOCK)
+  ON SUP.TRDR = I.MTRSUP
+ AND SUP.COMPANY = I.COMPANY
 LEFT JOIN MTRMARK MK WITH (NOLOCK)
   ON MK.MTRMARK = I.MTRMARK
  AND MK.COMPANY = I.COMPANY
