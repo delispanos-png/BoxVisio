@@ -32,6 +32,17 @@ WITH sp AS (
     FROM MTRBALSHEET WITH (NOLOCK)
     WHERE COMPANY = ? AND PERIOD = 0
     GROUP BY COMPANY
+),
+mac AS (
+    -- Moving-average unit cost = lifetime purchase value / purchase qty (all periods, all
+    -- years). The on-hand cost is qty * this — matching SoftOne's «Κόστος υπολ.». Summing
+    -- IMPVAL-EXPVAL is wrong (EXPVAL is valued at the cost at time of sale, and the year
+    -- opening value is not in IMPVAL) — it went negative per warehouse and overstated totals.
+    SELECT COMPANY, MTRL,
+           CASE WHEN SUM(ISNULL(PURQTY, 0)) > 0 THEN SUM(ISNULL(PURVAL, 0)) / SUM(ISNULL(PURQTY, 0)) ELSE 0 END AS unit_cost
+    FROM MTRBALSHEET WITH (NOLOCK)
+    WHERE COMPANY = ?
+    GROUP BY COMPANY, MTRL
 )
 SELECT
     CAST(ISNULL(I.CODE, I.MTRL) AS VARCHAR(128)) AS code,
@@ -41,7 +52,7 @@ SELECT
          AS VARCHAR(64)) AS branch_ext_id,
     SUM(ISNULL(S.IMPQTY1, 0) - ISNULL(S.EXPQTY1, 0)) AS qty,
     SUM((ISNULL(S.IMPQTY1, 0) - ISNULL(S.EXPQTY1, 0)) * ISNULL(I.PRICEW, 0)) AS val,
-    SUM(ISNULL(S.IMPVAL, 0) - ISNULL(S.EXPVAL, 0)) AS cost,
+    SUM(ISNULL(S.IMPQTY1, 0) - ISNULL(S.EXPQTY1, 0)) * MAX(ISNULL(mac.unit_cost, 0)) AS cost,
     SUM((ISNULL(S.IMPQTY1, 0) - ISNULL(S.EXPQTY1, 0)) * ISNULL(I.PRICER, 0)) AS retail
 FROM MTRBALSHEET S WITH (NOLOCK)
 -- The on-hand balance is the cumulative net over ALL periods of the current fiscal
@@ -50,6 +61,7 @@ FROM MTRBALSHEET S WITH (NOLOCK)
 -- shows 10 at PERIOD=0 vs the true 48 (Logika 34, Κηφισιά 6, ...). Sum all periods.
 JOIN sp ON sp.COMPANY = S.COMPANY AND sp.FISCPRD = S.FISCPRD
 JOIN MTRL I WITH (NOLOCK) ON I.MTRL = S.MTRL AND I.COMPANY = S.COMPANY
+LEFT JOIN mac ON mac.COMPANY = S.COMPANY AND mac.MTRL = S.MTRL
 LEFT JOIN WHOUSE W WITH (NOLOCK) ON W.WHOUSE = S.WHOUSE AND W.COMPANY = S.COMPANY
 LEFT JOIN BRANCH BR WITH (NOLOCK)
     ON BR.BRANCH = ISNULL(NULLIF(W.WHOUSEG, 0), ISNULL(S.WHOUSE, 0)) AND BR.COMPANY = S.COMPANY
@@ -95,7 +107,7 @@ def _fetch_balance_rows(connection_string: str, company) -> list[tuple]:
     try:
         cn.timeout = 120
         cur = cn.cursor()
-        cur.execute(_BALANCE_SQL, company, company)
+        cur.execute(_BALANCE_SQL, company, company, company)
         return cur.fetchall()
     finally:
         cn.close()

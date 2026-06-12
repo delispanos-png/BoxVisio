@@ -11,7 +11,7 @@ SELECT
   CAST(0 AS decimal(18,4)) AS qty_reserved,
   CAST(0 AS decimal(18,4)) AS qty_expected,
   CAST(ISNULL(S.IMPQTY1, 0) - ISNULL(S.EXPQTY1, 0) AS decimal(18,4)) AS qty_available,
-  CAST(ISNULL(S.IMPVAL, 0) - ISNULL(S.EXPVAL, 0) AS decimal(18,4)) AS cost_amount,
+  CAST((ISNULL(S.IMPQTY1, 0) - ISNULL(S.EXPQTY1, 0)) * ISNULL(MAC.unit_cost, 0) AS decimal(18,4)) AS cost_amount,
   CAST(
     (ISNULL(S.IMPQTY1, 0) - ISNULL(S.EXPQTY1, 0)) * ISNULL(I.PRICEW, 0)
     AS decimal(18,4)
@@ -109,6 +109,17 @@ INNER JOIN (
   ON _item_stock.COMPANY = S.COMPANY
  AND _item_stock.FISCPRD = S.FISCPRD
  AND _item_stock.MTRL = S.MTRL
+LEFT JOIN (
+  -- Moving-average unit cost = lifetime purchase value / purchase qty (all periods/years).
+  -- cost_amount = on-hand qty * this, matching SoftOne «Κόστος υπολ.». IMPVAL-EXPVAL is wrong.
+  SELECT COMPANY, MTRL,
+    CASE WHEN SUM(ISNULL(PURQTY, 0)) > 0 THEN SUM(ISNULL(PURVAL, 0)) / SUM(ISNULL(PURQTY, 0)) ELSE 0 END AS unit_cost
+  FROM MTRBALSHEET WITH (NOLOCK)
+  WHERE (@company_id IS NULL OR COMPANY = @company_id)
+  GROUP BY COMPANY, MTRL
+) MAC
+  ON MAC.COMPANY = S.COMPANY
+ AND MAC.MTRL = S.MTRL
 LEFT JOIN WHOUSE W WITH (NOLOCK)
   ON W.WHOUSE = S.WHOUSE
  AND W.COMPANY = S.COMPANY
