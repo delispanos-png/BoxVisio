@@ -552,8 +552,11 @@ async def build_replenishment_from_facts(
                 ) AS expected_qty
             FROM fact_supplier_orders fso
             LEFT JOIN dim_items di ON di.id = fso.item_id
-            WHERE COALESCE(fso.order_status, 'open') = 'open'
-              AND COALESCE(fso.has_transformation, false) = false
+            -- Count what is genuinely still on order at the LINE level (ordered − covered −
+            -- cancelled > 0). The order_status / has_transformation flags are document-level:
+            -- a multi-line PO with one line received marks the whole document closed, dropping
+            -- the still-open lines and making the FnR double-order them (~3,2k units missed).
+            WHERE GREATEST(COALESCE(fso.order_qty, 0) - COALESCE(fso.covered_qty, 0) - COALESCE(fso.cancelled_qty, 0), 0) > 0
               AND (fso.item_id IS NOT NULL OR COALESCE(fso.item_code, '') <> '')
             GROUP BY COALESCE(di.external_id, fso.item_code)
         ),
@@ -1149,8 +1152,11 @@ async def build_fnr_excel_from_facts(
             LEFT JOIN dim_items di ON di.id = fso.item_id OR di.external_id = fso.item_code
             LEFT JOIN dim_suppliers ds ON ds.id = fso.supplier_id
             LEFT JOIN dim_suppliers ds_ext ON ds_ext.external_id = fso.supplier_ext_id
-            WHERE COALESCE(fso.order_status, 'open') = 'open'
-              AND COALESCE(fso.has_transformation, false) = false
+            -- Count what is genuinely still on order at the LINE level (ordered − covered −
+            -- cancelled > 0). The order_status / has_transformation flags are document-level:
+            -- a multi-line PO with one line received marks the whole document closed, dropping
+            -- the still-open lines and making the FnR double-order them (~3,2k units missed).
+            WHERE GREATEST(COALESCE(fso.order_qty, 0) - COALESCE(fso.covered_qty, 0) - COALESCE(fso.cancelled_qty, 0), 0) > 0
               AND COALESCE(di.external_id, fso.item_code, '') <> ''
               AND GREATEST(
                     COALESCE(fso.order_qty, 0) - COALESCE(fso.covered_qty, 0) - COALESCE(fso.cancelled_qty, 0),
@@ -2287,8 +2293,11 @@ async def build_availability_foundation(
             FROM fact_supplier_orders fso
             LEFT JOIN dim_suppliers ds ON ds.id = fso.supplier_id
             LEFT JOIN dim_suppliers ds_ext ON ds_ext.external_id = fso.supplier_ext_id
-            WHERE COALESCE(fso.order_status, 'open') = 'open'
-              AND COALESCE(fso.has_transformation, false) = false
+            -- Count what is genuinely still on order at the LINE level (ordered − covered −
+            -- cancelled > 0). The order_status / has_transformation flags are document-level:
+            -- a multi-line PO with one line received marks the whole document closed, dropping
+            -- the still-open lines and making the FnR double-order them (~3,2k units missed).
+            WHERE GREATEST(COALESCE(fso.order_qty, 0) - COALESCE(fso.covered_qty, 0) - COALESCE(fso.cancelled_qty, 0), 0) > 0
               AND COALESCE(fso.item_code, '') <> ''
             GROUP BY fso.item_code
         ),
