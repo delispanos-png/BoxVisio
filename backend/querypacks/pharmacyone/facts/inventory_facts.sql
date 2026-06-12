@@ -74,14 +74,28 @@ SELECT
   CAST(0 AS int) AS redirect_module_id,
   CAST(12 AS int) AS source_entity_id,
   CAST(S.FISCPRD AS int) AS object_id
-FROM MTRBALSHEET S WITH (NOLOCK)
+FROM (
+  -- On-hand balance = cumulative net over ALL periods of the fiscal year
+  -- (PERIOD 0 = year opening + PERIOD 1..12 = monthly movements). Filtering PERIOD=0
+  -- captured ONLY the year-opening balance and missed every movement since — e.g. item
+  -- C006091 showed 10 at PERIOD=0 vs the true 48 (Logika 34, Κηφισιά 6, ...). Sum all periods.
+  SELECT
+    COMPANY, FISCPRD, MTRL, WHOUSE,
+    SUM(ISNULL(IMPQTY1, 0)) AS IMPQTY1,
+    SUM(ISNULL(EXPQTY1, 0)) AS EXPQTY1,
+    SUM(ISNULL(IMPVAL, 0)) AS IMPVAL,
+    SUM(ISNULL(EXPVAL, 0)) AS EXPVAL
+  FROM MTRBALSHEET WITH (NOLOCK)
+  WHERE (@company_id IS NULL OR COMPANY = @company_id)
+  GROUP BY COMPANY, FISCPRD, MTRL, WHOUSE
+) S
 INNER JOIN (
   SELECT COMPANY, MAX(FISCPRD) AS FISCPRD
   FROM MTRBALSHEET WITH (NOLOCK)
   WHERE (@company_id IS NULL OR COMPANY = @company_id)
     AND PERIOD = 0
   GROUP BY COMPANY
-) _sp ON _sp.COMPANY = S.COMPANY AND _sp.FISCPRD = S.FISCPRD AND S.PERIOD = 0
+) _sp ON _sp.COMPANY = S.COMPANY AND _sp.FISCPRD = S.FISCPRD
 INNER JOIN (
   SELECT
     COMPANY,
@@ -89,7 +103,6 @@ INNER JOIN (
     MTRL
   FROM MTRBALSHEET WITH (NOLOCK)
   WHERE (@company_id IS NULL OR COMPANY = @company_id)
-    AND PERIOD = 0
   GROUP BY COMPANY, FISCPRD, MTRL
   HAVING ABS(SUM(ISNULL(IMPQTY1, 0) - ISNULL(EXPQTY1, 0))) > 0.0001
 ) _item_stock

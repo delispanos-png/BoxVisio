@@ -44,7 +44,11 @@ SELECT
     SUM(ISNULL(S.IMPVAL, 0) - ISNULL(S.EXPVAL, 0)) AS cost,
     SUM((ISNULL(S.IMPQTY1, 0) - ISNULL(S.EXPQTY1, 0)) * ISNULL(I.PRICER, 0)) AS retail
 FROM MTRBALSHEET S WITH (NOLOCK)
-JOIN sp ON sp.COMPANY = S.COMPANY AND sp.FISCPRD = S.FISCPRD AND S.PERIOD = 0
+-- The on-hand balance is the cumulative net over ALL periods of the current fiscal
+-- year (PERIOD 0 = year opening + PERIOD 1..12 = monthly movements). Filtering PERIOD=0
+-- captures ONLY the year-opening balance and misses every movement since — e.g. C006091
+-- shows 10 at PERIOD=0 vs the true 48 (Logika 34, Κηφισιά 6, ...). Sum all periods.
+JOIN sp ON sp.COMPANY = S.COMPANY AND sp.FISCPRD = S.FISCPRD
 JOIN MTRL I WITH (NOLOCK) ON I.MTRL = S.MTRL AND I.COMPANY = S.COMPANY
 LEFT JOIN WHOUSE W WITH (NOLOCK) ON W.WHOUSE = S.WHOUSE AND W.COMPANY = S.COMPANY
 LEFT JOIN BRANCH BR WITH (NOLOCK)
