@@ -24,7 +24,7 @@
       /s1services/JS/myWS/GetAllForBI
 */
 
-var BVBI_VERSION = "2026-06-05_preferred-supplier-purchase-channel-sales-payload";
+var BVBI_VERSION = "2026-06-12_stock-balance-all-periods";
 var _BVBI_COL_CACHE = {};
 
 function _bv_is_array(v) {
@@ -1550,8 +1550,13 @@ function _bv_inventory_sql(cfg) {
   var itemExtraJoinSql = manualOrderInfo.joinSql;
   var replInfo = _bv_item_replenishment_info("I");
   var itemReplJoinSql = replInfo.joinSql;
-  var stockReservedExpr = _bv_col_expr("S", "MTRBALSHEET", ["RESQTY1", "RESERVEDQTY", "RESQTY", "COMMITQTY1"], "0");
-  var stockExpectedExpr = _bv_col_expr("S", "MTRBALSHEET", ["EXPCTQTY1", "EXPECTEDQTY", "ONORDERQTY", "ORDEREDQTY1"], "0");
+  // On-hand is the cumulative net over ALL fiscal periods (PERIOD 0 opening + 1..12),
+  // so reserved/expected are summed inside the snapshot subquery (MB alias) and surfaced
+  // as S.RESQTY1 / S.EXPCTQTY1.
+  var stockReservedRaw = _bv_col_expr("MB", "MTRBALSHEET", ["RESQTY1", "RESERVEDQTY", "RESQTY", "COMMITQTY1"], "0");
+  var stockExpectedRaw = _bv_col_expr("MB", "MTRBALSHEET", ["EXPCTQTY1", "EXPECTEDQTY", "ONORDERQTY", "ORDEREDQTY1"], "0");
+  var stockReservedExpr = "S.RESQTY1";
+  var stockExpectedExpr = "S.EXPCTQTY1";
   var branchLimitSnapshotJoinSql = "";
   var branchLimitAdjustmentJoinSql = "";
   var minStockExpr = replInfo.minStockExpr;
@@ -1655,9 +1660,13 @@ function _bv_inventory_sql(cfg) {
     "CAST(0 AS INT) AS REDIRECT_MODULE_ID," +
     "CAST(12 AS INT) AS SOURCE_ENTITY_ID," +
     "CAST(ISNULL(S.FISCPRD,0) AS INT) AS OBJECT_ID " +
-    "FROM MTRBALSHEET S " +
-    "INNER JOIN (SELECT COMPANY, MAX(FISCPRD) AS FISCPRD FROM MTRBALSHEET WHERE COMPANY=" + cfg.company + " AND PERIOD=0 GROUP BY COMPANY) SP ON SP.COMPANY=S.COMPANY AND SP.FISCPRD=S.FISCPRD AND S.PERIOD=0 " +
-    "INNER JOIN (SELECT COMPANY, FISCPRD, MTRL FROM MTRBALSHEET WHERE COMPANY=" + cfg.company + " AND PERIOD=0 GROUP BY COMPANY, FISCPRD, MTRL HAVING ABS(SUM(ISNULL(IMPQTY1,0)-ISNULL(EXPQTY1,0)))>0.0001) ITEM_STOCK ON ITEM_STOCK.COMPANY=S.COMPANY AND ITEM_STOCK.FISCPRD=S.FISCPRD AND ITEM_STOCK.MTRL=S.MTRL " +
+    "FROM (SELECT MB.COMPANY, MB.FISCPRD, MB.MTRL, MB.WHOUSE, " +
+      "SUM(ISNULL(MB.IMPQTY1,0)) AS IMPQTY1, SUM(ISNULL(MB.EXPQTY1,0)) AS EXPQTY1, " +
+      "SUM(ISNULL(MB.IMPVAL,0)) AS IMPVAL, SUM(ISNULL(MB.EXPVAL,0)) AS EXPVAL, " +
+      "SUM(ISNULL(" + stockReservedRaw + ",0)) AS RESQTY1, SUM(ISNULL(" + stockExpectedRaw + ",0)) AS EXPCTQTY1 " +
+      "FROM MTRBALSHEET MB WHERE MB.COMPANY=" + cfg.company + " GROUP BY MB.COMPANY, MB.FISCPRD, MB.MTRL, MB.WHOUSE) S " +
+    "INNER JOIN (SELECT COMPANY, MAX(FISCPRD) AS FISCPRD FROM MTRBALSHEET WHERE COMPANY=" + cfg.company + " AND PERIOD=0 GROUP BY COMPANY) SP ON SP.COMPANY=S.COMPANY AND SP.FISCPRD=S.FISCPRD " +
+    "INNER JOIN (SELECT COMPANY, FISCPRD, MTRL FROM MTRBALSHEET WHERE COMPANY=" + cfg.company + " GROUP BY COMPANY, FISCPRD, MTRL HAVING ABS(SUM(ISNULL(IMPQTY1,0)-ISNULL(EXPQTY1,0)))>0.0001) ITEM_STOCK ON ITEM_STOCK.COMPANY=S.COMPANY AND ITEM_STOCK.FISCPRD=S.FISCPRD AND ITEM_STOCK.MTRL=S.MTRL " +
     "LEFT JOIN WHOUSE W ON W.WHOUSE=S.WHOUSE AND W.COMPANY=S.COMPANY " +
     "LEFT JOIN BRANCH BR ON BR.BRANCH=ISNULL(NULLIF(W.WHOUSEG,0), ISNULL(S.WHOUSE,0)) AND BR.COMPANY=S.COMPANY " +
     "LEFT JOIN MTRL I ON I.MTRL=S.MTRL AND I.COMPANY=S.COMPANY " +
