@@ -962,6 +962,30 @@ def _label_3cx_call_rows(
         agent_label = _label_3cx_endpoint(clean_row.get('agent'), agent_directory, queue_directory)
         if agent_label:
             clean_row['agent'] = agent_label
+        # Collapse the raw ring path into one entry per extension (3CX ring-all re-rings the
+        # same DN many times). answered=True if that extension ever picked up; ring time = max.
+        ring_path = clean_row.get('ring_path') if isinstance(clean_row.get('ring_path'), list) else []
+        by_ext: dict[str, dict[str, object]] = {}
+        order: list[str] = []
+        for leg in ring_path:
+            if not isinstance(leg, dict):
+                continue
+            key = str(leg.get('ext_number') or leg.get('ext') or '').strip()
+            if not key:
+                continue
+            if key not in by_ext:
+                by_ext[key] = {'ext': leg.get('ext') or key, 'ext_number': leg.get('ext_number') or '', 'answered': False, 'ring_seconds': 0}
+                order.append(key)
+            entry = by_ext[key]
+            if leg.get('answered'):
+                entry['answered'] = True
+            try:
+                entry['ring_seconds'] = max(int(entry['ring_seconds']), int(leg.get('ring_seconds') or 0))
+            except (TypeError, ValueError):
+                pass
+        rang_at = [by_ext[k] for k in order]
+        clean_row['rang_at'] = rang_at
+        clean_row['answered_by'] = next((entry for entry in rang_at if entry.get('answered')), None)
         out.append(clean_row)
     return out
 
@@ -2607,6 +2631,23 @@ answered_extension AS (
       AND cdr_answered_at IS NOT NULL
     ORDER BY root_id, cdr_answered_at, cdr_started_at
 ),
+ring_legs AS (
+    -- Every extension the call rang at, in order, with whether it picked up.
+    -- For a missed call these are the internal extensions that rang and let it drop;
+    -- for an answered call the one with answered=true is who actually answered.
+    SELECT
+        root_id,
+        jsonb_agg(jsonb_build_object(
+            'ext', coalesce(nullif(destination_dn_name, ''), nullif(destination_dn_number, ''), 'Άγνωστο'),
+            'ext_number', nullif(destination_dn_number, ''),
+            'answered', cdr_answered_at IS NOT NULL,
+            'ring_seconds', greatest(0, extract(epoch FROM coalesce(cdr_answered_at, cdr_ended_at) - cdr_started_at)::int)
+        ) ORDER BY cdr_started_at, cdr_id) AS legs,
+        count(*)::int AS ring_count
+    FROM cdr_base
+    WHERE destination_entity_type = 'extension'
+    GROUP BY root_id
+),
 outbound_target AS (
     SELECT DISTINCT ON (root_id)
         root_id,
@@ -2750,6 +2791,8 @@ call_payload AS (
         'journey_legs', rc.hop_count,
         'is_redirected', rc.was_redirected,
         'final_destination', coalesce(pq.q_num, fh.destination_dn_number, ''),
+        'ring_path', coalesce(rl.legs, '[]'::jsonb),
+        'ring_count', coalesce(rl.ring_count, 0),
         'source_type', '3cx_cdroutput'
     ) ORDER BY rc.started_at), '[]'::jsonb) AS rows
     FROM root_calls rc
@@ -2758,6 +2801,7 @@ call_payload AS (
     LEFT JOIN outbound_target ot ON ot.root_id = rc.root_id
     LEFT JOIN did_by_call did ON did.call_id = rc.root_id
     LEFT JOIN primary_queue pq ON pq.call_id = rc.root_id
+    LEFT JOIN ring_legs rl ON rl.root_id = rc.root_id
     WHERE rc.inbound_signal OR rc.outbound_signal
 ),
 queue_payload AS (

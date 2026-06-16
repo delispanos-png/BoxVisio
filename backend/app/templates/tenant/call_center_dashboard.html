@@ -175,6 +175,12 @@
   .cc-journey-search:focus { outline:3px solid rgba(49,87,246,.18); border-color:#9db4ff; }
   .cc-journey-list { display:grid; gap:.75rem; padding:1rem 1.1rem; }
   .cc-journey-pager { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:.75rem; padding:.7rem 1.1rem; border-bottom:1px solid #e6edf6; background:#fbfdff; }
+  .cc-outcome { font-weight:950; }
+  .cc-outcome-answered { color:#15803d; }
+  .cc-outcome-missed { color:#b91c1c; }
+  .cc-ring-section { border:1px solid #e6edf6; border-radius:8px; background:#f8fafc; padding:.7rem .8rem; }
+  .cc-ring-title { color:#475569; font-size:.7rem; font-weight:900; text-transform:uppercase; margin-bottom:.5rem; }
+  .cc-ring-chips { display:flex; flex-wrap:wrap; align-items:center; gap:.4rem; }
   .cc-journey-card { border:1px solid #dfe7f2; border-radius:8px; background:#fff; overflow:hidden; box-shadow:0 8px 18px rgba(15,23,42,.035); }
   .cc-journey-card[hidden] { display:none; }
   .cc-journey-card summary { list-style:none; cursor:pointer; padding:0; }
@@ -866,57 +872,57 @@
               <span class="cc-rank">{{ loop.index }}</span>
               <div class="cc-journey-route">
                 <div class="cc-journey-title">{{ call.source }} → {{ call.queue }}</div>
-                <div class="cc-journey-sub">{{ call.raw_call_time or call.date }} · Call ID {{ call_id }} · {{ call.direction_label }}</div>
+                <div class="cc-journey-sub">
+                  {{ call.raw_call_time or call.date }} · {{ call.direction_label }} ·
+                  {% if call.is_missed %}
+                    {% if call.rang_at %}
+                    <strong class="cc-outcome cc-outcome-missed">✗ Χτύπησε σε {{ call.rang_at|length }} εσωτερικό{{ 'ά' if call.rang_at|length != 1 else '' }} — κανείς δεν απάντησε</strong>
+                    {% else %}
+                    <strong class="cc-outcome cc-outcome-missed">✗ Εγκατάλειψη στο «{{ call.queue or call.final_destination or '—' }}» — δεν χτύπησε εσωτερικό</strong>
+                    {% endif %}
+                  {% else %}
+                  <strong class="cc-outcome cc-outcome-answered">✓ Απάντησε: {{ (call.answered_by.ext if call.answered_by else call.agent) or '—' }}{% if call.answered_by and call.answered_by.ext_number %} ({{ call.answered_by.ext_number }}){% endif %}</strong>
+                  {% endif %}
+                </div>
               </div>
               <div class="cc-journey-path">
                 <span class="cc-path-chip is-source">{{ call.source }}</span>
                 <span class="cc-path-arrow">→</span>
                 <span class="cc-path-chip">{{ call.queue }}</span>
                 <span class="cc-path-arrow">→</span>
-                <span class="cc-path-chip {{ 'is-missed' if call.is_missed else 'is-agent' }}">{{ call.agent if not call.is_missed else 'Χωρίς απάντηση' }}</span>
-                {% if call.final_destination and call.final_destination != call.agent and call.final_destination != call.queue %}
-                <span class="cc-path-arrow">→</span>
-                <span class="cc-path-chip">{{ call.final_destination }}</span>
+                {% if call.is_missed %}
+                <span class="cc-path-chip is-missed">✗ χάθηκε</span>
+                {% else %}
+                <span class="cc-path-chip is-agent">✓ {{ call.agent or '—' }}</span>
                 {% endif %}
               </div>
               <div class="cc-journey-metric"><span class="cc-status-badge {{ journey_status }}">{{ call.status_label }}</span><span>Τελικό</span></div>
-              <div class="cc-journey-metric mobile-hide">{{ legs|length }}<span>Hops</span></div>
-              <div class="cc-journey-metric optional">{{ transfer_count }}<span>Transfers</span></div>
-              <div class="cc-journey-metric mobile-hide">{{ call.wait_seconds or 0 }}s<span>Ring/Wait</span></div>
+              <div class="cc-journey-metric mobile-hide">{{ call.rang_at|length }}<span>Χτύπησαν</span></div>
+              <div class="cc-journey-metric optional">{{ call.talk_seconds or 0 }}s<span>Ομιλία</span></div>
+              <div class="cc-journey-metric mobile-hide">{{ call.wait_seconds or 0 }}s<span>Αναμονή</span></div>
             </div>
           </summary>
           <div class="cc-journey-body">
             <div class="cc-journey-diagnosis">
-              <div class="cc-journey-fact"><span>Πρώτη είσοδος</span><strong>{{ call.did or call.queue or '-' }}</strong></div>
-              <div class="cc-journey-fact"><span>Πρώτη απάντηση</span><strong>{{ call.agent if not call.is_missed else 'Δεν απαντήθηκε' }}</strong></div>
-              <div class="cc-journey-fact"><span>Τελικός προορισμός</span><strong>{{ call.final_destination or '-' }}</strong></div>
-              <div class="cc-journey-fact"><span>Χρόνοι</span><strong>{{ call.wait_seconds or 0 }}s wait · {{ call.duration_seconds or 0 }}s talk</strong></div>
+              <div class="cc-journey-fact"><span>Καλών</span><strong>{{ call.source or '-' }}</strong></div>
+              <div class="cc-journey-fact"><span>{{ 'Απάντησε' if not call.is_missed else 'Κατάληξη' }}</span><strong class="{{ 'cc-outcome-answered' if not call.is_missed else 'cc-outcome-missed' }}">{{ ((call.answered_by.ext if call.answered_by else call.agent) or '-') if not call.is_missed else 'Δεν απαντήθηκε (χάθηκε)' }}</strong></div>
+              <div class="cc-journey-fact"><span>Αναμονή</span><strong>{{ call.wait_seconds or 0 }}s</strong></div>
+              <div class="cc-journey-fact"><span>Ομιλία</span><strong>{{ call.talk_seconds or 0 }}s</strong></div>
             </div>
-            <div class="cc-hop-timeline">
-              {% for leg in legs[:24] %}
-              {% set leg_status = 'danger' if leg.status|lower in ['missed', 'not answered', 'no answer', 'failed'] else 'ok' if leg.status|lower == 'answered' else 'warn' %}
-              <div class="cc-hop">
-                <div class="cc-hop-index">{{ leg.seq }}</div>
-                <div class="cc-hop-card">
-                  <div class="cc-hop-main">
-                    <div class="cc-hop-route">{{ leg.from }} <span class="cc-path-arrow">→</span> {{ leg.to }}</div>
-                    <div class="cc-hop-time">{{ leg.time or leg.date or '-' }}</div>
-                  </div>
-                  <div class="cc-hop-meta">
-                    <span class="cc-status-badge {{ leg_status }}">{{ leg.status or 'Unknown' }}</span>
-                    <span class="cc-status-badge">{{ leg.direction or 'Direction n/a' }}</span>
-                    <span class="cc-status-badge">{{ leg.ringing_seconds or 0 }}s ring</span>
-                    <span class="cc-status-badge">{{ leg.talking_seconds or 0 }}s talk</span>
-                    {% if leg.is_internal_leg %}<span class="cc-status-badge warn">Internal hop</span>{% endif %}
-                  </div>
-                  {% if leg.activity %}
-                  <div class="cc-hop-note">{{ leg.activity }}</div>
-                  {% endif %}
-                </div>
+            <div class="cc-ring-section">
+              <div class="cc-ring-title">Διαδρομή κλήσης — ποια εσωτερικά χτύπησαν {% if call.is_missed %}<span class="cc-outcome-missed">(κανείς δεν απάντησε)</span>{% endif %}</div>
+              <div class="cc-ring-chips">
+                <span class="cc-path-chip is-source">{{ call.source }}</span>
+                <span class="cc-path-arrow">→</span>
+                <span class="cc-path-chip">{{ call.queue }}</span>
+                {% for leg in call.rang_at %}
+                <span class="cc-path-arrow">→</span>
+                <span class="cc-path-chip {{ 'is-agent' if leg.answered else 'is-missed' }}">{{ '✓ απάντησε' if leg.answered else '✗' }} {{ leg.ext }}{% if leg.ext_number %} ({{ leg.ext_number }}){% endif %} · {{ leg.ring_seconds }}s</span>
+                {% else %}
+                <span class="cc-path-arrow">→</span>
+                <span class="cc-path-chip is-missed">δεν χτύπησε εσωτερικό (εγκατάλειψη στο queue)</span>
+                {% endfor %}
               </div>
-              {% else %}
-              <div class="cc-data-gap">Δεν υπάρχουν hops για αυτό το Call ID από τη 3CX βάση.</div>
-              {% endfor %}
             </div>
           </div>
         </details>
