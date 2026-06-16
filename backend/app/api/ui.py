@@ -1454,6 +1454,14 @@ async def _tenant_call_center_settings(
         agent_directory=agent_directory,
         queue_directory=queue_directory,
     )
+    # Recompute wait/talk averages from the actual call rows — the stored stat could carry a
+    # stale SUM (not AVG). Average wait over all calls; average talk over answered calls only.
+    _wait_vals = [int(r.get('wait_seconds') or 0) for r in labeled_call_rows if isinstance(r, dict)]
+    _talk_vals = [int(r.get('talk_seconds') or 0) for r in labeled_call_rows if isinstance(r, dict) and r.get('is_answered')]
+    stats['avg_wait_seconds'] = int(round(sum(_wait_vals) / len(_wait_vals))) if _wait_vals else 0
+    stats['avg_talk_seconds'] = int(round(sum(_talk_vals) / len(_talk_vals))) if _talk_vals else 0
+    stats['total_wait_seconds'] = sum(_wait_vals)
+    stats['total_talk_seconds'] = sum(int(r.get('talk_seconds') or 0) for r in labeled_call_rows if isinstance(r, dict))
     labeled_journey_rows = _label_3cx_journey_rows(
         view_import.get('journey_rows'),
         agent_directory=agent_directory,
