@@ -922,6 +922,14 @@
         </details>
         {% endfor %}
       </div>
+      <div class="cc-journey-pager" data-cc-journey-pager>
+        <span class="cc-pagination-info" data-cc-journey-info>—</span>
+        <div class="cc-pagination-controls">
+          <button class="cc-page-btn" type="button" data-cc-journey-prev>Προηγ.</button>
+          <span class="cc-pagination-info" data-cc-journey-page>1</span>
+          <button class="cc-page-btn" type="button" data-cc-journey-next>Επόμ.</button>
+        </div>
+      </div>
       {% else %}
       <div class="cc-journey-list">
         <div class="cc-empty"><div class="cc-empty-card"><h3>Δεν υπάρχουν ακόμη διαδρομές</h3><p>Οι διαδρομές θα εμφανιστούν μόλις ο 3CX DB sync φέρει τα hops της κλήσης.</p></div></div>
@@ -1668,10 +1676,11 @@
       var listCards = Array.prototype.slice.call(document.querySelectorAll('[data-cc-journey-card]'));
       if (!listCards.length) return;
       var searchInput = document.querySelector('[data-cc-journey-search]');
-      var infoEl = document.querySelector('[data-cc-journey-info]');
-      var pageEl = document.querySelector('[data-cc-journey-page]');
-      var prevBtn = document.querySelector('[data-cc-journey-prev]');
-      var nextBtn = document.querySelector('[data-cc-journey-next]');
+      var infoEls = Array.prototype.slice.call(document.querySelectorAll('[data-cc-journey-info]'));
+      var pageEls = Array.prototype.slice.call(document.querySelectorAll('[data-cc-journey-page]'));
+      var prevBtns = Array.prototype.slice.call(document.querySelectorAll('[data-cc-journey-prev]'));
+      var nextBtns = Array.prototype.slice.call(document.querySelectorAll('[data-cc-journey-next]'));
+      var topAnchor = document.querySelector('[data-cc-journey-pager]');
       var page = 1;
       var term = '';
       function render() {
@@ -1687,14 +1696,20 @@
         var end = start + PAGE_SIZE;
         listCards.forEach(function (card) { card.hidden = true; });
         matched.slice(start, end).forEach(function (card) { card.hidden = false; });
-        if (infoEl) { infoEl.textContent = total ? ('Κλήσεις ' + (start + 1) + '–' + Math.min(end, total) + ' από ' + total + ' (νεότερες πρώτα)') : 'Καμία κλήση'; }
-        if (pageEl) { pageEl.textContent = page + ' / ' + pages; }
-        if (prevBtn) { prevBtn.disabled = page <= 1; }
-        if (nextBtn) { nextBtn.disabled = page >= pages; }
+        var infoText = total ? ('Κλήσεις ' + (start + 1) + '–' + Math.min(end, total) + ' από ' + total + ' (νεότερες πρώτα)') : 'Καμία κλήση';
+        infoEls.forEach(function (el) { el.textContent = infoText; });
+        pageEls.forEach(function (el) { el.textContent = page + ' / ' + pages; });
+        prevBtns.forEach(function (b) { b.disabled = page <= 1; });
+        nextBtns.forEach(function (b) { b.disabled = page >= pages; });
+      }
+      function goTo(target) {
+        page = target;
+        render();
+        if (topAnchor && typeof topAnchor.scrollIntoView === 'function') { topAnchor.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
       }
       if (searchInput) { searchInput.addEventListener('input', function () { term = searchInput.value.trim().toLowerCase(); page = 1; render(); }); }
-      if (prevBtn) { prevBtn.addEventListener('click', function () { page -= 1; render(); }); }
-      if (nextBtn) { nextBtn.addEventListener('click', function () { page += 1; render(); }); }
+      prevBtns.forEach(function (b) { b.addEventListener('click', function () { goTo(page - 1); }); });
+      nextBtns.forEach(function (b) { b.addEventListener('click', function () { goTo(page + 1); }); });
       render();
     })();
 
