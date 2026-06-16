@@ -174,6 +174,7 @@
   .cc-journey-search { border:1px solid #dbe3ef; border-radius:8px; padding:.62rem .75rem; font-weight:800; color:#0f172a; background:#fff; min-width:0; }
   .cc-journey-search:focus { outline:3px solid rgba(49,87,246,.18); border-color:#9db4ff; }
   .cc-journey-list { display:grid; gap:.75rem; padding:1rem 1.1rem; }
+  .cc-journey-pager { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:.75rem; padding:.7rem 1.1rem; border-bottom:1px solid #e6edf6; background:#fbfdff; }
   .cc-journey-card { border:1px solid #dfe7f2; border-radius:8px; background:#fff; overflow:hidden; box-shadow:0 8px 18px rgba(15,23,42,.035); }
   .cc-journey-card[hidden] { display:none; }
   .cc-journey-card summary { list-style:none; cursor:pointer; padding:0; }
@@ -845,8 +846,16 @@
         <span class="cc-pill {{ 'is-warn' if missed_calls else 'is-ok' }}">{{ missed_calls }} χαμένες</span>
         <span class="cc-pill">{{ (call_center_3cx.journey_rows|length / call_center_3cx.call_rows|length)|round(1) if call_center_3cx.call_rows|length else 0 }} hops / call</span>
       </div>
+      <div class="cc-journey-pager" data-cc-journey-pager>
+        <span class="cc-pagination-info" data-cc-journey-info>—</span>
+        <div class="cc-pagination-controls">
+          <button class="cc-page-btn" type="button" data-cc-journey-prev>Προηγ.</button>
+          <span class="cc-pagination-info" data-cc-journey-page>1</span>
+          <button class="cc-page-btn" type="button" data-cc-journey-next>Επόμ.</button>
+        </div>
+      </div>
       <div class="cc-journey-list">
-        {% for call in call_center_3cx.call_rows[:80] %}
+        {% for call in (call_center_3cx.call_rows|sort(attribute='raw_call_time', reverse=True))[:1000] %}
         {% set call_id = call.call_id or call.fingerprint %}
         {% set legs = call_center_3cx.journey_rows|selectattr('call_id', 'equalto', call_id)|list %}
         {% set journey_status = 'danger' if call.is_missed else 'ok' %}
@@ -1654,15 +1663,40 @@
       renderPage();
     });
 
-    document.querySelectorAll('[data-cc-journey-search]').forEach(function (input) {
-      input.addEventListener('input', function () {
-        var value = input.value.trim().toLowerCase();
-        document.querySelectorAll('[data-cc-journey-card]').forEach(function (card) {
-          var haystack = card.getAttribute('data-search') || '';
-          card.hidden = value.length > 0 && haystack.indexOf(value) === -1;
+    (function () {
+      var PAGE_SIZE = 25;
+      var listCards = Array.prototype.slice.call(document.querySelectorAll('[data-cc-journey-card]'));
+      if (!listCards.length) return;
+      var searchInput = document.querySelector('[data-cc-journey-search]');
+      var infoEl = document.querySelector('[data-cc-journey-info]');
+      var pageEl = document.querySelector('[data-cc-journey-page]');
+      var prevBtn = document.querySelector('[data-cc-journey-prev]');
+      var nextBtn = document.querySelector('[data-cc-journey-next]');
+      var page = 1;
+      var term = '';
+      function render() {
+        var matched = listCards.filter(function (card) {
+          if (!term) return true;
+          return (card.getAttribute('data-search') || '').indexOf(term) !== -1;
         });
-      });
-    });
+        var total = matched.length;
+        var pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+        if (page > pages) { page = pages; }
+        if (page < 1) { page = 1; }
+        var start = (page - 1) * PAGE_SIZE;
+        var end = start + PAGE_SIZE;
+        listCards.forEach(function (card) { card.hidden = true; });
+        matched.slice(start, end).forEach(function (card) { card.hidden = false; });
+        if (infoEl) { infoEl.textContent = total ? ('Κλήσεις ' + (start + 1) + '–' + Math.min(end, total) + ' από ' + total + ' (νεότερες πρώτα)') : 'Καμία κλήση'; }
+        if (pageEl) { pageEl.textContent = page + ' / ' + pages; }
+        if (prevBtn) { prevBtn.disabled = page <= 1; }
+        if (nextBtn) { nextBtn.disabled = page >= pages; }
+      }
+      if (searchInput) { searchInput.addEventListener('input', function () { term = searchInput.value.trim().toLowerCase(); page = 1; render(); }); }
+      if (prevBtn) { prevBtn.addEventListener('click', function () { page -= 1; render(); }); }
+      if (nextBtn) { nextBtn.addEventListener('click', function () { page += 1; render(); }); }
+      render();
+    })();
 
     document.querySelectorAll('[data-cc-agent-toggle]').forEach(function (btn) {
       btn.addEventListener('click', function () {
