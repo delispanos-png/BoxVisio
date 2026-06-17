@@ -96,7 +96,7 @@ from app.services.era_exploration import (
     import_era_exploration_file,
     validate_era_exploration_file,
 )
-from app.services.email_delivery import send_email, send_tenant_welcome_email
+from app.services.email_delivery import send_email, send_tenant_welcome_email, send_user_invite_email
 from app.services.iqvia import (
     clear_iqvia_cache,
     DuplicateMarketImportError as IqviaDuplicateMarketImportError,
@@ -11305,6 +11305,42 @@ async def admin_user_delete(
     await db.delete(user)
     await db.commit()
     return RedirectResponse(url='/admin/users?deleted=1', status_code=303)
+
+
+@router.post('/admin/users/{user_id}/resend-invite')
+async def admin_user_resend_invite(
+    user_id: int,
+    _: object = Depends(require_roles(RoleName.cloudon_admin)),
+    db: AsyncSession = Depends(get_control_db),
+):
+    user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+    if not user:
+        return RedirectResponse(url='/admin/users?invite=0&reason=not_found', status_code=303)
+    # Fresh 48h set-password token (the /invite page resolves it), then email the link.
+    token = secrets.token_urlsafe(24)
+    user.reset_token = token
+    user.reset_token_expires_at = datetime.utcnow() + timedelta(days=2)
+    await db.commit()
+    slug = ''
+    if user.tenant_id:
+        tenant = (await db.execute(select(Tenant).where(Tenant.id == user.tenant_id))).scalar_one_or_none()
+        slug = tenant.slug if tenant else ''
+    try:
+        result = send_user_invite_email(
+            full_name=user.full_name or '',
+            email=user.email,
+            invite_token=token,
+            tenant_slug=slug,
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception('admin_user_resend_invite_failed', extra={'user_id': user_id})
+        return RedirectResponse(url='/admin/users?invite=0&reason=send_failed', status_code=303)
+    status = str(result.get('status') or '')
+    if status == 'sent':
+        return RedirectResponse(url='/admin/users?invite=1', status_code=303)
+    if status == 'skipped':
+        return RedirectResponse(url='/admin/users?invite=0&reason=smtp_not_configured', status_code=303)
+    return RedirectResponse(url=f'/admin/users?invite=0&reason={result.get("reason") or "error"}', status_code=303)
 
 
 async def _tenant_user_license_context(db: AsyncSession, tenant: Tenant) -> dict[str, object]:

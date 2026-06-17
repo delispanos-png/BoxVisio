@@ -129,3 +129,35 @@ def send_tenant_welcome_email(
     )
     result = send_email(to_email=admin_email, subject=subject, text_body=text_body, html_body=html_body)
     return {**result, 'invite_url': invite_url, 'login_url': login_url}
+
+
+def send_user_invite_email(
+    *,
+    full_name: str,
+    email: str,
+    invite_token: str,
+    tenant_slug: str = '',
+) -> dict[str, object]:
+    """Re-send the access / set-password email to a single user."""
+    invite_url = build_tenant_invite_url(slug=tenant_slug or '', token=invite_token)
+    login_url = build_tenant_login_url(slug=tenant_slug or '')
+    name = (full_name or '').strip() or email
+    subject = 'Πρόσβαση στο CloudOn BI'
+    text_body = (
+        f'Γεια σας {name},\n\n'
+        f'Σας στάλθηκε πρόσβαση στο CloudOn BI.\n'
+        f'Username: {email}\n'
+        f'BI URL: {login_url}\n'
+        f'Ορισμός / αλλαγή κωδικού: {invite_url}\n\n'
+        f'Ο σύνδεσμος λήγει σε 48 ώρες.'
+    )
+    html_body = (
+        f'<p>Γεια σας {name},</p>'
+        f'<p>Σας στάλθηκε πρόσβαση στο <strong>CloudOn BI</strong>.</p>'
+        f'<p><strong>Username:</strong> {email}<br>'
+        f'<strong>BI URL:</strong> <a href="{login_url}">{login_url}</a></p>'
+        f'<p><a href="{invite_url}">Ορισμός / αλλαγή κωδικού</a></p>'
+        f'<p>Ο σύνδεσμος λήγει σε 48 ώρες.</p>'
+    )
+    result = send_email(to_email=email, subject=subject, text_body=text_body, html_body=html_body)
+    return {**result, 'invite_url': invite_url, 'login_url': login_url}

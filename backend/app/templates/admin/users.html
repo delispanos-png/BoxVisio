@@ -12,6 +12,11 @@
 {% elif request.query_params.get('deleted') == '0' %}
 <div class="alert alert-danger mt-3 mb-3">Η διαγραφή απέτυχε.</div>
 {% endif %}
+{% if request.query_params.get('invite') == '1' %}
+<div class="alert alert-success mt-3 mb-3">Το email πρόσβασης στάλθηκε επιτυχώς.</div>
+{% elif request.query_params.get('invite') == '0' %}
+<div class="alert alert-danger mt-3 mb-3">Η αποστολή email απέτυχε. Αιτία: {{ request.query_params.get('reason') or 'unknown' }}{% if request.query_params.get('reason') == 'smtp_not_configured' %} (ο SMTP/Mail Server δεν είναι ρυθμισμένος){% endif %}</div>
+{% endif %}
 
 {% set active_count = user_counts.active if user_counts is defined else (users | selectattr('is_active') | list | length) %}
 {% set total_count = user_counts.total if user_counts is defined else (users | length) %}
@@ -199,6 +204,11 @@
                 <form method="post" action="/admin/users/{{ u.id }}/toggle">
                   <button class="btn btn-sm bv-action-btn bv-action-toggle" type="submit" title="Εναλλαγή κατάστασης" aria-label="Εναλλαγή κατάστασης">
                     <i class="fe fe-refresh-cw"></i>
+                  </button>
+                </form>
+                <form method="post" action="/admin/users/{{ u.id }}/resend-invite" data-bv-confirm="Αποστολή email πρόσβασης (set/reset κωδικού) στον {{ u.email }};">
+                  <button class="btn btn-sm bv-action-btn bv-action-invite" type="submit" title="Αποστολή email πρόσβασης" aria-label="Αποστολή email πρόσβασης">
+                    <i class="fe fe-mail"></i>
                   </button>
                 </form>
                 <form method="post" action="/admin/users/{{ u.id }}/delete" data-bv-confirm="Διαγραφή χρήστη {{ u.email }};">
