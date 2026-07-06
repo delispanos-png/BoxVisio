@@ -1613,11 +1613,10 @@
         if (!submenu) return;
         const ownerItem = toggleBtn.closest('.nav-item');
         const menuStorageKey = `bv_menu_group_${groupKey}`;
-        const fromForcedOpen = toggleBtn.dataset.menuGroupOpen === '1' || ownerItem?.classList.contains('open');
-        const storageRaw = localStorage.getItem(menuStorageKey);
-        const hasStoredState = storageRaw !== null;
-        const fromStorage = storageRaw === '1';
-        const initialOpen = fromForcedOpen || (hasStoredState ? fromStorage : false);
+        // Menu groups always start collapsed on every page load (incl. login) — the active
+        // section is no longer auto-expanded and no open state is restored. Users open
+        // groups on demand; the toggle below still works within the current page.
+        const initialOpen = false;
 
         submenu.hidden = !initialOpen;
         ownerItem?.classList.toggle('open', initialOpen);
