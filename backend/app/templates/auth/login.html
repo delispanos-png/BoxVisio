@@ -520,6 +520,14 @@
     </div>
   </div>
   <script>
+    // Reaching the login page = fresh session: forget any open tenant-menu groups so the
+    // sidebar always starts collapsed after login (even on a same-tab logout -> login).
+    try {
+      Object.keys(sessionStorage)
+        .filter(function (k) { return k.indexOf('bv_menu_group_') === 0; })
+        .forEach(function (k) { sessionStorage.removeItem(k); });
+    } catch (e) {}
+
     (function () {
       const btn = document.getElementById('loginThemeToggle');
       const lbl = document.getElementById('loginThemeLabel');

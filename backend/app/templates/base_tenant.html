@@ -1614,9 +1614,10 @@
         const ownerItem = toggleBtn.closest('.nav-item');
         const menuStorageKey = `bv_menu_group_${groupKey}`;
         // Menu groups always start collapsed on every page load (incl. login) — the active
-        // section is no longer auto-expanded and no open state is restored. Users open
-        // groups on demand; the toggle below still works within the current page.
-        const initialOpen = false;
+        // Collapsed on login (a fresh session has no state); the active section is not
+        // auto-expanded. Open state lives in sessionStorage, so a group the user opens
+        // stays open while they navigate, and resets on a new session / login.
+        const initialOpen = sessionStorage.getItem(menuStorageKey) === '1';
 
         submenu.hidden = !initialOpen;
         ownerItem?.classList.toggle('open', initialOpen);
@@ -1632,14 +1633,14 @@
             submenu.hidden = false;
             ownerItem?.classList.add('open');
             toggleBtn.setAttribute('aria-expanded', 'true');
-            localStorage.setItem(menuStorageKey, '1');
+            sessionStorage.setItem(menuStorageKey, '1');
             return;
           }
           const willOpen = submenu.hidden;
           submenu.hidden = !willOpen;
           ownerItem?.classList.toggle('open', willOpen);
           toggleBtn.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
-          localStorage.setItem(menuStorageKey, willOpen ? '1' : '0');
+          sessionStorage.setItem(menuStorageKey, willOpen ? '1' : '0');
         });
       });
 
