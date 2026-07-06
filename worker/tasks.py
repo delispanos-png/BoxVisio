@@ -1088,6 +1088,42 @@ def refresh_inventory_snapshots_all_tenants() -> dict:
     return _run_coro(_refresh_inventory_snapshots_all_tenants())
 
 
+@shared_task(
+    name='worker.tasks.refresh_item_status_for_tenant',
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_kwargs={'max_retries': 1},
+)
+def refresh_item_status_for_tenant(tenant_slug: str) -> dict:
+    """On-demand light sync of SoftOne item status / categories into dim_items for one tenant."""
+    return _run_coro(_refresh_item_status_for_tenant(tenant_slug))
+
+
+async def _refresh_item_status_for_tenant(tenant_slug: str) -> dict:
+    from app.services.item_status_sync import refresh_item_status
+
+    async with ControlSessionLocal() as control_db:
+        tenant = (await control_db.execute(select(Tenant).where(Tenant.slug == tenant_slug))).scalars().first()
+        if tenant is None:
+            return {'status': 'error', 'reason': 'tenant_not_found', 'tenant': tenant_slug}
+        result: dict = {'status': 'error'}
+        async for tenant_db in get_tenant_db_session(
+            tenant_key=str(tenant.id),
+            db_name=tenant.db_name,
+            db_user=tenant.db_user,
+            db_password=tenant.db_password,
+        ):
+            result = await refresh_item_status(control_db, tenant_db, tenant_id=int(tenant.id))
+            break
+        if result.get('status') == 'ok':
+            try:
+                await invalidate_tenant_cache(str(tenant.id))
+            except Exception:  # noqa: BLE001
+                logger.warning('item_status_sync_cache_invalidate_failed', extra={'tenant_slug': tenant_slug})
+    logger.info('item_status_sync_done', extra={'tenant_slug': tenant_slug, 'result': result})
+    return {'tenant': tenant_slug, **result}
+
+
 async def _refresh_inventory_snapshots_all_tenants() -> dict:
     from app.services.inventory_snapshot import refresh_inventory_snapshot
 

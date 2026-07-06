@@ -5984,6 +5984,30 @@ async def admin_tenant_create(
     )
 
 
+@router.post('/admin/tenants/{tenant_id}/sync-item-status')
+async def admin_tenant_sync_item_status(
+    tenant_id: int,
+    next_url: str = Form(default='/admin/tenants'),
+    admin_user: User = Depends(require_roles(RoleName.cloudon_admin)),
+    db: AsyncSession = Depends(get_control_db),
+):
+    redirect_target = next_url if next_url.startswith('/admin/') else '/admin/tenants'
+    sep = '&' if '?' in redirect_target else '?'
+    tenant = (await db.execute(select(Tenant).where(Tenant.id == tenant_id))).scalar_one_or_none()
+    if tenant is None:
+        return RedirectResponse(url=f'{redirect_target}{sep}status_sync=0&reason=tenant_not_found', status_code=303)
+    try:
+        celery_client.send_task(
+            'worker.tasks.refresh_item_status_for_tenant',
+            kwargs={'tenant_slug': tenant.slug},
+            queue='ingest',
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception('admin_tenant_sync_item_status_failed', extra={'tenant_id': tenant_id})
+        return RedirectResponse(url=f'{redirect_target}{sep}status_sync=0&reason=trigger_failed', status_code=303)
+    return RedirectResponse(url=f'{redirect_target}{sep}status_sync=1', status_code=303)
+
+
 @router.post('/admin/tenants/{tenant_id}/resend-welcome')
 async def admin_tenant_resend_welcome(
     tenant_id: int,

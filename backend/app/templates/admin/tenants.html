@@ -26,6 +26,11 @@
 {% elif request.query_params.get('credentials_sent') == '0' %}
 <div class="alert alert-danger mt-3">Αποτυχία αποστολής στοιχείων πρόσβασης: {{ request.query_params.get('reason') or 'unknown' }}</div>
 {% endif %}
+{% if request.query_params.get('status_sync') == '1' %}
+<div class="alert alert-success mt-3">Ξεκίνησε ο συγχρονισμός status &amp; κατηγοριών ειδών από το SoftOne (τρέχει στο παρασκήνιο, ~λίγα δευτερόλεπτα).</div>
+{% elif request.query_params.get('status_sync') == '0' %}
+<div class="alert alert-danger mt-3">Αποτυχία εκκίνησης συγχρονισμού: {{ request.query_params.get('reason') or 'unknown' }}</div>
+{% endif %}
 {% if error %}
 <div class="alert alert-danger mt-3">{{ error }}</div>
 {% endif %}
@@ -305,6 +310,10 @@
                 <form method="post" action="/admin/tenants/{{ t.id }}/resend-welcome" data-bv-confirm="Να σταλούν νέα στοιχεία πρόσβασης στον tenant admin του {{ t.name }}; Θα δημιουργηθεί νέος προσωρινός κωδικός.">
                   <input type="hidden" name="next_url" value="/admin/tenants">
                   <button class="btn btn-sm bv-action-btn" type="submit" title="Αποστολή πρόσβασης" aria-label="Αποστολή πρόσβασης {{ t.name }}"><i class="fe fe-mail"></i></button>
+                </form>
+                <form method="post" action="/admin/tenants/{{ t.id }}/sync-item-status" data-bv-confirm="Συγχρονισμός status & κατηγοριών ειδών από SoftOne για τον {{ t.name }}; (γρήγορο)">
+                  <input type="hidden" name="next_url" value="/admin/tenants">
+                  <button class="btn btn-sm bv-action-btn" type="submit" title="Συγχρονισμός status/κατηγοριών από SoftOne" aria-label="Συγχρονισμός status {{ t.name }}"><i class="fe fe-download-cloud"></i></button>
                 </form>
                 {% endif %}
                 {% if not is_infra_tenant %}

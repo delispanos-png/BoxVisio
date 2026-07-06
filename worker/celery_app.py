@@ -18,6 +18,7 @@ celery.conf.task_default_routing_key = 'default'
 celery.conf.task_create_missing_queues = True
 celery.conf.broker_transport_options = {'visibility_timeout': 3600}
 celery.conf.task_routes = {
+    'worker.tasks.refresh_item_status_for_tenant': {'queue': 'ingest'},
     'worker.tasks.ingest_sales_documents': {'queue': 'ingest'},
     'worker.tasks.ingest_purchase_documents': {'queue': 'ingest'},
     'worker.tasks.ingest_inventory_documents': {'queue': 'ingest'},
