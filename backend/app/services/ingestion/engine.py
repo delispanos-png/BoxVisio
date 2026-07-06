@@ -1944,6 +1944,13 @@ async def _upsert_dims_from_row(
         ins = insert(DimItem).values(
             **item_values,
         )
+
+        def _sf(excluded_col, current_col):
+            # item_master (entity == 'items') is the authoritative full-catalog pull: take the
+            # SoftOne value verbatim so a CHANGED *or CLEARED* status/category propagates to BI.
+            # Other entities send partial rows -> keep the existing value when a field is absent.
+            return excluded_col if entity == 'items' else func.coalesce(excluded_col, current_col)
+
         await tenant_db.execute(
             ins.on_conflict_do_update(
                 index_elements=['external_id'],
@@ -1964,10 +1971,10 @@ async def _upsert_dims_from_row(
                     'vat_rate': func.coalesce(ins.excluded.vat_rate, DimItem.vat_rate),
                     'vat_label': func.coalesce(ins.excluded.vat_label, DimItem.vat_label),
                     'use_batch': func.coalesce(ins.excluded.use_batch, DimItem.use_batch),
-                    'commercial_category': func.coalesce(ins.excluded.commercial_category, DimItem.commercial_category),
-                    'category_1': func.coalesce(ins.excluded.category_1, DimItem.category_1),
-                    'category_2': func.coalesce(ins.excluded.category_2, DimItem.category_2),
-                    'category_3': func.coalesce(ins.excluded.category_3, DimItem.category_3),
+                    'commercial_category': _sf(ins.excluded.commercial_category, DimItem.commercial_category),
+                    'category_1': _sf(ins.excluded.category_1, DimItem.category_1),
+                    'category_2': _sf(ins.excluded.category_2, DimItem.category_2),
+                    'category_3': _sf(ins.excluded.category_3, DimItem.category_3),
                     'manufacturer_code': func.coalesce(ins.excluded.manufacturer_code, DimItem.manufacturer_code),
                     'manufacturer_name': func.coalesce(ins.excluded.manufacturer_name, DimItem.manufacturer_name),
                     'preferred_supplier_ext_id': func.coalesce(ins.excluded.preferred_supplier_ext_id, DimItem.preferred_supplier_ext_id),
@@ -1984,11 +1991,11 @@ async def _upsert_dims_from_row(
                     'strict_purchase_rel': func.coalesce(ins.excluded.strict_purchase_rel, DimItem.strict_purchase_rel),
                     'strict_sale_rel': func.coalesce(ins.excluded.strict_sale_rel, DimItem.strict_sale_rel),
                     'abc_category': func.coalesce(ins.excluded.abc_category, DimItem.abc_category),
-                    'manual_order_category': func.coalesce(
+                    'manual_order_category': _sf(
                         ins.excluded.manual_order_category,
                         DimItem.manual_order_category,
                     ),
-                    'commercial_status': func.coalesce(
+                    'commercial_status': _sf(
                         ins.excluded.commercial_status,
                         DimItem.commercial_status,
                     ),
