@@ -463,10 +463,10 @@ def _normalize_source(raw: str) -> str:
 
 
 _DEFAULT_INVENTORY_ITEM_CLASSIFICATION_SETTINGS = {
-    'status_source': 'softone',
+    'status_source': 'active_available',
     'active_last_sale_days': 60,
     'movement_window_days': 30,
-    'inventory_scope_sold_days': 90,
+    'inventory_scope_sold_days': 120,
     'fast_sales_qty_30d_min': 50,
     'slow_sales_qty_30d_max': 5,
 }
@@ -1092,10 +1092,16 @@ def _tenant_inventory_item_classification_settings(tenant: Tenant | None) -> dic
     status_source_raw = str(source.get('status_source') or '').strip().lower()
     if status_source_raw in {'commercial', 'commercial_status', 'status'}:
         status_source = 'commercial'
+    elif status_source_raw in {'active_available', 'active_stock_sales', 'softone_available'}:
+        status_source = 'active_available'
+    elif status_source_raw in {'active_status12', 'active_both_status', 'status12'}:
+        status_source = 'active_status12'
     elif status_source_raw in {'softone', 'source', 'source_flag'}:
         status_source = 'softone'
-    else:
+    elif status_source_raw in {'sales_window', 'sales', 'window', 'recency'}:
         status_source = 'sales_window'
+    else:
+        status_source = 'active_available'
     active_days = _parse_int_in_range(
         source.get('active_last_sale_days'),
         default=_DEFAULT_INVENTORY_ITEM_CLASSIFICATION_SETTINGS['active_last_sale_days'],
@@ -6333,6 +6339,10 @@ async def admin_tenant_edit(
     status_source_clean = str(status_source or '').strip().lower()
     if status_source_clean in {'commercial', 'commercial_status', 'status'}:
         settings_payload['status_source'] = 'commercial'
+    elif status_source_clean in {'active_available', 'active_stock_sales', 'softone_available'}:
+        settings_payload['status_source'] = 'active_available'
+    elif status_source_clean in {'active_status12', 'active_both_status', 'status12'}:
+        settings_payload['status_source'] = 'active_status12'
     elif status_source_clean in {'softone', 'source', 'source_flag'}:
         settings_payload['status_source'] = 'softone'
     else:
@@ -12761,17 +12771,24 @@ async def tenant_replenishment_dashboard(
     try:
         if feature_locked:
             raise PermissionError('replenishment_feature_locked')
+        _iic = _tenant_inventory_item_classification_settings(tenant)
+        _scope_sold_days = (
+            int(_iic.get('inventory_scope_sold_days') or 0)
+            if _iic.get('status_source') == 'active_available'
+            else None
+        )
         availability, _availability_cache_hit = await get_or_set_cache(
             namespace='dashboard:replenishment_availability',
             tenant_key=str(tenant.id),
             params={
-                'version': 'availability-searchable-abc-filters-v1',
+                'version': 'availability-searchable-abc-filters-v2',
                 'branch': branch or '',
                 'status': status or '',
                 'category': category or '',
                 'vendor': vendor or '',
                 'abc': abc or '',
                 'search': search or '',
+                'scope_sold_days': _scope_sold_days or 0,
             },
             ttl_seconds=1800,
             producer=lambda: build_availability_foundation(
@@ -12782,6 +12799,7 @@ async def tenant_replenishment_dashboard(
                 vendor=vendor,
                 abc=abc,
                 search=search,
+                scope_sold_days=_scope_sold_days,
             ),
         )
         latest_snapshot = (
@@ -13239,6 +13257,7 @@ async def _build_fnr_context(
     sales_avg_period_1_weeks: str | None = None,
     sales_avg_period_2_weeks: str | None = None,
     limit: int = 5000,
+    scope_sold_days: int | None = None,
     store_warehouse_map: dict[str, object] | None = None,
     include_no_order: bool = False,
 ) -> dict[str, object]:
@@ -13256,9 +13275,19 @@ async def _build_fnr_context(
         sales_avg_period_1_weeks=_fnr_int(sales_avg_period_1_weeks, 4),
         sales_avg_period_2_weeks=_fnr_int(sales_avg_period_2_weeks, 12),
         limit=limit,
+        scope_sold_days=scope_sold_days,
         store_warehouse_map=store_warehouse_map,
         include_no_order=include_no_order,
     )
+
+
+def _fnr_scope_sold_days(tenant: Tenant | None) -> int | None:
+    """FnR item universe follows the tenant's active-items window only when the
+    'active_available' status source is selected; otherwise keep the legacy scope."""
+    iic = _tenant_inventory_item_classification_settings(tenant)
+    if iic.get('status_source') != 'active_available':
+        return None
+    return int(iic.get('inventory_scope_sold_days') or 0) or None
 
 
 def _worksheet_cache_params(**values: object) -> dict[str, object]:
@@ -13775,7 +13804,7 @@ async def tenant_fnr_dashboard(
                 namespace='tenant:worksheet:fnr',
                 tenant_key=str(tenant.id),
                 params=_worksheet_cache_params(
-                    version='fnr-worksheet-v10',
+                    version='fnr-worksheet-v11',
                     pharmacies=pharmacies,
                     group=group,
                     category_1=category_1,
@@ -13788,6 +13817,7 @@ async def tenant_fnr_dashboard(
                     sales_avg_period_1_weeks=sales_avg_period_1_weeks,
                     sales_avg_period_2_weeks=sales_avg_period_2_weeks,
                     include_no_order=fnr_include_no_order,
+                    scope_sold_days=_fnr_scope_sold_days(tenant) or 0,
                     limit=5000,
                 ),
                 ttl_seconds=300,
@@ -13805,6 +13835,7 @@ async def tenant_fnr_dashboard(
                     sales_avg_period_1_weeks=sales_avg_period_1_weeks,
                     sales_avg_period_2_weeks=sales_avg_period_2_weeks,
                     limit=5000,
+                    scope_sold_days=_fnr_scope_sold_days(tenant),
                     store_warehouse_map=_tenant_fnr_store_map(tenant),
                     include_no_order=fnr_include_no_order,
                 ),
@@ -13955,7 +13986,7 @@ async def tenant_fnr_export(
         namespace='tenant:worksheet:fnr',
         tenant_key=str(tenant.id),
         params=_worksheet_cache_params(
-            version='fnr-worksheet-v10',
+            version='fnr-worksheet-v11',
             pharmacies=pharmacies,
             group=group,
             category_1=category_1,
@@ -13968,6 +13999,7 @@ async def tenant_fnr_export(
             sales_avg_period_1_weeks=sales_avg_period_1_weeks,
             sales_avg_period_2_weeks=sales_avg_period_2_weeks,
             include_no_order=fnr_include_no_order,
+            scope_sold_days=_fnr_scope_sold_days(tenant) or 0,
             limit=20000,
         ),
         ttl_seconds=300,
@@ -13985,6 +14017,7 @@ async def tenant_fnr_export(
             sales_avg_period_1_weeks=sales_avg_period_1_weeks,
             sales_avg_period_2_weeks=sales_avg_period_2_weeks,
             limit=20000,
+            scope_sold_days=_fnr_scope_sold_days(tenant),
             store_warehouse_map=_tenant_fnr_store_map(tenant),
             include_no_order=fnr_include_no_order,
         ),
@@ -14024,11 +14057,17 @@ async def replenishment_availability_drilldown(
     allowed_kinds = {'all', 'shortage', 'stockout', 'overstock'}
     safe_dimension = dimension if dimension in allowed_dimensions else 'store'
     safe_kind = kind if kind in allowed_kinds else 'all'
+    _drill_iic = _tenant_inventory_item_classification_settings(tenant)
+    _drill_scope_sold_days = (
+        int(_drill_iic.get('inventory_scope_sold_days') or 0)
+        if _drill_iic.get('status_source') == 'active_available'
+        else None
+    )
     data, cache_hit = await get_or_set_cache(
         namespace='dashboard:replenishment_availability_drilldown',
         tenant_key=str(tenant.id),
         params={
-            'version': 'availability-searchable-abc-filters-v1',
+            'version': 'availability-searchable-abc-filters-v2',
             'branch': branch or '',
             'status': status or '',
             'category': category or '',
@@ -14038,6 +14077,7 @@ async def replenishment_availability_drilldown(
             'dimension': safe_dimension,
             'value': value or '',
             'kind': safe_kind,
+            'scope_sold_days': _drill_scope_sold_days or 0,
         },
         ttl_seconds=1800,
         producer=lambda: build_availability_foundation(
@@ -14048,6 +14088,7 @@ async def replenishment_availability_drilldown(
             vendor=vendor,
             abc=abc,
             search=search,
+            scope_sold_days=_drill_scope_sold_days,
             include_detail_rows=True,
             detail_kind=safe_kind,
             detail_dimension=safe_dimension,

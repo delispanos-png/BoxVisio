@@ -900,6 +900,7 @@ async def build_fnr_excel_from_facts(
     sales_avg_period_1_weeks: int = 4,
     sales_avg_period_2_weeks: int = 12,
     limit: int = 5000,
+    scope_sold_days: int | None = None,
     store_warehouse_map: dict[str, object] | None = None,
     include_no_order: bool = False,
 ) -> dict[str, object]:
@@ -911,8 +912,11 @@ async def build_fnr_excel_from_facts(
         target_stock_weeks=target_stock_weeks,
         overstock_weeks=overstock_weeks,
         sales_window_days=max(int(sales_avg_period_1_weeks or 4), 1) * 7,
+        scope_sold_days=scope_sold_days,
         include_detail_rows=True,
-        detail_limit=max(limit * len(STORE_CODES), 1000),
+        # None = no cap: the worksheet needs EVERY per-(item, store) row, otherwise the
+        # shortage-value sort truncates some stores of an item and its stock shows as 0.
+        detail_limit=None,
         store_warehouse_map=store_warehouse_map,
     )
     period_2_days = max(int(sales_avg_period_2_weeks or 12), 1) * 7
@@ -2193,6 +2197,18 @@ def _apply_store_map(sql_body: str, store_warehouse_map: dict[str, object] | Non
             "GROUP BY fs.item_code, COALESCE(fs.branch_ext_id, '')",
             "GROUP BY 1, 2",
         ),
+        # scope_sales (item-universe membership) must be store-mapped too, otherwise it
+        # re-introduces raw branch_ext_id rows alongside the store-coded ones and the
+        # worksheet assembly overwrites correct per-store stock with 0.
+        (
+            "SELECT DISTINCT fs.item_code AS item_code, COALESCE(fs.branch_ext_id, '') AS branch_ext_id\n"
+            "            FROM fact_sales fs\n"
+            "            WHERE fs.doc_date >= :scope_sold_start",
+            "SELECT DISTINCT fs.item_code AS item_code, COALESCE(sms2.store_code, '') AS branch_ext_id\n"
+            "            FROM fact_sales fs\n"
+            "            LEFT JOIN store_map sms2 ON sms2.wh = COALESCE(fs.warehouse_ext_id, '')\n"
+            "            WHERE fs.doc_date >= :scope_sold_start",
+        ),
     ]
     out = sql_body
     for old, new in replacements:
@@ -2209,6 +2225,7 @@ async def build_availability_foundation(
     target_stock_weeks: float = 4.0,
     overstock_weeks: float = 12.0,
     sales_window_days: int = 30,
+    scope_sold_days: int | None = None,
     store_warehouse_map: dict[str, object] | None = None,
     branch: str | None = None,
     status: str | None = None,
@@ -2221,13 +2238,20 @@ async def build_availability_foundation(
     detail_kind: str = 'all',
     detail_dimension: str | None = None,
     detail_value: str | None = None,
-    detail_limit: int = 120,
+    detail_limit: int | None = 120,
 ) -> dict[str, object]:
     """Availability view from BI facts, used as the base for FnR/Destocking."""
     as_of = as_of or date.today()
     window_days = max(int(sales_window_days or 30), 1)
     current_start = as_of - timedelta(days=window_days - 1)
     previous_start = current_start - timedelta(days=window_days)
+    # Item universe membership: an item counts as "active" when it has stock OR a sale
+    # within scope_sold_days (the tenant's inventory_scope_sold_days, e.g. 120). This is
+    # independent of the run-rate windows above. Default falls back to previous_start so
+    # unset callers keep the legacy stock ∪ sales(2×window) scope.
+    scope_sold_start = (
+        as_of - timedelta(days=max(int(scope_sold_days), 1)) if scope_sold_days else previous_start
+    )
     purchase_start = as_of - timedelta(days=180)
     purchase_avg_start = as_of - timedelta(days=365)
     sql_body = (
@@ -2352,10 +2376,19 @@ async def build_availability_foundation(
               AND COALESCE(fp.net_value, 0) > 0
             GROUP BY COALESCE(di.external_id, fp.item_code)
         ),
+        scope_sales AS (
+            SELECT DISTINCT fs.item_code AS item_code, COALESCE(fs.branch_ext_id, '') AS branch_ext_id
+            FROM fact_sales fs
+            WHERE fs.doc_date >= :scope_sold_start
+              AND fs.doc_date <= :as_of
+              AND COALESCE(fs.item_code, '') <> ''
+        ),
         scope AS (
             SELECT item_code, branch_ext_id FROM stock WHERE COALESCE(item_code, '') <> ''
             UNION
             SELECT item_code, branch_ext_id FROM sales WHERE COALESCE(item_code, '') <> ''
+            UNION
+            SELECT item_code, branch_ext_id FROM scope_sales
         )
         SELECT
             scope.item_code,
@@ -2419,6 +2452,7 @@ async def build_availability_foundation(
             'as_of': as_of,
             'current_start': current_start,
             'previous_start': previous_start,
+            'scope_sold_start': scope_sold_start,
             'purchase_start': purchase_start,
             'purchase_avg_start': purchase_avg_start,
             **store_map_params,
@@ -2685,14 +2719,18 @@ async def build_availability_foundation(
             'abc': abc_value,
             'search': search_value,
         },
-        'detail_rows': sorted(
-            detail_rows,
-            key=lambda item: (
-                -float(item.get('shortage_value') or 0),
-                -float(item.get('sales_value_current') or 0),
-                str(item.get('item_name') or ''),
-            ),
-        )[: max(detail_limit, 1)],
+        'detail_rows': (
+            lambda _sorted: _sorted if (detail_limit is None or int(detail_limit) <= 0) else _sorted[: int(detail_limit)]
+        )(
+            sorted(
+                detail_rows,
+                key=lambda item: (
+                    -float(item.get('shortage_value') or 0),
+                    -float(item.get('sales_value_current') or 0),
+                    str(item.get('item_name') or ''),
+                ),
+            )
+        ),
     }
 
 

@@ -55,11 +55,13 @@ from app.models.tenant import (
 )
 
 _DEFAULT_INVENTORY_ITEM_CLASSIFICATION = {
-    'status_source': 'softone',
+    # Default for all tenants: active = SoftOne ENERGO (ISACTIVE) AND availability
+    # (stock OR a sale within inventory_scope_sold_days).
+    'status_source': 'active_available',
     'active_last_sale_days': 60,
     'movement_window_days': 30,
     # Inventory ("Αποθέματα") scope: items in stock OR sold within this many days.
-    'inventory_scope_sold_days': 90,
+    'inventory_scope_sold_days': 120,
     'fast_sales_qty_30d_min': 50,
     'slow_sales_qty_30d_max': 5,
 }
@@ -160,14 +162,24 @@ def normalize_inventory_item_classification_config(raw: dict | None) -> dict[str
     source = raw if isinstance(raw, dict) else {}
     status_source_raw = str(source.get('status_source') or '').strip().lower()
     # Active/Inactive must come from the SoftOne primary source, not from a sales-recency policy.
-    # 'commercial' = lifecycle from commercial_status (master scope); 'softone' = ISACTIVE flag;
-    # 'sales_window' = legacy recency rule. Default 'softone'.
+    # 'commercial' = lifecycle from commercial_status; 'softone' = raw ISACTIVE flag;
+    # 'active_available' = ISACTIVE + availability; 'active_status12' = ISACTIVE + both statuses;
+    # 'sales_window' = legacy recency rule. Default = active_available (see _DEFAULT_...).
     if status_source_raw in {'commercial', 'commercial_status', 'status'}:
         status_source = 'commercial'
+    elif status_source_raw in {'active_available', 'active_stock_sales', 'softone_available'}:
+        # ISACTIVE flag AND availability (in stock OR sold within inventory_scope_sold_days).
+        status_source = 'active_available'
+    elif status_source_raw in {'active_status12', 'active_both_status', 'status12'}:
+        # ISACTIVE flag AND a non-empty value in BOTH status_1 (manual_order_category)
+        # and status_2 (commercial_status) — regardless of what those values are.
+        status_source = 'active_status12'
+    elif status_source_raw in {'softone', 'source', 'source_flag'}:
+        status_source = 'softone'
     elif status_source_raw in {'sales_window', 'sales', 'window', 'recency'}:
         status_source = 'sales_window'
     else:
-        status_source = 'softone'
+        status_source = _DEFAULT_INVENTORY_ITEM_CLASSIFICATION['status_source']
 
     def _int_value(key: str, default: int, min_value: int, max_value: int) -> int:
         val = source.get(key, default)
@@ -345,6 +357,8 @@ def _classify_inventory_item(
     config: dict[str, object],
     is_active_source: bool | None = None,
     commercial_status: str | None = None,
+    manual_order_category: str | None = None,
+    qty_on_hand: float = 0.0,
 ) -> tuple[str, str]:
     status_source = str(config.get('status_source') or 'softone').strip().lower()
     active_days = int(config.get('active_last_sale_days') or _DEFAULT_INVENTORY_ITEM_CLASSIFICATION['active_last_sale_days'])
@@ -354,6 +368,20 @@ def _classify_inventory_item(
     if status_source == 'commercial':
         cs = str(commercial_status or '').strip().lower()
         is_active = bool(cs) and cs not in _INACTIVE_COMMERCIAL_STATUSES
+    elif status_source in {'active_available', 'active_stock_sales', 'softone_available'}:
+        # "Ενεργό" = SoftOne ISACTIVE flag AND availability: has stock OR sold within the
+        # configured window (inventory_scope_sold_days).
+        sold_days = int(config.get('inventory_scope_sold_days') or 90)
+        available = float(qty_on_hand or 0) != 0 or bool(
+            last_sale_date and last_sale_date >= (as_of - timedelta(days=sold_days))
+        )
+        is_active = bool(is_active_source) and available
+    elif status_source == 'active_status12':
+        # ENERGO flag AND a non-empty value in both status_1 (manual_order_category)
+        # and status_2 (commercial_status). The value content is irrelevant.
+        s1 = str(manual_order_category or '').strip()
+        s2 = str(commercial_status or '').strip()
+        is_active = bool(is_active_source) and bool(s1) and bool(s2)
     elif status_source == 'softone' and is_active_source is not None:
         is_active = bool(is_active_source)
     else:
@@ -13878,7 +13906,14 @@ async def inventory_items_overview(
     )
     scope_mode = str(scope or '').strip().lower()
     if not scope_mode:
-        scope_mode = 'master' if _status_source == 'commercial' else 'stock'
+        if _status_source in ('commercial', 'active_status12'):
+            scope_mode = 'master'
+        elif _status_source in ('active_available', 'active_stock_sales', 'softone_available'):
+            # Warehouse working set: items in stock OR sold within inventory_scope_sold_days.
+            # 'active' among them = ISACTIVE (ENERGO) items — matches SoftOne's active count.
+            scope_mode = 'stock_sold'
+        else:
+            scope_mode = 'stock'
     master_scope = scope_mode == 'master'
     stock_sold_scope = scope_mode == 'stock_sold'
     latest_date = await _latest_inventory_snapshot_date(db, as_of)
@@ -14003,6 +14038,7 @@ async def inventory_items_overview(
                 func.max(func.nullif(func.btrim(DimItem.abc_category), '')),
                 literal('Χωρίς ABC'),
             ).label('abc_category'),
+            func.coalesce(func.max(func.nullif(func.btrim(DimItem.manual_order_category), '')), literal('')).label('manual_order_category'),
             func.coalesce(
                 func.max(func.nullif(func.btrim(DimItem.commercial_status), '')),
                 literal(''),
@@ -14039,14 +14075,22 @@ async def inventory_items_overview(
     )
     inv_base = inv_base.where(latest_inventory_rows.c.rn == 1).group_by(item_code_expr).subquery('inv_base')
 
+    # last_sale_date must reach back far enough for the 'active_available' sold-window
+    # (inventory_scope_sold_days), while sales_qty_30 stays bounded to movement_window_days.
+    _sale_window_days = max(int(movement_window_days), int(inventory_scope_sold_days))
     if not any([branches, warehouses, brands, categories, groups]) and _effective_branch_filter(None) is None:
         sales_30 = (
             select(
                 AggSalesItemDaily.item_external_id.label('item_code'),
-                func.coalesce(func.sum(AggSalesItemDaily.qty), 0).label('sales_qty_30'),
+                func.coalesce(
+                    func.sum(AggSalesItemDaily.qty).filter(
+                        AggSalesItemDaily.doc_date >= (as_of - timedelta(days=movement_window_days))
+                    ),
+                    0,
+                ).label('sales_qty_30'),
                 func.max(AggSalesItemDaily.doc_date).label('last_sale_date'),
             )
-            .where(AggSalesItemDaily.doc_date >= (as_of - timedelta(days=movement_window_days)))
+            .where(AggSalesItemDaily.doc_date >= (as_of - timedelta(days=_sale_window_days)))
             .where(AggSalesItemDaily.doc_date <= as_of)
             .group_by(AggSalesItemDaily.item_external_id)
             .subquery('sales_30')
@@ -14055,10 +14099,15 @@ async def inventory_items_overview(
         sales_30 = (
             select(
                 FactSales.item_code.label('item_code'),
-                func.coalesce(func.sum(FactSales.qty), 0).label('sales_qty_30'),
+                func.coalesce(
+                    func.sum(FactSales.qty).filter(
+                        FactSales.doc_date >= (as_of - timedelta(days=movement_window_days))
+                    ),
+                    0,
+                ).label('sales_qty_30'),
                 func.max(FactSales.doc_date).label('last_sale_date'),
             )
-            .where(FactSales.doc_date >= (as_of - timedelta(days=movement_window_days)))
+            .where(FactSales.doc_date >= (as_of - timedelta(days=_sale_window_days)))
             .where(FactSales.doc_date <= as_of)
         )
         sales_30 = _apply_fact_sales_filters(
@@ -14113,6 +14162,7 @@ async def inventory_items_overview(
             inv_base.c.is_active_source,
             inv_base.c.abc_category,
             inv_base.c.commercial_status,
+            inv_base.c.manual_order_category,
         )
         .select_from(inv_base)
         .join(sales_30, sales_30.c.item_code == inv_base.c.item_code, isouter=True)
@@ -14170,6 +14220,7 @@ async def inventory_items_overview(
                     func.coalesce(func.nullif(func.btrim(DimItem.category_1), ''), literal('')).label('category_1'),
                     func.coalesce(func.nullif(func.btrim(DimItem.commercial_category), ''), literal('')).label('commercial_category'),
                     func.coalesce(func.nullif(func.btrim(DimItem.manual_order_category), ''), func.nullif(func.btrim(DimItem.abc_category), ''), literal('Χωρίς ABC')).label('abc_category'),
+                    func.coalesce(func.nullif(func.btrim(DimItem.manual_order_category), ''), literal('')).label('manual_order_category'),
                     func.coalesce(func.nullif(func.btrim(DimItem.commercial_status), ''), literal('')).label('commercial_status'),
                     DimItem.is_active_source.label('is_active_source'),
                     func.coalesce(snap_q.c.qty_on_hand, 0).label('qty_on_hand'),
@@ -14221,6 +14272,7 @@ async def inventory_items_overview(
                     func.coalesce(func.nullif(func.btrim(DimItem.category_1), ''), literal('')).label('category_1'),
                     func.coalesce(func.nullif(func.btrim(DimItem.commercial_category), ''), literal('')).label('commercial_category'),
                     func.coalesce(func.nullif(func.btrim(DimItem.manual_order_category), ''), func.nullif(func.btrim(DimItem.abc_category), ''), literal('Χωρίς ABC')).label('abc_category'),
+                    func.coalesce(func.nullif(func.btrim(DimItem.manual_order_category), ''), literal('')).label('manual_order_category'),
                     func.coalesce(func.nullif(func.btrim(DimItem.commercial_status), ''), literal('')).label('commercial_status'),
                     DimItem.is_active_source.label('is_active_source'),
                     func.coalesce(snap_q.c.qty_on_hand, 0).label('qty_on_hand'),
@@ -14251,6 +14303,7 @@ async def inventory_items_overview(
                     func.coalesce(func.nullif(func.btrim(DimItem.category_1), ''), literal('')).label('category_1'),
                     func.coalesce(func.nullif(func.btrim(DimItem.commercial_category), ''), literal('')).label('commercial_category'),
                     func.coalesce(func.nullif(func.btrim(DimItem.manual_order_category), ''), func.nullif(func.btrim(DimItem.abc_category), ''), literal('Χωρίς ABC')).label('abc_category'),
+                    func.coalesce(func.nullif(func.btrim(DimItem.manual_order_category), ''), literal('')).label('manual_order_category'),
                     func.coalesce(func.nullif(func.btrim(DimItem.commercial_status), ''), literal('')).label('commercial_status'),
                     DimItem.is_active_source.label('is_active_source'),
                     func.coalesce(AggInventorySnapshotDaily.qty_on_hand, 0).label('qty_on_hand'),
@@ -14287,8 +14340,34 @@ async def inventory_items_overview(
                 ),
                 else_=0,
             )
+        elif status_source == 'active_status12':
+            # ENERGO AND non-empty status_1 (manual_order_category) AND status_2 (commercial_status).
+            active_sql = case(
+                (
+                    base_inventory.c.is_active_source.is_(True)
+                    & (func.btrim(func.coalesce(base_inventory.c.manual_order_category, literal(''))) != literal(''))
+                    & (func.btrim(func.coalesce(base_inventory.c.commercial_status, literal(''))) != literal('')),
+                    1,
+                ),
+                else_=0,
+            )
         elif status_source == 'softone':
             active_sql = case((base_inventory.c.is_active_source.is_(True), 1), else_=0)
+        elif status_source in ('active_available', 'active_stock_sales', 'softone_available'):
+            # ENERGO (ISACTIVE) AND availability: net stock on hand OR a sale within
+            # inventory_scope_sold_days. last_sale_date reaches back over this window
+            # (sales_30 CTE is widened to max(movement_window_days, inventory_scope_sold_days)).
+            active_sql = case(
+                (
+                    base_inventory.c.is_active_source.is_(True)
+                    & (
+                        (base_inventory.c.qty_on_hand != 0)
+                        | (sales_30.c.last_sale_date >= (as_of - timedelta(days=inventory_scope_sold_days)))
+                    ),
+                    1,
+                ),
+                else_=0,
+            )
         else:
             active_sql = case(
                 (sales_30.c.last_sale_date >= (as_of - timedelta(days=active_days)), 1),
@@ -14370,6 +14449,7 @@ async def inventory_items_overview(
                 func.coalesce(purch_30.c.purchases_qty_30, 0).label('purchases_qty_30'),
                 base_inventory.c.is_active_source.label('is_active_source'),
                 base_inventory.c.abc_category.label('abc_category'),
+                base_inventory.c.manual_order_category.label('manual_order_category'),
                 base_inventory.c.commercial_status.label('commercial_status'),
             )
             .select_from(base_inventory)
@@ -14411,6 +14491,8 @@ async def inventory_items_overview(
                 config=resolved_classification,
                 is_active_source=(bool(is_active_source) if is_active_source is not None else None),
                 commercial_status=commercial_status,
+                manual_order_category=str(r['manual_order_category'] or ''),
+                qty_on_hand=float(r['qty_on_hand'] or 0),
             )
             mapped.append(
                 {
@@ -14495,6 +14577,8 @@ async def inventory_items_overview(
             config=resolved_classification,
             is_active_source=(bool(is_active_source) if is_active_source is not None else None),
             commercial_status=commercial_status,
+            manual_order_category=str(r[18] or ''),
+            qty_on_hand=float(r[9] or 0),
         )
         mapped.append(
             {
@@ -14920,6 +15004,9 @@ async def inventory_item_detail(
         sales_qty=sales_qty_30,
         config=resolved_classification,
         is_active_source=effective_active_source,
+        manual_order_category=(getattr(dim_item, 'manual_order_category', '') or '') if dim_item else '',
+        commercial_status=(getattr(dim_item, 'commercial_status', '') or '') if dim_item else '',
+        qty_on_hand=qty_on_hand,
     )
 
     item_name = _clean_item_name(dim_item.name if dim_item else None, payload_item_name or code)

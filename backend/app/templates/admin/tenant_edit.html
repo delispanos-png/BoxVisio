@@ -599,10 +599,16 @@
                   <label class="form-label">Πηγή Κατάστασης Είδους</label>
                   <select class="form-select" name="status_source">
                     <option value="commercial" {% if inventory_item_classification.status_source == 'commercial' %}selected{% endif %}>SoftOne Εμπορικό Status (Καταργημένο/Ληγμένο = ανενεργό)</option>
-                    <option value="softone" {% if inventory_item_classification.status_source == 'softone' %}selected{% endif %}>SoftOne ISACTIVE (is_active_source)</option>
+                    <option value="active_available" {% if inventory_item_classification.status_source == 'active_available' %}selected{% endif %}>Μέθοδος «Διαθεσιμότητα» — Ενεργό στο SoftOne + (απόθεμα Ή πώληση τελευταίων 120 ημερών)</option>
+                    <option value="active_status12" {% if inventory_item_classification.status_source == 'active_status12' %}selected{% endif %}>Μέθοδος «Status 1 &amp; 2» — Ενεργό στο SoftOne + συμπληρωμένα (μη-κενά) Status 1 ΚΑΙ Status 2</option>
+                    <option value="softone" {% if inventory_item_classification.status_source == 'softone' %}selected{% endif %}>SoftOne ISACTIVE (μόνο το raw flag)</option>
                     <option value="sales_window" {% if inventory_item_classification.status_source == 'sales_window' %}selected{% endif %}>BI (βάσει τελευταίας πώλησης)</option>
                   </select>
-                  <span class="tenant-field-help">Εμπορικό Status = ο κύκλος ζωής του είδους στο SoftOne (συνιστάται). ISACTIVE = το raw flag. BI = recency πωλήσεων.</span>
+                  <span class="tenant-field-help">
+                    <strong>Μέθοδος «Διαθεσιμότητα»:</strong> ενεργά = ENERGO στο SoftOne <em>ΚΑΙ</em> (έχει απόθεμα <em>ή</em> πούλησε εντός των «Ημερών παραθύρου αποθέματος», π.χ. 120). Ταιριάζει με τα ενεργά του SoftOne.<br>
+                    <strong>Μέθοδος «Status 1 &amp; 2»:</strong> ενεργά = ENERGO στο SoftOne <em>ΚΑΙ</em> έχουν συμπληρωμένο (μη-κενό) Status 1 (κατηγορία παραγγελίας) <em>ΚΑΙ</em> Status 2 (εμπορικό status) — ανεξάρτητα από την τιμή τους.<br>
+                    <strong>Εμπορικό Status:</strong> κύκλος ζωής (Καταργημένο/Ληγμένο = ανενεργό). <strong>ISACTIVE:</strong> μόνο το raw flag. <strong>BI:</strong> recency πωλήσεων.
+                  </span>
                 </div>
                 <div>
                   <label class="form-label">Ημέρες για "Ενεργό Είδος"</label>
@@ -617,7 +623,7 @@
                 <div>
                   <label class="form-label">Scope Αποθεμάτων — Πωλήσεις (ημέρες)</label>
                   <input class="form-control" type="number" min="1" max="3650" name="inventory_scope_sold_days" value="{{ inventory_item_classification.inventory_scope_sold_days }}">
-                  <span class="tenant-field-help">Στο κύκλωμα «Αποθέματα»: τα είδη που μετράνε = όσα έχουν στοκ ή πούλησαν εντός αυτού του παραθύρου.</span>
+                  <span class="tenant-field-help">Στο κύκλωμα «Αποθέματα»: τα είδη που μετράνε = όσα έχουν στοκ ή πούλησαν εντός αυτού του παραθύρου. Ίδιο παράθυρο ορίζει και τη «διαθεσιμότητα» για την πηγή κατάστασης «ENERGO + διαθεσιμότητα».</span>
                 </div>
                 <div>
                   <label class="form-label">Όριο Ταχυκίνητου (πωλήσεις παραθύρου)</label>
