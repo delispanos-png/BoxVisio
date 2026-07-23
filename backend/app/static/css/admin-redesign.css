@@ -2927,17 +2927,21 @@ body[data-theme='dark'] .tenant-sync-note strong {
 .user-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
-  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
 }
 
 .user-actions .btn {
-  min-width: 42px !important;
-  height: 38px;
+  min-width: 38px !important;
+  width: 38px;
+  height: 36px;
+  padding: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   border-radius: var(--bv-admin-radius);
+  flex: 0 0 auto;
 }
 
 .user-actions form {

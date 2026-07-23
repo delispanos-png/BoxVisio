@@ -17,6 +17,11 @@
 {% elif request.query_params.get('invite') == '0' %}
 <div class="alert alert-danger mt-3 mb-3">Η αποστολή email απέτυχε. Αιτία: {{ request.query_params.get('reason') or 'unknown' }}{% if request.query_params.get('reason') == 'smtp_not_configured' %} (ο SMTP/Mail Server δεν είναι ρυθμισμένος){% endif %}</div>
 {% endif %}
+{% if request.query_params.get('pwset') == '1' %}
+<div class="alert alert-success mt-3 mb-3">Ο κωδικός ορίστηκε και ο λογαριασμός ενεργοποιήθηκε. Δώσ' τον στον χρήστη — δεν εμφανίζεται ξανά.</div>
+{% elif request.query_params.get('pwset') == '0' %}
+<div class="alert alert-danger mt-3 mb-3">Ο κωδικός δεν ορίστηκε. Αιτία: {{ request.query_params.get('reason') or 'unknown' }}{% if request.query_params.get('reason') == 'too_short' %} (τουλάχιστον 8 χαρακτήρες){% endif %}</div>
+{% endif %}
 
 {% set active_count = user_counts.active if user_counts is defined else (users | selectattr('is_active') | list | length) %}
 {% set total_count = user_counts.total if user_counts is defined else (users | length) %}
@@ -211,6 +216,12 @@
                     <i class="fe fe-mail"></i>
                   </button>
                 </form>
+                <form method="post" action="/admin/users/{{ u.id }}/set-password" class="bv-setpass-form">
+                  <input type="hidden" name="password" value="">
+                  <button class="btn btn-sm bv-action-btn bv-action-key" type="button" data-setpass data-email="{{ u.email }}" title="Ορισμός συγκεκριμένου κωδικού" aria-label="Ορισμός συγκεκριμένου κωδικού">
+                    <i class="fe fe-key"></i>
+                  </button>
+                </form>
                 <form method="post" action="/admin/users/{{ u.id }}/delete" data-bv-confirm="Διαγραφή χρήστη {{ u.email }};">
                   <button class="btn btn-sm bv-action-btn bv-action-delete" type="submit" title="Διαγραφή" aria-label="Διαγραφή">
                     <i class="fe fe-trash-2"></i>
@@ -278,6 +289,24 @@
     if (el) el.addEventListener('change', applyFilters);
   });
   applyFilters();
+
+  // Set-password: prompt for a specific password, then submit (keeps the action row icon-only).
+  document.querySelectorAll('[data-setpass]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const form = btn.closest('form');
+      if (!form) return;
+      const email = btn.dataset.email || '';
+      const pw = window.prompt('Νέος κωδικός για ' + email + '\n(τουλάχιστον 8 χαρακτήρες):', '');
+      if (pw === null) return;
+      if (pw.trim().length < 8) {
+        window.alert('Ο κωδικός πρέπει να έχει τουλάχιστον 8 χαρακτήρες.');
+        return;
+      }
+      const input = form.querySelector('input[name="password"]');
+      if (input) input.value = pw;
+      form.submit();
+    });
+  });
 })();
 </script>
 {% endblock %}

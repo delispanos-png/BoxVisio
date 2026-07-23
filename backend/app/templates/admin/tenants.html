@@ -60,6 +60,9 @@
   <div class="small text-muted">{{ tt(request, 'review_steps_troubleshoot') }}</div>
 </div>
 {% endif %}
+{% if request.query_params.get('impersonate') == '0' %}
+<div class="alert alert-danger mt-3">Η είσοδος στο dashboard πελάτη απέτυχε. Αιτία: {{ request.query_params.get('reason') or 'unknown' }}.</div>
+{% endif %}
 
 <div class="bv-admin-hero">
   <div>
@@ -305,6 +308,9 @@
               <div class="bv-admin-compact-actions">
                 <a class="btn btn-sm bv-action-btn bv-action-edit" href="/admin/tenants/{{ t.id }}/edit?next=/admin/tenants" title="Επεξεργασία" aria-label="Επεξεργασία {{ t.name }}">
                   <i class="fe fe-edit-2"></i>
+                </a>
+                <a class="btn btn-sm bv-action-btn bv-action-enter" href="/admin/tenants/{{ t.id }}/impersonate" target="_blank" rel="noopener" title="Είσοδος στο dashboard του πελάτη (impersonation)" aria-label="Είσοδος στο dashboard {{ t.name }}">
+                  <i class="fe fe-log-in"></i>
                 </a>
                 {% if not is_infra_tenant %}
                 <form method="post" action="/admin/tenants/{{ t.id }}/resend-welcome" data-bv-confirm="Να σταλούν νέα στοιχεία πρόσβασης στον tenant admin του {{ t.name }}; Θα δημιουργηθεί νέος προσωρινός κωδικός.">

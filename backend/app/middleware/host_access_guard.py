@@ -32,6 +32,18 @@ def _extract_role(request: Request) -> RoleName | None:
         return None
 
 
+def _is_impersonation_session(request: Request) -> bool:
+    """A cloudon_admin token carrying a tenant_id is an active impersonation session
+    (minted by the /impersonate handoff) and is allowed on the tenant portal."""
+    auth_header = request.headers.get('Authorization', '')
+    token = auth_header.split(' ', 1)[1] if auth_header.startswith('Bearer ') else request.cookies.get('access_token')
+    if not token:
+        return False
+    expected_aud = expected_audience_for_host(request.headers.get('host'))
+    payload = safe_decode(token, audience=expected_aud, token_type='access')
+    return bool(payload and payload.get('tenant_id') is not None)
+
+
 def _is_tenant_endpoint(path: str) -> bool:
     return (
         path.startswith('/tenant')
@@ -97,8 +109,14 @@ async def host_access_guard_middleware(request: Request, call_next):
             return RedirectResponse(url=target, status_code=307)
         return JSONResponse(status_code=403, content={'detail': 'Admin endpoints are not available on tenant host'})
 
-    # cloudon_admin cannot directly use tenant endpoints on bi host.
-    if _is_tenant_host(host) and role == RoleName.cloudon_admin and _is_tenant_endpoint(path):
+    # cloudon_admin cannot directly use tenant endpoints on bi host — UNLESS this is an active
+    # impersonation session (token carries a tenant_id), which we mint explicitly for support access.
+    if (
+        _is_tenant_host(host)
+        and role == RoleName.cloudon_admin
+        and _is_tenant_endpoint(path)
+        and not _is_impersonation_session(request)
+    ):
         if request.method.upper() in {'GET', 'HEAD'}:
             return RedirectResponse(url=f'https://{settings.admin_portal_host}/admin/dashboard', status_code=307)
         return JSONResponse(status_code=403, content={'detail': 'cloudon_admin is denied on tenant endpoints'})

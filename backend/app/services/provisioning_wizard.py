@@ -43,7 +43,27 @@ from app.services.sqlserver_connector import (
 )
 from app.services.subscriptions import infer_default_features_for_plan
 
-TENANT_MIGRATION_HEAD = '20260519_0033_tenant'
+
+def _latest_tenant_head(alembic_ini: Path) -> str:
+    """Resolve the latest *tenant* alembic head dynamically.
+
+    The alembic version dir holds both control and tenant migrations, so ``upgrade head`` is
+    ambiguous. Tenant revisions are suffixed ``_tenant`` — pick that single head from alembic's
+    own head list so this never goes stale when new tenant migrations are added.
+    """
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
+    cfg = Config(str(alembic_ini))
+    cfg.set_main_option('script_location', str(alembic_ini.parent / 'alembic'))
+    script = ScriptDirectory.from_config(cfg)
+    tenant_heads = [h for h in script.get_heads() if str(h).endswith('_tenant')]
+    if len(tenant_heads) != 1:
+        raise RuntimeError(
+            f'expected exactly one tenant migration head, found {tenant_heads} '
+            f'(all heads: {script.get_heads()})'
+        )
+    return tenant_heads[0]
 
 OPERATIONAL_STREAMS = [
     'sales_documents',
@@ -194,8 +214,9 @@ def _run_tenant_migrations(db_name: str, db_user: str, db_password: str) -> None
         'MIGRATION_TARGET': 'tenant',
         'TENANT_MIGRATION_URL': tenant_url,
     }
+    tenant_head = _latest_tenant_head(alembic_ini)
     subprocess.run(
-        [sys.executable, '-m', 'alembic', '-c', str(alembic_ini), 'upgrade', TENANT_MIGRATION_HEAD],
+        [sys.executable, '-m', 'alembic', '-c', str(alembic_ini), 'upgrade', tenant_head],
         env=env,
         check=True,
         capture_output=True,

@@ -247,9 +247,18 @@ async def get_current_user(
         subscription_features: dict[str, bool] = {}
         if row:
             user_for_sub = row[0]
-            if user_for_sub.tenant_id is not None:
+            effective_tenant_id = user_for_sub.tenant_id
+            # Impersonation: a cloudon_admin's JWT carries the target tenant_id. Load THAT tenant's
+            # subscription so the menu shows exactly the impersonated tenant's package — no more,
+            # no less (the admin has no tenant of its own, which would lock everything).
+            if user_for_sub.role == RoleName.cloudon_admin and payload.get('tenant_id') is not None:
+                try:
+                    effective_tenant_id = int(payload.get('tenant_id'))
+                except (TypeError, ValueError):
+                    effective_tenant_id = user_for_sub.tenant_id
+            if effective_tenant_id is not None:
                 sub = (
-                    await db.execute(select(Subscription).where(Subscription.tenant_id == user_for_sub.tenant_id))
+                    await db.execute(select(Subscription).where(Subscription.tenant_id == effective_tenant_id))
                 ).scalar_one_or_none()
                 if sub is not None:
                     subscription_features = normalize_subscription_feature_flags(sub.plan, sub.feature_flags)
@@ -312,7 +321,10 @@ async def get_request_tenant(
     tenant_id = payload.get('tenant_id')
     if tenant_id is None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='tenant_id missing in JWT')
-    if user.tenant_id != tenant_id:
+    # A CloudOn admin may impersonate any tenant: the JWT tenant_id is the target tenant they
+    # explicitly selected during the impersonation handoff. Admins never belong to a tenant, so
+    # this consumes no tenant seat. Every other role stays locked to its own tenant.
+    if user.role != RoleName.cloudon_admin and user.tenant_id != tenant_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='JWT tenant mismatch')
 
     session_maker = request.app.state.control_sessionmaker

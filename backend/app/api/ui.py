@@ -5493,7 +5493,9 @@ async def invite_password_submit(
             {'request': request, 'token': token, 'error': 'Ο κωδικός πρέπει να έχει τουλάχιστον 8 χαρακτήρες.'},
             status_code=400,
         )
-    user = (await db.execute(select(User).where(User.reset_token == token, User.is_active.is_(True)))).scalar_one_or_none()
+    # Resolve by token only: an invited user is inactive until they set a password, so we must
+    # not require is_active here (the single-use, 48h-expiring token is the proof of invite).
+    user = (await db.execute(select(User).where(User.reset_token == token))).scalar_one_or_none()
     if not user:
         return templates.TemplateResponse(
             'auth/invite.html',
@@ -5507,6 +5509,8 @@ async def invite_password_submit(
             status_code=400,
         )
     user.password_hash = get_password_hash(password)
+    # Setting the password via the invite link activates the account.
+    user.is_active = True
     user.reset_token = None
     user.reset_token_expires_at = None
     await db.commit()
@@ -11375,6 +11379,174 @@ async def admin_user_resend_invite(
     if status == 'skipped':
         return RedirectResponse(url='/admin/users?invite=0&reason=smtp_not_configured', status_code=303)
     return RedirectResponse(url=f'/admin/users?invite=0&reason={result.get("reason") or "error"}', status_code=303)
+
+
+@router.post('/admin/users/{user_id}/set-password')
+async def admin_user_set_password(
+    user_id: int,
+    password: str = Form(default=''),
+    _: object = Depends(require_roles(RoleName.cloudon_admin)),
+    db: AsyncSession = Depends(get_control_db),
+):
+    # Admin sets a specific password for a user (the admin then hands it over). Passwords are
+    # stored one-way hashed and can never be read back — this is the supported way to give a
+    # user a known password. Setting it also activates the account and clears any invite token.
+    password = str(password or '')
+    if len(password) < 8:
+        return RedirectResponse(url='/admin/users?pwset=0&reason=too_short', status_code=303)
+    user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+    if not user:
+        return RedirectResponse(url='/admin/users?pwset=0&reason=not_found', status_code=303)
+    user.password_hash = get_password_hash(password)
+    user.is_active = True
+    user.reset_token = None
+    user.reset_token_expires_at = None
+    await db.commit()
+    return RedirectResponse(url='/admin/users?pwset=1', status_code=303)
+
+
+# --- CloudOn admin impersonation: log into any tenant's dashboard without a tenant seat -------
+_IMPERSONATION_TTL_SECONDS = 120
+
+
+def _impersonation_redis():
+    try:
+        from redis.asyncio import Redis  # type: ignore
+    except Exception:  # noqa: BLE001
+        return None
+    try:
+        return Redis.from_url(settings.redis_url, decode_responses=True)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+async def _impersonation_put(ott: str, admin_user_id: int, tenant_id: int) -> bool:
+    redis = _impersonation_redis()
+    if redis is None:
+        return False
+    try:
+        await redis.set(f'impersonate:{ott}', f'{admin_user_id}:{tenant_id}', ex=_IMPERSONATION_TTL_SECONDS)
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+    finally:
+        try:
+            await redis.aclose()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+async def _impersonation_take(ott: str) -> tuple[int, int] | None:
+    """Single-use consume: return (admin_user_id, tenant_id) and delete the token."""
+    redis = _impersonation_redis()
+    if redis is None or not ott:
+        return None
+    key = f'impersonate:{ott}'
+    try:
+        value = await redis.get(key)
+        if value:
+            await redis.delete(key)
+    except Exception:  # noqa: BLE001
+        return None
+    finally:
+        try:
+            await redis.aclose()
+        except Exception:  # noqa: BLE001
+            pass
+    if not value or ':' not in str(value):
+        return None
+    admin_part, tenant_part = str(value).split(':', 1)
+    try:
+        return int(admin_part), int(tenant_part)
+    except ValueError:
+        return None
+
+
+@router.get('/admin/tenants/{tenant_id}/impersonate')
+async def admin_tenant_impersonate(
+    tenant_id: int,
+    request: Request,
+    admin_user: User = Depends(require_roles(RoleName.cloudon_admin)),
+    db: AsyncSession = Depends(get_control_db),
+):
+    """Start impersonation from the admin panel: mint a single-use handoff token and bounce the
+    browser to the tenant portal, which exchanges it for a tenant-scoped session cookie."""
+    tenant = (await db.execute(select(Tenant).where(Tenant.id == tenant_id))).scalar_one_or_none()
+    if not tenant:
+        return RedirectResponse(url='/admin/tenants?impersonate=0&reason=not_found', status_code=303)
+    if tenant.status != TenantStatus.active:
+        return RedirectResponse(url='/admin/tenants?impersonate=0&reason=inactive', status_code=303)
+    ott = secrets.token_urlsafe(32)
+    if not await _impersonation_put(ott, int(admin_user.id), int(tenant_id)):
+        return RedirectResponse(url='/admin/tenants?impersonate=0&reason=store_unavailable', status_code=303)
+    db.add(
+        AuditLog(
+            tenant_id=int(tenant_id),
+            actor_user_id=int(admin_user.id),
+            action='impersonation_start',
+            entity_type='tenant',
+            entity_id=str(tenant_id),
+            payload={'ip': _request_client_ip(request), 'user_agent': _request_user_agent(request)},
+        )
+    )
+    await db.commit()
+    return RedirectResponse(url=f'https://{settings.tenant_portal_host}/impersonate/enter?ott={ott}', status_code=303)
+
+
+@router.get('/impersonate/enter')
+async def impersonate_enter(
+    request: Request,
+    ott: str = Query(default=''),
+    db: AsyncSession = Depends(get_control_db),
+):
+    """Tenant-portal side of the handoff: consume the single-use token and set a tenant-scoped
+    session cookie for the CloudOn admin, then land on the tenant dashboard."""
+    host = (request.headers.get('host') or '').split(':')[0].lower()
+    fail = RedirectResponse(url='/login?impersonate_error=1', status_code=303)
+    consumed = await _impersonation_take(ott)
+    if not consumed:
+        return fail
+    admin_id, tenant_id = consumed
+    admin = (
+        await db.execute(select(User).where(User.id == admin_id, User.is_active.is_(True)))
+    ).scalar_one_or_none()
+    if not admin or admin.role != RoleName.cloudon_admin:
+        return fail
+    tenant = (await db.execute(select(Tenant).where(Tenant.id == tenant_id))).scalar_one_or_none()
+    if not tenant or tenant.status != TenantStatus.active:
+        return fail
+    audience = expected_audience_for_host(host) or audience_for_role(admin.role.value)
+    token = create_access_token(
+        subject=str(admin.id),
+        tenant_id=int(tenant_id),
+        role=admin.role.value,
+        audience=audience,
+    )
+    db.add(
+        AuditLog(
+            tenant_id=int(tenant_id),
+            actor_user_id=int(admin.id),
+            action='impersonation_enter',
+            entity_type='tenant',
+            entity_id=str(tenant_id),
+            payload={'host': host, 'ip': _request_client_ip(request), 'user_agent': _request_user_agent(request)},
+        )
+    )
+    await db.commit()
+    forwarded_proto = (request.headers.get('x-forwarded-proto') or '').lower()
+    secure_cookie = request.url.scheme == 'https' or forwarded_proto == 'https'
+    resp = RedirectResponse(url='/tenant/dashboard', status_code=303)
+    resp.set_cookie(
+        key='access_token',
+        value=token,
+        httponly=True,
+        secure=secure_cookie,
+        samesite='lax',
+        max_age=settings.access_token_expire_minutes * 60,
+        path='/',
+        domain=_cookie_domain_for_host(host),
+    )
+    return resp
 
 
 async def _tenant_user_license_context(db: AsyncSession, tenant: Tenant) -> dict[str, object]:
