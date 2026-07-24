@@ -706,6 +706,26 @@
         });
       }
 
+      // Dismissible mobile sidebar: tapping the scrim (or Escape) closes the
+      // off-canvas menu. On ≤991px the open menu adds 'admin-sidebar-collapsed'.
+      const isMobileViewport = () => window.matchMedia('(max-width: 991.98px)').matches;
+      const closeMobileSidebar = () => {
+        if (isMobileViewport()) document.body.classList.remove('admin-sidebar-collapsed');
+      };
+      const sidebarOverlay = document.querySelector('.sidebar-overlay');
+      if (sidebarOverlay && sidebarOverlay.dataset.bound !== '1') {
+        sidebarOverlay.dataset.bound = '1';
+        sidebarOverlay.addEventListener('click', closeMobileSidebar);
+      }
+      if (document.body.dataset.escBound !== '1') {
+        document.body.dataset.escBound = '1';
+        document.addEventListener('keydown', (e) => {
+          if (e.key === 'Escape' && document.body.classList.contains('admin-sidebar-collapsed')) {
+            closeMobileSidebar();
+          }
+        });
+      }
+
       const navSearch = document.getElementById('adminNavSearch');
       if (navSearch && navSearch.dataset.bound !== '1') {
         navSearch.dataset.bound = '1';

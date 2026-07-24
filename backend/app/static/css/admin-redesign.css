@@ -3795,3 +3795,63 @@ body.bv-admin-shell .tenant-group-divider span {
 body.bv-admin-shell .tenant-group-divider small {
   font-size: 12px; color: var(--bv-admin-muted);
 }
+
+/* ============================================================
+   QA quick-wins (2026-07-24) — see admin UI/UX QA report
+   ============================================================ */
+
+/* [Blocker] Dismissible mobile sidebar: when the off-canvas menu is open
+   (admin-sidebar-collapsed on ≤991px), show a tappable scrim above the
+   (pointer-events:none) content so a tap outside the menu closes it. */
+@media (max-width: 991.98px) {
+  body.bv-admin-shell.admin-sidebar-collapsed .sidebar-overlay {
+    display: block !important;
+    pointer-events: auto !important;
+    position: fixed;
+    inset: 0;
+    z-index: 1040;
+    background: rgba(15, 23, 32, 0.44);
+    border: 0;
+    cursor: pointer;
+    animation: bvFadeIn 0.15s ease;
+  }
+  body.bv-admin-shell.admin-sidebar-collapsed .left-sidebar {
+    z-index: 1050;
+  }
+}
+
+/* [Major] The "Κωδικός" set-password action carries a visible text label, so
+   exempt it from the fixed icon-only 38px width that clips the label. */
+.user-actions .btn.bv-action-key {
+  width: auto;
+  min-width: 0 !important;
+  padding: 0 12px;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+/* [Major] The fixed 4-track users toolbar overflowed narrow viewports; collapse
+   it to 2 columns on tablet and 1 column on phones. */
+@media (max-width: 991.98px) {
+  .users-toolbar { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 575.98px) {
+  .users-toolbar { grid-template-columns: 1fr; }
+}
+
+/* [Major] Visible keyboard focus for every interactive control in the shell. */
+body.bv-admin-shell a:focus-visible,
+body.bv-admin-shell button:focus-visible,
+body.bv-admin-shell [role='button']:focus-visible,
+body.bv-admin-shell input:focus-visible,
+body.bv-admin-shell select:focus-visible,
+body.bv-admin-shell textarea:focus-visible,
+body.bv-admin-shell .icon-btn:focus-visible,
+body.bv-admin-shell .bv-action-btn:focus-visible {
+  outline: 2px solid var(--bv-admin-accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+@media (prefers-reduced-motion: reduce) {
+  body.bv-admin-shell.admin-sidebar-collapsed .sidebar-overlay { animation: none; }
+}
