@@ -170,7 +170,7 @@
             data-tenant="{{ u.tenant_id or '__none__' }}"
             data-search="{{ (u.full_name or '')|lower }} {{ u.email|lower }} {{ (_tenant_name or '')|lower }} {{ (_tenant_slug or '')|lower }} {{ u.role.value|lower }} {{ (_pname or '')|lower }} {{ (_pcode or '')|lower }}"
           >
-            <td>
+            <td data-label="Χρήστης">
               <div class="user-cell">
                 <div class="user-avatar">{{ (u.full_name or u.email or '?')[:1] | upper }}</div>
                 <div class="user-main">
@@ -183,25 +183,25 @@
                 </div>
               </div>
             </td>
-            <td>
+            <td data-label="Tenant / Scope">
               <div class="user-scope">
                 <strong title="{{ _tenant_name or 'CloudOn' }}">{{ _tenant_name or 'CloudOn' }}</strong>
                 <span>{% if _tenant_slug %}{{ _tenant_slug }}{% else %}global access{% endif %}</span>
                 <span>Company: {{ u.company_id or '-' }}</span>
               </div>
             </td>
-            <td>
+            <td data-label="Πρόσβαση">
               <div class="user-access">
                 <strong>{% if u.access_starts_at %}{{ u.access_starts_at.strftime('%d/%m/%Y %H:%M') }}{% else %}Άμεσα{% endif %}</strong>
                 <span>{% if u.access_expires_at %}έως {{ u.access_expires_at.strftime('%d/%m/%Y %H:%M') }}{% else %}χωρίς λήξη{% endif %}</span>
                 {% if u.phone %}<span>{{ u.phone }}</span>{% endif %}
               </div>
             </td>
-            <td>
+            <td data-label="Κατάσταση">
               <span class="user-status is-{{ _status_key }}"><span class="user-status-dot"></span>{{ tt(request, 'active') if u.is_active else tt(request, 'inactive') }}</span>
             </td>
-            <td class="small text-muted">{{ u.created_at.strftime('%d/%m/%Y') if u.created_at else '-' }}</td>
-            <td>
+            <td class="small text-muted" data-label="Δημιουργήθηκε">{{ u.created_at.strftime('%d/%m/%Y') if u.created_at else '-' }}</td>
+            <td data-label="Ενέργειες">
               <div class="user-actions">
                 <a class="btn btn-sm bv-action-btn bv-action-edit" href="/admin/users/{{ u.id }}/edit?next=/admin/users" title="Επεξεργασία" aria-label="Επεξεργασία">
                   <i class="fe fe-edit-2"></i>

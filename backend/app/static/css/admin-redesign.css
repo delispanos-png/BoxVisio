@@ -3921,3 +3921,51 @@ body.bv-admin-shell[data-theme='dark'] .bv-rules-overview .bg-light {
   background: var(--bv-admin-surface-soft) !important;
   border-color: var(--bv-admin-border) !important;
 }
+
+/* [Major] Card-stacking for the two widest tables on phones — mirrors the
+   sessions-table pattern so tenant-health (9 col) and users (6 col) stop being
+   a cramped horizontal scroll and become readable stacked cards. */
+@media (max-width: 575.98px) {
+  body.bv-admin-shell .table-responsive .tenant-health-table,
+  body.bv-admin-shell .table-responsive .users-table {
+    min-width: 0 !important;
+  }
+  .tenant-health-table thead,
+  .users-table thead { display: none; }
+  .tenant-health-table tbody, .tenant-health-table tr, .tenant-health-table td,
+  .users-table tbody, .users-table tr, .users-table td {
+    display: block; width: 100%;
+  }
+  .tenant-health-table tbody, .users-table tbody { padding: 8px; }
+  .tenant-health-table tbody tr,
+  .users-table tbody tr {
+    margin: 0 0 10px; padding: 12px;
+    border: 1px solid var(--bv-admin-border);
+    border-radius: var(--bv-admin-radius);
+    background: var(--bv-admin-surface);
+  }
+  .tenant-health-table tbody td,
+  .users-table tbody td {
+    min-width: 0 !important; padding: 7px 0 !important;
+    border: 0 !important; text-align: left !important;
+  }
+  .tenant-health-table tbody td::before,
+  .users-table tbody td::before {
+    content: attr(data-label); display: block; margin-bottom: 3px;
+    color: var(--bv-admin-muted); font-size: .68rem; font-weight: 900;
+    letter-spacing: .04em; text-transform: uppercase;
+  }
+  /* identity + action cells don't need a redundant label */
+  .tenant-health-table tbody td[data-label="Tenant"]::before,
+  .tenant-health-table tbody td[data-label="Ενέργεια"]::before,
+  .users-table tbody td[data-label="Χρήστης"]::before,
+  .users-table tbody td[data-label="Ενέργειες"]::before { display: none; }
+  /* action buttons go full-width stacked */
+  .tenant-health-row-actions, .user-actions {
+    flex-direction: column; align-items: stretch;
+  }
+  .tenant-health-row-actions .btn,
+  .users-table .user-actions form,
+  .users-table .user-actions .btn,
+  .users-table .user-actions .btn.bv-action-key { width: 100%; }
+}

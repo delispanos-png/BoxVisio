@@ -147,26 +147,26 @@
           <tbody>
             {% for row in health_rows %}
             <tr>
-              <td>
+              <td data-label="Tenant">
                 <strong>{{ row.tenant.name }}</strong>
                 <div class="text-muted small">{{ row.tenant.slug }}</div>
               </td>
-              <td>
+              <td data-label="Health">
                 <span class="tenant-health-badge is-{{ row.severity }}">{{ row.score }}%</span>
               </td>
-              <td>
+              <td data-label="Συνδρομή">
                 <span class="bv-admin-chip is-plan">{{ row.plan }}</span>
                 <div class="text-muted small mt-1">{{ row.subscription_status }} · {{ row.tenant_status }}</div>
               </td>
-              <td>
+              <td data-label="Connector">
                 <strong>{{ row.connector_type }}</strong>
                 <div class="text-muted small">{{ row.sync_status }}</div>
               </td>
-              <td>
+              <td data-label="Sync">
                 <strong>{{ row.sync_age_label }}</strong>
                 <div class="text-muted small">{{ row.last_sync_at.strftime('%d/%m/%Y %H:%M') if row.last_sync_at else '-' }}</div>
               </td>
-              <td>
+              <td data-label="Progress">
                 <div class="bv-sync-progress">
                   <div class="bv-sync-progress-meta">
                     <span>{{ row.progress_status }}</span>
@@ -177,14 +177,14 @@
                   </div>
                 </div>
               </td>
-              <td>{{ row.user_count }}</td>
-              <td>
+              <td data-label="Χρήστες">{{ row.user_count }}</td>
+              <td data-label="Ένδειξη">
                 <div class="tenant-health-issue">{{ row.issues[0] }}</div>
                 {% if row.issues|length > 1 %}
                 <div class="text-muted small">+{{ row.issues|length - 1 }} ακόμα</div>
                 {% endif %}
               </td>
-              <td>
+              <td data-label="Ενέργεια">
                 <div class="tenant-health-row-actions">
                   <a class="btn btn-sm bv-action-btn bv-action-edit" href="/admin/connections?tenant_id={{ row.tenant.id }}"><i class="fe fe-link"></i> Συνδέσεις</a>
                   <a class="btn btn-sm btn-outline-secondary" href="/admin/sync-status"><i class="fe fe-activity"></i> Sync</a>
