@@ -11841,7 +11841,25 @@ async def tenant_user_create(
     except IntegrityError:
         await db.rollback()
         return RedirectResponse(url='/tenant/users?created=0&reason=email_exists', status_code=303)
-    return RedirectResponse(url=f'/tenant/users?created=1&invite={invite_token}', status_code=303)
+    # Email the invite/set-password link so the new user actually receives access.
+    new_email = new_user.email
+    new_name = new_user.full_name or ''
+    invite_sent = '0'
+    try:
+        result = await asyncio.to_thread(
+            send_user_invite_email,
+            full_name=new_name,
+            email=new_email,
+            invite_token=invite_token,
+            tenant_slug=tenant.slug or '',
+        )
+        if str(result.get('status') or '') == 'sent':
+            invite_sent = '1'
+        else:
+            logger.warning('tenant_user_create_invite_not_sent email=%s status=%s', new_email, result.get('status'))
+    except Exception:  # noqa: BLE001
+        logger.exception('tenant_user_create_invite_email_failed', extra={'email': new_email})
+    return RedirectResponse(url=f'/tenant/users?created=1&invite_sent={invite_sent}&invite={invite_token}', status_code=303)
 
 
 @router.post('/tenant/users/{user_id}/toggle')
@@ -11931,7 +11949,25 @@ async def tenant_user_invite_reset(
         )
     )
     await db.commit()
-    return RedirectResponse(url=f'/tenant/users?invite_reset=1&invite={token}', status_code=303)
+    # Actually email the fresh invite/set-password link to the user.
+    target_email = target.email
+    target_name = target.full_name or ''
+    invite_sent = '0'
+    try:
+        result = await asyncio.to_thread(
+            send_user_invite_email,
+            full_name=target_name,
+            email=target_email,
+            invite_token=token,
+            tenant_slug=tenant.slug or '',
+        )
+        if str(result.get('status') or '') == 'sent':
+            invite_sent = '1'
+        else:
+            logger.warning('tenant_user_invite_reset_not_sent email=%s status=%s', target_email, result.get('status'))
+    except Exception:  # noqa: BLE001
+        logger.exception('tenant_user_invite_reset_email_failed', extra={'email': target_email})
+    return RedirectResponse(url=f'/tenant/users?invite_reset=1&invite_sent={invite_sent}&invite={token}', status_code=303)
 
 
 async def _tenant_managed_user(db: AsyncSession, tenant: Tenant, user_id: int) -> User | None:

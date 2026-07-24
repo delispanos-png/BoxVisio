@@ -53,7 +53,19 @@
   {% elif request.query_params.get('reason') == 'bad_email' %}
   <div class="tu-alert is-error">Μη έγκυρο email. Έλεγξε τη μορφή (π.χ. user@company.gr).</div>
   {% elif request.query_params.get('created') == '1' %}
-  <div class="tu-alert">Ο χρήστης δημιουργήθηκε και δεσμεύτηκε μία άδεια.</div>
+    {% if request.query_params.get('invite_sent') == '1' %}
+  <div class="tu-alert">Ο χρήστης δημιουργήθηκε και στάλθηκε email πρόσκλησης για ορισμό κωδικού.</div>
+    {% else %}
+  <div class="tu-alert is-error">Ο χρήστης δημιουργήθηκε, αλλά το email πρόσκλησης ΔΕΝ στάλθηκε. Δώσε χειροκίνητα τον σύνδεσμο παρακάτω.</div>
+    {% endif %}
+  {% elif request.query_params.get('invite_reset') == '1' %}
+    {% if request.query_params.get('invite_sent') == '1' %}
+  <div class="tu-alert">Στάλθηκε νέος σύνδεσμος πρόσβασης στο email του χρήστη.</div>
+    {% else %}
+  <div class="tu-alert is-error">Ο σύνδεσμος ανανεώθηκε, αλλά το email ΔΕΝ στάλθηκε. Δώσε χειροκίνητα τον σύνδεσμο παρακάτω.</div>
+    {% endif %}
+  {% elif request.query_params.get('invite_reset') == '0' and request.query_params.get('reason') == 'no_seats' %}
+  <div class="tu-alert is-error">Δεν υπάρχουν διαθέσιμες άδειες για ενεργοποίηση αυτού του χρήστη.</div>
   {% elif request.query_params.get('pwset') == '1' %}
   <div class="tu-alert">Ο κωδικός ορίστηκε. Δώσ' τον στον χρήστη — δεν εμφανίζεται ξανά.</div>
   {% elif request.query_params.get('deleted') == '1' %}
