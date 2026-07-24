@@ -3268,6 +3268,18 @@ async def _drain_tenant_ingest_queue(tenant_slug: str, max_jobs: int) -> dict:
                             bucket['from'] = str(agg_from_date)
                         if str(agg_to_date) > bucket['to']:
                             bucket['to'] = str(agg_to_date)
+                        # A backfill is processed across many drain waves; the local
+                        # `backfill_entity_ranges` only remembers the entities THIS wave
+                        # touched. Persist every backfilled entity in Redis so the final
+                        # wave (which may only process one stream, e.g. inventory) still
+                        # refreshes ALL entities' aggregates — otherwise sales/purchases
+                        # aggregates stay empty and every KPI reads 0 after a backfill.
+                        try:
+                            _pending_agg_key = f'ingest:backfill_agg_pending:{tenant_slug}'
+                            redis.sadd(_pending_agg_key, entity)
+                            redis.expire(_pending_agg_key, 86400)
+                        except Exception:
+                            pass
                     else:
                         # Incremental jobs stay visible quickly. Backfills refresh once at
                         # the end of the whole requested range to avoid hundreds of slow,
@@ -3418,15 +3430,30 @@ async def _drain_tenant_ingest_queue(tenant_slug: str, max_jobs: int) -> dict:
                             next_drain_scheduled = True
         elif remaining_jobs == 0:
             remove_tenant_from_priority_pool(tenant_slug)
-        if remaining_jobs == 0 and backfill_entity_ranges:
-            for agg_entity, agg_range in backfill_entity_ranges.items():
+        if remaining_jobs == 0:
+            # Union of entities backfilled across ALL drain waves (Redis) with any
+            # this wave saw locally — so a multi-wave backfill refreshes every
+            # entity's aggregates exactly once when the queue finally empties.
+            pending_agg_key = f'ingest:backfill_agg_pending:{tenant_slug}'
+            pending_entities: set[str] = set(backfill_entity_ranges.keys())
+            try:
+                pending_entities |= set(redis.smembers(pending_agg_key) or [])
+            except Exception:
+                pass
+            for agg_entity in sorted(pending_entities):
+                # No explicit range: the refresh task auto-detects MIN/MAX(doc_date)
+                # from the fact table, so the aggregate always spans the full
+                # backfilled dataset regardless of which wave loaded each chunk.
                 refresh_aggregates_for_entity.delay(
                     tenant_slug=tenant_slug,
                     entity=agg_entity,
-                    from_date_str=agg_range['from'],
-                    to_date_str=agg_range['to'],
                 )
                 aggregates_refreshed += 1
+            if pending_entities:
+                try:
+                    redis.delete(pending_agg_key)
+                except Exception:
+                    pass
         update_ingest_progress(tenant_slug, status='running' if remaining_jobs > 0 else 'completed')
 
         if remaining_jobs == 0 and permanent_failures == 0:
