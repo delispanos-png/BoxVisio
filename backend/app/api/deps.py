@@ -245,6 +245,7 @@ async def get_current_user(
         )
         row = result.first()
         subscription_features: dict[str, bool] = {}
+        is_impersonation_session = False
         if row:
             user_for_sub = row[0]
             effective_tenant_id = user_for_sub.tenant_id
@@ -252,6 +253,7 @@ async def get_current_user(
             # subscription so the menu shows exactly the impersonated tenant's package — no more,
             # no less (the admin has no tenant of its own, which would lock everything).
             if user_for_sub.role == RoleName.cloudon_admin and payload.get('tenant_id') is not None:
+                is_impersonation_session = True
                 try:
                     effective_tenant_id = int(payload.get('tenant_id'))
                 except (TypeError, ValueError):
@@ -276,6 +278,7 @@ async def get_current_user(
     resolved_profile_name = (str(profile_name or '').strip()) or resolved_profile_code.title()
     request.state.current_user = user
     request.state.user_role = user.role.value
+    request.state.is_impersonation = is_impersonation_session
     request.state.professional_profile_code = resolved_profile_code
     request.state.professional_profile_name = resolved_profile_name
     request.state.ui_persona = resolve_ui_persona(user, resolved_profile_code)
@@ -291,10 +294,17 @@ async def get_current_user(
 
 
 def require_roles(*roles: RoleName):
-    async def checker(user: User = Depends(get_current_user)) -> User:
-        if user.role not in roles:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='Insufficient role')
-        return user
+    async def checker(request: Request, user: User = Depends(get_current_user)) -> User:
+        if user.role in roles:
+            return user
+        # Support impersonation: a cloudon_admin operating inside a tenant portal session
+        # (JWT carries tenant_id) has full tenant authority so support staff can manage the
+        # tenant exactly like its own admin — every tenant_admin/tenant_user gate passes.
+        if getattr(request.state, 'is_impersonation', False) and (
+            RoleName.tenant_admin in roles or RoleName.tenant_user in roles
+        ):
+            return user
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='Insufficient role')
 
     return checker
 
