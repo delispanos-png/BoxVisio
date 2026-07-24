@@ -3855,3 +3855,69 @@ body.bv-admin-shell .bv-action-btn:focus-visible {
 @media (prefers-reduced-motion: reduce) {
   body.bv-admin-shell.admin-sidebar-collapsed .sidebar-overlay { animation: none; }
 }
+
+/* ============================================================
+   QA dark-theme fixes (2026-07-24) — contrast + status chips
+   ============================================================ */
+
+/* [Major] Primary/purple buttons keep white text; on the dark-theme light-blue
+   accent that fails contrast. Give them dark text in dark mode (~8:1). */
+body.bv-admin-shell[data-theme='dark'] .btn-primary,
+body.bv-admin-shell[data-theme='dark'] .btn-purple {
+  color: #0f1720 !important;
+}
+
+/* [Major] Status/badge chips hardcode light backgrounds with no dark variant,
+   rendering as bright chips on dark surfaces. Remap them to the dark tokens
+   (which already carry accessible dark values). Higher specificity + later
+   source order overrides the light rules without touching light theme. */
+
+/* green — healthy / online / active / ok */
+body.bv-admin-shell[data-theme='dark'] .tenant-health-score.is-healthy,
+body.bv-admin-shell[data-theme='dark'] .tenant-health-badge.is-healthy,
+body.bv-admin-shell[data-theme='dark'] .session-status.is-online,
+body.bv-admin-shell[data-theme='dark'] .user-status.is-active,
+body.bv-admin-shell[data-theme='dark'] .bv-result-panel.ok {
+  background: var(--bv-admin-green-soft);
+  color: var(--bv-admin-green);
+  border-color: color-mix(in srgb, var(--bv-admin-green) 42%, transparent);
+}
+/* amber — warning / idle */
+body.bv-admin-shell[data-theme='dark'] .tenant-health-score.is-warning,
+body.bv-admin-shell[data-theme='dark'] .tenant-health-badge.is-warning,
+body.bv-admin-shell[data-theme='dark'] .session-status.is-idle {
+  background: var(--bv-admin-amber-soft);
+  color: var(--bv-admin-amber);
+  border-color: color-mix(in srgb, var(--bv-admin-amber) 42%, transparent);
+}
+/* red — critical / error */
+body.bv-admin-shell[data-theme='dark'] .tenant-health-score.is-critical,
+body.bv-admin-shell[data-theme='dark'] .tenant-health-badge.is-critical,
+body.bv-admin-shell[data-theme='dark'] .bv-result-panel.err {
+  background: var(--bv-admin-red-soft);
+  color: var(--bv-admin-red);
+  border-color: color-mix(in srgb, var(--bv-admin-red) 42%, transparent);
+}
+/* blue — info / sync note */
+body.bv-admin-shell[data-theme='dark'] .bv-result-panel.info,
+body.bv-admin-shell[data-theme='dark'] .bv-sync-note {
+  background: var(--bv-admin-accent-soft);
+  color: var(--bv-admin-accent);
+  border-color: color-mix(in srgb, var(--bv-admin-accent) 42%, transparent);
+}
+/* muted — inactive / unknown */
+body.bv-admin-shell[data-theme='dark'] .user-status.is-inactive,
+body.bv-admin-shell[data-theme='dark'] .session-status.is-unknown {
+  background: var(--bv-admin-surface-soft);
+  color: var(--bv-admin-muted);
+  border-color: var(--bv-admin-border-strong);
+}
+
+/* [Major] business_rules_overview decorative tiles hardcode light pastel inline
+   backgrounds; flatten them to a neutral token surface in dark mode (inline
+   styles need !important). Saturated icon/label colors stay legible on it. */
+body.bv-admin-shell[data-theme='dark'] .bv-rules-overview [style*="background:#"],
+body.bv-admin-shell[data-theme='dark'] .bv-rules-overview .bg-light {
+  background: var(--bv-admin-surface-soft) !important;
+  border-color: var(--bv-admin-border) !important;
+}

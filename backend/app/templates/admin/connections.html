@@ -821,7 +821,11 @@
         <tbody>
           {% for c in connections %}
           <tr data-tid="{{ c.tenant_id }}" data-ct="{{ c.connector_type }}"
-              onclick="bvLoadConnection('{{ c.tenant_id }}','{{ c.connector_type }}')" title="Click to edit">
+              role="button" tabindex="0"
+              onclick="bvLoadConnection('{{ c.tenant_id }}','{{ c.connector_type }}')"
+              onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();bvLoadConnection('{{ c.tenant_id }}','{{ c.connector_type }}');}"
+              aria-label="Επεξεργασία σύνδεσης tenant {{ c.tenant_id }} ({{ c.connector_type | replace('_',' ') }})"
+              title="Επεξεργασία σύνδεσης">
             <td class="ps-3 text-muted small">{{ c.id }}</td>
             <td class="small fw-semibold">{{ c.tenant_id }}</td>
             <td class="small">
