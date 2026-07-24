@@ -3574,30 +3574,21 @@ async def _tenant_navigation_context(tenant: Tenant) -> dict[str, bool | int | s
         branch_count = 0
     try:
         async with ControlSessionLocal() as control_db:
+            # "Last sync" must reflect the tenant's ACTUAL freshest data pull. Pick the active
+            # connection with the most recent last_sync_at regardless of source type — the old
+            # code preferred source_type='sql', so an API tenant with a stray/stale SQL connector
+            # showed a stale timestamp even though the API connector had just synced.
             connection = (
                 await control_db.execute(
                     select(TenantConnection)
                     .where(
                         TenantConnection.tenant_id == tenant.id,
                         TenantConnection.is_active.is_(True),
-                        TenantConnection.source_type == 'sql',
                     )
                     .order_by(TenantConnection.last_sync_at.desc().nullslast(), TenantConnection.updated_at.desc())
                     .limit(1)
                 )
             ).scalar_one_or_none()
-            if connection is None:
-                connection = (
-                    await control_db.execute(
-                        select(TenantConnection)
-                        .where(
-                            TenantConnection.tenant_id == tenant.id,
-                            TenantConnection.is_active.is_(True),
-                        )
-                        .order_by(TenantConnection.last_sync_at.desc().nullslast(), TenantConnection.updated_at.desc())
-                        .limit(1)
-                    )
-                ).scalar_one_or_none()
             last_sync_at = connection.last_sync_at if connection is not None else None
     except Exception:
         logger.exception('tenant_navigation_sync_context_failed', extra={'tenant_id': tenant.id})
@@ -5551,6 +5542,32 @@ async def login_submit(
                 {'request': request, 'error': tt(request, 'invalid_credentials')},
                 status_code=401,
             )
+    # Concurrent-session licence (block model): a tenant user may not start a NEW session once the
+    # tenant's purchased simultaneous connections are all in use. The user's own already-active
+    # sessions never count against them (re-login / second device of the same person is fine).
+    if user.role in (RoleName.tenant_admin, RoleName.tenant_user) and user.tenant_id is not None:
+        _login_tenant = (
+            await db.execute(select(Tenant).where(Tenant.id == user.tenant_id))
+        ).scalar_one_or_none()
+        if _login_tenant is not None:
+            _max_concurrent = await _tenant_max_concurrent_sessions(
+                db, await get_or_create_subscription(db, _login_tenant)
+            )
+            if _max_concurrent > 0:
+                _active_users = await _tenant_active_session_user_ids(db, user.tenant_id)
+                if user.id not in _active_users and len(_active_users) >= _max_concurrent:
+                    await db.commit()
+                    return templates.TemplateResponse(
+                        'auth/login.html',
+                        {
+                            'request': request,
+                            'error': (
+                                f'Έχει καλυφθεί το όριο ταυτόχρονων συνδέσεων ({_max_concurrent}). '
+                                'Αποσυνδεθείτε από άλλη συσκευή/χρήστη και δοκιμάστε ξανά.'
+                            ),
+                        },
+                        status_code=403,
+                    )
     access_audience = expected_audience_for_host(host) or audience_for_role(user.role.value)
     profile_code = None
     if user.professional_profile_id:
@@ -7028,6 +7045,7 @@ async def admin_subscription_update(
     plan: str = Form(default=''),
     subscription_status: str = Form(default=''),
     max_users: str = Form(default=''),
+    max_concurrent_sessions: str = Form(default=''),
     max_branches: str = Form(default=''),
     enabled_features: list[str] = Form(default=[]),
     custom_agreement_notes: str = Form(default=''),
@@ -7069,6 +7087,31 @@ async def admin_subscription_update(
         if isinstance(limit_obj, SubscriptionLimit):
             limit_obj.limit_value = requested_max_users
             limit_obj.used_value = int(limit_context['active_users'])
+    # Purchased simultaneous connections (enforced at login). Separate from max_users (accounts).
+    requested_concurrent_raw = (max_concurrent_sessions or '').strip()
+    if requested_concurrent_raw:
+        try:
+            requested_concurrent = max(1, min(int(requested_concurrent_raw), 9999))
+        except ValueError:
+            return RedirectResponse(url=f'{redirect_target}?saved=0&reason=bad_max_concurrent', status_code=303)
+        conc_row = (
+            await db.execute(
+                select(SubscriptionLimit).where(
+                    SubscriptionLimit.subscription_id == sub.id,
+                    SubscriptionLimit.limit_key == 'max_concurrent_sessions',
+                )
+            )
+        ).scalar_one_or_none()
+        if conc_row is None:
+            conc_row = SubscriptionLimit(
+                subscription_id=sub.id,
+                limit_key='max_concurrent_sessions',
+                limit_value=requested_concurrent,
+                used_value=0,
+            )
+            db.add(conc_row)
+        else:
+            conc_row.limit_value = requested_concurrent
     requested_max_branches_raw = (max_branches or '').strip()
     requested_max_branches = int(limit_context.get('max_branches') or 1)
     if requested_max_branches_raw:
@@ -8359,6 +8402,29 @@ async def admin_connections_apply_pack(
         )
     ).scalar_one_or_none()
     if conn is None:
+        # Querypacks are SQL-connector query templates. If this tenant's data source is the
+        # external API, applying a querypack is meaningless — and fabricating a sql_connector here
+        # is exactly what produced duplicate connectors (an API tenant ending up with a stray
+        # empty sql_connector). Refuse instead of creating one.
+        api_conn = (
+            await db.execute(
+                select(TenantConnection).where(
+                    TenantConnection.tenant_id == tenant_id,
+                    TenantConnection.connector_type == 'external_api',
+                )
+            )
+        ).scalar_one_or_none()
+        if api_conn is not None:
+            return RedirectResponse(
+                url=_connections_redirect_url(
+                    redirect_base,
+                    tenant_id=tenant_id,
+                    connector_type='external_api',
+                    pack=0,
+                    reason='querypack_sql_only',
+                ),
+                status_code=303,
+            )
         conn = TenantConnection(
             tenant_id=tenant_id,
             connector_type='sql_connector',
@@ -11618,7 +11684,66 @@ async def _tenant_user_license_context(db: AsyncSession, tenant: Tenant) -> dict
         'active_branches': int(branch_limit.used_value or 0),
         'available_users': max(0, int(limit.limit_value or 0) - int(active_used or 0)),
         'total_users': int(total_users or 0),
+        'max_concurrent_sessions': await _tenant_max_concurrent_sessions(db, sub),
+        'active_sessions': len(await _tenant_active_session_user_ids(db, tenant.id)),
     }
+
+
+# --- Concurrent-session licensing: the tenant buys N simultaneous connections. It may open many
+# user accounts (max_users), but only N distinct users can be logged in at the same time. ---
+_CONCURRENT_SESSION_IDLE_MINUTES = 30
+
+
+async def _tenant_max_concurrent_sessions(db: AsyncSession, sub) -> int:
+    """The licensed number of simultaneous connections. Stored as a SubscriptionLimit; if unset,
+    seeds from the tenant's max_users so existing tenants keep their current effective behaviour."""
+    row = (
+        await db.execute(
+            select(SubscriptionLimit).where(
+                SubscriptionLimit.subscription_id == sub.id,
+                SubscriptionLimit.limit_key == 'max_concurrent_sessions',
+            )
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        seed = (
+            await db.execute(
+                select(SubscriptionLimit.limit_value).where(
+                    SubscriptionLimit.subscription_id == sub.id,
+                    SubscriptionLimit.limit_key == 'max_users',
+                )
+            )
+        ).scalar_one_or_none()
+        row = SubscriptionLimit(
+            subscription_id=sub.id,
+            limit_key='max_concurrent_sessions',
+            limit_value=int(seed or 5),
+            used_value=0,
+        )
+        db.add(row)
+        await db.flush()
+    return int(row.limit_value or 0)
+
+
+async def _tenant_active_session_user_ids(db: AsyncSession, tenant_id: int) -> set[int]:
+    """Distinct tenant users currently connected: a non-revoked, non-expired refresh token seen
+    within the idle window. Same window the sessions page uses to auto-revoke idle sessions."""
+    now = datetime.utcnow()
+    cutoff = now - timedelta(minutes=_CONCURRENT_SESSION_IDLE_MINUTES)
+    rows = (
+        await db.execute(
+            select(RefreshToken.user_id)
+            .join(User, User.id == RefreshToken.user_id)
+            .where(
+                User.tenant_id == tenant_id,
+                User.role.in_([RoleName.tenant_admin, RoleName.tenant_user]),
+                RefreshToken.revoked_at.is_(None),
+                RefreshToken.expires_at > now,
+                func.coalesce(RefreshToken.last_seen_at, RefreshToken.created_at) >= cutoff,
+            )
+        )
+    ).scalars().all()
+    return {int(x) for x in rows}
 
 
 @router.get('/tenant/users', response_class=HTMLResponse)
@@ -11807,6 +11932,146 @@ async def tenant_user_invite_reset(
     )
     await db.commit()
     return RedirectResponse(url=f'/tenant/users?invite_reset=1&invite={token}', status_code=303)
+
+
+async def _tenant_managed_user(db: AsyncSession, tenant: Tenant, user_id: int) -> User | None:
+    return (
+        await db.execute(
+            select(User).where(
+                User.id == user_id,
+                User.tenant_id == tenant.id,
+                User.role.in_([RoleName.tenant_admin, RoleName.tenant_user]),
+            )
+        )
+    ).scalar_one_or_none()
+
+
+async def _tenant_other_active_admins(db: AsyncSession, tenant_id: int, exclude_user_id: int) -> int:
+    return int(
+        (
+            await db.execute(
+                select(func.count(User.id)).where(
+                    User.tenant_id == tenant_id,
+                    User.role == RoleName.tenant_admin,
+                    User.is_active.is_(True),
+                    User.id != exclude_user_id,
+                )
+            )
+        ).scalar_one()
+        or 0
+    )
+
+
+@router.post('/tenant/users/{user_id}/set-password')
+async def tenant_user_set_password(
+    user_id: int,
+    password: str = Form(default=''),
+    tenant: Tenant = Depends(get_request_tenant),
+    actor: User = Depends(require_roles(RoleName.tenant_admin)),
+    db: AsyncSession = Depends(get_control_db),
+):
+    password = str(password or '')
+    if len(password) < 8:
+        return RedirectResponse(url='/tenant/users?pwset=0&reason=too_short', status_code=303)
+    target = await _tenant_managed_user(db, tenant, user_id)
+    if not target:
+        return RedirectResponse(url='/tenant/users?pwset=0&reason=user_not_found', status_code=303)
+    if not target.is_active:
+        lc = await _tenant_user_license_context(db, tenant)
+        if int(lc['active_users']) >= int(lc['max_users']):
+            await db.rollback()
+            return RedirectResponse(url='/tenant/users?pwset=0&reason=no_seats', status_code=303)
+    target.password_hash = get_password_hash(password)
+    target.is_active = True
+    target.reset_token = None
+    target.reset_token_expires_at = None
+    db.add(
+        AuditLog(
+            tenant_id=tenant.id, actor_user_id=actor.id, action='tenant_user_set_password',
+            entity_type='user', entity_id=str(target.id), payload={'email': target.email},
+        )
+    )
+    await db.commit()
+    return RedirectResponse(url='/tenant/users?pwset=1', status_code=303)
+
+
+@router.post('/tenant/users/{user_id}/edit')
+async def tenant_user_edit(
+    user_id: int,
+    full_name: str = Form(default=''),
+    phone: str = Form(default=''),
+    email: str = Form(default=''),
+    role: str = Form(default=''),
+    tenant: Tenant = Depends(get_request_tenant),
+    actor: User = Depends(require_roles(RoleName.tenant_admin)),
+    db: AsyncSession = Depends(get_control_db),
+):
+    target = await _tenant_managed_user(db, tenant, user_id)
+    if not target:
+        return RedirectResponse(url='/tenant/users?updated=0&reason=user_not_found', status_code=303)
+    target.full_name = (full_name or '').strip() or target.full_name
+    target.phone = (phone or '').strip() or target.phone
+    new_email = (email or '').strip().lower()
+    if new_email and new_email != (target.email or '').lower():
+        if '@' not in new_email or '.' not in new_email.split('@')[-1]:
+            await db.rollback()
+            return RedirectResponse(url='/tenant/users?updated=0&reason=bad_email', status_code=303)
+        clash = (
+            await db.execute(select(User.id).where(func.lower(User.email) == new_email, User.id != target.id))
+        ).scalar_one_or_none()
+        if clash is not None:
+            await db.rollback()
+            return RedirectResponse(url='/tenant/users?updated=0&reason=email_exists', status_code=303)
+        target.email = new_email
+    desired_role = RoleName.tenant_admin if role == RoleName.tenant_admin.value else (
+        RoleName.tenant_user if role == RoleName.tenant_user.value else None
+    )
+    if desired_role is not None and desired_role != target.role:
+        # Never leave the tenant without an active admin.
+        if target.role == RoleName.tenant_admin and desired_role == RoleName.tenant_user:
+            if await _tenant_other_active_admins(db, tenant.id, target.id) == 0:
+                await db.rollback()
+                return RedirectResponse(url='/tenant/users?updated=0&reason=last_admin', status_code=303)
+        target.role = desired_role
+    db.add(
+        AuditLog(
+            tenant_id=tenant.id, actor_user_id=actor.id, action='tenant_user_edited',
+            entity_type='user', entity_id=str(target.id), payload={'email': target.email},
+        )
+    )
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        return RedirectResponse(url='/tenant/users?updated=0&reason=email_exists', status_code=303)
+    return RedirectResponse(url='/tenant/users?updated=1', status_code=303)
+
+
+@router.post('/tenant/users/{user_id}/delete')
+async def tenant_user_delete(
+    user_id: int,
+    tenant: Tenant = Depends(get_request_tenant),
+    actor: User = Depends(require_roles(RoleName.tenant_admin)),
+    db: AsyncSession = Depends(get_control_db),
+):
+    target = await _tenant_managed_user(db, tenant, user_id)
+    if not target:
+        return RedirectResponse(url='/tenant/users?deleted=0&reason=user_not_found', status_code=303)
+    if target.id == actor.id:
+        return RedirectResponse(url='/tenant/users?deleted=0&reason=self_delete', status_code=303)
+    if target.role == RoleName.tenant_admin and await _tenant_other_active_admins(db, tenant.id, target.id) == 0:
+        return RedirectResponse(url='/tenant/users?deleted=0&reason=last_admin', status_code=303)
+    email = target.email
+    await db.execute(delete(RefreshToken).where(RefreshToken.user_id == target.id))
+    db.add(
+        AuditLog(
+            tenant_id=tenant.id, actor_user_id=actor.id, action='tenant_user_deleted',
+            entity_type='user', entity_id=str(target.id), payload={'email': email},
+        )
+    )
+    await db.delete(target)
+    await db.commit()
+    return RedirectResponse(url='/tenant/users?deleted=1', status_code=303)
 
 
 @router.get('/tenant/profile', response_class=HTMLResponse)

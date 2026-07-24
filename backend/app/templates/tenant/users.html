@@ -34,6 +34,8 @@
 {% set max_users = license_context.max_users if license_context is mapping else license_context['max_users'] %}
 {% set active_users = license_context.active_users if license_context is mapping else license_context['active_users'] %}
 {% set available_users = license_context.available_users if license_context is mapping else license_context['available_users'] %}
+{% set max_concurrent = license_context.get('max_concurrent_sessions', 0) if license_context is mapping else 0 %}
+{% set active_sessions = license_context.get('active_sessions', 0) if license_context is mapping else 0 %}
 
 <div class="tenant-users-page">
   {% if request.query_params.get('reason') == 'no_seats' %}
@@ -42,10 +44,22 @@
   <div class="tu-alert is-error">Υπάρχει ήδη χρήστης με αυτό το email στον πελάτη.</div>
   {% elif request.query_params.get('reason') == 'self_disable' %}
   <div class="tu-alert is-error">Δεν μπορείς να απενεργοποιήσεις τον δικό σου ενεργό λογαριασμό.</div>
+  {% elif request.query_params.get('reason') == 'self_delete' %}
+  <div class="tu-alert is-error">Δεν μπορείς να διαγράψεις τον δικό σου λογαριασμό.</div>
+  {% elif request.query_params.get('reason') == 'last_admin' %}
+  <div class="tu-alert is-error">Πρέπει να μείνει τουλάχιστον ένας ενεργός Διαχειριστής.</div>
+  {% elif request.query_params.get('reason') == 'too_short' %}
+  <div class="tu-alert is-error">Ο κωδικός πρέπει να έχει τουλάχιστον 8 χαρακτήρες.</div>
+  {% elif request.query_params.get('reason') == 'bad_email' %}
+  <div class="tu-alert is-error">Μη έγκυρο email. Έλεγξε τη μορφή (π.χ. user@company.gr).</div>
   {% elif request.query_params.get('created') == '1' %}
   <div class="tu-alert">Ο χρήστης δημιουργήθηκε και δεσμεύτηκε μία άδεια.</div>
+  {% elif request.query_params.get('pwset') == '1' %}
+  <div class="tu-alert">Ο κωδικός ορίστηκε. Δώσ' τον στον χρήστη — δεν εμφανίζεται ξανά.</div>
+  {% elif request.query_params.get('deleted') == '1' %}
+  <div class="tu-alert">Ο χρήστης διαγράφηκε.</div>
   {% elif request.query_params.get('updated') == '1' %}
-  <div class="tu-alert">Η κατάσταση του χρήστη ενημερώθηκε.</div>
+  <div class="tu-alert">Ο χρήστης ενημερώθηκε.</div>
   {% endif %}
 
   {% if invite_url %}
@@ -56,9 +70,10 @@
   {% endif %}
 
   <div class="tu-grid">
-    <div class="tu-stat"><span>Αγορασμένες άδειες</span><strong>{{ max_users }}</strong></div>
-    <div class="tu-stat"><span>Δεσμευμένες</span><strong>{{ active_users }}</strong></div>
-    <div class="tu-stat"><span>Διαθέσιμες</span><strong>{{ available_users }}</strong></div>
+    <div class="tu-stat"><span>Ταυτόχρονες συνδέσεις (άδεια)</span><strong>{{ max_concurrent }}</strong></div>
+    <div class="tu-stat"><span>Συνδεδεμένοι τώρα</span><strong>{{ active_sessions }} / {{ max_concurrent }}</strong></div>
+    <div class="tu-stat"><span>Λογαριασμοί</span><strong>{{ active_users }} / {{ max_users }}</strong></div>
+    <div class="tu-stat"><span>Διαθέσιμοι λογαριασμοί</span><strong>{{ available_users }}</strong></div>
   </div>
 
   <div class="tu-panel">
@@ -152,10 +167,19 @@
                 {% endif %}
               </td>
               <td>
-                <div class="tu-actions">
+                <div class="tu-actions d-flex flex-wrap gap-1 align-items-center justify-content-end">
+                  <button type="button" class="btn btn-sm btn-outline-secondary" data-tu-edit="{{ u.id }}" title="Επεξεργασία ονόματος/ρόλου">
+                    <i class="fe fe-edit-2"></i>
+                  </button>
                   <form method="post" action="/tenant/users/{{ u.id }}/invite-reset">
-                    <button class="btn btn-sm btn-outline-secondary" type="submit" title="Νέα πρόσκληση">
+                    <button class="btn btn-sm btn-outline-secondary" type="submit" title="Αποστολή νέας πρόσκλησης (email)">
                       <i class="fe fe-mail"></i>
+                    </button>
+                  </form>
+                  <form method="post" action="/tenant/users/{{ u.id }}/set-password">
+                    <input type="hidden" name="password" value="">
+                    <button class="btn btn-sm btn-outline-secondary" type="button" data-tu-setpass data-email="{{ u.email }}" title="Ορισμός κωδικού">
+                      <i class="fe fe-lock me-1"></i>Κωδικός
                     </button>
                   </form>
                   <form method="post" action="/tenant/users/{{ u.id }}/toggle">
@@ -164,7 +188,25 @@
                       {{ 'Απενεργοποίηση' if u.is_active else 'Ενεργοποίηση' }}
                     </button>
                   </form>
+                  {% if u.id != user.id %}
+                  <form method="post" action="/tenant/users/{{ u.id }}/delete" data-bv-confirm="Οριστική διαγραφή του χρήστη {{ u.email }}; Δεν αναιρείται.">
+                    <button class="btn btn-sm btn-outline-danger" type="submit" title="Διαγραφή χρήστη">
+                      <i class="fe fe-trash-2"></i>
+                    </button>
+                  </form>
+                  {% endif %}
                 </div>
+                <form method="post" action="/tenant/users/{{ u.id }}/edit" class="tu-edit-form mt-2" id="tu-edit-{{ u.id }}" style="display:none">
+                  <div class="d-flex gap-2 align-items-center flex-wrap justify-content-end">
+                    <input class="form-control form-control-sm" name="full_name" value="{{ u.full_name or '' }}" placeholder="Πλήρες όνομα" style="max-width:190px">
+                    <input class="form-control form-control-sm" type="email" name="email" value="{{ u.email }}" placeholder="user@company.gr" style="max-width:210px">
+                    <select class="form-select form-select-sm" name="role" style="max-width:150px">
+                      <option value="tenant_user" {% if u.role.value == 'tenant_user' %}selected{% endif %}>Χρήστης</option>
+                      <option value="tenant_admin" {% if u.role.value == 'tenant_admin' %}selected{% endif %}>Διαχειριστής</option>
+                    </select>
+                    <button class="btn btn-sm btn-primary" type="submit"><i class="fe fe-check me-1"></i>Αποθήκευση</button>
+                  </div>
+                </form>
               </td>
             </tr>
             {% else %}
@@ -176,4 +218,65 @@
     </div>
   </div>
 </div>
+<div id="tu-pwmodal" class="tu-modal-overlay" role="dialog" aria-modal="true">
+  <div class="tu-modal">
+    <div class="tu-modal-title">Ορισμός κωδικού</div>
+    <div class="tu-modal-email"></div>
+    <input type="text" id="tu-pwmodal-input" class="form-control" placeholder="Νέος κωδικός (τουλάχιστον 8 χαρακτήρες)" autocomplete="off" autocapitalize="off" spellcheck="false">
+    <div class="tu-modal-err">Ο κωδικός πρέπει να έχει τουλάχιστον 8 χαρακτήρες.</div>
+    <div class="tu-modal-actions">
+      <button type="button" class="btn btn-outline-secondary" id="tu-pwmodal-cancel">Άκυρο</button>
+      <button type="button" class="btn btn-primary" id="tu-pwmodal-ok"><i class="fe fe-key me-1"></i>Ορισμός κωδικού</button>
+    </div>
+  </div>
+</div>
+<style>
+  .tu-modal-overlay { display:none; position:fixed; inset:0; z-index:1080; background:rgba(15,23,42,.55); align-items:center; justify-content:center; padding:16px; }
+  .tu-modal-overlay.is-open { display:flex; }
+  .tu-modal { width:100%; max-width:420px; background:var(--tu-card, #fff); color:var(--tu-ink, #0f172a); border-radius:16px; padding:22px; box-shadow:0 24px 60px rgba(15,23,42,.35); }
+  .tu-modal-title { font-weight:900; font-size:1.15rem; }
+  .tu-modal-email { color:var(--tu-muted, #64748b); font-size:.85rem; margin:4px 0 14px; }
+  .tu-modal .form-control { font-size:1rem; }
+  .tu-modal-err { display:none; color:#dc2626; font-size:.8rem; margin-top:8px; font-weight:700; }
+  .tu-modal-err.is-visible { display:block; }
+  .tu-modal-actions { display:flex; justify-content:flex-end; gap:10px; margin-top:18px; }
+  @media (prefers-color-scheme: dark) { .tu-modal { background:#111827; color:#e5e7eb; } }
+  :root[data-theme="dark"] .tu-modal { background:#111827; color:#e5e7eb; }
+</style>
+<script>
+(function(){
+  var modal = document.getElementById('tu-pwmodal');
+  var input = document.getElementById('tu-pwmodal-input');
+  var errEl = modal.querySelector('.tu-modal-err');
+  var emailEl = modal.querySelector('.tu-modal-email');
+  var targetForm = null;
+  function openModal(form, email){
+    targetForm = form;
+    emailEl.textContent = 'Χρήστης: ' + (email || '');
+    input.value = ''; errEl.classList.remove('is-visible');
+    modal.classList.add('is-open');
+    setTimeout(function(){ input.focus(); }, 30);
+  }
+  function closeModal(){ modal.classList.remove('is-open'); targetForm = null; }
+  function submitPw(){
+    var pw = input.value || '';
+    if(pw.trim().length < 8){ errEl.classList.add('is-visible'); input.focus(); return; }
+    if(targetForm){ var i = targetForm.querySelector('input[name="password"]'); if(i) i.value = pw; targetForm.submit(); }
+  }
+  document.querySelectorAll('[data-tu-setpass]').forEach(function(btn){
+    btn.addEventListener('click', function(){ openModal(btn.closest('form'), btn.dataset.email); });
+  });
+  document.getElementById('tu-pwmodal-ok').addEventListener('click', submitPw);
+  document.getElementById('tu-pwmodal-cancel').addEventListener('click', closeModal);
+  modal.addEventListener('click', function(e){ if(e.target === modal) closeModal(); });
+  input.addEventListener('keydown', function(e){ if(e.key === 'Enter'){ e.preventDefault(); submitPw(); } if(e.key === 'Escape'){ closeModal(); } });
+  // Edit: toggle the inline edit form (name + role) for a row.
+  document.querySelectorAll('[data-tu-edit]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var f = document.getElementById('tu-edit-' + btn.dataset.tuEdit);
+      if(f) f.style.display = (f.style.display === 'none' || !f.style.display) ? 'block' : 'none';
+    });
+  });
+})();
+</script>
 {% endblock %}

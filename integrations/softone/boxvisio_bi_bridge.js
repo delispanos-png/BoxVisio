@@ -24,7 +24,7 @@
       /s1services/JS/myWS/GetAllForBI
 */
 
-var BVBI_VERSION = "2026-06-12_stock-balance-allperiods-movavg-cost";
+var BVBI_VERSION = "2026-07-24_sql-js-parity-full";
 var _BVBI_COL_CACHE = {};
 
 function _bv_is_array(v) {
@@ -878,6 +878,8 @@ function _bv_sales_sql(cfg) {
     "CAST(ISNULL(" +
     groupName +
     ", '') AS VARCHAR(255)) AS GROUP_NAME," +
+    "CAST(NULL AS VARCHAR(64)) AS SUPPLIER_EXTERNAL_ID," +
+    "CAST(NULL AS VARCHAR(64)) AS CATEGORY_EXTERNAL_ID," +
     "CAST(ISNULL(" +
     manualOrderCategoryExpr +
     ", '') AS VARCHAR(128)) AS MANUAL_ORDER_CATEGORY," +
@@ -1190,6 +1192,26 @@ function _bv_purchases_sql(cfg) {
   var manualOrderCategoryExpr = manualOrderInfo.expr;
   var commercialStatusExpr = manualOrderInfo.commercialStatusExpr;
   var itemExtraJoinSql = manualOrderInfo.joinSql;
+  var itemBrand = _bv_col_expr("I", "MTRL", ["MTRMARK"], "0");
+  var brandName = _bv_col_expr("MK", "MTRMARK", ["NAME"], "''");
+  var itemGroup = _bv_col_expr("I", "MTRL", ["MTRGROUP"], "0");
+  var groupName = _bv_col_expr("MG", "MTRGROUP", ["NAME"], "''");
+  var cat1Id = _bv_col_expr("I", "MTRL", ["CCC88POCAT1"], "0");
+  var cat2Id = _bv_col_expr("I", "MTRL", ["CCC88POCAT2"], "0");
+  var cat3Id = _bv_col_expr("I", "MTRL", ["CCC88POCAT3"], "0");
+  var cat1Name = _bv_col_expr("PC1", "CCC88POCAT1", ["NAME"], "''");
+  var cat2Name = _bv_col_expr("PC2", "CCC88POCAT2", ["NAME"], "''");
+  var cat3Name = _bv_col_expr("PC3", "CCC88POCAT3", ["NAME"], "''");
+  var categoryExternalIdExpr =
+    "NULLIF(STUFF((CASE WHEN ISNULL(" + cat1Id + ",0) <> 0 THEN '|' + CAST(" + cat1Id + " AS VARCHAR(20)) ELSE '' END)" +
+    " + (CASE WHEN ISNULL(" + cat2Id + ",0) <> 0 THEN '|' + CAST(" + cat2Id + " AS VARCHAR(20)) ELSE '' END)" +
+    " + (CASE WHEN ISNULL(" + cat3Id + ",0) <> 0 THEN '|' + CAST(" + cat3Id + " AS VARCHAR(20)) ELSE '' END)" +
+    ",1,1,''),'')";
+  var categoryNameExpr =
+    "NULLIF(STUFF((CASE WHEN ISNULL(" + cat1Name + ",N'') <> N'' THEN N' > ' + " + cat1Name + " ELSE N'' END)" +
+    " + (CASE WHEN ISNULL(" + cat2Name + ",N'') <> N'' THEN N' > ' + " + cat2Name + " ELSE N'' END)" +
+    " + (CASE WHEN ISNULL(" + cat3Name + ",N'') <> N'' THEN N' > ' + " + cat3Name + " ELSE N'' END)" +
+    ",1,3,N''),N'')";
   var hasPurchChannel = _bv_has_column("MTRL", "CCC88ECHANNEL") && _bv_table_exists("CCC88ECHANNEL");
   var channelIdExpr = hasPurchChannel ? "I.CCC88ECHANNEL" : "NULL";
   var channelNameSql = hasPurchChannel ? "CAST(ISNULL(EC.NAME, '') AS VARCHAR(255))" : "CAST('' AS VARCHAR(255))";
@@ -1319,6 +1341,24 @@ function _bv_purchases_sql(cfg) {
     "CAST(ISNULL(" +
     iName +
     ", '') AS VARCHAR(255)) AS ITEM_NAME," +
+    "CAST(NULLIF(CAST(ISNULL(" +
+    itemBrand +
+    ",0) AS VARCHAR(64)), '0') AS VARCHAR(64)) AS BRAND_EXTERNAL_ID," +
+    "CAST(ISNULL(" +
+    brandName +
+    ", '') AS VARCHAR(255)) AS BRAND_NAME," +
+    "CAST(NULLIF(CAST(ISNULL(" +
+    itemGroup +
+    ",0) AS VARCHAR(64)), '0') AS VARCHAR(64)) AS GROUP_EXTERNAL_ID," +
+    "CAST(ISNULL(" +
+    groupName +
+    ", '') AS VARCHAR(255)) AS GROUP_NAME," +
+    "CAST(" +
+    categoryExternalIdExpr +
+    " AS VARCHAR(64)) AS CATEGORY_EXTERNAL_ID," +
+    "CAST(" +
+    categoryNameExpr +
+    " AS VARCHAR(255)) AS CATEGORY_NAME," +
     "CAST(ISNULL(" +
     manualOrderCategoryExpr +
     ", '') AS VARCHAR(128)) AS MANUAL_ORDER_CATEGORY," +
@@ -1445,6 +1485,11 @@ function _bv_purchases_sql(cfg) {
     "LEFT JOIN MTRL I ON I.MTRL=" +
     lMtrl +
     " AND I.COMPANY=F.COMPANY " +
+    "LEFT JOIN MTRMARK MK ON MK.MTRMARK=I.MTRMARK AND MK.COMPANY=I.COMPANY " +
+    "LEFT JOIN MTRGROUP MG ON MG.MTRGROUP=I.MTRGROUP AND MG.COMPANY=I.COMPANY " +
+    "LEFT JOIN CCC88POCAT1 PC1 ON PC1.CCC88POCAT1=I.CCC88POCAT1 " +
+    "LEFT JOIN CCC88POCAT2 PC2 ON PC2.CCC88POCAT2=I.CCC88POCAT2 " +
+    "LEFT JOIN CCC88POCAT3 PC3 ON PC3.CCC88POCAT3=I.CCC88POCAT3 " +
     channelJoinSql +
     itemExtraJoinSql +
     branchInfo.joinSql +
@@ -1624,6 +1669,7 @@ function _bv_inventory_sql(cfg) {
     "CAST(ISNULL(BR.NAME, CAST(ISNULL(NULLIF(W.WHOUSEG,0), ISNULL(S.WHOUSE,0)) AS VARCHAR(255))) AS VARCHAR(255)) AS BRANCH_NAME," +
     "CAST(ISNULL(S.COMPANY,0) AS VARCHAR(64)) AS COMPANY_ID," +
     "CAST(ISNULL(S.WHOUSE,0) AS VARCHAR(64)) AS WAREHOUSE_EXT_ID," +
+    "CAST(ISNULL(W.NAME, CAST(ISNULL(S.WHOUSE,0) AS VARCHAR(255))) AS VARCHAR(255)) AS WAREHOUSE_NAME," +
     "CAST(ISNULL(I.CODE, S.MTRL) AS VARCHAR(128)) AS ITEM_CODE," +
     "CAST(ISNULL(I.SODTYPE,0) AS INT) AS SOFTONE_SOTYPE," +
     "CAST(ISNULL(I.NAME,'') AS VARCHAR(255)) AS ITEM_NAME," +
@@ -1638,9 +1684,13 @@ function _bv_inventory_sql(cfg) {
     "CAST(ISNULL(" + commercialStatusExpr + ", '') AS VARCHAR(128)) AS COMMERCIAL_STATUS," +
     "CAST(NULLIF(CAST(ISNULL(I.MTRMARK,0) AS VARCHAR(64)), '0') AS VARCHAR(64)) AS BRAND_EXTERNAL_ID," +
     "CAST(ISNULL(MK.NAME,'') AS VARCHAR(255)) AS BRAND_NAME," +
+    "CAST(NULLIF(CAST(ISNULL(I.MTRGROUP,0) AS VARCHAR(64)), '0') AS VARCHAR(64)) AS GROUP_EXTERNAL_ID," +
+    "CAST(ISNULL(MG.NAME,'') AS VARCHAR(255)) AS GROUP_NAME," +
+    "CAST(ISNULL(CG.NAME,'') AS VARCHAR(255)) AS COMMERCIAL_CATEGORY," +
     "CAST(NULLIF(CAST(ISNULL(I.MTRMANFCTR,0) AS VARCHAR(128)), '0') AS VARCHAR(128)) AS MANUFACTURER_CODE," +
     "CAST(ISNULL(MF.NAME,'') AS VARCHAR(255)) AS MANUFACTURER_NAME," +
     "CAST(ISNULL(S.IMPQTY1,0)-ISNULL(S.EXPQTY1,0) AS FLOAT) AS QTY," +
+    "CAST(ISNULL(S.IMPQTY1,0)-ISNULL(S.EXPQTY1,0) AS FLOAT) AS QTY_ON_HAND," +
     "CAST(ISNULL(" + stockReservedExpr + ",0) AS FLOAT) AS QTY_RESERVED," +
     "CAST(ISNULL(" + stockExpectedExpr + ",0) AS FLOAT) AS QTY_EXPECTED," +
     "CAST((ISNULL(S.IMPQTY1,0)-ISNULL(S.EXPQTY1,0))-ISNULL(" + stockReservedExpr + ",0) AS FLOAT) AS QTY_AVAILABLE," +
@@ -1680,6 +1730,8 @@ function _bv_inventory_sql(cfg) {
     "LEFT JOIN CCC88POCAT1 PC1 ON PC1.CCC88POCAT1=I.CCC88POCAT1 " +
     "LEFT JOIN CCC88POCAT2 PC2 ON PC2.CCC88POCAT2=I.CCC88POCAT2 " +
     "LEFT JOIN CCC88POCAT3 PC3 ON PC3.CCC88POCAT3=I.CCC88POCAT3 " +
+    "LEFT JOIN MTRGROUP MG ON MG.MTRGROUP=I.MTRGROUP AND MG.COMPANY=I.COMPANY " +
+    "LEFT JOIN MTRPCATEGORY CG ON CG.MTRPCATEGORY=I.MTRPCATEGORY AND CG.COMPANY=I.COMPANY " +
     "WHERE S.COMPANY=" + cfg.company + " AND ISNULL(W.ISACTIVE,1)=1 AND ISNULL(I.SODTYPE,0)=" + cfg.inventoryItemSoType +
     " AND ABS(ISNULL(S.IMPQTY1,0)-ISNULL(S.EXPQTY1,0))>0.0001";
 
@@ -1724,6 +1776,9 @@ function _bv_inventory_sql(cfg) {
     "CAST(ISNULL(" +
     mdWhouse +
     ",0) AS VARCHAR(64)) AS WAREHOUSE_EXT_ID," +
+    "CAST(ISNULL(W.NAME, CAST(ISNULL(" +
+    mdWhouse +
+    ",0) AS VARCHAR(255))) AS VARCHAR(255)) AS WAREHOUSE_NAME," +
     "CAST(ISNULL(I.CODE, " +
     lMtrl +
     ") AS VARCHAR(128)) AS ITEM_CODE," +
@@ -1760,6 +1815,9 @@ function _bv_inventory_sql(cfg) {
     iBrand +
     ",0) AS VARCHAR(64)), '0') AS VARCHAR(64)) AS BRAND_EXTERNAL_ID," +
     "CAST(ISNULL(MK.NAME, '') AS VARCHAR(255)) AS BRAND_NAME," +
+    "CAST(NULLIF(CAST(ISNULL(I.MTRGROUP,0) AS VARCHAR(64)), '0') AS VARCHAR(64)) AS GROUP_EXTERNAL_ID," +
+    "CAST(ISNULL(MG.NAME, '') AS VARCHAR(255)) AS GROUP_NAME," +
+    "CAST(ISNULL(CG.NAME, '') AS VARCHAR(255)) AS COMMERCIAL_CATEGORY," +
     "CAST(NULLIF(CAST(ISNULL(" +
     iManufacturer +
     ",0) AS VARCHAR(128)), '0') AS VARCHAR(128)) AS MANUFACTURER_CODE," +
@@ -1767,6 +1825,9 @@ function _bv_inventory_sql(cfg) {
     "CAST(ISNULL(" +
     lQty +
     ",0) AS FLOAT) AS QTY," +
+    "CAST(ISNULL(" +
+    lQty +
+    ",0) AS FLOAT) AS QTY_ON_HAND," +
     "CAST(0 AS FLOAT) AS QTY_RESERVED," +
     "CAST(0 AS FLOAT) AS QTY_EXPECTED," +
     "CAST(ISNULL(" +
@@ -1831,6 +1892,11 @@ function _bv_inventory_sql(cfg) {
     "LEFT JOIN CCC88POCAT1 PC1 ON PC1.CCC88POCAT1 = I.CCC88POCAT1 " +
     "LEFT JOIN CCC88POCAT2 PC2 ON PC2.CCC88POCAT2 = I.CCC88POCAT2 " +
     "LEFT JOIN CCC88POCAT3 PC3 ON PC3.CCC88POCAT3 = I.CCC88POCAT3 " +
+    "LEFT JOIN WHOUSE W ON W.WHOUSE=" +
+    mdWhouse +
+    " AND W.COMPANY=F.COMPANY " +
+    "LEFT JOIN MTRGROUP MG ON MG.MTRGROUP = I.MTRGROUP AND MG.COMPANY = I.COMPANY " +
+    "LEFT JOIN MTRPCATEGORY CG ON CG.MTRPCATEGORY = I.MTRPCATEGORY AND CG.COMPANY = I.COMPANY " +
     branchInfo.joinSql +
     seriesInfo.joinSql +
     adjustmentWhereSql;
@@ -2175,6 +2241,9 @@ function _bv_supplier_balances_sql(cfg) {
     "CONVERT(VARCHAR(10), " +
     asOfExpr +
     ", 23) AS BALANCE_DATE," +
+    "CONVERT(VARCHAR(10), " +
+    asOfExpr +
+    ", 23) AS DOC_DATE," +
     "CAST(SUM(" + supplierBalanceSign + ") AS FLOAT) AS OPEN_BALANCE," +
     "CAST(SUM(CASE " +
     "WHEN DATEDIFF(day, " +
@@ -2273,6 +2342,9 @@ function _bv_customer_balances_sql(cfg) {
     "CONVERT(VARCHAR(10), " +
     asOfExpr +
     ", 23) AS BALANCE_DATE," +
+    "CONVERT(VARCHAR(10), " +
+    asOfExpr +
+    ", 23) AS DOC_DATE," +
     "CAST(SUM(" + customerBalanceSign + ") AS FLOAT) AS OPEN_BALANCE," +
     "CAST(SUM(CASE " +
     "WHEN DATEDIFF(day, " +
@@ -2546,6 +2618,8 @@ function _bv_sales_record(ds) {
     brand_name: _bv_text(_bv_field(ds, "BRAND_NAME", ""), ""),
     group_ext_id: _bv_text(_bv_field(ds, "GROUP_EXT_ID", ""), ""),
     group_name: _bv_text(_bv_field(ds, "GROUP_NAME", ""), ""),
+    supplier_external_id: _bv_text(_bv_field(ds, "SUPPLIER_EXTERNAL_ID", ""), ""),
+    category_external_id: _bv_text(_bv_field(ds, "CATEGORY_EXTERNAL_ID", ""), ""),
     manual_order_category: _bv_text(_bv_field(ds, "MANUAL_ORDER_CATEGORY", ""), ""),
     commercial_status: _bv_text(_bv_field(ds, "COMMERCIAL_STATUS", ""), ""),
     discount_pct: _bv_num(_bv_field(ds, "DISCOUNT_PCT", 0), 0),
@@ -2597,6 +2671,7 @@ function _bv_sales_record(ds) {
     gift_comments: _bv_text(_bv_field(ds, "GIFT_COMMENTS", ""), ""),
     marketplace_courier: _bv_text(_bv_field(ds, "MARKETPLACE_COURIER", ""), ""),
     marketplace_internal_id: _bv_text(_bv_field(ds, "MARKETPLACE_INTERNAL_ID", ""), ""),
+    source_transaction_type_id: _bv_int(_bv_field(ds, "SOURCE_TRANSACTION_TYPE_ID", 0), 0, 0, 99999999),
     qty: _bv_num(_bv_field(ds, "QTY", 0), 0),
     net_value: _bv_num(_bv_field(ds, "NET_VALUE", 0), 0),
     line_value: _bv_num(_bv_field(ds, "LINE_VALUE", _bv_field(ds, "NET_VALUE", 0)), 0),
@@ -2642,12 +2717,23 @@ function _bv_purchase_record(ds) {
     channel_name: _bv_text(_bv_field(ds, "CHANNEL_NAME", ""), ""),
     item_code: _bv_text(_bv_field(ds, "ITEM_CODE", ""), ""),
     item_name: _bv_text(_bv_field(ds, "ITEM_NAME", ""), ""),
+    brand_external_id: _bv_text(_bv_field(ds, "BRAND_EXTERNAL_ID", ""), ""),
+    brand_name: _bv_text(_bv_field(ds, "BRAND_NAME", ""), ""),
+    group_external_id: _bv_text(_bv_field(ds, "GROUP_EXTERNAL_ID", ""), ""),
+    group_name: _bv_text(_bv_field(ds, "GROUP_NAME", ""), ""),
+    category_external_id: _bv_text(_bv_field(ds, "CATEGORY_EXTERNAL_ID", ""), ""),
+    category_name: _bv_text(_bv_field(ds, "CATEGORY_NAME", ""), ""),
     manual_order_category: _bv_text(_bv_field(ds, "MANUAL_ORDER_CATEGORY", ""), ""),
     commercial_status: _bv_text(_bv_field(ds, "COMMERCIAL_STATUS", ""), ""),
     qty: _bv_num(_bv_field(ds, "QTY", 0), 0),
     net_value: _bv_num(_bv_field(ds, "NET_VALUE", 0), 0),
+    line_value: _bv_num(_bv_field(ds, "LINE_VALUE", _bv_field(ds, "NET_VALUE", 0)), 0),
     gross_value: _bv_num(_bv_field(ds, "GROSS_VALUE", 0), 0),
     vat_amount: _bv_num(_bv_field(ds, "VAT_AMOUNT", 0), 0),
+    doc_net_total: _bv_num(_bv_field(ds, "DOC_NET_TOTAL", 0), 0),
+    doc_expenses_total: _bv_num(_bv_field(ds, "DOC_EXPENSES_TOTAL", 0), 0),
+    doc_tax_total: _bv_num(_bv_field(ds, "DOC_TAX_TOTAL", 0), 0),
+    doc_gross_total: _bv_num(_bv_field(ds, "DOC_GROSS_TOTAL", 0), 0),
     no_discount_amount: _bv_num(_bv_field(ds, "NO_DISCOUNT_AMOUNT", _bv_field(ds, "NODSCAMNT", 0)), 0),
     nodscamnt: _bv_num(_bv_field(ds, "NODSCAMNT", _bv_field(ds, "NO_DISCOUNT_AMOUNT", 0)), 0),
     discount_amount: _bv_num(_bv_field(ds, "DISCOUNT_AMOUNT", 0), 0),
@@ -2716,20 +2802,28 @@ function _bv_inventory_record(ds) {
     movement_type: _bv_text(_bv_field(ds, "MOVEMENT_TYPE", "entry"), "entry"),
     branch_ext_id: _bv_text(_bv_field(ds, "BRANCH_EXT_ID", ""), ""),
     warehouse_ext_id: _bv_text(_bv_field(ds, "WAREHOUSE_EXT_ID", ""), ""),
+    warehouse_name: _bv_text(_bv_field(ds, "WAREHOUSE_NAME", ""), ""),
     item_code: _bv_text(_bv_field(ds, "ITEM_CODE", ""), ""),
     item_name: _bv_text(_bv_field(ds, "ITEM_NAME", ""), ""),
+    softone_sotype: _bv_int(_bv_field(ds, "SOFTONE_SOTYPE", 0), 0, 0, 99999999),
     barcode: _bv_text(_bv_field(ds, "BARCODE", ""), ""),
     alternate_barcodes: _bv_text(_bv_field(ds, "ALTERNATE_BARCODES", ""), ""),
     brand_external_id: _bv_text(_bv_field(ds, "BRAND_EXTERNAL_ID", ""), ""),
     brand_name: _bv_text(_bv_field(ds, "BRAND_NAME", ""), ""),
+    group_external_id: _bv_text(_bv_field(ds, "GROUP_EXTERNAL_ID", ""), ""),
+    group_name: _bv_text(_bv_field(ds, "GROUP_NAME", ""), ""),
+    commercial_category: _bv_text(_bv_field(ds, "COMMERCIAL_CATEGORY", ""), ""),
     manufacturer_code: _bv_text(_bv_field(ds, "MANUFACTURER_CODE", ""), ""),
     manufacturer_name: _bv_text(_bv_field(ds, "MANUFACTURER_NAME", ""), ""),
+    vat_rate: _bv_num(_bv_field(ds, "VAT_RATE", null), null),
+    vat_label: _bv_text(_bv_field(ds, "VAT_LABEL", ""), ""),
     category_1: _bv_text(_bv_field(ds, "CATEGORY_1", ""), ""),
     category_2: _bv_text(_bv_field(ds, "CATEGORY_2", ""), ""),
     category_3: _bv_text(_bv_field(ds, "CATEGORY_3", ""), ""),
     manual_order_category: _bv_text(_bv_field(ds, "MANUAL_ORDER_CATEGORY", ""), ""),
     commercial_status: _bv_text(_bv_field(ds, "COMMERCIAL_STATUS", ""), ""),
     is_active: _bv_bool(_bv_field(ds, "IS_ACTIVE_SOURCE", 1), true),
+    is_active_source: _bv_bool(_bv_field(ds, "IS_ACTIVE_SOURCE", 1), true),
     replenishment_status_1: _bv_text(_bv_field(ds, "REPLENISHMENT_STATUS_1", ""), ""),
     replenishment_status_2: _bv_text(_bv_field(ds, "REPLENISHMENT_STATUS_2", ""), ""),
     min_stock: _bv_num(_bv_field(ds, "MIN_STOCK", null), null),
@@ -2737,6 +2831,7 @@ function _bv_inventory_record(ds) {
     vendor_moq: _bv_num(_bv_field(ds, "VENDOR_MOQ", null), null),
     current_purchase_price: _bv_num(_bv_field(ds, "CURRENT_PURCHASE_PRICE", null), null),
     qty: _bv_num(_bv_field(ds, "QTY", 0), 0),
+    qty_on_hand: _bv_num(_bv_field(ds, "QTY_ON_HAND", _bv_field(ds, "QTY", 0)), 0),
     qty_reserved: _bv_num(_bv_field(ds, "QTY_RESERVED", 0), 0),
     qty_expected: _bv_num(_bv_field(ds, "QTY_EXPECTED", 0), 0),
     qty_available: _bv_num(_bv_field(ds, "QTY_AVAILABLE", _bv_field(ds, "QTY", 0)), 0),
@@ -2832,6 +2927,7 @@ function _bv_supplier_balance_record(ds) {
     branch_id: branchExt,
     branch_ext_id: branchExt,
     balance_date: balanceDate,
+    doc_date: _bv_text(_bv_field(ds, "DOC_DATE", balanceDate), balanceDate),
     open_balance: _bv_num(_bv_field(ds, "OPEN_BALANCE", 0), 0),
     overdue_balance: _bv_num(_bv_field(ds, "OVERDUE_BALANCE", 0), 0),
     aging_bucket_0_30: _bv_num(_bv_field(ds, "AGING_BUCKET_0_30", 0), 0),
@@ -2859,6 +2955,7 @@ function _bv_customer_balance_record(ds) {
     branch_id: branchExt,
     branch_ext_id: branchExt,
     balance_date: balanceDate,
+    doc_date: _bv_text(_bv_field(ds, "DOC_DATE", balanceDate), balanceDate),
     open_balance: _bv_num(_bv_field(ds, "OPEN_BALANCE", 0), 0),
     overdue_balance: _bv_num(_bv_field(ds, "OVERDUE_BALANCE", 0), 0),
     aging_bucket_0_30: _bv_num(_bv_field(ds, "AGING_BUCKET_0_30", 0), 0),
@@ -2885,6 +2982,7 @@ function _bv_expense_record(ds) {
     supplier_ext_id: _bv_text(_bv_field(ds, "SUPPLIER_EXT_ID", ""), ""),
     supplier_name: _bv_text(_bv_field(ds, "SUPPLIER_NAME", ""), ""),
     account_id: _bv_text(_bv_field(ds, "ACCOUNT_ID", ""), ""),
+    document_id: _bv_text(_bv_field(ds, "DOCUMENT_ID", ""), ""),
     document_type: _bv_text(_bv_field(ds, "DOCUMENT_TYPE", "expense"), "expense"),
     document_no: _bv_text(_bv_field(ds, "DOCUMENT_NO", ""), ""),
     expense_category_code: _bv_text(_bv_field(ds, "EXPENSE_CATEGORY_CODE", "operational"), "operational"),

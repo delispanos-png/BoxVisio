@@ -219,7 +219,7 @@
                 <form method="post" action="/admin/users/{{ u.id }}/set-password" class="bv-setpass-form">
                   <input type="hidden" name="password" value="">
                   <button class="btn btn-sm bv-action-btn bv-action-key" type="button" data-setpass data-email="{{ u.email }}" title="Ορισμός συγκεκριμένου κωδικού" aria-label="Ορισμός συγκεκριμένου κωδικού">
-                    <i class="fe fe-key"></i>
+                    <i class="fe fe-lock me-1"></i>Κωδικός
                   </button>
                 </form>
                 <form method="post" action="/admin/users/{{ u.id }}/delete" data-bv-confirm="Διαγραφή χρήστη {{ u.email }};">

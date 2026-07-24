@@ -96,10 +96,17 @@
                   </select>
                 </div>
                 <div>
-                  <label class="form-label">Ταυτόχρονοι χρήστες</label>
+                  <label class="form-label">Ταυτόχρονες συνδέσεις (άδεια)</label>
                   <div class="input-group input-group-sm">
-                    <input class="form-control" type="number" min="{{ limit_values.active_users or 1 }}" max="9999" step="1" name="max_users" value="{{ limit_values.max_users or 1 }}" title="Αγορασμένες ταυτόχρονες θέσεις χρήσης">
-                    <span class="input-group-text">{{ limit_values.active_users or 0 }} ενεργοί</span>
+                    <input class="form-control" type="number" min="1" max="9999" step="1" name="max_concurrent_sessions" value="{{ limit_values.max_concurrent_sessions or 1 }}" title="Πόσοι χρήστες μπορούν να είναι συνδεδεμένοι ΤΑΥΤΟΧΡΟΝΑ (αγορασμένες θέσεις)">
+                    <span class="input-group-text">{{ limit_values.active_sessions or 0 }} online</span>
+                  </div>
+                </div>
+                <div>
+                  <label class="form-label">Μέγιστοι λογαριασμοί</label>
+                  <div class="input-group input-group-sm">
+                    <input class="form-control" type="number" min="{{ limit_values.active_users or 1 }}" max="9999" step="1" name="max_users" value="{{ limit_values.max_users or 1 }}" title="Πόσους λογαριασμούς χρηστών μπορεί να δημιουργήσει ο πελάτης συνολικά">
+                    <span class="input-group-text">{{ limit_values.active_users or 0 }} λογ.</span>
                   </div>
                 </div>
                 <div>
