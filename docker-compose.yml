@@ -18,6 +18,73 @@ services:
       - log_connections=on
       - -c
       - log_disconnections=on
+      # --- Performance tuning (PERFORMANCE_AUDIT_2026-07.md §1) ---
+      # Host: 12 vCPU / 22 GB RAM, ~80 GB of tenant data, OLAP/BI workload.
+      # Stock defaults left the cache hit ratio at 72% and spilled 5.8 TB to temp files.
+      # Sized to hold the whole working set: the heaps of all tenants total
+      # ~7.9 GB. It also lifts the sequential-scan ring-buffer threshold
+      # (shared_buffers/4) to 2.5 GB, above fact_sales' 1718 MB heap — below that
+      # threshold Postgres scans large tables through a 256 KB ring and never
+      # caches them, which pinned the hit ratio at ~12% however often they were read.
+      - -c
+      - shared_buffers=10GB
+      - -c
+      - effective_cache_size=18GB
+      - -c
+      - work_mem=64MB
+      - -c
+      - maintenance_work_mem=1GB
+      - -c
+      - random_page_cost=1.1
+      - -c
+      - effective_io_concurrency=200
+      - -c
+      - max_worker_processes=12
+      - -c
+      - max_parallel_workers=8
+      - -c
+      - max_parallel_workers_per_gather=4
+      - -c
+      - max_parallel_maintenance_workers=4
+      - -c
+      - wal_buffers=64MB
+      - -c
+      - min_wal_size=2GB
+      - -c
+      - max_wal_size=8GB
+      - -c
+      - checkpoint_completion_target=0.9
+      - -c
+      - wal_compression=on
+      - -c
+      - default_statistics_target=200
+      # Measured on the dashboard's monthly rollup: JIT spent ~545 ms compiling
+      # for a ~1.2 s query and was consistently ~10% slower than without it.
+      # This workload is many mid-sized queries, where compilation never pays off.
+      - -c
+      - jit=off
+      # Each uvicorn worker keeps its own pool per tenant engine plus control;
+      # 4 workers need materially more headroom than the stock 100.
+      - -c
+      - max_connections=300
+      # Aggregate rebuilds churn millions of rows; the stock cost limit cannot keep up.
+      - -c
+      - autovacuum_max_workers=4
+      - -c
+      - autovacuum_naptime=30s
+      - -c
+      - autovacuum_vacuum_cost_limit=2000
+      # --- Observability (§10) ---
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+      - -c
+      - pg_stat_statements.max=10000
+      - -c
+      - pg_stat_statements.track=all
+      - -c
+      - track_io_timing=on
+      - -c
+      - log_min_duration_statement=1000
     environment:
       POSTGRES_USER: ${TENANT_DB_SUPERUSER:-postgres}
       POSTGRES_PASSWORD: ${TENANT_DB_SUPERPASS:-postgres}
@@ -60,7 +127,10 @@ services:
     command:
       - /bin/sh
       - -lc
-      - ln -sf /usr/local/bin/python /usr/bin/python3 && exec /opt/cloudon-bi/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
+      # 4 workers: the API ran as a single process on a 12-core host, so one slow
+      # query blocked every other request behind it. All shared state (rate limit,
+      # KPI cache, sessions) lives in Redis, so workers need no affinity.
+      - ln -sf /usr/local/bin/python /usr/bin/python3 && exec /opt/cloudon-bi/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
     restart: unless-stopped
     env_file:
       - .env
@@ -208,6 +278,8 @@ services:
     volumes:
       - ./infra/nginx/upstreams.conf:/etc/nginx/conf.d/upstreams.conf:ro
       - ./infra/nginx/common_security.conf:/etc/nginx/conf.d/common_security.conf:ro
+      - ./infra/nginx/static_cache.conf:/etc/nginx/conf.d/static_cache.conf:ro
+      - ./backend/app/static:/opt/cloudon-bi/backend/app/static:ro
       - ./infra/nginx/bi.boxvisio.com.conf:/etc/nginx/conf.d/bi.boxvisio.com.conf:ro
       - ./infra/nginx/adminpanel.boxvisio.com.conf:/etc/nginx/conf.d/adminpanel.boxvisio.com.conf:ro
       - ./infra/nginx/admin_allowlist.conf:/etc/nginx/snippets/admin_allowlist.conf:ro

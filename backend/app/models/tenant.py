@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from uuid import UUID
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint, text
+from sqlalchemy import BigInteger, Boolean, Date, DateTime, DDL, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint, event, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -634,7 +634,7 @@ class AggCashDaily(TenantBase):
         UniqueConstraint('doc_date', 'branch_ext_id', 'subcategory', 'transaction_type', 'account_id', name='uq_agg_cash_daily_dims'),
     )
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     doc_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     branch_ext_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     subcategory: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
@@ -654,7 +654,7 @@ class AggCashByType(TenantBase):
         UniqueConstraint('doc_date', 'subcategory', name='uq_agg_cash_by_type_dims'),
     )
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     doc_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     subcategory: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
     entries: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -671,7 +671,7 @@ class AggCashAccounts(TenantBase):
         UniqueConstraint('doc_date', 'account_id', name='uq_agg_cash_accounts_dims'),
     )
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     doc_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     account_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     entries: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -688,7 +688,7 @@ class AggSupplierBalancesDaily(TenantBase):
         UniqueConstraint('balance_date', 'supplier_ext_id', 'branch_ext_id', name='uq_agg_supplier_balances_daily_dims'),
     )
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     balance_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     supplier_ext_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     branch_ext_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
@@ -710,7 +710,7 @@ class AggCustomerBalancesDaily(TenantBase):
         UniqueConstraint('balance_date', 'customer_ext_id', 'branch_ext_id', name='uq_agg_customer_balances_daily_dims'),
     )
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     balance_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     customer_ext_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     branch_ext_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
@@ -741,7 +741,7 @@ class AggExpensesDaily(TenantBase):
         Index('ix_agg_expenses_daily_date_category', 'expense_date', 'expense_category_code'),
     )
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     expense_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     branch_ext_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     expense_category_code: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
@@ -770,7 +770,7 @@ class AggExpensesMonthly(TenantBase):
         Index('ix_agg_expenses_monthly_month_category', 'month_start', 'expense_category_code'),
     )
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     month_start: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     branch_ext_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     expense_category_code: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
@@ -791,7 +791,7 @@ class AggExpensesByCategoryDaily(TenantBase):
         Index('ix_agg_expenses_by_category_daily_date', 'expense_date'),
     )
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     expense_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     expense_category_code: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     amount_net: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
@@ -809,7 +809,7 @@ class AggExpensesByBranchDaily(TenantBase):
         Index('ix_agg_expenses_by_branch_daily_date_branch', 'expense_date', 'branch_ext_id'),
     )
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     expense_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     branch_ext_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     amount_net: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
@@ -1053,7 +1053,7 @@ class AggSalesDaily(TenantBase):
         Index('ix_agg_sales_daily_date_branch_category', 'doc_date', 'branch_ext_id', 'category_ext_id'),
     )
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     doc_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     branch_ext_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     warehouse_ext_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
@@ -1071,7 +1071,7 @@ class AggSalesDailyCompany(TenantBase):
     __tablename__ = 'agg_sales_daily_company'
     __table_args__ = (UniqueConstraint('doc_date', name='uq_agg_sales_daily_company_date'),)
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     doc_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     qty: Mapped[float] = mapped_column(Numeric(18, 4), default=0)
     net_value: Mapped[float] = mapped_column(Numeric(18, 2), default=0)
@@ -1090,7 +1090,7 @@ class AggSalesDailyBranch(TenantBase):
         Index('ix_agg_sales_daily_branch_date_branch', 'doc_date', 'branch_ext_id'),
     )
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     doc_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     branch_ext_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     qty: Mapped[float] = mapped_column(Numeric(18, 4), default=0)
@@ -1118,7 +1118,7 @@ class AggSalesMonthly(TenantBase):
         Index('ix_agg_sales_monthly_date_branch_category', 'month_start', 'branch_ext_id', 'category_ext_id'),
     )
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     month_start: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     branch_ext_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     warehouse_ext_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
@@ -1139,7 +1139,7 @@ class AggSalesItemDaily(TenantBase):
         Index('ix_agg_sales_item_daily_doc_item', 'doc_date', 'item_external_id'),
     )
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     doc_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     item_external_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     qty: Mapped[float] = mapped_column(Numeric(18, 4), default=0)
@@ -1171,7 +1171,7 @@ class AggPurchasesDaily(TenantBase):
         ),
     )
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     doc_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     branch_ext_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     warehouse_ext_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
@@ -1190,7 +1190,7 @@ class AggPurchasesDailyCompany(TenantBase):
     __tablename__ = 'agg_purchases_daily_company'
     __table_args__ = (UniqueConstraint('doc_date', name='uq_agg_purchases_daily_company_date'),)
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     doc_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     qty: Mapped[float] = mapped_column(Numeric(18, 4), default=0)
     net_value: Mapped[float] = mapped_column(Numeric(18, 2), default=0)
@@ -1208,7 +1208,7 @@ class AggPurchasesDailyBranch(TenantBase):
         Index('ix_agg_purchases_daily_branch_date_branch', 'doc_date', 'branch_ext_id'),
     )
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     doc_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     branch_ext_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     qty: Mapped[float] = mapped_column(Numeric(18, 4), default=0)
@@ -1242,7 +1242,7 @@ class AggPurchasesMonthly(TenantBase):
         ),
     )
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     month_start: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     branch_ext_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     warehouse_ext_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
@@ -1264,7 +1264,7 @@ class AggInventorySnapshotDaily(TenantBase):
         Index('ix_agg_inventory_snapshot_daily_date_item', 'snapshot_date', 'item_external_id'),
     )
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     snapshot_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     item_external_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     qty_on_hand: Mapped[float] = mapped_column(Numeric(18, 4), default=0)
@@ -1282,7 +1282,7 @@ class AggStockAging(TenantBase):
         Index('ix_agg_stock_aging_bucket', 'aging_bucket'),
     )
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     snapshot_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     item_external_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     branch_ext_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
@@ -1597,3 +1597,15 @@ class SupplierTargetItem(TenantBase):
     item_external_id: Mapped[str] = mapped_column(String(128), nullable=False)
     item_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+# Both dimensions are re-synced on every ingest pass. Leaving free space in each
+# page lets those updates stay HOT (no index maintenance); without it dim_items
+# bloated to 3 GB for 82 MB of live rows. SQLAlchemy has no Table-level option
+# for storage parameters, so it is applied as post-create DDL.
+for _table, _fillfactor in ((DimItem.__table__, 85), (DimCustomer.__table__, 90)):
+    event.listen(
+        _table,
+        'after_create',
+        DDL('ALTER TABLE %(table)s SET (fillfactor = ' + str(_fillfactor) + ')'),
+    )

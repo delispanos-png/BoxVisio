@@ -51,6 +51,8 @@ celery.conf.task_routes = {
     'worker.tasks.delete_tenant_data_only': {'queue': 'delete'},
     'worker.tasks.generate_insights_for_tenant': {'queue': 'default'},
     'worker.tasks.generate_daily_insights_all_tenants': {'queue': 'default'},
+    # Long-running maintenance: keep it off the ingest queue.
+    'worker.tasks.purge_processed_staging_all_tenants': {'queue': 'default'},
 }
 celery.conf.beat_schedule = {
     'daily-insights-generation': {
@@ -84,6 +86,12 @@ celery.conf.beat_schedule = {
     'audit-sync-completeness': {
         'task': 'worker.tasks.audit_sync_completeness',
         'schedule': timedelta(minutes=30),
+    },
+    # Nightly 03:30 Europe/Athens — drop processed staging rows past the retention
+    # window. Without it the stg_* tables grow without bound (34 GB on one tenant).
+    'purge-processed-staging': {
+        'task': 'worker.tasks.purge_processed_staging_all_tenants',
+        'schedule': crontab(hour=3, minute=30),
     },
     # Nightly 22:00 Europe/Athens — re-pull SoftOne net stock so the daily snapshot is
     # accurate (incremental syncs never refresh the balance). Timezone set below.

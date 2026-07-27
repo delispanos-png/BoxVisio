@@ -3284,13 +3284,14 @@ async def _drain_tenant_ingest_queue(tenant_slug: str, max_jobs: int) -> dict:
                         # Incremental jobs stay visible quickly. Backfills refresh once at
                         # the end of the whole requested range to avoid hundreds of slow,
                         # duplicate aggregate/insight tasks blocking ingestion.
-                        refresh_aggregates_for_entity.delay(
+                        if _enqueue_aggregate_refresh_debounced(
+                            redis,
                             tenant_slug=tenant_slug,
                             entity=entity,
-                            from_date_str=agg_from_date,
-                            to_date_str=agg_to_date,
-                        )
-                        aggregates_refreshed += 1
+                            from_date_str=str(agg_from_date),
+                            to_date_str=str(agg_to_date),
+                        ):
+                            aggregates_refreshed += 1
                 update_ingest_progress(tenant_slug, status='running', job_completed=True)
             except Exception as exc:
                 if bool(redis.get(stop_key)):
@@ -3494,6 +3495,73 @@ async def _drain_tenant_ingest_queue(tenant_slug: str, max_jobs: int) -> dict:
         release_tenant_lock(tenant_slug, lock_token)
 
 
+def _agg_pending_range_key(tenant_slug: str, entity: str) -> str:
+    return f'agg:pending_range:{tenant_slug}:{entity}'
+
+
+def _agg_debounce_key(tenant_slug: str, entity: str) -> str:
+    return f'agg:debounce:{tenant_slug}:{entity}'
+
+
+def _enqueue_aggregate_refresh_debounced(
+    redis,
+    *,
+    tenant_slug: str,
+    entity: str,
+    from_date_str: str,
+    to_date_str: str,
+) -> bool:
+    """Coalesce aggregate refreshes for one tenant+entity into a single run.
+
+    Each drain cycle used to enqueue its own refresh, which rebuilt the same date
+    range over and over (2,884 refreshes/day, keeping Postgres pinned near 150%
+    CPU and burning through the agg_* id sequences). Instead the pending range is
+    widened in Redis and only the first caller in a window schedules the task, so
+    a burst of ingest jobs collapses into one refresh over the union of ranges.
+
+    Returns True when this call scheduled the task.
+    """
+    window = max(0, int(settings.aggregate_refresh_debounce_seconds or 0))
+    if window <= 0:
+        refresh_aggregates_for_entity.delay(
+            tenant_slug=tenant_slug,
+            entity=entity,
+            from_date_str=from_date_str,
+            to_date_str=to_date_str,
+        )
+        return True
+
+    range_key = _agg_pending_range_key(tenant_slug, entity)
+    try:
+        current = redis.hgetall(range_key) or {}
+        merged_from = min(from_date_str, current.get('from') or from_date_str)
+        merged_to = max(to_date_str, current.get('to') or to_date_str)
+        redis.hset(range_key, mapping={'from': merged_from, 'to': merged_to})
+        # Outlive the debounce window so a delayed worker still finds the range.
+        redis.expire(range_key, window + 3600)
+        scheduled = bool(redis.set(_agg_debounce_key(tenant_slug, entity), '1', nx=True, ex=window))
+    except Exception:  # noqa: BLE001
+        # Redis trouble must never stop aggregates from refreshing.
+        refresh_aggregates_for_entity.delay(
+            tenant_slug=tenant_slug,
+            entity=entity,
+            from_date_str=from_date_str,
+            to_date_str=to_date_str,
+        )
+        return True
+
+    if not scheduled:
+        # A refresh is already queued for this window and will pick up the range
+        # we just widened.
+        return False
+
+    refresh_aggregates_for_entity.apply_async(
+        kwargs={'tenant_slug': tenant_slug, 'entity': entity, 'use_pending_range': True},
+        countdown=window,
+    )
+    return True
+
+
 @shared_task(name='worker.tasks.refresh_aggregates_for_entity', autoretry_for=(Exception,), retry_backoff=True, retry_kwargs={'max_retries': 3})
 def refresh_aggregates_for_entity(
     tenant_slug: str,
@@ -3501,7 +3569,20 @@ def refresh_aggregates_for_entity(
     from_date_str: str | None = None,
     to_date_str: str | None = None,
     run_insights: bool = False,
+    use_pending_range: bool = False,
 ) -> dict:
+    if use_pending_range and not (from_date_str and to_date_str):
+        # Claim the coalesced window: read the accumulated range and clear it so
+        # ranges arriving after this point start a fresh window.
+        try:
+            redis = Redis.from_url(settings.redis_url, decode_responses=True)
+            pending = redis.hgetall(_agg_pending_range_key(tenant_slug, entity)) or {}
+            redis.delete(_agg_pending_range_key(tenant_slug, entity))
+            from_date_str = pending.get('from') or None
+            to_date_str = pending.get('to') or None
+        except Exception:  # noqa: BLE001
+            # Falls through to the MIN/MAX(doc_date) auto-detect path below.
+            from_date_str = to_date_str = None
     return _run_coro(_refresh_aggregates_task(tenant_slug, entity, from_date_str, to_date_str, run_insights=run_insights))
 
 
@@ -5330,3 +5411,115 @@ async def _generate_daily_insights_all_tenants(as_of_date_str: str | None = None
             generate_insights_for_tenant.delay(tenant_slug=tenant.slug, as_of_date_str=as_of_date.isoformat())
             queued += 1
     return {'status': 'ok', 'as_of': str(as_of_date), 'queued': queued}
+
+
+# Staging rows are written on ingest, flipped to 'processed', and never read
+# back — nothing in the codebase selects from stg_* after the transform. Left
+# unbounded they grew to 34 GB on a single tenant (14 GB of inventory documents,
+# 13 GB of cash transactions), all of it cold pages competing for shared_buffers.
+_STAGING_TABLES = (
+    'stg_sales_documents',
+    'stg_purchase_documents',
+    'stg_inventory_documents',
+    'stg_cash_transactions',
+    'stg_supplier_balances',
+    'stg_customer_balances',
+    'stg_expense_documents',
+)
+
+
+@shared_task(
+    name='worker.tasks.purge_processed_staging_all_tenants',
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_kwargs={'max_retries': 3},
+)
+def purge_processed_staging_all_tenants(retain_days: int | None = None) -> dict:
+    return _run_coro(_purge_processed_staging_all_tenants(retain_days))
+
+
+async def _purge_processed_staging_all_tenants(retain_days: int | None = None) -> dict:
+    if not settings.staging_retention_enabled:
+        return {'status': 'disabled'}
+
+    days = int(retain_days or settings.staging_retention_days)
+    batch = max(1000, int(settings.staging_retention_batch_rows))
+    results: list[dict] = []
+
+    async with ControlSessionLocal() as control_db:
+        tenants = (
+            await control_db.execute(select(Tenant).where(Tenant.status == TenantStatus.active))
+        ).scalars().all()
+
+        for tenant in tenants:
+            if not _is_background_operational_tenant(tenant):
+                continue
+            try:
+                if Redis.from_url(settings.redis_url, decode_responses=True).get(
+                    tenant_delete_active_key(tenant.slug)
+                ):
+                    continue
+            except Exception:  # noqa: BLE001
+                pass
+
+            deleted_by_table: dict[str, int] = {}
+            try:
+                async for tenant_db in get_tenant_db_session(
+                    tenant_key=str(tenant.id),
+                    db_name=tenant.db_name,
+                    db_user=tenant.db_user,
+                    db_password=tenant.db_password,
+                ):
+                    for table in _STAGING_TABLES:
+                        exists = (
+                            await tenant_db.execute(text(f"SELECT to_regclass('public.{table}')"))
+                        ).scalar()
+                        if not exists:
+                            continue
+                        # Deleted in bounded batches so a backlog never turns into
+                        # one long transaction holding back autovacuum.
+                        total = 0
+                        while True:
+                            deleted = (
+                                await tenant_db.execute(
+                                    text(
+                                        f"""
+                                        WITH victims AS (
+                                            SELECT id FROM public.{table}
+                                            WHERE transform_status = 'processed'
+                                              AND ingested_at < now() - make_interval(days => :days)
+                                            LIMIT :batch
+                                        )
+                                        DELETE FROM public.{table} t
+                                        USING victims v
+                                        WHERE t.id = v.id
+                                        RETURNING 1
+                                        """
+                                    ),
+                                    {'days': days, 'batch': batch},
+                                )
+                            ).rowcount or 0
+                            await tenant_db.commit()
+                            total += deleted
+                            if deleted < batch:
+                                break
+                        if total:
+                            deleted_by_table[table] = total
+                    break
+                results.append(
+                    {
+                        'tenant': tenant.slug,
+                        'status': 'ok',
+                        'deleted': sum(deleted_by_table.values()),
+                        'tables': deleted_by_table,
+                    }
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    'staging_purge_failed tenant=%s error=%s', tenant.slug, str(exc)[:300]
+                )
+                results.append({'tenant': tenant.slug, 'status': 'error', 'error': str(exc)[:300]})
+
+    total_deleted = sum(int(r.get('deleted') or 0) for r in results)
+    logger.info('staging_purge_done retain_days=%s deleted=%s', days, total_deleted)
+    return {'status': 'ok', 'retain_days': days, 'deleted': total_deleted, 'tenants': results}

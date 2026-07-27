@@ -6,7 +6,7 @@ import logging
 from datetime import date as date_cls, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select, text, tuple_
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -1951,11 +1951,13 @@ async def _upsert_dims_from_row(
             # Other entities send partial rows -> keep the existing value when a field is absent.
             return excluded_col if entity == 'items' else func.coalesce(excluded_col, current_col)
 
-        await tenant_db.execute(
-            ins.on_conflict_do_update(
-                index_elements=['external_id'],
-                set_={
-                    'updated_at': datetime.utcnow(),
+        # Every ingest row used to rewrite its dim_items row even when nothing
+        # changed: 355M updates against 193K items, of which only 0.004% could go
+        # HOT (the table carries 13 indexes and updated_at always moved). The
+        # heap bloated to 3 GB for 82 MB of live data. The comparison below is
+        # applied as the ON CONFLICT ... WHERE predicate so unchanged rows are
+        # skipped entirely.
+        item_update_values = {
                     'sku': func.coalesce(ins.excluded.sku, DimItem.sku),
                     'barcode': func.coalesce(ins.excluded.barcode, DimItem.barcode),
                     'alternate_barcodes': func.coalesce(ins.excluded.alternate_barcodes, DimItem.alternate_barcodes),
@@ -2018,7 +2020,15 @@ async def _upsert_dims_from_row(
                     'discount_pct': func.coalesce(ins.excluded.discount_pct, DimItem.discount_pct),
                     'is_active_source': func.coalesce(ins.excluded.is_active_source, DimItem.is_active_source),
                     'group_id': func.coalesce(ins.excluded.group_id, DimItem.group_id),
-                },
+        }
+        item_table = DimItem.__table__
+        await tenant_db.execute(
+            ins.on_conflict_do_update(
+                index_elements=['external_id'],
+                set_={'updated_at': datetime.utcnow(), **item_update_values},
+                where=tuple_(*(item_table.c[col] for col in item_update_values)).is_distinct_from(
+                    tuple_(*item_update_values.values())
+                ),
             )
         )
     if entity in {'purchases', 'supplier_balances', 'expenses', 'supplier_orders'}:

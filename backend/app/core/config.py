@@ -93,6 +93,17 @@ class Settings(BaseSettings):
     incremental_sync_overlap_minutes: int = 5
     incremental_sync_scheduler_round_robin_enabled: bool = True
     incremental_sync_scheduler_candidate_multiplier: int = 3
+    # Staging rows are a write-only audit trail: written on ingest, marked
+    # processed, never read back. Left unbounded they reached 34 GB on one tenant.
+    # 'failed' rows are always kept, regardless of age.
+    staging_retention_enabled: bool = True
+    staging_retention_days: int = 14
+    staging_retention_batch_rows: int = 50000
+    # Every drain cycle used to enqueue its own aggregate refresh, so the
+    # aggregates were rebuilt roughly twice a minute (2,884 runs/day). Refreshes
+    # for the same tenant+entity are now coalesced into one run per window, with
+    # the pending date ranges unioned together.
+    aggregate_refresh_debounce_seconds: int = 120
     auto_sync_max_queue_depth_per_tenant: int = 100
     auto_sync_live_dimension_streams_enabled: bool = False
     auto_sync_live_dimension_streams_csv: str = 'item_master'
