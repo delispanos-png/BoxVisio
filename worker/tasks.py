@@ -3932,19 +3932,19 @@ async def _refresh_sales_aggregates(
             f"""
             {sales_classified_cte}
             INSERT INTO agg_sales_daily (
-                doc_date, branch_ext_id, warehouse_ext_id, brand_ext_id, category_ext_id, group_ext_id,
+                doc_date, behavior_code, branch_ext_id, warehouse_ext_id, brand_ext_id, category_ext_id, group_ext_id,
                 qty, net_value, gross_value, updated_at, created_at
             )
             SELECT
-                doc_date, branch_ext_id, warehouse_ext_id, brand_ext_id, effective_category_ext_id, group_ext_id,
+                doc_date, NULLIF(regexp_replace(COALESCE(behavior_code_norm,''),'[^0-9-]','','g'),'')::int, branch_ext_id, warehouse_ext_id, brand_ext_id, effective_category_ext_id, group_ext_id,
                 COALESCE(SUM(CASE WHEN include_quantity THEN COALESCE(qty, 0) * quantity_sign ELSE 0 END), 0),
                 COALESCE(SUM(CASE WHEN include_revenue THEN COALESCE(net_value, 0) * amount_sign ELSE 0 END), 0),
                 COALESCE(SUM(CASE WHEN include_revenue THEN COALESCE(gross_value, 0) * amount_sign ELSE 0 END), 0),
                 NOW(),
                 NOW()
             FROM classified
-            GROUP BY doc_date, branch_ext_id, warehouse_ext_id, brand_ext_id, effective_category_ext_id, group_ext_id
-            ON CONFLICT (doc_date, branch_ext_id, warehouse_ext_id, brand_ext_id, category_ext_id, group_ext_id) DO UPDATE
+            GROUP BY doc_date, NULLIF(regexp_replace(COALESCE(behavior_code_norm,''),'[^0-9-]','','g'),'')::int, branch_ext_id, warehouse_ext_id, brand_ext_id, effective_category_ext_id, group_ext_id
+            ON CONFLICT (doc_date, behavior_code, branch_ext_id, warehouse_ext_id, brand_ext_id, category_ext_id, group_ext_id) DO UPDATE
             SET
                 qty = EXCLUDED.qty,
                 net_value = EXCLUDED.net_value,
@@ -3967,15 +3967,27 @@ async def _refresh_sales_aggregates(
                     COALESCE(SUM(CASE WHEN include_revenue THEN COALESCE(net_value, 0) * amount_sign ELSE 0 END), 0) AS net_value,
                     COALESCE(SUM(CASE WHEN include_revenue THEN COALESCE(gross_value, 0) * amount_sign ELSE 0 END), 0) AS gross_value,
                     COALESCE(SUM(CASE WHEN include_cost THEN COALESCE(cost_amount, 0) * amount_sign ELSE 0 END), 0) AS cost_amount,
-                    COALESCE(MAX(CASE WHEN include_revenue THEN COALESCE(payload_expenses_value, 0) * amount_sign ELSE 0 END), 0) AS expenses_value
+                    -- Expenses are charged once per DOCUMENT, but this CTE is grouped
+                    -- per (doc_date, branch, document). A document split across two
+                    -- branches would otherwise book its expenses twice, so they are
+                    -- attributed to a single row of the document.
+                    CASE
+                        WHEN ROW_NUMBER() OVER (
+                            PARTITION BY document_key ORDER BY doc_date, branch_ext_id
+                        ) = 1
+                        THEN COALESCE(MAX(CASE WHEN include_revenue THEN COALESCE(payload_expenses_value, 0) * amount_sign ELSE 0 END), 0)
+                        ELSE 0
+                    END AS expenses_value,
+                    NULLIF(regexp_replace(COALESCE(behavior_code_norm,''),'[^0-9-]','','g'),'')::int AS behavior_code
                 FROM classified
-                GROUP BY doc_date, branch_ext_id, document_key
+                GROUP BY doc_date, branch_ext_id, document_key, NULLIF(regexp_replace(COALESCE(behavior_code_norm,''),'[^0-9-]','','g'),'')::int
             )
             INSERT INTO agg_sales_daily_company (
-                doc_date, qty, net_value, gross_value, cost_amount, branches, margin_pct, updated_at, created_at
+                doc_date, behavior_code, qty, net_value, gross_value, cost_amount, branches, margin_pct, updated_at, created_at
             )
             SELECT
                 doc_date,
+                behavior_code,
                 COALESCE(SUM(qty), 0) AS qty,
                 COALESCE(SUM(net_value + expenses_value), 0) AS net_value,
                 COALESCE(SUM(gross_value + expenses_value), 0) AS gross_value,
@@ -3995,8 +4007,8 @@ async def _refresh_sales_aggregates(
                 NOW(),
                 NOW()
             FROM document_base
-            GROUP BY doc_date
-            ON CONFLICT (doc_date) DO UPDATE
+            GROUP BY doc_date, behavior_code
+            ON CONFLICT (doc_date, behavior_code) DO UPDATE
             SET
                 qty = EXCLUDED.qty,
                 net_value = EXCLUDED.net_value,
@@ -4115,11 +4127,12 @@ async def _refresh_sales_aggregates(
             f"""
             {sales_classified_cte}
             INSERT INTO agg_sales_monthly (
-                month_start, branch_ext_id, warehouse_ext_id, brand_ext_id, category_ext_id, group_ext_id,
+                month_start, behavior_code, branch_ext_id, warehouse_ext_id, brand_ext_id, category_ext_id, group_ext_id,
                 qty, net_value, gross_value, updated_at, created_at
             )
             SELECT
                 DATE_TRUNC('month', doc_date)::date AS month_start,
+                NULLIF(regexp_replace(COALESCE(behavior_code_norm,''),'[^0-9-]','','g'),'')::int,
                 branch_ext_id, warehouse_ext_id, brand_ext_id, category_ext_id, group_ext_id,
                 COALESCE(SUM(CASE WHEN include_quantity THEN COALESCE(qty, 0) * quantity_sign ELSE 0 END), 0),
                 COALESCE(SUM(CASE WHEN include_revenue THEN COALESCE(net_value, 0) * amount_sign ELSE 0 END), 0),
@@ -4127,8 +4140,8 @@ async def _refresh_sales_aggregates(
                 NOW(),
                 NOW()
             FROM classified
-            GROUP BY DATE_TRUNC('month', doc_date)::date, branch_ext_id, warehouse_ext_id, brand_ext_id, category_ext_id, group_ext_id
-            ON CONFLICT (month_start, branch_ext_id, warehouse_ext_id, brand_ext_id, category_ext_id, group_ext_id) DO UPDATE
+            GROUP BY DATE_TRUNC('month', doc_date)::date, NULLIF(regexp_replace(COALESCE(behavior_code_norm,''),'[^0-9-]','','g'),'')::int, branch_ext_id, warehouse_ext_id, brand_ext_id, category_ext_id, group_ext_id
+            ON CONFLICT (month_start, behavior_code, branch_ext_id, warehouse_ext_id, brand_ext_id, category_ext_id, group_ext_id) DO UPDATE
             SET
                 qty = EXCLUDED.qty,
                 net_value = EXCLUDED.net_value,

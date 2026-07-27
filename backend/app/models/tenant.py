@@ -1049,6 +1049,7 @@ class AggSalesDaily(TenantBase):
     __table_args__ = (
         UniqueConstraint(
             'doc_date',
+            'behavior_code',
             'branch_ext_id',
             'warehouse_ext_id',
             'brand_ext_id',
@@ -1062,6 +1063,10 @@ class AggSalesDaily(TenantBase):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     doc_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    # SoftOne behaviour code. Denormalised into the aggregates so KPI queries
+    # can apply the sales_kpi_config participation whitelist without falling
+    # back to a full fact_sales scan.
+    behavior_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
     branch_ext_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     warehouse_ext_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     brand_ext_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
@@ -1076,10 +1081,21 @@ class AggSalesDaily(TenantBase):
 
 class AggSalesDailyCompany(TenantBase):
     __tablename__ = 'agg_sales_daily_company'
-    __table_args__ = (UniqueConstraint('doc_date', name='uq_agg_sales_daily_company_date'),)
+    __table_args__ = (
+        UniqueConstraint(
+            'doc_date',
+            'behavior_code',
+            name='uq_agg_sales_daily_company_date',
+            postgresql_nulls_not_distinct=True,
+        ),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     doc_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    # SoftOne behaviour code. Denormalised into the aggregates so KPI queries
+    # can apply the sales_kpi_config participation whitelist without falling
+    # back to a full fact_sales scan.
+    behavior_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
     qty: Mapped[float] = mapped_column(Numeric(18, 4), default=0)
     net_value: Mapped[float] = mapped_column(Numeric(18, 2), default=0)
     gross_value: Mapped[float] = mapped_column(Numeric(18, 2), default=0)
@@ -1115,6 +1131,7 @@ class AggSalesMonthly(TenantBase):
     __table_args__ = (
         UniqueConstraint(
             'month_start',
+            'behavior_code',
             'branch_ext_id',
             'warehouse_ext_id',
             'brand_ext_id',
@@ -1128,6 +1145,8 @@ class AggSalesMonthly(TenantBase):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     month_start: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    # SoftOne behaviour code — see AggSalesDaily.
+    behavior_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
     branch_ext_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     warehouse_ext_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     brand_ext_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)

@@ -1576,6 +1576,40 @@ def _fact_sales_behavior_sign_expr(*, quantity: bool):
     return case(*whens, else_=literal(1.0))
 
 
+def _has_sales_sign_overrides() -> bool:
+    """True when participation config flips the sign of some behaviour code."""
+    amount_sign_map = _sales_behavior_sign_map('amount_sign_by_behavior')
+    quantity_sign_map = _sales_behavior_sign_map('quantity_sign_by_behavior')
+    return any(float(sign) != 1.0 for sign in amount_sign_map.values()) or any(
+        float(sign) != 1.0 for sign in quantity_sign_map.values()
+    )
+
+
+def _can_use_behavior_aware_sales_aggregate() -> bool:
+    """Whether the behaviour whitelist can be applied on the aggregates instead
+    of forcing a fact_sales scan.
+
+    The aggregates now carry behavior_code as a dimension, so the whitelist is a
+    plain WHERE on read. Two rule families still cannot be expressed there:
+
+    * turnover series rules filter on document_series, which is not an aggregate
+      dimension (and is per-document, not per-group);
+    * sign overrides have to be applied before summation — the aggregate has
+      already summed using the document rules' signs.
+
+    Either of those still needs the fact path.
+    """
+    return not _has_sales_turnover_series_rules() and not _has_sales_sign_overrides()
+
+
+def _apply_behavior_filter_to_aggregate(stmt, behavior_code_column):
+    """Apply the participation whitelist to an aggregate query."""
+    codes = _sales_behavior_codes()
+    if not codes:
+        return stmt
+    return stmt.where(behavior_code_column.in_(codes))
+
+
 def _has_sales_behavior_rules() -> bool:
     amount_sign_map = _sales_behavior_sign_map('amount_sign_by_behavior')
     quantity_sign_map = _sales_behavior_sign_map('quantity_sign_by_behavior')
@@ -2885,7 +2919,9 @@ async def _sales_by_warehouse_windows(
         return {}
 
     global_from, global_to = _window_bounds(windows)
-    use_fact_source = _has_sales_turnover_series_rules() or _has_sales_behavior_rules() or await _should_use_fact_sales_source(
+    # The behaviour whitelist is now a dimension on agg_sales_daily, so it no
+    # longer forces the fact path — only series rules and sign overrides do.
+    use_fact_source = not _can_use_behavior_aware_sales_aggregate() or await _should_use_fact_sales_source(
         db, date_from=global_from, date_to=global_to
     )
     if not use_fact_source:
@@ -2912,6 +2948,7 @@ async def _sales_by_warehouse_windows(
             .join(DimBranch, DimBranch.external_id == AggSalesDaily.branch_ext_id, isouter=True)
             .where(*_date_range(AggSalesDaily.doc_date, global_from, global_to))
         )
+        stmt = _apply_behavior_filter_to_aggregate(stmt, AggSalesDaily.behavior_code)
         stmt = _apply_sales_filters(
             stmt,
             branches=branches,
@@ -7807,7 +7844,7 @@ async def sales_monthly_trend(
     categories: list[str] | None = None,
     groups: list[str] | None = None,
 ):
-    if not (_has_sales_turnover_series_rules() or _has_sales_behavior_rules()):
+    if _can_use_behavior_aware_sales_aggregate():
         agg_stmt = (
             select(
                 AggSalesMonthly.month_start,
@@ -7819,6 +7856,7 @@ async def sales_monthly_trend(
             .group_by(AggSalesMonthly.month_start)
             .order_by(AggSalesMonthly.month_start)
         )
+        agg_stmt = _apply_behavior_filter_to_aggregate(agg_stmt, AggSalesMonthly.behavior_code)
         agg_stmt = _apply_sales_monthly_filters(
             agg_stmt,
             branches=branches,
@@ -7891,18 +7929,23 @@ async def sales_monthly_company_totals(
     date_from: date,
     date_to: date,
 ):
-    if not (_has_sales_turnover_series_rules() or _has_sales_behavior_rules()):
+    if _can_use_behavior_aware_sales_aggregate():
+        # agg_sales_daily_company is grouped per (doc_date, behavior_code) and its
+        # net/gross already include the per-document expenses, exactly matching what
+        # the fact path below computes. The participation whitelist is applied on
+        # read, which is why this no longer has to fall back to scanning fact_sales.
+        month_expr = cast(func.date_trunc(literal_column("'month'"), AggSalesDailyCompany.doc_date), Date)
         agg_stmt = (
             select(
-                AggSalesMonthly.month_start,
-                func.coalesce(func.sum(AggSalesMonthly.net_value), 0).label('net_value'),
-                func.coalesce(func.sum(AggSalesMonthly.gross_value), 0).label('gross_value'),
-                func.coalesce(func.sum(AggSalesMonthly.qty), 0).label('qty'),
+                month_expr.label('month_start'),
+                func.coalesce(func.sum(AggSalesDailyCompany.net_value), 0).label('net_value'),
+                func.coalesce(func.sum(AggSalesDailyCompany.gross_value), 0).label('gross_value'),
+                func.coalesce(func.sum(AggSalesDailyCompany.qty), 0).label('qty'),
             )
-            .where(*_date_range(AggSalesMonthly.month_start, date_from, date_to))
-            .group_by(AggSalesMonthly.month_start)
-            .order_by(AggSalesMonthly.month_start)
+            .where(*_date_range(AggSalesDailyCompany.doc_date, date_from, date_to))
         )
+        agg_stmt = _apply_behavior_filter_to_aggregate(agg_stmt, AggSalesDailyCompany.behavior_code)
+        agg_stmt = agg_stmt.group_by(month_expr).order_by(month_expr)
         agg_rows = (await db.execute(agg_stmt)).all()
         if agg_rows:
             return [
