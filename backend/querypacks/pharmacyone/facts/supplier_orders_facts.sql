@@ -8,7 +8,10 @@ SELECT
   CAST(ISNULL(F.SERIES, 0) AS nvarchar(128)) AS document_series,
   CAST(ISNULL(SR.NAME, CAST(ISNULL(F.SERIES, 0) AS nvarchar(128))) AS nvarchar(255)) AS document_series_name,
   CAST(ISNULL(F.TFPRMS, 0) AS int) AS document_behavior_code,
-  CAST(ISNULL(F.BRANCH, 0) AS nvarchar(64)) AS branch_ext_id,
+  -- Must match every other stream: branch ids are scoped by company.
+  -- Emitting a bare BRANCH here created a second dim_branches row per
+  -- store ('1000' alongside '1001:1000'), splitting each branch in two.
+  CAST(CAST(ISNULL(F.COMPANY, 0) AS nvarchar(32)) + ':' + CAST(ISNULL(F.BRANCH, 0) AS nvarchar(32)) AS nvarchar(64)) AS branch_external_id,
   CAST(ISNULL(BR.NAME, CAST(ISNULL(F.BRANCH, 0) AS nvarchar(64))) AS nvarchar(255)) AS branch_name,
   CAST(ISNULL(SUP.CODE, F.TRDR) AS nvarchar(64)) AS supplier_ext_id,
   CAST(ISNULL(SUP.NAME, '') AS nvarchar(255)) AS supplier_name,

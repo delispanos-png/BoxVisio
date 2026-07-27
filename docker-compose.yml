@@ -2,6 +2,12 @@ services:
   postgres:
     image: postgres:16
     restart: unless-stopped
+    # Parallel workers exchange tuples through POSIX shared memory. Docker's
+    # 64 MB default was enough at max_parallel_workers_per_gather=2, but raising
+    # it to 4 made large dashboard queries fail with "could not resize shared
+    # memory segment ... No space left on device" — surfacing as a 500 even
+    # though the disk had 105 GB free.
+    shm_size: '2gb'
     command:
       - postgres
       - -c

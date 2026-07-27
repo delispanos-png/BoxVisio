@@ -1,10 +1,13 @@
 from collections.abc import Iterable
 from datetime import datetime
+import logging
 import re
 import time
 from typing import Any
 
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_GENERIC_SALES_QUERY = "SELECT TOP 5000 * FROM dbo.SalesLines"
 
@@ -67,6 +70,37 @@ def _quote_identifier(identifier: str) -> str:
     if not safe:
         raise ValueError('Invalid identifier')
     return f'[{safe}]'
+
+
+_MAX_PAGE_LIMIT = 10000
+
+
+def _key_gt(a: tuple[Any, Any], b: tuple[Any, Any]) -> bool:
+    """Compare (timestamp, id) keyset tuples defensively.
+
+    Values arrive straight from the driver, so a page can mix types (datetime vs
+    str, int vs str) or carry NULLs. Anything not orderable is treated as "not
+    greater" rather than raising mid-stream.
+    """
+    a_ts, a_id = a
+    b_ts, b_id = b
+    if b_ts is None:
+        return a_ts is not None
+    if a_ts is None:
+        return False
+    try:
+        if a_ts != b_ts:
+            return a_ts > b_ts
+    except TypeError:
+        return str(a_ts) > str(b_ts)
+    if b_id is None:
+        return a_id is not None
+    if a_id is None:
+        return False
+    try:
+        return a_id > b_id
+    except TypeError:
+        return str(a_id) > str(b_id)
 
 
 def _build_final_query(
@@ -357,6 +391,7 @@ def fetch_incremental_rows(
             page_rows = 0
             page_last_ts = cursor_ts
             page_last_id = cursor_id
+            page_seen_other_ts = False
 
             for attempt in range(1, retries + 1):
                 try:
@@ -370,8 +405,14 @@ def fetch_incremental_rows(
                         for row in rows:
                             row_dict = dict(zip(columns, row))
                             page_rows += 1
-                            page_last_ts = _row_value(row_dict, incremental_column)
-                            page_last_id = _row_value(row_dict, id_column)
+                            row_ts = _row_value(row_dict, incremental_column)
+                            row_id = _row_value(row_dict, id_column)
+                            if row_ts != cursor_ts:
+                                page_seen_other_ts = True
+                            # Keep the greatest key rather than the last row, so a
+                            # page that comes back out of order still advances.
+                            if _key_gt((row_ts, row_id), (page_last_ts, page_last_id)):
+                                page_last_ts, page_last_id = row_ts, row_id
                             yield row_dict
                     break
                 except Exception:
@@ -389,9 +430,23 @@ def fetch_incremental_rows(
             if page_rows < page_limit:
                 break
             if page_last_ts == cursor_ts and page_last_id == cursor_id:
+                # More rows share this (timestamp, id) than a page can hold.
+                # Seen in the wild: a bulk update in SoftOne stamped 1,067,149
+                # sales lines with one UPDDATE, against a 500-row page. Grow the
+                # page until the tie fits rather than failing the whole sync.
+                if not page_seen_other_ts and page_limit < _MAX_PAGE_LIMIT:
+                    # Re-reads the page at the larger size, so rows already
+                    # yielded are emitted again. Safe: every fact write is an
+                    # upsert keyed on external_id, so replays are idempotent.
+                    page_limit = min(_MAX_PAGE_LIMIT, page_limit * 4)
+                    logger.warning(
+                        'sql_paging_tie_widening_page inc=%s id=%s new_page_limit=%s',
+                        incremental_column, id_column, page_limit,
+                    )
+                    continue
                 raise RuntimeError(
                     'cursor did not advance while paging SQL rows '
-                    f'(inc={incremental_column}, id={id_column})'
+                    f'(inc={incremental_column}, id={id_column}, page_limit={page_limit})'
                 )
             cursor_ts = page_last_ts
             cursor_id = page_last_id

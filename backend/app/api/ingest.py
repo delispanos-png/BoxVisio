@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.celery_sender import make_celery_sender
 from app.db.control_session import get_control_db
-from app.models.control import PlanName, Tenant, TenantApiKey, TenantStatus
+from app.models.control import PlanName, Tenant, TenantApiKey, TenantConnection, TenantStatus
 from app.schemas.ingest import IngestBatchRequest
 from app.services.hmac_auth import verify_hmac_signature
 from app.services.ingestion import enqueue_tenant_job
@@ -37,6 +37,31 @@ async def get_ingest_tenant(
     tenant, api_key = row
     if tenant.status != TenantStatus.active:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='Tenant inactive')
+
+    # A tenant is fed by exactly one channel: either a SQL connector or a
+    # JS-bridge push, never both. Until now this endpoint only checked the API
+    # key, so a bridge kept pushing into a SQL-fed tenant whose external_api
+    # connection had already been deactivated. The two channels emit different
+    # branch identifiers ('1001:1000' vs '1000'), which split every branch in
+    # two and mis-attributed 2.2% of turnover before it was noticed.
+    has_api_connection = (
+        await db.execute(
+            select(TenantConnection.id).where(
+                TenantConnection.tenant_id == tenant.id,
+                TenantConnection.connector_type == 'external_api',
+                TenantConnection.is_active.is_(True),
+            )
+        )
+    ).first()
+    if not has_api_connection:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                'Push ingestion is not enabled for this tenant. '
+                'It is configured for a different connector; a tenant may only '
+                'have one active ingestion channel.'
+            ),
+        )
     return tenant, api_key
 
 

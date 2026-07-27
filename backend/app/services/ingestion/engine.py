@@ -615,6 +615,26 @@ def _company_mismatch(row: dict[str, Any], fact: dict[str, Any], context: Connec
     return False
 
 
+def _scope_branch_to_company(branch_ext: Any, company_id: Any) -> Any:
+    """Qualify a branch identifier with its company, as every stream must.
+
+    Branch codes are only unique within a company, so the canonical form is
+    "<company>:<branch>". Most streams already emit it that way, but one
+    querypack sent a bare BRANCH and the SoftOne JS bridge did the same whenever
+    COMPANY_ID was absent. Each variant created a second dim_branches row per
+    store ('1000' next to '1001:1000'), which split every branch in the UI and
+    mis-attributed its turnover. Normalising here means no single producer can
+    reintroduce the split.
+    """
+    branch = _as_optional_text(branch_ext, 64)
+    if not branch:
+        return branch_ext
+    company = _as_optional_text(company_id, 64)
+    if not company or ':' in branch:
+        return branch
+    return f'{company}:{branch}'[:64]
+
+
 def _upsert_sales_stmt(fact: dict):
     ins = insert(FactSales).values(**fact)
     return ins.on_conflict_do_update(
@@ -2299,7 +2319,10 @@ def _build_fact(
     incremental_val = get(context.incremental_column, 'updated_at', 'doc_date', 'document_date', 'event_id')
     updated_at = _as_datetime(incremental_val) or datetime.utcnow()
 
-    branch_ext = get(context.branch_column, 'branch_ext_id', 'branch_external_id', 'branch_code')
+    branch_ext = _scope_branch_to_company(
+        get(context.branch_column, 'branch_ext_id', 'branch_external_id', 'branch_code'),
+        get('company_id', 'company_code', 'legal_entity_id', 'organization_id'),
+    )
     warehouse_ext = get('warehouse_ext_id', 'warehouse_external_id', 'warehouse_code')
     brand_ext = get('brand_ext_id', 'brand_external_id', 'brand_code')
     category_ext = get('category_ext_id', 'category_external_id', 'category_code')
@@ -2664,7 +2687,7 @@ def _build_fact(
             64,
         )
         balance_date = _as_doc_date(get('balance_date', 'doc_date', context.date_column, 'updated_at') or incremental_val)
-        branch_ext = _as_optional_text(get(context.branch_column, 'branch_ext_id', 'branch_external_id', 'branch_code'), 64)
+        branch_ext = _as_optional_text(_scope_branch_to_company(get(context.branch_column, 'branch_ext_id', 'branch_external_id', 'branch_code'), get('company_id', 'company_code', 'legal_entity_id', 'organization_id')), 64)
         open_balance = _as_float(get('open_balance', 'balance', 'open_amount', 'amount'))
         overdue_balance = _as_float(get('overdue_balance', 'overdue_amount'))
         aging_0_30 = _as_float(get('aging_bucket_0_30', 'bucket_0_30', 'aging0_30'))
@@ -2706,7 +2729,7 @@ def _build_fact(
             get('supplier_ext_id', 'supplier_external_id', 'supplier_code', 'supplier_id', 'entity_ext_id'),
             64,
         )
-        branch_ext = _as_optional_text(get(context.branch_column, 'branch_ext_id', 'branch_external_id', 'branch_code'), 64)
+        branch_ext = _as_optional_text(_scope_branch_to_company(get(context.branch_column, 'branch_ext_id', 'branch_external_id', 'branch_code'), get('company_id', 'company_code', 'legal_entity_id', 'organization_id')), 64)
         item_code = _as_optional_text(get(context.item_column, 'item_code', 'item_external_id'), 128)
         document_id = _as_optional_text(
             get('document_id', 'doc_id', 'purchase_order_id', 'order_id', 'header_id', 'document_external_id'),
@@ -2765,7 +2788,7 @@ def _build_fact(
             128,
         )
         balance_date = _as_doc_date(get('balance_date', 'doc_date', context.date_column, 'updated_at') or incremental_val)
-        branch_ext = _as_optional_text(get(context.branch_column, 'branch_ext_id', 'branch_external_id', 'branch_code'), 64)
+        branch_ext = _as_optional_text(_scope_branch_to_company(get(context.branch_column, 'branch_ext_id', 'branch_external_id', 'branch_code'), get('company_id', 'company_code', 'legal_entity_id', 'organization_id')), 64)
         open_balance = _as_float(get('open_balance', 'balance', 'open_amount', 'amount'))
         overdue_balance = _as_float(get('overdue_balance', 'overdue_amount'))
         aging_0_30 = _as_float(get('aging_bucket_0_30', 'bucket_0_30', 'aging0_30'))
