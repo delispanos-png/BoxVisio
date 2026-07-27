@@ -14,7 +14,7 @@ from app.db.control_session import ControlSessionLocal
 from app.models.control import Tenant
 from app.middleware.error_handler import error_handler_middleware
 from app.middleware.admin_audit import admin_audit_middleware
-from app.middleware.canonical_path import canonical_path_middleware
+from app.middleware.asgi_edge import CanonicalPathMiddleware, SecureHeadersMiddleware
 from app.middleware.csrf import csrf_middleware
 from app.middleware.host_access_guard import host_access_guard_middleware
 from app.middleware.plan_guard import plan_guard_middleware
@@ -22,7 +22,6 @@ from app.middleware.rate_limit import rate_limit_middleware
 from app.middleware.rbac_guard import rbac_guard_middleware
 from app.middleware.kpi_performance import kpi_performance_middleware
 from app.middleware.request_logging import request_logging_middleware
-from app.middleware.secure_headers import secure_headers_middleware
 from app.middleware.session_idle import session_idle_middleware
 from app.middleware.subscription_guard import subscription_guard_middleware
 from app.middleware.ui_auth_redirect import ui_auth_redirect_middleware
@@ -67,9 +66,14 @@ app.add_middleware(
     allow_methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
     allow_headers=['Authorization', 'Content-Type', 'X-CSRF-Token', 'X-Request-ID'],
 )
-app.middleware('http')(secure_headers_middleware)
+# Registration order matters: Starlette pushes each middleware onto the front of
+# the stack, so these run in reverse. The two entries below are pure-ASGI
+# equivalents of the old secure_headers/canonical_path HTTP middlewares, kept in
+# their original positions so the effective ordering is unchanged — they just
+# skip the BaseHTTPMiddleware task-group wrapper.
+app.add_middleware(SecureHeadersMiddleware)
 app.middleware('http')(rate_limit_middleware)
-app.middleware('http')(canonical_path_middleware)
+app.add_middleware(CanonicalPathMiddleware)
 app.middleware('http')(host_access_guard_middleware)
 app.middleware('http')(ui_auth_redirect_middleware)
 app.middleware('http')(rbac_guard_middleware)

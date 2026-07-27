@@ -368,3 +368,133 @@ rule-aware ως προς τα document rules. Το πρόβλημα είναι �
 
 ## Artifacts
 Scripts και rollback DDL: `artifacts/perf-2026-07/`
+
+---
+
+# ΔΕΥΤΕΡΟ ΚΥΜΑ — 2026-07-27 (απόγευμα)
+
+Υλοποιήθηκαν όλες οι υπόλοιπες προτάσεις εκτός από τη διάσταση `behavior_code`
+στα aggregates, που παραμένει εκκρεμής κατόπιν απόφασης.
+
+## §2 (πλήρες) — τέλος στο DELETE+INSERT
+
+Το πρώτο κύμα μείωσε μόνο τη *συχνότητα* των refresh (debounce). Τώρα άλλαξε και
+ο μηχανισμός:
+
+**Bounded window.** Ένα refresh χωρίς ρητό εύρος έπαιρνε `MIN/MAX(doc_date)` και
+ξαναέχτιζε από το 2016. Πλέον περιορίζεται στις τελευταίες 120 ημέρες
+(`aggregate_refresh_max_window_days`)· μόνο ένα ρητό `full_rebuild=True` —
+δηλαδή το τέλος ενός backfill — παίρνει όλο το ιστορικό.
+
+**UPSERT.** Και οι 20 `agg_*` πίνακες κάνουν πλέον
+`INSERT ... ON CONFLICT DO UPDATE`. Τα δύο inventory statements *ήδη* είχαν
+`ON CONFLICT`, αλλά ένα καθολικό `DELETE` έτρεχε πρώτο και το ακύρωνε — γι' αυτό
+ο `agg_stock_aging` είχε 2,1 δισ. inserts. Οι 18 προϋπάρχουσες διαγραφές
+αφαιρέθηκαν και αντικαταστάθηκαν από το `_delete_stale_aggregate_rows`, που
+σβήνει μόνο ό,τι το refresh δεν ξαναπαρήγαγε (`updated_at < NOW()`, όπου το
+`NOW()` είναι το timestamp του transaction και άρα κοινό για κάθε γραμμή που
+γράφτηκε).
+
+**Προϋπόθεση: `NULLS NOT DISTINCT`.** Με το προεπιλεγμένο `NULLS DISTINCT` το
+`ON CONFLICT` δεν ταιριάζει ποτέ γραμμή με NULL διάσταση — και το
+`agg_sales_monthly.category_ext_id` είναι NULL στο 100% των γραμμών. Ένα αφελές
+upsert θα πρόσθετε διπλότυπα σε κάθε refresh. 48 unique indexes (16 πίνακες × 3
+tenants) μετατράπηκαν σε `NULLS NOT DISTINCT` (PG15+), αφού πρώτα επαληθεύτηκε
+ότι κανένας δεν είχε συγκρούσεις.
+
+**fillfactor 80** στους `agg_*`, ώστε τα updates να μένουν HOT.
+
+Μέτρηση ενός πλήρους rebuild πριν/μετά:
+
+| | inserts | deletes | updates | HOT |
+|---|---|---|---|---|
+| πριν (ανά refresh) | 2.684.728 | 2.684.728 | 0 | — |
+| μετά | **0** | **0** | 2.684.728 | 25,3% |
+
+## Διόρθωση ορθότητας: μερικοί μήνες
+
+Τα monthly aggregates κλειδώνονται σε `month_start` και ξαναγράφουν ολόκληρο τον
+μήνα, αλλά υπολογίζονται από όσες γραμμές επιλέγει το παράθυρο refresh. Παράθυρο
+που άνοιγε στις 15 του μήνα αντικαθιστούσε το σύνολο του μήνα με το δεύτερο μισό
+του. Το `from_date` πλέον προσαρμόζεται στην 1η του μήνα.
+
+Το σφάλμα ήταν υπαρκτό στην παραγωγή:
+
+| | πριν | μετά |
+|---|---|---|
+| `agg_sales_daily` (net) | 12.939.137,93 | 12.940.453,76 |
+| `agg_sales_monthly` (net) | **9.250.764,82** | **12.940.453,76** |
+| συμφωνία | ✗ απόκλιση 40% | ✓ MATCH |
+
+Το ίδιο και στις αγορές (7.970.574 → 8.832.926, MATCH με το daily).
+Επαληθεύτηκε επίσης: μηδέν διπλότυπα, inventory totals αμετάβλητα.
+
+## §11 — `source_payload_json`
+
+Η αρχική πρόταση (μεταφορά εκτός πίνακα / `STORAGE EXTERNAL`) **δεν εφαρμόστηκε**
+και δεν πρέπει να εφαρμοστεί: η στήλη διαβάζεται ενεργά από τα business rules
+(`source_transaction_type_id`, `document_series_name`, ΑΦΜ πελάτη, `vat_total`,
+`charge_revenue_net_value`). Το `STORAGE EXTERNAL` θα επιβάρυνε ακριβώς τα βαριά
+sales queries, αφού αυτά διαβάζουν το JSON.
+
+Αντ' αυτού απομονώθηκε το ένα πεδίο που **φιλτράρει** σε κάθε sales KPI: ο
+behaviour code είναι πλέον κανονική στήλη `fact_sales.behavior_code`, με index
+και backfill 1.229.815 γραμμών. Τα queries διαβάζουν
+`COALESCE(behavior_code, <json extract>)`, ώστε μια γραμμή που δεν καλύφθηκε να
+δίνει την ίδια τιμή.
+
+| φίλτρο behaviour πάνω σε όλο το fact_sales | |
+|---|---|
+| JSON extract + cast | 1.206–1.238 ms |
+| κανονική στήλη | **505–533 ms** |
+
+## §6/12 — middleware
+
+`secure_headers` και `canonical_path` ξαναγράφτηκαν ως καθαρό ASGI
+(`middleware/asgi_edge.py`), στις ίδιες θέσεις της στοίβας ώστε η σειρά εκτέλεσης
+να μείνει ίδια. Γλιτώνουν δύο `BaseHTTPMiddleware` task groups ανά request:
+`/ready` p50 3,62 → **3,31 ms**. Τα υπόλοιπα 12 χρειάζονται το `Request`/`Response`
+API και δεν μετατράπηκαν.
+
+## §5 — αργά endpoints
+
+`/v1/kpi/sales/filter-options` έκανε 5 διαδοχικά `DISTINCT` πάνω στο
+`agg_sales_daily` (~514 ms συνολικά). Προστέθηκε covering index
+`(doc_date) INCLUDE (branch, warehouse, brand, category, group)` που τα μετατρέπει
+σε Index-Only Scan: **310 ms**. Επιπλέον, τα τέσσερα filter-option endpoints
+πήραν δικό τους TTL 1800 s αντί του γενικού 300 s — απαριθμούν ποιες τιμές
+υπάρχουν σε μια περίοδο, κάτι που δεν αλλάζει από λεπτό σε λεπτό.
+
+## §9 — pgbouncer: ΔΕΝ εγκαταστάθηκε, τεκμηριωμένα
+
+Η αρχική πρόταση ήταν «pgbouncer **ή** μικρότερα per-engine pools». Εφαρμόστηκε
+το δεύτερο (pool 5+10, `max_connections` 300). Μετρημένη χρήση: **13 συνδέσεις
+από 300**.
+
+Η εγκατάσταση pgbouncer τώρα θα ήταν επιζήμια: σε transaction pooling το asyncpg
+απαιτεί `statement_cache_size=0`, δηλαδή κατάργηση των prepared statements και
+επαναϋπολογισμό πλάνου σε κάθε query — ακριβώς το αντίθετο από τον στόχο. Θα
+προσέθετε επίσης failure point σε ζωντανό σύστημα χωρίς να λύνει υπαρκτό
+πρόβλημα. Έχει νόημα όταν οι συνδέσεις πλησιάσουν το όριο (π.χ. πολλαπλάσιοι
+tenants ή workers), όχι πριν.
+
+## §10 — Redis
+
+`maxmemory 2gb` με πολιτική **`volatile-lru`** (όχι `allkeys-lru`): το Redis είναι
+και ο broker του Celery, και τα μηνύματα εργασιών δεν έχουν TTL — άρα δεν μπορούν
+ποτέ να διωχθούν. Θυσιάζονται μόνο keys με TTL (KPI cache, rate limits, ingest
+state). Πριν ήταν `maxmemory` απεριόριστο με `noeviction`, δηλαδή οι εγγραφές θα
+άρχιζαν να αποτυγχάνουν αν γέμιζε η μνήμη.
+
+## Συνολική εικόνα μετά και τα δύο κύματα
+
+| Μετρική | Αρχικά | Τώρα |
+|---|---|---|
+| Cache hit ratio (pharmacy295) | 72,2% | **99,90%** |
+| CPU postgres σε ηρεμία | 144% | ~8% |
+| Χρήση δίσκου | 73% (104 GB) | **31% (44 GB)** |
+| Temp spill | 5.806 GB | ~0 |
+| agg refresh: inserts+deletes | 5,4 M ανά κύκλο | **0** |
+| Behaviour filter σε fact_sales | 1.206 ms | **505 ms** |
+| filter-options (cold) | ~514 ms | **310 ms** |
+| monthly vs daily συμφωνία | ✗ 40% απόκλιση | ✓ MATCH |

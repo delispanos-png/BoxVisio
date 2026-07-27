@@ -1314,6 +1314,7 @@ def _build_fact_upsert_stmt(entity: str, facts: list[dict]):
                 'discount_amount': ins.excluded.discount_amount,
                 'vat_amount': ins.excluded.vat_amount,
                 'source_payload_json': ins.excluded.source_payload_json,
+                'behavior_code': ins.excluded.behavior_code,
                 'item_code': ins.excluded.item_code,
                 'channel_ext_id': ins.excluded.channel_ext_id,
                 'channel_name': ins.excluded.channel_name,
@@ -2483,6 +2484,9 @@ def _build_fact(
                     'channel_ext_id': _as_optional_text(get('channel_ext_id', 'channel_external_id', 'channel_code'), 64),
                     'channel_name': _as_optional_text(get('channel_name', 'channel'), 255),
                     'source_payload_json': _sanitize_payload_json(row),
+                    # Denormalised out of the payload so KPI queries filter on a
+                    # plain integer column instead of parsing JSON per row.
+                    'behavior_code': _as_optional_int(get('source_transaction_type_id')),
                 }
             )
             base['gross_value'] = gross

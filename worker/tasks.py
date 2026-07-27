@@ -3442,12 +3442,14 @@ async def _drain_tenant_ingest_queue(tenant_slug: str, max_jobs: int) -> dict:
             except Exception:
                 pass
             for agg_entity in sorted(pending_entities):
-                # No explicit range: the refresh task auto-detects MIN/MAX(doc_date)
-                # from the fact table, so the aggregate always spans the full
-                # backfilled dataset regardless of which wave loaded each chunk.
+                # A backfill is the one case that genuinely needs the whole
+                # history: it is spread over many drain waves, so no single wave
+                # knows the full loaded range. Everything else stays inside the
+                # bounded window (see _refresh_aggregates_task).
                 refresh_aggregates_for_entity.delay(
                     tenant_slug=tenant_slug,
                     entity=agg_entity,
+                    full_rebuild=True,
                 )
                 aggregates_refreshed += 1
             if pending_entities:
@@ -3570,6 +3572,7 @@ def refresh_aggregates_for_entity(
     to_date_str: str | None = None,
     run_insights: bool = False,
     use_pending_range: bool = False,
+    full_rebuild: bool = False,
 ) -> dict:
     if use_pending_range and not (from_date_str and to_date_str):
         # Claim the coalesced window: read the accumulated range and clear it so
@@ -3583,7 +3586,16 @@ def refresh_aggregates_for_entity(
         except Exception:  # noqa: BLE001
             # Falls through to the MIN/MAX(doc_date) auto-detect path below.
             from_date_str = to_date_str = None
-    return _run_coro(_refresh_aggregates_task(tenant_slug, entity, from_date_str, to_date_str, run_insights=run_insights))
+    return _run_coro(
+        _refresh_aggregates_task(
+            tenant_slug,
+            entity,
+            from_date_str,
+            to_date_str,
+            run_insights=run_insights,
+            full_rebuild=full_rebuild,
+        )
+    )
 
 
 @shared_task(name='worker.tasks.refresh_sales_aggregates', autoretry_for=(Exception,), retry_backoff=True, retry_kwargs={'max_retries': 3})
@@ -3917,15 +3929,6 @@ async def _refresh_sales_aggregates(
     """.format(sales_expenses_sql=sales_expenses_sql)
     await tenant_db.execute(
         text(
-            """
-            DELETE FROM agg_sales_daily
-            WHERE doc_date BETWEEN :from_date AND :to_date
-            """
-        ),
-        {'from_date': from_date, 'to_date': to_date},
-    )
-    await tenant_db.execute(
-        text(
             f"""
             {sales_classified_cte}
             INSERT INTO agg_sales_daily (
@@ -3941,18 +3944,15 @@ async def _refresh_sales_aggregates(
                 NOW()
             FROM classified
             GROUP BY doc_date, branch_ext_id, warehouse_ext_id, brand_ext_id, effective_category_ext_id, group_ext_id
+            ON CONFLICT (doc_date, branch_ext_id, warehouse_ext_id, brand_ext_id, category_ext_id, group_ext_id) DO UPDATE
+            SET
+                qty = EXCLUDED.qty,
+                net_value = EXCLUDED.net_value,
+                gross_value = EXCLUDED.gross_value,
+                updated_at = NOW()
             """
         ),
         {'from_date': from_date, 'to_date': to_date, 'rules_json': document_rules_json},
-    )
-    await tenant_db.execute(
-        text(
-            """
-            DELETE FROM agg_sales_daily_company
-            WHERE doc_date BETWEEN :from_date AND :to_date
-            """
-        ),
-        {'from_date': from_date, 'to_date': to_date},
     )
     await tenant_db.execute(
         text(
@@ -3996,18 +3996,18 @@ async def _refresh_sales_aggregates(
                 NOW()
             FROM document_base
             GROUP BY doc_date
+            ON CONFLICT (doc_date) DO UPDATE
+            SET
+                qty = EXCLUDED.qty,
+                net_value = EXCLUDED.net_value,
+                gross_value = EXCLUDED.gross_value,
+                cost_amount = EXCLUDED.cost_amount,
+                branches = EXCLUDED.branches,
+                margin_pct = EXCLUDED.margin_pct,
+                updated_at = NOW()
             """
         ),
         {'from_date': from_date, 'to_date': to_date, 'rules_json': document_rules_json},
-    )
-    await tenant_db.execute(
-        text(
-            """
-            DELETE FROM agg_sales_daily_branch
-            WHERE doc_date BETWEEN :from_date AND :to_date
-            """
-        ),
-        {'from_date': from_date, 'to_date': to_date},
     )
     await tenant_db.execute(
         text(
@@ -4066,18 +4066,18 @@ async def _refresh_sales_aggregates(
                 NOW()
             FROM branch_base b
             LEFT JOIN day_totals t ON t.doc_date = b.doc_date
+            ON CONFLICT (doc_date, branch_ext_id) DO UPDATE
+            SET
+                qty = EXCLUDED.qty,
+                net_value = EXCLUDED.net_value,
+                gross_value = EXCLUDED.gross_value,
+                cost_amount = EXCLUDED.cost_amount,
+                contribution_pct = EXCLUDED.contribution_pct,
+                margin_pct = EXCLUDED.margin_pct,
+                updated_at = NOW()
             """
         ),
         {'from_date': from_date, 'to_date': to_date, 'rules_json': document_rules_json},
-    )
-    await tenant_db.execute(
-        text(
-            """
-            DELETE FROM agg_sales_item_daily
-            WHERE doc_date BETWEEN :from_date AND :to_date
-            """
-        ),
-        {'from_date': from_date, 'to_date': to_date},
     )
     await tenant_db.execute(
         text(
@@ -4097,6 +4097,12 @@ async def _refresh_sales_aggregates(
             FROM classified
             WHERE item_code IS NOT NULL
             GROUP BY doc_date, item_code
+            ON CONFLICT (doc_date, item_external_id) DO UPDATE
+            SET
+                qty = EXCLUDED.qty,
+                net_value = EXCLUDED.net_value,
+                cost_amount = EXCLUDED.cost_amount,
+                updated_at = NOW()
             """
         ),
         {'from_date': from_date, 'to_date': to_date, 'rules_json': document_rules_json},
@@ -4104,15 +4110,6 @@ async def _refresh_sales_aggregates(
 
     from_month = from_date.replace(day=1)
     to_month = to_date.replace(day=1)
-    await tenant_db.execute(
-        text(
-            """
-            DELETE FROM agg_sales_monthly
-            WHERE month_start BETWEEN :from_month AND :to_month
-            """
-        ),
-        {'from_month': from_month, 'to_month': to_month},
-    )
     await tenant_db.execute(
         text(
             f"""
@@ -4131,9 +4128,50 @@ async def _refresh_sales_aggregates(
                 NOW()
             FROM classified
             GROUP BY DATE_TRUNC('month', doc_date)::date, branch_ext_id, warehouse_ext_id, brand_ext_id, category_ext_id, group_ext_id
+            ON CONFLICT (month_start, branch_ext_id, warehouse_ext_id, brand_ext_id, category_ext_id, group_ext_id) DO UPDATE
+            SET
+                qty = EXCLUDED.qty,
+                net_value = EXCLUDED.net_value,
+                gross_value = EXCLUDED.gross_value,
+                updated_at = NOW()
             """
         ),
         {'from_date': from_date, 'to_date': to_date, 'rules_json': document_rules_json},
+    )
+    await _delete_stale_aggregate_rows(
+        tenant_db,
+        table='agg_sales_daily',
+        date_column='doc_date',
+        from_date=from_date,
+        to_date=to_date,
+    )
+    await _delete_stale_aggregate_rows(
+        tenant_db,
+        table='agg_sales_daily_company',
+        date_column='doc_date',
+        from_date=from_date,
+        to_date=to_date,
+    )
+    await _delete_stale_aggregate_rows(
+        tenant_db,
+        table='agg_sales_daily_branch',
+        date_column='doc_date',
+        from_date=from_date,
+        to_date=to_date,
+    )
+    await _delete_stale_aggregate_rows(
+        tenant_db,
+        table='agg_sales_item_daily',
+        date_column='doc_date',
+        from_date=from_date,
+        to_date=to_date,
+    )
+    await _delete_stale_aggregate_rows(
+        tenant_db,
+        table='agg_sales_monthly',
+        date_column='month_start',
+        from_date=from_month,
+        to_date=to_month,
     )
 
 
@@ -4226,15 +4264,6 @@ async def _refresh_purchases_aggregates(
     """
     await tenant_db.execute(
         text(
-            """
-            DELETE FROM agg_purchases_daily
-            WHERE doc_date BETWEEN :from_date AND :to_date
-            """
-        ),
-        {'from_date': from_date, 'to_date': to_date},
-    )
-    await tenant_db.execute(
-        text(
             f"""
             {purchases_classified_cte}
             INSERT INTO agg_purchases_daily (
@@ -4250,18 +4279,15 @@ async def _refresh_purchases_aggregates(
                 NOW()
             FROM classified
             GROUP BY doc_date, branch_ext_id, warehouse_ext_id, supplier_ext_id, brand_ext_id, category_ext_id, group_ext_id
+            ON CONFLICT (doc_date, branch_ext_id, warehouse_ext_id, supplier_ext_id, brand_ext_id, category_ext_id, group_ext_id) DO UPDATE
+            SET
+                qty = EXCLUDED.qty,
+                net_value = EXCLUDED.net_value,
+                cost_amount = EXCLUDED.cost_amount,
+                updated_at = NOW()
             """
         ),
         {'from_date': from_date, 'to_date': to_date, 'rules_json': document_rules_json},
-    )
-    await tenant_db.execute(
-        text(
-            """
-            DELETE FROM agg_purchases_daily_company
-            WHERE doc_date BETWEEN :from_date AND :to_date
-            """
-        ),
-        {'from_date': from_date, 'to_date': to_date},
     )
     await tenant_db.execute(
         text(
@@ -4281,18 +4307,17 @@ async def _refresh_purchases_aggregates(
                 NOW()
             FROM classified
             GROUP BY doc_date
+            ON CONFLICT (doc_date) DO UPDATE
+            SET
+                qty = EXCLUDED.qty,
+                net_value = EXCLUDED.net_value,
+                cost_amount = EXCLUDED.cost_amount,
+                branches = EXCLUDED.branches,
+                suppliers = EXCLUDED.suppliers,
+                updated_at = NOW()
             """
         ),
         {'from_date': from_date, 'to_date': to_date, 'rules_json': document_rules_json},
-    )
-    await tenant_db.execute(
-        text(
-            """
-            DELETE FROM agg_purchases_daily_branch
-            WHERE doc_date BETWEEN :from_date AND :to_date
-            """
-        ),
-        {'from_date': from_date, 'to_date': to_date},
     )
     await tenant_db.execute(
         text(
@@ -4334,6 +4359,14 @@ async def _refresh_purchases_aggregates(
                 NOW()
             FROM branch_base b
             LEFT JOIN day_totals t ON t.doc_date = b.doc_date
+            ON CONFLICT (doc_date, branch_ext_id) DO UPDATE
+            SET
+                qty = EXCLUDED.qty,
+                net_value = EXCLUDED.net_value,
+                cost_amount = EXCLUDED.cost_amount,
+                contribution_pct = EXCLUDED.contribution_pct,
+                suppliers = EXCLUDED.suppliers,
+                updated_at = NOW()
             """
         ),
         {'from_date': from_date, 'to_date': to_date, 'rules_json': document_rules_json},
@@ -4341,15 +4374,6 @@ async def _refresh_purchases_aggregates(
 
     from_month = from_date.replace(day=1)
     to_month = to_date.replace(day=1)
-    await tenant_db.execute(
-        text(
-            """
-            DELETE FROM agg_purchases_monthly
-            WHERE month_start BETWEEN :from_month AND :to_month
-            """
-        ),
-        {'from_month': from_month, 'to_month': to_month},
-    )
     await tenant_db.execute(
         text(
             f"""
@@ -4368,9 +4392,59 @@ async def _refresh_purchases_aggregates(
                 NOW()
             FROM classified
             GROUP BY DATE_TRUNC('month', doc_date)::date, branch_ext_id, warehouse_ext_id, supplier_ext_id, brand_ext_id, category_ext_id, group_ext_id
+            ON CONFLICT (month_start, branch_ext_id, warehouse_ext_id, supplier_ext_id, brand_ext_id, category_ext_id, group_ext_id) DO UPDATE
+            SET
+                qty = EXCLUDED.qty,
+                net_value = EXCLUDED.net_value,
+                cost_amount = EXCLUDED.cost_amount,
+                updated_at = NOW()
             """
         ),
         {'from_date': from_date, 'to_date': to_date, 'rules_json': document_rules_json},
+    )
+    for table, date_column, monthly in (
+        ('agg_purchases_daily', 'doc_date', False),
+        ('agg_purchases_daily_company', 'doc_date', False),
+        ('agg_purchases_daily_branch', 'doc_date', False),
+        ('agg_purchases_monthly', 'month_start', True),
+    ):
+        await _delete_stale_aggregate_rows(
+            tenant_db,
+            table=table,
+            date_column=date_column,
+            from_date=from_month if monthly else from_date,
+            to_date=to_month if monthly else to_date,
+        )
+
+
+async def _delete_stale_aggregate_rows(
+    tenant_db,
+    *,
+    table: str,
+    date_column: str,
+    from_date: date,
+    to_date: date,
+) -> None:
+    """Remove aggregate rows the current refresh no longer produces.
+
+    Replaces the delete-everything-then-reinsert pattern. Each upsert stamps
+    updated_at = NOW(), which inside a transaction is the transaction timestamp
+    and therefore identical for every row this refresh touched. Any row left in
+    the window with an older updated_at was not regenerated — the source document
+    was deleted, reclassified, or moved to another dimension — so it is dropped.
+
+    Rows that were rewritten unchanged still have their updated_at bumped, so
+    they are correctly retained.
+    """
+    await tenant_db.execute(
+        text(
+            f"""
+            DELETE FROM {table}
+            WHERE {date_column} BETWEEN :from_date AND :to_date
+              AND updated_at < NOW()
+            """
+        ),
+        {'from_date': from_date, 'to_date': to_date},
     )
 
 
@@ -4379,24 +4453,17 @@ async def _refresh_inventory_aggregates(
     from_date: date,
     to_date: date,
 ) -> None:
-    await tenant_db.execute(
-        text(
-            """
-            DELETE FROM agg_inventory_snapshot_daily
-            WHERE snapshot_date BETWEEN :from_date AND :to_date
-            """
-        ),
-        {'from_date': from_date, 'to_date': to_date},
-    )
-    await tenant_db.execute(
-        text(
-            """
-            DELETE FROM agg_stock_aging
-            WHERE snapshot_date BETWEEN :from_date AND :to_date
-            """
-        ),
-        {'from_date': from_date, 'to_date': to_date},
-    )
+    # Both statements below already end in ON CONFLICT DO UPDATE, but a blanket
+    # DELETE over the window used to run first, so every row was destroyed and
+    # re-inserted and the upsert never fired. That is what pushed 2.1 billion
+    # inserts / 5.3 billion deletes through agg_stock_aging, bloated its indexes
+    # to 17 GB and finally exhausted its int4 id sequence.
+    #
+    # Now the upserts carry the load and rows that no longer exist in the source
+    # are removed afterwards by _delete_stale_aggregate_rows: every row the
+    # refresh still produces gets updated_at = NOW(), and since NOW() is the
+    # transaction timestamp, anything left behind with an older updated_at is by
+    # definition orphaned. Values are not indexed, so these updates can stay HOT.
     await tenant_db.execute(
         text(
             """
@@ -4583,6 +4650,14 @@ async def _refresh_inventory_aggregates(
         ),
         {'from_date': from_date, 'to_date': to_date},
     )
+    for table in ('agg_inventory_snapshot_daily', 'agg_stock_aging'):
+        await _delete_stale_aggregate_rows(
+            tenant_db,
+            table=table,
+            date_column='snapshot_date',
+            from_date=from_date,
+            to_date=to_date,
+        )
 
 
 async def _refresh_cash_aggregates(
@@ -4590,15 +4665,6 @@ async def _refresh_cash_aggregates(
     from_date: date,
     to_date: date,
 ) -> None:
-    await tenant_db.execute(
-        text(
-            """
-            DELETE FROM agg_cash_daily
-            WHERE doc_date BETWEEN :from_date AND :to_date
-            """
-        ),
-        {'from_date': from_date, 'to_date': to_date},
-    )
     await tenant_db.execute(
         text(
             """
@@ -4664,20 +4730,18 @@ async def _refresh_cash_aggregates(
                 END),
                 COALESCE(fc.transaction_type, fc.entry_type),
                 COALESCE(fc.account_id, fc.reference_no, fc.external_id)
+            ON CONFLICT (doc_date, branch_ext_id, subcategory, transaction_type, account_id) DO UPDATE
+            SET
+                entries = EXCLUDED.entries,
+                inflows = EXCLUDED.inflows,
+                outflows = EXCLUDED.outflows,
+                net_amount = EXCLUDED.net_amount,
+                updated_at = NOW()
             """
         ),
         {'from_date': from_date, 'to_date': to_date},
     )
 
-    await tenant_db.execute(
-        text(
-            """
-            DELETE FROM agg_cash_by_type
-            WHERE doc_date BETWEEN :from_date AND :to_date
-            """
-        ),
-        {'from_date': from_date, 'to_date': to_date},
-    )
     await tenant_db.execute(
         text(
             """
@@ -4696,20 +4760,18 @@ async def _refresh_cash_aggregates(
             FROM agg_cash_daily
             WHERE doc_date BETWEEN :from_date AND :to_date
             GROUP BY doc_date, subcategory
+            ON CONFLICT (doc_date, subcategory) DO UPDATE
+            SET
+                entries = EXCLUDED.entries,
+                inflows = EXCLUDED.inflows,
+                outflows = EXCLUDED.outflows,
+                net_amount = EXCLUDED.net_amount,
+                updated_at = NOW()
             """
         ),
         {'from_date': from_date, 'to_date': to_date},
     )
 
-    await tenant_db.execute(
-        text(
-            """
-            DELETE FROM agg_cash_accounts
-            WHERE doc_date BETWEEN :from_date AND :to_date
-            """
-        ),
-        {'from_date': from_date, 'to_date': to_date},
-    )
     await tenant_db.execute(
         text(
             """
@@ -4728,24 +4790,45 @@ async def _refresh_cash_aggregates(
             FROM agg_cash_daily
             WHERE doc_date BETWEEN :from_date AND :to_date
             GROUP BY doc_date, account_id
+            ON CONFLICT (doc_date, account_id) DO UPDATE
+            SET
+                entries = EXCLUDED.entries,
+                inflows = EXCLUDED.inflows,
+                outflows = EXCLUDED.outflows,
+                net_amount = EXCLUDED.net_amount,
+                updated_at = NOW()
             """
         ),
         {'from_date': from_date, 'to_date': to_date},
     )
+    await _delete_stale_aggregate_rows(
+        tenant_db,
+        table='agg_cash_daily',
+        date_column='doc_date',
+        from_date=from_date,
+        to_date=to_date,
+    )
+    await _delete_stale_aggregate_rows(
+        tenant_db,
+        table='agg_cash_by_type',
+        date_column='doc_date',
+        from_date=from_date,
+        to_date=to_date,
+    )
+    await _delete_stale_aggregate_rows(
+        tenant_db,
+        table='agg_cash_accounts',
+        date_column='doc_date',
+        from_date=from_date,
+        to_date=to_date,
+    )
+
+
 async def _refresh_expenses_aggregates(
     tenant_db,
     from_date: date,
     to_date: date,
 ) -> None:
-    await tenant_db.execute(
-        text(
-            """
-            DELETE FROM agg_expenses_daily
-            WHERE expense_date BETWEEN :from_date AND :to_date
-            """
-        ),
-        {'from_date': from_date, 'to_date': to_date},
-    )
     await tenant_db.execute(
         text(
             """
@@ -4768,6 +4851,13 @@ async def _refresh_expenses_aggregates(
             FROM fact_expenses
             WHERE expense_date BETWEEN :from_date AND :to_date
             GROUP BY expense_date, branch_ext_id, expense_category_code, supplier_ext_id, account_ext_id
+            ON CONFLICT (expense_date, branch_ext_id, expense_category_code, supplier_ext_id, account_ext_id) DO UPDATE
+            SET
+                amount_net = EXCLUDED.amount_net,
+                amount_tax = EXCLUDED.amount_tax,
+                amount_gross = EXCLUDED.amount_gross,
+                entries = EXCLUDED.entries,
+                updated_at = NOW()
             """
         ),
         {'from_date': from_date, 'to_date': to_date},
@@ -4775,15 +4865,6 @@ async def _refresh_expenses_aggregates(
 
     from_month = from_date.replace(day=1)
     to_month = to_date.replace(day=1)
-    await tenant_db.execute(
-        text(
-            """
-            DELETE FROM agg_expenses_monthly
-            WHERE month_start BETWEEN :from_month AND :to_month
-            """
-        ),
-        {'from_month': from_month, 'to_month': to_month},
-    )
     await tenant_db.execute(
         text(
             """
@@ -4806,20 +4887,18 @@ async def _refresh_expenses_aggregates(
             FROM fact_expenses
             WHERE expense_date BETWEEN :from_date AND :to_date
             GROUP BY DATE_TRUNC('month', expense_date)::date, branch_ext_id, expense_category_code, supplier_ext_id, account_ext_id
+            ON CONFLICT (month_start, branch_ext_id, expense_category_code, supplier_ext_id, account_ext_id) DO UPDATE
+            SET
+                amount_net = EXCLUDED.amount_net,
+                amount_tax = EXCLUDED.amount_tax,
+                amount_gross = EXCLUDED.amount_gross,
+                entries = EXCLUDED.entries,
+                updated_at = NOW()
             """
         ),
         {'from_date': from_date, 'to_date': to_date},
     )
 
-    await tenant_db.execute(
-        text(
-            """
-            DELETE FROM agg_expenses_by_category_daily
-            WHERE expense_date BETWEEN :from_date AND :to_date
-            """
-        ),
-        {'from_date': from_date, 'to_date': to_date},
-    )
     await tenant_db.execute(
         text(
             """
@@ -4838,20 +4917,18 @@ async def _refresh_expenses_aggregates(
             FROM fact_expenses
             WHERE expense_date BETWEEN :from_date AND :to_date
             GROUP BY expense_date, expense_category_code
+            ON CONFLICT (expense_date, expense_category_code) DO UPDATE
+            SET
+                amount_net = EXCLUDED.amount_net,
+                amount_tax = EXCLUDED.amount_tax,
+                amount_gross = EXCLUDED.amount_gross,
+                entries = EXCLUDED.entries,
+                updated_at = NOW()
             """
         ),
         {'from_date': from_date, 'to_date': to_date},
     )
 
-    await tenant_db.execute(
-        text(
-            """
-            DELETE FROM agg_expenses_by_branch_daily
-            WHERE expense_date BETWEEN :from_date AND :to_date
-            """
-        ),
-        {'from_date': from_date, 'to_date': to_date},
-    )
     await tenant_db.execute(
         text(
             """
@@ -4870,9 +4947,44 @@ async def _refresh_expenses_aggregates(
             FROM fact_expenses
             WHERE expense_date BETWEEN :from_date AND :to_date
             GROUP BY expense_date, branch_ext_id
+            ON CONFLICT (expense_date, branch_ext_id) DO UPDATE
+            SET
+                amount_net = EXCLUDED.amount_net,
+                amount_tax = EXCLUDED.amount_tax,
+                amount_gross = EXCLUDED.amount_gross,
+                entries = EXCLUDED.entries,
+                updated_at = NOW()
             """
         ),
         {'from_date': from_date, 'to_date': to_date},
+    )
+    await _delete_stale_aggregate_rows(
+        tenant_db,
+        table='agg_expenses_daily',
+        date_column='expense_date',
+        from_date=from_date,
+        to_date=to_date,
+    )
+    await _delete_stale_aggregate_rows(
+        tenant_db,
+        table='agg_expenses_by_category_daily',
+        date_column='expense_date',
+        from_date=from_date,
+        to_date=to_date,
+    )
+    await _delete_stale_aggregate_rows(
+        tenant_db,
+        table='agg_expenses_by_branch_daily',
+        date_column='expense_date',
+        from_date=from_date,
+        to_date=to_date,
+    )
+    await _delete_stale_aggregate_rows(
+        tenant_db,
+        table='agg_expenses_monthly',
+        date_column='month_start',
+        from_date=from_month,
+        to_date=to_month,
     )
 
 
@@ -4881,15 +4993,6 @@ async def _refresh_supplier_balances_aggregates(
     from_date: date,
     to_date: date,
 ) -> None:
-    await tenant_db.execute(
-        text(
-            """
-            DELETE FROM agg_supplier_balances_daily
-            WHERE balance_date BETWEEN :from_date AND :to_date
-            """
-        ),
-        {'from_date': from_date, 'to_date': to_date},
-    )
     await tenant_db.execute(
         text(
             """
@@ -4925,9 +5028,27 @@ async def _refresh_supplier_balances_aggregates(
             FROM fact_supplier_balances fsb
             WHERE fsb.balance_date BETWEEN :from_date AND :to_date
             GROUP BY fsb.balance_date, fsb.supplier_ext_id, fsb.branch_ext_id
+            ON CONFLICT (balance_date, supplier_ext_id, branch_ext_id) DO UPDATE
+            SET
+                open_balance = EXCLUDED.open_balance,
+                overdue_balance = EXCLUDED.overdue_balance,
+                aging_bucket_0_30 = EXCLUDED.aging_bucket_0_30,
+                aging_bucket_31_60 = EXCLUDED.aging_bucket_31_60,
+                aging_bucket_61_90 = EXCLUDED.aging_bucket_61_90,
+                aging_bucket_90_plus = EXCLUDED.aging_bucket_90_plus,
+                trend_vs_previous = EXCLUDED.trend_vs_previous,
+                suppliers = EXCLUDED.suppliers,
+                updated_at = NOW()
             """
         ),
         {'from_date': from_date, 'to_date': to_date},
+    )
+    await _delete_stale_aggregate_rows(
+        tenant_db,
+        table='agg_supplier_balances_daily',
+        date_column='balance_date',
+        from_date=from_date,
+        to_date=to_date,
     )
 
 
@@ -4936,15 +5057,6 @@ async def _refresh_customer_balances_aggregates(
     from_date: date,
     to_date: date,
 ) -> None:
-    await tenant_db.execute(
-        text(
-            """
-            DELETE FROM agg_customer_balances_daily
-            WHERE balance_date BETWEEN :from_date AND :to_date
-            """
-        ),
-        {'from_date': from_date, 'to_date': to_date},
-    )
     await tenant_db.execute(
         text(
             """
@@ -4980,9 +5092,27 @@ async def _refresh_customer_balances_aggregates(
             FROM fact_customer_balances fcb
             WHERE fcb.balance_date BETWEEN :from_date AND :to_date
             GROUP BY fcb.balance_date, fcb.customer_ext_id, fcb.branch_ext_id
+            ON CONFLICT (balance_date, customer_ext_id, branch_ext_id) DO UPDATE
+            SET
+                open_balance = EXCLUDED.open_balance,
+                overdue_balance = EXCLUDED.overdue_balance,
+                aging_bucket_0_30 = EXCLUDED.aging_bucket_0_30,
+                aging_bucket_31_60 = EXCLUDED.aging_bucket_31_60,
+                aging_bucket_61_90 = EXCLUDED.aging_bucket_61_90,
+                aging_bucket_90_plus = EXCLUDED.aging_bucket_90_plus,
+                trend_vs_previous = EXCLUDED.trend_vs_previous,
+                customers = EXCLUDED.customers,
+                updated_at = NOW()
             """
         ),
         {'from_date': from_date, 'to_date': to_date},
+    )
+    await _delete_stale_aggregate_rows(
+        tenant_db,
+        table='agg_customer_balances_daily',
+        date_column='balance_date',
+        from_date=from_date,
+        to_date=to_date,
     )
 
 
@@ -4993,6 +5123,7 @@ async def _refresh_aggregates_task(
     to_date_str: str | None = None,
     *,
     run_insights: bool = False,
+    full_rebuild: bool = False,
 ) -> dict:
     started = time.perf_counter()
     redis = Redis.from_url(settings.redis_url, decode_responses=True)
@@ -5064,6 +5195,30 @@ async def _refresh_aggregates_task(
                     if not min_max or not min_max[0] or not min_max[1]:
                         return {'status': 'ok', 'refreshed': 0}
                     from_date, to_date = min_max[0], min_max[1]
+                    # Without a cap this rebuilt every aggregate row back to the
+                    # first document ever loaded (2016 on pharmacy295) on any
+                    # refresh that arrived without a range. That is what drove
+                    # 2.1 billion inserts / 5.3 billion deletes into
+                    # agg_stock_aging and exhausted its id sequence. Only an
+                    # explicit full_rebuild — i.e. the end of a backfill — still
+                    # gets the whole history.
+                    if not full_rebuild:
+                        window_days = max(1, int(settings.aggregate_refresh_max_window_days))
+                        capped_from = to_date - timedelta(days=window_days)
+                        if capped_from > from_date:
+                            logger.info(
+                                'aggregate_refresh_window_capped tenant=%s entity=%s '
+                                'requested_from=%s capped_from=%s to=%s',
+                                tenant_slug, entity, from_date, capped_from, to_date,
+                            )
+                            from_date = capped_from
+
+                # Monthly aggregates group the source rows the refresh window
+                # selects, but they are keyed on month_start and rewrite the whole
+                # month. A window opening mid-month (say the 15th) would therefore
+                # replace that month's total with just the second half of it.
+                # Snapping the start to the 1st keeps every rewritten month whole.
+                from_date = from_date.replace(day=1)
 
                 if entity == 'sales':
                     await _refresh_sales_aggregates(

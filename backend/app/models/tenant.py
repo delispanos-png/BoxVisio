@@ -289,6 +289,10 @@ class FactSales(TenantBase):
     discount_amount: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)
     vat_amount: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)
     source_payload_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # Denormalised from source_payload_json->>'source_transaction_type_id'.
+    # Every sales KPI filters on it, and extracting it from JSON meant a parse
+    # and cast per row across the whole fact table on each query.
+    behavior_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
     source_connector_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
 
     item_code: Mapped[str | None] = mapped_column(String(128), nullable=True)
@@ -631,7 +635,7 @@ class FactExpense(TenantBase):
 class AggCashDaily(TenantBase):
     __tablename__ = 'agg_cash_daily'
     __table_args__ = (
-        UniqueConstraint('doc_date', 'branch_ext_id', 'subcategory', 'transaction_type', 'account_id', name='uq_agg_cash_daily_dims'),
+        UniqueConstraint('doc_date', 'branch_ext_id', 'subcategory', 'transaction_type', 'account_id', name='uq_agg_cash_daily_dims', postgresql_nulls_not_distinct=True),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
@@ -651,7 +655,7 @@ class AggCashDaily(TenantBase):
 class AggCashByType(TenantBase):
     __tablename__ = 'agg_cash_by_type'
     __table_args__ = (
-        UniqueConstraint('doc_date', 'subcategory', name='uq_agg_cash_by_type_dims'),
+        UniqueConstraint('doc_date', 'subcategory', name='uq_agg_cash_by_type_dims', postgresql_nulls_not_distinct=True),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
@@ -668,7 +672,7 @@ class AggCashByType(TenantBase):
 class AggCashAccounts(TenantBase):
     __tablename__ = 'agg_cash_accounts'
     __table_args__ = (
-        UniqueConstraint('doc_date', 'account_id', name='uq_agg_cash_accounts_dims'),
+        UniqueConstraint('doc_date', 'account_id', name='uq_agg_cash_accounts_dims', postgresql_nulls_not_distinct=True),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
@@ -685,7 +689,7 @@ class AggCashAccounts(TenantBase):
 class AggSupplierBalancesDaily(TenantBase):
     __tablename__ = 'agg_supplier_balances_daily'
     __table_args__ = (
-        UniqueConstraint('balance_date', 'supplier_ext_id', 'branch_ext_id', name='uq_agg_supplier_balances_daily_dims'),
+        UniqueConstraint('balance_date', 'supplier_ext_id', 'branch_ext_id', name='uq_agg_supplier_balances_daily_dims', postgresql_nulls_not_distinct=True),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
@@ -707,7 +711,7 @@ class AggSupplierBalancesDaily(TenantBase):
 class AggCustomerBalancesDaily(TenantBase):
     __tablename__ = 'agg_customer_balances_daily'
     __table_args__ = (
-        UniqueConstraint('balance_date', 'customer_ext_id', 'branch_ext_id', name='uq_agg_customer_balances_daily_dims'),
+        UniqueConstraint('balance_date', 'customer_ext_id', 'branch_ext_id', name='uq_agg_customer_balances_daily_dims', postgresql_nulls_not_distinct=True),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
@@ -736,6 +740,7 @@ class AggExpensesDaily(TenantBase):
             'supplier_ext_id',
             'account_ext_id',
             name='uq_agg_expenses_daily_dims',
+            postgresql_nulls_not_distinct=True,
         ),
         Index('ix_agg_expenses_daily_date_branch', 'expense_date', 'branch_ext_id'),
         Index('ix_agg_expenses_daily_date_category', 'expense_date', 'expense_category_code'),
@@ -765,6 +770,7 @@ class AggExpensesMonthly(TenantBase):
             'supplier_ext_id',
             'account_ext_id',
             name='uq_agg_expenses_monthly_dims',
+            postgresql_nulls_not_distinct=True,
         ),
         Index('ix_agg_expenses_monthly_month_branch', 'month_start', 'branch_ext_id'),
         Index('ix_agg_expenses_monthly_month_category', 'month_start', 'expense_category_code'),
@@ -787,7 +793,7 @@ class AggExpensesMonthly(TenantBase):
 class AggExpensesByCategoryDaily(TenantBase):
     __tablename__ = 'agg_expenses_by_category_daily'
     __table_args__ = (
-        UniqueConstraint('expense_date', 'expense_category_code', name='uq_agg_expenses_by_category_daily_dims'),
+        UniqueConstraint('expense_date', 'expense_category_code', name='uq_agg_expenses_by_category_daily_dims', postgresql_nulls_not_distinct=True),
         Index('ix_agg_expenses_by_category_daily_date', 'expense_date'),
     )
 
@@ -805,7 +811,7 @@ class AggExpensesByCategoryDaily(TenantBase):
 class AggExpensesByBranchDaily(TenantBase):
     __tablename__ = 'agg_expenses_by_branch_daily'
     __table_args__ = (
-        UniqueConstraint('expense_date', 'branch_ext_id', name='uq_agg_expenses_by_branch_daily_dims'),
+        UniqueConstraint('expense_date', 'branch_ext_id', name='uq_agg_expenses_by_branch_daily_dims', postgresql_nulls_not_distinct=True),
         Index('ix_agg_expenses_by_branch_daily_date_branch', 'expense_date', 'branch_ext_id'),
     )
 
@@ -1049,6 +1055,7 @@ class AggSalesDaily(TenantBase):
             'category_ext_id',
             'group_ext_id',
             name='uq_agg_sales_daily_dims',
+            postgresql_nulls_not_distinct=True,
         ),
         Index('ix_agg_sales_daily_date_branch_category', 'doc_date', 'branch_ext_id', 'category_ext_id'),
     )
@@ -1086,7 +1093,7 @@ class AggSalesDailyCompany(TenantBase):
 class AggSalesDailyBranch(TenantBase):
     __tablename__ = 'agg_sales_daily_branch'
     __table_args__ = (
-        UniqueConstraint('doc_date', 'branch_ext_id', name='uq_agg_sales_daily_branch_dims'),
+        UniqueConstraint('doc_date', 'branch_ext_id', name='uq_agg_sales_daily_branch_dims', postgresql_nulls_not_distinct=True),
         Index('ix_agg_sales_daily_branch_date_branch', 'doc_date', 'branch_ext_id'),
     )
 
@@ -1114,6 +1121,7 @@ class AggSalesMonthly(TenantBase):
             'category_ext_id',
             'group_ext_id',
             name='uq_agg_sales_monthly_dims',
+            postgresql_nulls_not_distinct=True,
         ),
         Index('ix_agg_sales_monthly_date_branch_category', 'month_start', 'branch_ext_id', 'category_ext_id'),
     )
@@ -1161,6 +1169,7 @@ class AggPurchasesDaily(TenantBase):
             'category_ext_id',
             'group_ext_id',
             name='uq_agg_purchases_daily_dims',
+            postgresql_nulls_not_distinct=True,
         ),
         Index(
             'ix_agg_purchases_daily_date_branch_category_supplier',
@@ -1204,7 +1213,7 @@ class AggPurchasesDailyCompany(TenantBase):
 class AggPurchasesDailyBranch(TenantBase):
     __tablename__ = 'agg_purchases_daily_branch'
     __table_args__ = (
-        UniqueConstraint('doc_date', 'branch_ext_id', name='uq_agg_purchases_daily_branch_dims'),
+        UniqueConstraint('doc_date', 'branch_ext_id', name='uq_agg_purchases_daily_branch_dims', postgresql_nulls_not_distinct=True),
         Index('ix_agg_purchases_daily_branch_date_branch', 'doc_date', 'branch_ext_id'),
     )
 
@@ -1232,6 +1241,7 @@ class AggPurchasesMonthly(TenantBase):
             'category_ext_id',
             'group_ext_id',
             name='uq_agg_purchases_monthly_dims',
+            postgresql_nulls_not_distinct=True,
         ),
         Index(
             'ix_agg_purchases_monthly_date_branch_category_supplier',
@@ -1276,7 +1286,7 @@ class AggInventorySnapshotDaily(TenantBase):
 class AggStockAging(TenantBase):
     __tablename__ = 'agg_stock_aging'
     __table_args__ = (
-        UniqueConstraint('snapshot_date', 'item_external_id', 'branch_ext_id', name='uq_agg_stock_aging_dims'),
+        UniqueConstraint('snapshot_date', 'item_external_id', 'branch_ext_id', name='uq_agg_stock_aging_dims', postgresql_nulls_not_distinct=True),
         Index('ix_agg_stock_aging_snapshot_branch', 'snapshot_date', 'branch_ext_id'),
         Index('ix_agg_stock_aging_days', 'days_since_last_sale'),
         Index('ix_agg_stock_aging_bucket', 'aging_bucket'),
@@ -1603,7 +1613,17 @@ class SupplierTargetItem(TenantBase):
 # page lets those updates stay HOT (no index maintenance); without it dim_items
 # bloated to 3 GB for 82 MB of live rows. SQLAlchemy has no Table-level option
 # for storage parameters, so it is applied as post-create DDL.
-for _table, _fillfactor in ((DimItem.__table__, 85), (DimCustomer.__table__, 90)):
+_FILLFACTOR_TABLES = [(DimItem.__table__, 85), (DimCustomer.__table__, 90)]
+# agg_* tables are refreshed by upsert, so their rows are updated in place far
+# more often than inserted. Leaving 20% free per page lets those updates stay HOT
+# and skip index maintenance entirely.
+_FILLFACTOR_TABLES += [
+    (_t, 80)
+    for _name, _t in TenantBase.metadata.tables.items()
+    if _name.startswith('agg_')
+]
+
+for _table, _fillfactor in _FILLFACTOR_TABLES:
     event.listen(
         _table,
         'after_create',

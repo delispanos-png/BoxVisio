@@ -1330,7 +1330,15 @@ def _sales_behavior_sign_map(map_key: str) -> dict[int, float]:
 
 
 def _fact_sales_behavior_code_expr():
-    return cast(FactSales.source_payload_json['source_transaction_type_id'].astext, Integer)
+    # The behaviour code drives the participation filter on every sales KPI, so
+    # it used to force a JSON extract + cast across all 1.2M fact_sales rows per
+    # query. It is now denormalised into fact_sales.behavior_code at ingest time
+    # and backfilled for existing rows; the JSON stays as the fallback so a row
+    # the backfill or a connector missed still resolves to the same value.
+    return func.coalesce(
+        FactSales.behavior_code,
+        cast(FactSales.source_payload_json['source_transaction_type_id'].astext, Integer),
+    )
 
 
 _CREDIT_BEHAVIOR_CODES_FOR_VAT_SIGN_FIX: tuple[int, ...] = ()
@@ -1354,7 +1362,12 @@ def _normalize_credit_vat_sign(vat_value: float, net_value: float, behavior_code
 
 
 def _fact_sales_behavior_code_text_expr():
-    return func.coalesce(cast(FactSales.source_payload_json['source_transaction_type_id'].astext, String), literal(''))
+    # Same denormalisation as _fact_sales_behavior_code_expr, in text form.
+    return func.coalesce(
+        cast(FactSales.behavior_code, String),
+        cast(FactSales.source_payload_json['source_transaction_type_id'].astext, String),
+        literal(''),
+    )
 
 
 def _fact_sales_credit_signed_amount_expr(amount_expr):

@@ -108,7 +108,19 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes"]
+    # maxmemory was unset with policy noeviction: a growing KPI cache could push
+    # Redis until writes started failing. volatile-lru (not allkeys-lru) is the
+    # only safe choice here because Redis is also the Celery broker — queued task
+    # messages carry no TTL, so they can never be evicted, while the KPI cache,
+    # rate-limit counters and ingest state all set one.
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --maxmemory
+      - 2gb
+      - --maxmemory-policy
+      - volatile-lru
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s

@@ -105,6 +105,9 @@ router = APIRouter(tags=['kpi'])
 logger = logging.getLogger(__name__)
 celery_client = make_celery_sender('kpi_sender')
 _DASHBOARD_CACHE_TTL_SECONDS = 300
+# Filter dropdowns only enumerate which dimension values exist in a period;
+# they shift when new documents arrive, not minute to minute.
+_FILTER_OPTIONS_CACHE_TTL_SECONDS = 1800
 
 
 class SupplierTargetCreateIn(BaseModel):
@@ -1082,6 +1085,7 @@ async def get_sales_filter_options(
         response=response,
         namespace='dashboard:sales_filter_options',
         params=params,
+        ttl_seconds=_FILTER_OPTIONS_CACHE_TTL_SECONDS,
         producer=lambda: sales_filter_options(
             tenant_db,
             date_from=date_from,
@@ -1962,6 +1966,7 @@ async def get_purchases_filter_options(
         response=response,
         namespace='dashboard:purchases_filter_options',
         params=params,
+        ttl_seconds=_FILTER_OPTIONS_CACHE_TTL_SECONDS,
         producer=lambda: purchases_filter_options(
             tenant_db,
             date_from=date_from,
@@ -1998,6 +2003,7 @@ async def get_sellout_filter_options(
         response=response,
         namespace='dashboard:sellout_filter_options',
         params=params,
+        ttl_seconds=_FILTER_OPTIONS_CACHE_TTL_SECONDS,
         producer=lambda: sellout_filter_options(
             tenant_db,
             date_from=date_from,
@@ -2478,6 +2484,7 @@ async def get_inventory_filter_options(
         response=response,
         namespace='dashboard:inventory_filter_options',
         params=params,
+        ttl_seconds=_FILTER_OPTIONS_CACHE_TTL_SECONDS,
         producer=lambda: inventory_filter_options(
             tenant_db,
             as_of=as_of,

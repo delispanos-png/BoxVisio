@@ -104,6 +104,10 @@ class Settings(BaseSettings):
     # for the same tenant+entity are now coalesced into one run per window, with
     # the pending date ranges unioned together.
     aggregate_refresh_debounce_seconds: int = 120
+    # A refresh that arrives without an explicit range used to rebuild aggregates
+    # back to the earliest document on record. Capped unless the caller asks for
+    # a full rebuild (end of a backfill), which is the only case that needs it.
+    aggregate_refresh_max_window_days: int = 120
     auto_sync_max_queue_depth_per_tenant: int = 100
     auto_sync_live_dimension_streams_enabled: bool = False
     auto_sync_live_dimension_streams_csv: str = 'item_master'
