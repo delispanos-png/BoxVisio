@@ -182,6 +182,26 @@ async def refresh_inventory_snapshot(
             ),
             batch[i : i + 1000],
         )
+
+    # The INSERT above carries only ext keys; relink the surrogate FKs so downstream
+    # joins (dead stock, lost sales, transfers, aggregates) that key on item_id/branch_id
+    # work. Without this the freshly-rewritten day has NULL item_id and reads as "no stock".
+    await tenant_db.execute(
+        text(
+            """
+            UPDATE fact_inventory fi SET
+                item_id = di.id,
+                branch_id = (SELECT id FROM dim_branches WHERE external_id = fi.branch_ext_id),
+                warehouse_id = (SELECT id FROM dim_warehouses WHERE external_id = fi.warehouse_ext_id),
+                updated_at = now()
+            FROM dim_items di
+            WHERE fi.doc_date = :d
+              AND COALESCE(fi.movement_type, 'snapshot') = 'snapshot'
+              AND di.external_id = fi.item_code
+            """
+        ),
+        {'d': snapshot_day},
+    )
     await tenant_db.commit()
 
     distinct_items = len({b['code'] for b in batch})
