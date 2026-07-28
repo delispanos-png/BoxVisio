@@ -177,6 +177,7 @@ from app.services.kpi_queries import (
     export_item_totals,
     sales_by_channel,
     sales_comparison_by_group,
+    sales_pivot,
     normalize_document_series_labels_config,
     normalize_eshop_fulfillment_config,
     normalize_price_margin_targets_config,
@@ -15302,6 +15303,48 @@ _EXPORT_FILTER_FIELDS = [
     ('category_3', 'Κατηγορία 3', 'Όλες οι κατηγορίες 3'),
 ]
 
+# Dimensions the flexible "Ανάλυση" report can group by, and the two modes.
+_EXPORT_PIVOT_DIMENSIONS = [
+    ('channel', 'Κανάλι πώλησης'),
+    ('group', 'Ομάδα Ειδών'),
+    ('brand', 'Brand'),
+    ('category_1', 'Κατηγορία 1'),
+    ('category_2', 'Κατηγορία 2'),
+    ('category_3', 'Κατηγορία 3'),
+    ('branch', 'Υποκατάστημα'),
+    ('warehouse', 'Αποθηκευτικός χώρος'),
+]
+_EXPORT_PIVOT_DIM_LABELS = dict(_EXPORT_PIVOT_DIMENSIONS)
+_EXPORT_PIVOT_MODES = [('analysis', 'Ανάλυση περιόδου'), ('comparison', 'Σύγκριση Α / Β')]
+
+# Metrics the user can add as columns to the flexible "Ανάλυση" report (analysis mode).
+_EXPORT_PIVOT_METRICS = [
+    ('net_value', 'Καθαρή Αξία', 'money'),
+    ('qty', 'Τεμάχια', 'int'),
+    ('contribution_pct', 'Contribution %', 'pct'),
+    ('margin_pct', 'Margin %', 'pct'),
+    ('cost', 'Κόστος', 'money'),
+    ('profit', 'Μικτό Κέρδος', 'money'),
+    ('gross_value', 'Μικτή Αξία', 'money'),
+    ('doc_count', 'Παραστατικά', 'int'),
+    ('item_count', 'Είδη (SKU)', 'int'),
+    ('avg_per_doc', 'Μέση αξία/παραστατικό', 'money'),
+    ('avg_per_item', 'Μέση αξία/είδος', 'money'),
+    ('vat', 'ΦΠΑ', 'money'),
+    ('discount', 'Έκπτωση', 'money'),
+]
+_EXPORT_PIVOT_METRIC_MAP = {key: {'label': label, 'kind': kind} for key, label, kind in _EXPORT_PIVOT_METRICS}
+_EXPORT_PIVOT_DEFAULT_METRICS = ['net_value', 'qty', 'contribution_pct', 'margin_pct']
+
+
+def _export_selected_metrics(request: Request) -> list[str]:
+    """Metrics chosen for the analysis report, validated + defaulted, in catalog order."""
+    raw = request.query_params.getlist('metric')
+    chosen = {m for m in raw if m in _EXPORT_PIVOT_METRIC_MAP}
+    if not chosen:
+        chosen = set(_EXPORT_PIVOT_DEFAULT_METRICS)
+    return [key for key, _l, _k in _EXPORT_PIVOT_METRICS if key in chosen]
+
 
 _EXPORT_DOWNLOAD_HEADERS = [
     'Όνομα είδους', 'Barcode', 'Brand', 'Κατηγορία 1', 'Κατηγορία 2', 'Κατηγορία 3',
@@ -15375,7 +15418,21 @@ async def _export_query(
                 )
             scope_token = set_current_sales_kpi_participation_config(sales_kpi_config)
             try:
-                if report_kind == 'channels':
+                if report_kind == 'analysis':
+                    a_group_by = str(request.query_params.get('group_by') or 'channel').strip()
+                    a_mode = str(request.query_params.get('mode') or 'analysis').strip()
+                    dim_kwargs = {k: v for k, v in filter_kwargs.items() if k not in {'period_from', 'period_to'}}
+                    rows, totals = await sales_pivot(
+                        tenant_db,
+                        group_by=a_group_by,
+                        mode=a_mode,
+                        period_from=filter_kwargs.get('period_from'),
+                        period_to=filter_kwargs.get('period_to'),
+                        period_b_from=(datetime.strptime(period['b_from'], '%Y-%m-%d').date() if period['b_from'] else None),
+                        period_b_to=(datetime.strptime(period['b_to'], '%Y-%m-%d').date() if period['b_to'] else None),
+                        **dim_kwargs,
+                    )
+                elif report_kind == 'channels':
                     rows, totals = await sales_by_channel(tenant_db, **filter_kwargs)
                 elif report_kind == 'group_comparison':
                     dim_kwargs = {k: v for k, v in filter_kwargs.items() if k not in {'period_from', 'period_to'}}
@@ -15439,6 +15496,14 @@ async def _render_exports_workbench(
             'title': 'Σύγκριση Ομάδων',
             'report_kind': 'group_comparison',
         },
+        'analysis': {
+            'active_page': 'exports_analysis',
+            'form_action': '/tenant/exports/analysis',
+            'heading': 'Ανάλυση Πωλήσεων',
+            'description': 'Ένα ευέλικτο report: ομαδοποίησε κατά κανάλι, ομάδα, brand, κατηγορία, κατάστημα ή αποθήκη — σε ανάλυση περιόδου ή σύγκριση Α/Β.',
+            'title': 'Ανάλυση',
+            'report_kind': 'analysis',
+        },
     }
     cfg = variants[variant]
     report_kind = cfg['report_kind']
@@ -15448,30 +15513,40 @@ async def _render_exports_workbench(
     # so we never scan all-time sales just because someone opened the page.
     calculated = str(request.query_params.get('calc') or '').strip() in {'1', 'true', 'yes'}
 
+    # Flexible "Ανάλυση" report: group-by dimension + mode (analysis | comparison).
+    pivot_group_by = str(request.query_params.get('group_by') or 'channel').strip()
+    if pivot_group_by not in _EXPORT_PIVOT_DIM_LABELS:
+        pivot_group_by = 'channel'
+    pivot_mode = str(request.query_params.get('mode') or 'analysis').strip()
+    if pivot_mode not in {'analysis', 'comparison'}:
+        pivot_mode = 'analysis'
+
     _ROW_LIMIT = 1000
     options, selected, period, rows, totals = await _export_query(
         request, tenant, limit=_ROW_LIMIT, compute=calculated, report_kind=report_kind
     )
 
-    # For the comparison report, pre-fill sensible defaults so the user can hit
-    # "Υπολογισμός" immediately: A = current month to date, B = same month last year.
-    if report_kind == 'group_comparison':
-        def _shift_year(d, years):
-            try:
-                return d.replace(year=d.year - years)
-            except ValueError:  # 29 Feb -> 28 Feb on a non-leap year
-                return d.replace(year=d.year - years, day=28)
-        today = datetime.utcnow().date()
-        a_from = today.replace(day=1)
+    # Pre-fill sensible period defaults so the user can hit "Υπολογισμός" at once.
+    def _shift_year(d, years):
+        try:
+            return d.replace(year=d.year - years)
+        except ValueError:  # 29 Feb -> 28 Feb on a non-leap year
+            return d.replace(year=d.year - years, day=28)
+    today = datetime.utcnow().date()
+    a_from = today.replace(day=1)
+    wants_comparison = report_kind == 'group_comparison' or (report_kind == 'analysis' and pivot_mode == 'comparison')
+    if wants_comparison:
         defaults = {
-            'from': a_from.isoformat(),
-            'to': today.isoformat(),
-            'b_from': _shift_year(a_from, 1).isoformat(),
-            'b_to': _shift_year(today, 1).isoformat(),
+            'from': a_from.isoformat(), 'to': today.isoformat(),
+            'b_from': _shift_year(a_from, 1).isoformat(), 'b_to': _shift_year(today, 1).isoformat(),
         }
-        for key, value in defaults.items():
-            if not period.get(key):
-                period[key] = value
+    elif report_kind == 'analysis':
+        defaults = {'from': a_from.isoformat(), 'to': today.isoformat()}
+    else:
+        defaults = {}
+    for key, value in defaults.items():
+        if not period.get(key):
+            period[key] = value
 
     label_maps: dict[str, dict[str, str]] = {}
     for key, _label, _ph in _EXPORT_FILTER_FIELDS:
@@ -15500,6 +15575,14 @@ async def _render_exports_workbench(
             'calculated': calculated,
             'totals': totals,
             'report_kind': report_kind,
+            'pivot_dimensions': _EXPORT_PIVOT_DIMENSIONS,
+            'pivot_modes': _EXPORT_PIVOT_MODES,
+            'pivot_group_by': pivot_group_by,
+            'pivot_mode': pivot_mode,
+            'pivot_group_label': _EXPORT_PIVOT_DIM_LABELS.get(pivot_group_by, 'Ομάδα'),
+            'pivot_metrics_catalog': _EXPORT_PIVOT_METRICS,
+            'pivot_metrics_selected': _export_selected_metrics(request),
+            'pivot_metric_map': _EXPORT_PIVOT_METRIC_MAP,
         },
     )
 
@@ -15557,12 +15640,35 @@ async def _render_exports_download(
     if fmt not in {'csv', 'xlsx'}:
         return Response('Μη έγκυρη μορφή εξαγωγής.', status_code=400, media_type='text/plain; charset=utf-8')
 
-    report_kind = {'channels': 'channels', 'group_comparison': 'group_comparison'}.get(variant, 'items')
+    report_kind = {'channels': 'channels', 'group_comparison': 'group_comparison', 'analysis': 'analysis'}.get(variant, 'items')
     _options, _selected, period, rows, totals = await _export_query(
         request, tenant, limit=_EXPORT_DOWNLOAD_LIMIT, compute=True, report_kind=report_kind
     )
 
-    if report_kind == 'group_comparison':
+    if report_kind == 'analysis':
+        a_group_by = str(request.query_params.get('group_by') or 'channel').strip()
+        dim_label = _EXPORT_PIVOT_DIM_LABELS.get(a_group_by, 'Ομάδα')
+        a_mode = str(request.query_params.get('mode') or 'analysis').strip()
+        if a_mode == 'comparison':
+            headers = [dim_label, 'Τζίρος Α', 'Κόστος Α', 'Κέρδος Α', 'Τζίρος Β', 'Κόστος Β', 'Κέρδος Β']
+            widths = [26, 15, 15, 15, 15, 15, 15]
+            keys = ['turnover_a', 'cost_a', 'profit_a', 'turnover_b', 'cost_b', 'profit_b']
+            data_rows = [[r['label']] + [round(float(r.get(k) or 0), 2) for k in keys] for r in rows]
+            if data_rows:
+                data_rows.append(['ΣΥΝΟΛΟ'] + [round(float(totals.get(k) or 0), 2) for k in keys])
+        else:
+            metrics = _export_selected_metrics(request)
+            headers = [dim_label] + [_EXPORT_PIVOT_METRIC_MAP[m]['label'] for m in metrics]
+            widths = [26] + [15] * len(metrics)
+
+            def _mval(src, m):
+                kind = _EXPORT_PIVOT_METRIC_MAP[m]['kind']
+                return round(float(src.get(m) or 0), 0 if kind == 'int' else 2)
+            data_rows = [[r['label']] + [_mval(r, m) for m in metrics] for r in rows]
+            if data_rows:
+                data_rows.append(['ΣΥΝΟΛΟ'] + [_mval(totals, m) for m in metrics])
+        base = 'analysi'
+    elif report_kind == 'group_comparison':
         headers = ['Ομάδα', 'Τζίρος Α', 'Κόστος Α', 'Κέρδος Α', 'Τζίρος Β', 'Κόστος Β', 'Κέρδος Β']
         widths = [26, 15, 15, 15, 15, 15, 15]
         data_rows = [
@@ -15702,3 +15808,22 @@ async def tenant_exports_group_comparison_download(
     _user=Depends(get_current_user),
 ):
     return await _render_exports_download(request=request, tenant=tenant, variant='group_comparison', fmt=fmt)
+
+
+@router.get('/tenant/exports/analysis', response_class=HTMLResponse)
+async def tenant_exports_analysis(
+    request: Request,
+    tenant: Tenant = Depends(get_request_tenant),
+    _user=Depends(get_current_user),
+):
+    return await _render_exports_workbench(request=request, tenant=tenant, variant='analysis')
+
+
+@router.get('/tenant/exports/analysis/download/{fmt}')
+async def tenant_exports_analysis_download(
+    fmt: str,
+    request: Request,
+    tenant: Tenant = Depends(get_request_tenant),
+    _user=Depends(get_current_user),
+):
+    return await _render_exports_download(request=request, tenant=tenant, variant='analysis', fmt=fmt)

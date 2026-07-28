@@ -12708,6 +12708,207 @@ async def sales_by_channel(
     return rows, totals
 
 
+_PIVOT_DIMENSIONS = {
+    'channel': 'Κανάλι',
+    'group': 'Ομάδα Ειδών',
+    'brand': 'Brand',
+    'category_1': 'Κατηγορία 1',
+    'category_2': 'Κατηγορία 2',
+    'category_3': 'Κατηγορία 3',
+    'branch': 'Υποκατάστημα',
+    'warehouse': 'Αποθηκευτικός χώρος',
+}
+
+
+def _pivot_label_expr(group_by: str):
+    """SQL label expression for a pivot dimension (with a sensible fallback)."""
+    def _clean(col, fallback):
+        return func.coalesce(func.nullif(func.trim(func.coalesce(col, '')), ''), literal(fallback))
+    if group_by == 'group':
+        return _clean(DimGroup.name, 'Χωρίς ομάδα')
+    if group_by == 'brand':
+        return _clean(DimBrand.name, 'Χωρίς brand')
+    if group_by in ('category_1', 'category_2', 'category_3'):
+        return _clean(getattr(DimItem, group_by), '(κενό)')
+    if group_by == 'branch':
+        return func.coalesce(func.nullif(func.trim(func.coalesce(DimBranch.name, '')), ''), FactSales.branch_ext_id, literal('N/A'))
+    if group_by == 'warehouse':
+        return func.coalesce(func.nullif(func.trim(func.coalesce(DimWarehouse.name, '')), ''), FactSales.warehouse_ext_id, literal('N/A'))
+    return _clean(FactSales.channel_name, 'Φυσικό κατάστημα')  # default: channel
+
+
+async def sales_pivot(
+    db: AsyncSession,
+    *,
+    group_by: str = 'channel',
+    mode: str = 'analysis',
+    period_from: date | None = None,
+    period_to: date | None = None,
+    period_b_from: date | None = None,
+    period_b_to: date | None = None,
+    brands: list[str] | None = None,
+    category_1: list[str] | None = None,
+    category_2: list[str] | None = None,
+    category_3: list[str] | None = None,
+    groups: list[str] | None = None,
+    branches: list[str] | None = None,
+    warehouses: list[str] | None = None,
+) -> tuple[list[dict], dict]:
+    """One flexible sales report: group by ANY dimension (channel/group/brand/
+    category 1-3/branch/warehouse) in one of two modes.
+
+    mode='analysis'  -> rows {label, net_value, qty, contribution_pct, margin_pct}
+    mode='comparison'-> rows {label, turnover_a, cost_a, profit_a, turnover_b,
+                              cost_b, profit_b} across period A vs B.
+
+    Turnover = signed net, Profit = signed profit_amount, Cost = Turnover-Profit,
+    Qty = signed quantity — all signed like the dashboard (returns subtract).
+    """
+    if group_by not in _PIVOT_DIMENSIONS:
+        group_by = 'channel'
+    label_expr = _pivot_label_expr(group_by)
+    _amt_sign = _fact_sales_behavior_sign_expr(quantity=False)
+    net = _fact_sales_signed_net_expr()
+    profit = func.coalesce(FactSales.profit_amount, 0) * _amt_sign
+    qty = func.coalesce(FactSales.qty, 0) * _fact_sales_behavior_sign_expr(quantity=True)
+    gross = _fact_sales_signed_gross_expr()
+    vat = func.coalesce(FactSales.vat_amount, 0) * _amt_sign
+    discount = func.coalesce(FactSales.discount_amount, 0) * _amt_sign
+    doc_key = _fact_sales_document_key_expr()
+
+    need_item = group_by in {'group', 'brand', 'category_1', 'category_2', 'category_3'} or bool(
+        brands or groups or category_1 or category_2 or category_3
+    )
+    need_brand = group_by == 'brand' or bool(brands)
+    need_group = group_by == 'group' or bool(groups)
+
+    def _windowed(expr, window):
+        return func.coalesce(func.sum(case((window, expr), else_=literal(0.0))), 0) if window is not None else literal(0.0)
+
+    if mode == 'comparison':
+        in_a = (FactSales.doc_date >= period_from) & (FactSales.doc_date <= period_to) if (period_from and period_to) else None
+        in_b = (FactSales.doc_date >= period_b_from) & (FactSales.doc_date <= period_b_to) if (period_b_from and period_b_to) else None
+        stmt = select(
+            label_expr.label('label'),
+            _windowed(net, in_a).label('turnover_a'),
+            _windowed(profit, in_a).label('profit_a'),
+            _windowed(net, in_b).label('turnover_b'),
+            _windowed(profit, in_b).label('profit_b'),
+        ).select_from(FactSales)
+    else:
+        stmt = select(
+            label_expr.label('label'),
+            func.coalesce(func.sum(net), 0).label('net_value'),
+            func.coalesce(func.sum(qty), 0).label('qty'),
+            func.coalesce(func.sum(profit), 0).label('profit'),
+            func.coalesce(func.sum(gross), 0).label('gross_value'),
+            func.coalesce(func.sum(vat), 0).label('vat'),
+            func.coalesce(func.sum(discount), 0).label('discount'),
+            func.count(func.distinct(doc_key)).label('doc_count'),
+            func.count(func.distinct(FactSales.item_id)).label('item_count'),
+        ).select_from(FactSales)
+
+    if need_item:
+        stmt = stmt.join(DimItem, FactSales.item_id == DimItem.id, isouter=True)
+    if need_brand:
+        stmt = stmt.join(DimBrand, DimItem.brand_id == DimBrand.id, isouter=True)
+    if need_group:
+        stmt = stmt.join(DimGroup, DimItem.group_id == DimGroup.id, isouter=True)
+    if group_by == 'branch':
+        stmt = stmt.join(DimBranch, DimBranch.external_id == FactSales.branch_ext_id, isouter=True)
+    if group_by == 'warehouse':
+        stmt = stmt.join(DimWarehouse, DimWarehouse.external_id == FactSales.warehouse_ext_id, isouter=True)
+
+    if brands:
+        stmt = stmt.where(DimBrand.external_id.in_(brands))
+    if groups:
+        stmt = stmt.where(DimGroup.external_id.in_(groups))
+    if category_1:
+        stmt = stmt.where(DimItem.category_1.in_(category_1))
+    if category_2:
+        stmt = stmt.where(DimItem.category_2.in_(category_2))
+    if category_3:
+        stmt = stmt.where(DimItem.category_3.in_(category_3))
+    if branches:
+        stmt = stmt.where(FactSales.branch_ext_id.in_(branches))
+    if warehouses:
+        stmt = stmt.where(FactSales.warehouse_ext_id.in_(warehouses))
+
+    if mode == 'comparison':
+        windows = [w for w in (in_a, in_b) if w is not None]
+        if windows:
+            scope = windows[0]
+            for w in windows[1:]:
+                scope = scope | w
+            stmt = stmt.where(scope)
+    else:
+        if period_from:
+            stmt = stmt.where(FactSales.doc_date >= period_from)
+        if period_to:
+            stmt = stmt.where(FactSales.doc_date <= period_to)
+
+    # ORDER BY the 2nd select column (the primary value metric) descending.
+    stmt = stmt.group_by(label_expr).order_by(literal_column('2').desc())
+    raw = (await db.execute(stmt)).mappings().all()
+
+    rows: list[dict] = []
+    if mode == 'comparison':
+        tot = {'turnover_a': 0.0, 'cost_a': 0.0, 'profit_a': 0.0, 'turnover_b': 0.0, 'cost_b': 0.0, 'profit_b': 0.0}
+        for r in raw:
+            ta, pa = float(r['turnover_a'] or 0), float(r['profit_a'] or 0)
+            tb, pb = float(r['turnover_b'] or 0), float(r['profit_b'] or 0)
+            row = {'label': str(r['label'] or '—'),
+                   'turnover_a': ta, 'cost_a': ta - pa, 'profit_a': pa,
+                   'turnover_b': tb, 'cost_b': tb - pb, 'profit_b': pb}
+            rows.append(row)
+            for k in tot:
+                tot[k] += row[k]
+        tot['count'] = len(rows)
+        totals = tot
+    else:
+        total_net = sum(float(r['net_value'] or 0) for r in raw)
+        total_profit = sum(float(r['profit'] or 0) for r in raw)
+
+        def _metric_row(label, netv, prof, qtyv, grossv, vatv, disc, docs, items):
+            cost = netv - prof
+            return {
+                'label': label,
+                'net_value': netv, 'qty': qtyv,
+                'contribution_pct': (netv / total_net * 100.0) if total_net else 0.0,
+                'margin_pct': (prof / netv * 100.0) if netv else 0.0,
+                'cost': cost, 'profit': prof, 'gross_value': grossv,
+                'doc_count': docs, 'item_count': items,
+                'avg_per_doc': (netv / docs) if docs else 0.0,
+                'avg_per_item': (netv / items) if items else 0.0,
+                'vat': vatv, 'discount': disc,
+            }
+
+        agg = {'net_value': 0.0, 'qty': 0.0, 'profit': 0.0, 'gross_value': 0.0,
+               'vat': 0.0, 'discount': 0.0, 'doc_count': 0, 'item_count': 0}
+        for r in raw:
+            netv = float(r['net_value'] or 0)
+            row = _metric_row(
+                str(r['label'] or '—'), netv, float(r['profit'] or 0), float(r['qty'] or 0),
+                float(r['gross_value'] or 0), float(r['vat'] or 0), float(r['discount'] or 0),
+                int(r['doc_count'] or 0), int(r['item_count'] or 0),
+            )
+            rows.append(row)
+            for k in agg:
+                agg[k] += row[k]
+        totals = {
+            'count': len(rows),
+            'net_value': agg['net_value'], 'qty': agg['qty'],
+            'contribution_pct': 100.0 if total_net else 0.0,
+            'margin_pct': (total_profit / total_net * 100.0) if total_net else 0.0,
+            'cost': agg['net_value'] - agg['profit'], 'profit': agg['profit'],
+            'gross_value': agg['gross_value'], 'doc_count': agg['doc_count'], 'item_count': agg['item_count'],
+            'avg_per_doc': (agg['net_value'] / agg['doc_count']) if agg['doc_count'] else 0.0,
+            'avg_per_item': (agg['net_value'] / agg['item_count']) if agg['item_count'] else 0.0,
+            'vat': agg['vat'], 'discount': agg['discount'],
+        }
+    return rows, totals
+
+
 async def sales_comparison_by_group(
     db: AsyncSession,
     *,

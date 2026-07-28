@@ -1,6 +1,7 @@
 {% extends "base_tenant.html" %}
 {% block content %}
 {% macro money(x) %}{{ '{:,.2f}'.format(x or 0).replace(',', 'X').replace('.', ',').replace('X', '.') }} €{% endmacro %}
+{% macro fmt(value, kind) %}{% if kind == 'money' %}{{ money(value) }}{% elif kind == 'pct' %}{{ '{:,.2f}'.format(value or 0).replace('.', ',') }}%{% else %}{{ '{:,.0f}'.format(value or 0).replace(',', '.') }}{% endif %}{% endmacro %}
 <style>
   .exp-shell { display: flex; flex-direction: column; gap: 16px; margin-top: 8px; }
   .exp-head h1 { font-size: 22px; margin: 0 0 4px; }
@@ -27,6 +28,16 @@
     background: var(--input-bg, #fff); color: var(--text, #1b2130); font-size: 13.5px;
   }
   .exp-date:focus { outline: none; border-color: var(--primary, #4c63d2); box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary, #4c63d2) 16%, transparent); }
+  .exp-pivot-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 260px)); gap: 12px 16px; margin-bottom: 12px; }
+  @media (max-width: 640px) { .exp-pivot-controls { grid-template-columns: 1fr; } }
+  .exp-select { width: 100%; padding: 9px 12px; border: 1px solid var(--border-color, #dfe4ee); border-radius: 10px; background: var(--input-bg, #fff); color: var(--text, #1b2130); font-size: 13.5px; }
+  .exp-select:focus { outline: none; border-color: var(--primary, #4c63d2); box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary, #4c63d2) 16%, transparent); }
+  .exp-metrics { margin: 2px 0 14px; padding: 12px 14px; border: 1px dashed var(--border-color, #e5e9f2); border-radius: 10px; background: var(--surface-2, #fafbfe); }
+  .exp-metrics-title { font-size: 12px; font-weight: 800; color: var(--text-muted, #626d84); margin-bottom: 8px; letter-spacing: .02em; }
+  .exp-metrics-list { display: flex; flex-wrap: wrap; gap: 8px; }
+  .exp-metric-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; padding: 5px 11px; border: 1px solid var(--border-color, #dfe4ee); border-radius: 999px; cursor: pointer; background: var(--card-bg, #fff); color: var(--text, #1b2130); }
+  .exp-metric-chip input { margin: 0; }
+  .exp-metric-chip:has(input:checked) { border-color: var(--primary, #4c63d2); background: color-mix(in srgb, var(--primary, #4c63d2) 10%, transparent); color: var(--primary, #4c63d2); font-weight: 700; }
   .exp-field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
   .exp-field > label { font-size: 12px; font-weight: 800; color: var(--text-muted); letter-spacing: .02em; }
   .exp-dd { position: relative; }
@@ -98,20 +109,49 @@
         <h2><i class="fe fe-filter"></i> Φίλτρα</h2>
         <span class="exp-count" data-exp-total>—</span>
       </div>
+      {% if report_kind == 'analysis' %}
+      <div class="exp-pivot-controls">
+        <div class="exp-field">
+          <label>Ομαδοποίηση κατά</label>
+          <select class="exp-select" name="group_by" data-exp-groupby>
+            {% for key, label in pivot_dimensions %}<option value="{{ key }}" {% if key == pivot_group_by %}selected{% endif %}>{{ label }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="exp-field">
+          <label>Τύπος</label>
+          <select class="exp-select" name="mode" data-exp-mode>
+            {% for key, label in pivot_modes %}<option value="{{ key }}" {% if key == pivot_mode %}selected{% endif %}>{{ label }}</option>{% endfor %}
+          </select>
+        </div>
+      </div>
+      <div class="exp-metrics" data-exp-metrics {% if pivot_mode == 'comparison' %}style="display:none"{% endif %}>
+        <div class="exp-metrics-title">Δείκτες (στήλες) — πρόσθεσε όσους θες:</div>
+        <div class="exp-metrics-list">
+          {% for key, label, kind in pivot_metrics_catalog %}
+          <label class="exp-metric-chip"><input type="checkbox" name="metric" value="{{ key }}" {% if key in pivot_metrics_selected %}checked{% endif %}> {{ label }}</label>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
       <div class="exp-period">
-        {% if report_kind == 'group_comparison' %}
-        <div class="exp-field"><label>Περίοδος Α — από</label><input type="date" class="exp-date" name="period_from" value="{{ period.from }}"></div>
-        <div class="exp-field"><label>Περίοδος Α — έως</label><input type="date" class="exp-date" name="period_to" value="{{ period.to }}"></div>
-        <div class="exp-field"><label>Περίοδος Β — από</label><input type="date" class="exp-date" name="period_b_from" value="{{ period.b_from }}"></div>
-        <div class="exp-field"><label>Περίοδος Β — έως</label><input type="date" class="exp-date" name="period_b_to" value="{{ period.b_to }}"></div>
+        {% if report_kind == 'analysis' %}
+        <div class="exp-field"><label>Περίοδος{% if pivot_mode == 'comparison' %} Α{% endif %} — από</label><input type="date" class="exp-date" lang="el-GR" name="period_from" value="{{ period.from }}"></div>
+        <div class="exp-field"><label>Περίοδος{% if pivot_mode == 'comparison' %} Α{% endif %} — έως</label><input type="date" class="exp-date" lang="el-GR" name="period_to" value="{{ period.to }}"></div>
+        <div class="exp-field exp-period-b" {% if pivot_mode != 'comparison' %}style="display:none"{% endif %}><label>Περίοδος Β — από</label><input type="date" class="exp-date" lang="el-GR" name="period_b_from" value="{{ period.b_from }}"></div>
+        <div class="exp-field exp-period-b" {% if pivot_mode != 'comparison' %}style="display:none"{% endif %}><label>Περίοδος Β — έως</label><input type="date" class="exp-date" lang="el-GR" name="period_b_to" value="{{ period.b_to }}"></div>
+        {% elif report_kind == 'group_comparison' %}
+        <div class="exp-field"><label>Περίοδος Α — από</label><input type="date" class="exp-date" lang="el-GR" name="period_from" value="{{ period.from }}"></div>
+        <div class="exp-field"><label>Περίοδος Α — έως</label><input type="date" class="exp-date" lang="el-GR" name="period_to" value="{{ period.to }}"></div>
+        <div class="exp-field"><label>Περίοδος Β — από</label><input type="date" class="exp-date" lang="el-GR" name="period_b_from" value="{{ period.b_from }}"></div>
+        <div class="exp-field"><label>Περίοδος Β — έως</label><input type="date" class="exp-date" lang="el-GR" name="period_b_to" value="{{ period.b_to }}"></div>
         {% else %}
         <div class="exp-field">
           <label>Περίοδος από</label>
-          <input type="date" class="exp-date" name="period_from" value="{{ period.from if period else '' }}">
+          <input type="date" class="exp-date" lang="el-GR" name="period_from" value="{{ period.from if period else '' }}">
         </div>
         <div class="exp-field">
           <label>Περίοδος έως</label>
-          <input type="date" class="exp-date" name="period_to" value="{{ period.to if period else '' }}">
+          <input type="date" class="exp-date" lang="el-GR" name="period_to" value="{{ period.to if period else '' }}">
         </div>
         {% endif %}
       </div>
@@ -169,7 +209,58 @@
     </div>
     {% endif %}
 
-    {% if rows and report_kind == 'group_comparison' %}
+    {% if rows and report_kind == 'analysis' %}
+    <div class="exp-table-wrap">
+      <table class="exp-table">
+        {% if pivot_mode == 'comparison' %}
+        <thead>
+          <tr>
+            <th>{{ pivot_group_label }}</th>
+            <th class="exp-num">Τζίρος Α</th><th class="exp-num">Κόστος Α</th><th class="exp-num">Κέρδος Α</th>
+            <th class="exp-num">Τζίρος Β</th><th class="exp-num">Κόστος Β</th><th class="exp-num">Κέρδος Β</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in rows %}
+          <tr>
+            <td>{{ r.label }}</td>
+            <td class="exp-num">{{ money(r.turnover_a) }}</td><td class="exp-num">{{ money(r.cost_a) }}</td><td class="exp-num">{{ money(r.profit_a) }}</td>
+            <td class="exp-num">{{ money(r.turnover_b) }}</td><td class="exp-num">{{ money(r.cost_b) }}</td><td class="exp-num">{{ money(r.profit_b) }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr class="exp-total-row">
+            <td>ΣΥΝΟΛΟ{% if totals.count %} ({{ totals.count }}){% endif %}</td>
+            <td class="exp-num">{{ money(totals.turnover_a) }}</td><td class="exp-num">{{ money(totals.cost_a) }}</td><td class="exp-num">{{ money(totals.profit_a) }}</td>
+            <td class="exp-num">{{ money(totals.turnover_b) }}</td><td class="exp-num">{{ money(totals.cost_b) }}</td><td class="exp-num">{{ money(totals.profit_b) }}</td>
+          </tr>
+        </tfoot>
+        {% else %}
+        <thead>
+          <tr>
+            <th>{{ pivot_group_label }}</th>
+            {% for m in pivot_metrics_selected %}<th class="exp-num">{{ pivot_metric_map[m].label }}</th>{% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in rows %}
+          <tr>
+            <td>{{ r.label }}</td>
+            {% for m in pivot_metrics_selected %}<td class="exp-num">{{ fmt(r[m], pivot_metric_map[m].kind) }}</td>{% endfor %}
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr class="exp-total-row">
+            <td>ΣΥΝΟΛΟ{% if totals.count %} ({{ totals.count }}){% endif %}</td>
+            {% for m in pivot_metrics_selected %}<td class="exp-num">{{ fmt(totals[m], pivot_metric_map[m].kind) }}</td>{% endfor %}
+          </tr>
+        </tfoot>
+        {% endif %}
+      </table>
+    </div>
+    {% elif rows and report_kind == 'group_comparison' %}
     <div class="exp-table-wrap">
       <table class="exp-table">
         <thead>
@@ -369,6 +460,18 @@
       if (!dd.contains(e.target)) dd.removeAttribute('open');
     });
   });
+
+  // Analysis report: switching mode shows Period B (comparison) or the metrics
+  // picker (analysis) without needing a round-trip.
+  var modeSel = document.querySelector('[data-exp-mode]');
+  if (modeSel) {
+    modeSel.addEventListener('change', function () {
+      var comparison = modeSel.value === 'comparison';
+      document.querySelectorAll('.exp-period-b').forEach(function (el) { el.style.display = comparison ? '' : 'none'; });
+      var metrics = document.querySelector('[data-exp-metrics]');
+      if (metrics) metrics.style.display = comparison ? 'none' : '';
+    });
+  }
 })();
 </script>
 {% endblock %}
