@@ -1572,13 +1572,13 @@ CIRCUITS: tuple[dict[str, Any], ...] = (
                 'Όρισε ΠΡΩΤΑ την περίοδο (Από / Έως) και τα φίλτρα — η εξαγωγή ακολουθεί ό,τι βλέπεις στην οθόνη.',
                 'Διαθέσιμα φίλτρα: Περίοδος (Από/Έως), Υποκατάστημα, Αποθηκευτικός χώρος, Brands και οι τρεις βασικές κατηγορίες του είδους (Κατηγορία 1, 2, 3). Κάθε φίλτρο δέχεται πολλές επιλογές.',
                 'Οι Αναφορές και το CSV/Excel μοιράζονται τα ΙΔΙΑ φίλτρα — ό,τι επιλέγεις εφαρμόζεται με τον ίδιο τρόπο και στα δύο.',
-                'Πάτησε «Εφαρμογή» για να ισχύσουν τα φίλτρα· «Καθαρισμός» για μηδενισμό.',
+                'Η λίστα ξεκινά κενή: συμπλήρωσε τα φίλτρα και πάτησε «Υπολογισμός» για να φορτώσουν τα αποτελέσματα· «Καθαρισμός» για μηδενισμό.',
             ],
             [
                 'Set the period (From / To) and filters FIRST — the export follows what is on screen.',
                 'Available filters: Period (From/To), Branch, Warehouse, Brands and the three basic item categories (Category 1, 2, 3). Each filter accepts multiple selections.',
                 'Reports and CSV/Excel share the SAME filters — a selection applies identically to both.',
-                'Press "Apply" to activate the filters; "Clear" to reset.',
+                'The list starts empty: set the filters and press "Calculate" to load results; "Clear" to reset.',
             ],
         ),
         'columns': _tl(

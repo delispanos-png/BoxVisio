@@ -77,6 +77,7 @@
   </section>
 
   <form method="get" action="{{ form_action }}">
+    <input type="hidden" name="calc" value="1">
     <section class="exp-panel">
       <div class="exp-panel-head">
         <h2><i class="fe fe-filter"></i> Φίλτρα</h2>
@@ -116,7 +117,7 @@
       </div>
       <div class="exp-actions">
         <a class="btn btn-light" href="{{ form_action }}"><i class="fe fe-x"></i> Καθαρισμός</a>
-        <button class="btn btn-primary" type="submit"><i class="fe fe-filter"></i> Εφαρμογή</button>
+        <button class="btn btn-primary" type="submit"><i class="fe fe-play"></i> Υπολογισμός</button>
       </div>
     </section>
   </form>
@@ -124,8 +125,11 @@
   <section class="exp-panel">
     <div class="exp-panel-head">
       <h2>{{ page_heading }}</h2>
-      <span class="exp-count">{{ rows|length }} είδη{% if rows|length >= row_limit %} (πρώτα {{ row_limit }}){% endif %}</span>
+      {% if calculated %}<span class="exp-count">{{ rows|length }} είδη{% if rows|length >= row_limit %} (πρώτα {{ row_limit }}){% endif %}</span>{% endif %}
     </div>
+    {% if not calculated %}
+    <p class="exp-empty-note">Συμπλήρωσε τα φίλτρα και πάτησε «Υπολογισμός» για να φορτώσουν τα αποτελέσματα.</p>
+    {% else %}
     {% set filters_selected = (selected.values()|map('length')|sum) if selected else 0 %}
     {% set has_period = period and (period.from or period.to) %}
     {% if filters_selected or has_period %}
@@ -171,7 +175,8 @@
     <p class="exp-empty-note" style="margin-top:10px">Εμφανίζονται τα πρώτα {{ row_limit }} είδη. Η πλήρης εξαγωγή σε αρχείο (CSV/Excel) θα προστεθεί στο επόμενο βήμα.</p>
     {% endif %}
     {% else %}
-    <p class="exp-empty-note">Δεν βρέθηκαν είδη για τα επιλεγμένα φίλτρα. Άλλαξε τα φίλτρα και πάτησε «Εφαρμογή».</p>
+    <p class="exp-empty-note">Δεν βρέθηκαν είδη για τα επιλεγμένα φίλτρα. Άλλαξε τα φίλτρα και πάτησε «Υπολογισμός».</p>
+    {% endif %}
     {% endif %}
   </section>
 </div>
