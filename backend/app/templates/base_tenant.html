@@ -157,7 +157,7 @@
         {% set _has_multiple_branches = tenant_has_multiple_branches if tenant_has_multiple_branches is defined else true %}
         {% set _operational_stream_pages = ['sales_documents', 'purchase_documents', 'supplier_orders', 'warehouse_documents', 'expense_documents', 'operating_expenses', 'suppliers', 'customers'] %}
         {% set _operational_stream_open = active_page in _operational_stream_pages or (active_page == 'cashflow' and _cashflow_is_stream) %}
-        {% set _dashboard_pages = ['dashboard', 'finance_dashboard', 'insights'] %}
+        {% set _dashboard_pages = ['dashboard', 'finance_dashboard', 'insights', 'store_dashboard'] %}
         {% set _dashboard_open = active_page in _dashboard_pages %}
         {% set _analytics_open = active_page in ['sales', 'pos', 'call_center', 'eshop_analysis', 'purchases', 'inventory', 'items', 'replenishment', 'availability', 'destocking', 'analytics_receivables_payables', 'supplier_targets', 'price_control', 'business_advisor', 'era_exploration_data', 'iqvia', 'exports_sellout'] or (active_page == 'cashflow' and not _cashflow_is_stream) %}
         {% set _comparison_pages = ['compare_period', 'compare_branch', 'compare_category'] %}
@@ -196,6 +196,12 @@
                 </a>
               </li>
               {% endif %}
+              <li class="{% if active_page == 'store_dashboard' %}is-active{% endif %}">
+                <a class="bv-submenu-link" href="/tenant/store-dashboard">
+                  <i class="fe fe-home"></i>
+                  <span>Κατάστημα</span>
+                </a>
+              </li>
               {% if _menu_insights %}
               <li class="{% if active_page == 'insights' %}is-active{% endif %}">
                 <a class="bv-submenu-link" href="/tenant/insights">

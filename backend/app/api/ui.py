@@ -15841,6 +15841,71 @@ async def tenant_exports_analysis(
     return await _render_exports_workbench(request=request, tenant=tenant, variant='analysis')
 
 
+@router.get('/tenant/store-dashboard', response_class=HTMLResponse)
+async def tenant_store_dashboard(
+    request: Request,
+    tenant: Tenant = Depends(get_request_tenant),
+    _user=Depends(get_current_user),
+):
+    from app.services.kpi_queries import store_dashboard
+    today = datetime.utcnow().date()
+    period = {
+        'from': _export_clean_date(request.query_params.get('period_from')) or today.replace(day=1).isoformat(),
+        'to': _export_clean_date(request.query_params.get('period_to')) or today.isoformat(),
+    }
+    date_from = datetime.strptime(period['from'], '%Y-%m-%d').date()
+    date_to = datetime.strptime(period['to'], '%Y-%m-%d').date()
+
+    async with ControlSessionLocal() as control_db:
+        sales_kpi_config = await _resolve_rule_payload(
+            control_db, tenant_id=int(tenant.id),
+            domain=RuleDomain.kpi_participation_rules, stream=OperationalStream.sales_documents,
+            rule_key='sales_kpi_config', fallback_payload={},
+        )
+
+    branches: list[dict] = []
+    data: dict = {}
+    branch_ext = str(request.query_params.get('branch') or '').strip()
+    async for tenant_db in get_tenant_db_session(
+        tenant_key=str(tenant.id), db_name=tenant.db_name,
+        db_user=tenant.db_user, db_password=tenant.db_password,
+    ):
+        rows = (await tenant_db.execute(text(
+            "SELECT b.external_id, b.name FROM dim_branches b "
+            "WHERE b.external_id IN (SELECT DISTINCT branch_ext_id FROM fact_sales WHERE branch_ext_id IS NOT NULL) "
+            "ORDER BY lower(coalesce(b.name, b.external_id))"
+        ))).all()
+        branches = [{'value': str(r[0]), 'label': str(r[1] or r[0])} for r in rows]
+        valid = {b['value'] for b in branches}
+        if branch_ext not in valid:
+            branch_ext = branches[0]['value'] if branches else ''
+        if branch_ext:
+            scope_token = set_current_sales_kpi_participation_config(sales_kpi_config)
+            try:
+                data = await store_dashboard(tenant_db, branch_ext=branch_ext, date_from=date_from, date_to=date_to)
+            finally:
+                reset_current_sales_kpi_participation_config(scope_token)
+        break
+
+    branch_label = next((b['label'] for b in branches if b['value'] == branch_ext), branch_ext)
+    return templates.TemplateResponse(
+        'tenant/store_dashboard.html',
+        {
+            'request': request,
+            'tenant': tenant,
+            **await _tenant_navigation_context(tenant),
+            'active_page': 'store_dashboard',
+            'title': 'Κατάστημα',
+            'page_title_key': 'Κατάστημα',
+            'branches': branches,
+            'branch_ext': branch_ext,
+            'branch_label': branch_label,
+            'period': period,
+            'data': data,
+        },
+    )
+
+
 @router.get('/tenant/exports/analysis/download/{fmt}')
 async def tenant_exports_analysis_download(
     fmt: str,

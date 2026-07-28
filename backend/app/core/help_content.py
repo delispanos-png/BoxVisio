@@ -1558,6 +1558,31 @@ CIRCUITS: tuple[dict[str, Any], ...] = (
         'related': ['sales-analytics', 'dashboard'],
     },
     {
+        'id': 'store-dashboard',
+        'title': _t('Κατάστημα', 'Store'),
+        'route': '/tenant/store-dashboard',
+        'group': _t('Πίνακες', 'Dashboards'),
+        'shot': 'store-dashboard',
+        'purpose': _t(
+            'Prescriptive πίνακας ανά κατάστημα: τι συμβαίνει και τι να κάνεις, κατά € αξία.',
+            'A prescriptive per-store cockpit: what is happening and what to do, ranked by € value.',
+        ),
+        'steps': _tl(
+            [
+                'Διάλεξε κατάστημα και περίοδο.',
+                'Δες τα KPIs + Store Health, μετά τις κάρτες δράσης: Χαμένες πωλήσεις (ταχυκίνητα εκτός αποθέματος → παραγγελία), Βαλτωμένο απόθεμα (δεσμευμένο κεφάλαιο → μεταφορά/έκπτωση), Κατηγορίες σε πτώση vs πέρσι.',
+            ],
+            [
+                'Pick a store and period.',
+                'Read the KPIs + Store Health, then the action cards: Lost sales (best-sellers out of stock → order), Dead stock (tied capital → move/discount), Declining categories vs last year.',
+            ],
+        ),
+        'columns': _tl(['Λίστες ειδών ανά κάρτα, ταξινομημένες κατά € αξία.'], ['Item lists per card, ranked by € value.']),
+        'popups': _tl(['—'], ['—']),
+        'checks': _tl(['Το «Βαλτωμένο» βασίζεται στο τελευταίο snapshot αποθέματος.'], ['Dead stock uses the latest inventory snapshot.']),
+        'related': ['replenishment', 'destocking'],
+    },
+    {
         'id': 'exports',
         'title': _t('Report Builder', 'Report Builder'),
         'route': '/tenant/exports/reports',

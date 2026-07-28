@@ -1,0 +1,178 @@
+{% extends "base_tenant.html" %}
+{% block content %}
+{% macro money(x) %}{{ '{:,.2f}'.format(x or 0).replace(',', 'X').replace('.', ',').replace('X', '.') }} €{% endmacro %}
+{% macro money0(x) %}{{ '{:,.0f}'.format(x or 0).replace(',', '.') }} €{% endmacro %}
+{% macro num0(x) %}{{ '{:,.0f}'.format(x or 0).replace(',', '.') }}{% endmacro %}
+{% set k = data.get('kpis', {}) if data else {} %}
+{% set health = k.get('health', 0) %}
+{% set hcolor = 'var(--sd-good)' if health >= 75 else ('var(--sd-warn)' if health >= 50 else 'var(--sd-bad)') %}
+<style>
+  .sd { --sd-good:#16a34a; --sd-warn:#d97706; --sd-bad:#dc2626; display:flex; flex-direction:column; gap:16px; margin-top:8px; }
+  .sd-head { display:flex; align-items:flex-end; justify-content:space-between; gap:16px; flex-wrap:wrap; }
+  .sd-head h1 { font-size:22px; margin:0 0 4px; }
+  .sd-head p { color:var(--text-muted); margin:0; font-size:13px; }
+  .sd-controls { display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap; }
+  .sd-field { display:flex; flex-direction:column; gap:4px; }
+  .sd-field label { font-size:11px; font-weight:800; color:var(--text-muted); letter-spacing:.02em; }
+  .sd-input { padding:9px 12px; border:1px solid var(--border-color,#dfe4ee); border-radius:10px; background:var(--input-bg,#fff); color:var(--text,#1b2130); font-size:13.5px; min-width:150px; }
+  .sd-datewrap { position:relative; }
+  .sd-datewrap .sd-input { padding-right:38px; }
+  .sd-datebtn { position:absolute; right:6px; top:50%; transform:translateY(-50%); border:0; background:transparent; color:var(--text-muted); cursor:pointer; padding:5px; }
+  .sd-datepick { position:absolute; right:8px; bottom:4px; width:1px; height:1px; opacity:0; pointer-events:none; }
+  .sd-health { display:flex; align-items:center; gap:14px; }
+  .sd-score { width:74px; height:74px; border-radius:50%; display:grid; place-items:center; font-size:26px; font-weight:800; color:#fff; background:conic-gradient(var(--hc) calc(var(--h)*1%), var(--surface-2,#eef1f6) 0); position:relative; }
+  .sd-score span { width:58px; height:58px; border-radius:50%; background:var(--card-bg,#fff); display:grid; place-items:center; color:var(--hc); }
+  .sd-health-label { font-size:12px; font-weight:800; color:var(--text-muted); text-transform:uppercase; letter-spacing:.04em; }
+  .sd-kpis { display:grid; grid-template-columns:repeat(6,1fr); gap:12px; }
+  @media (max-width:1100px){ .sd-kpis{ grid-template-columns:repeat(3,1fr);} }
+  @media (max-width:640px){ .sd-kpis{ grid-template-columns:repeat(2,1fr);} }
+  .sd-kpi { background:var(--card-bg,#fff); border:1px solid var(--border-color,#e5e9f2); border-radius:12px; padding:13px 15px; }
+  .sd-kpi .v { font-size:20px; font-weight:800; font-variant-numeric:tabular-nums; }
+  .sd-kpi .l { font-size:12px; color:var(--text-muted); margin-top:3px; font-weight:600; }
+  .sd-cards { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  @media (max-width:960px){ .sd-cards{ grid-template-columns:1fr;} }
+  .sd-card { background:var(--card-bg,#fff); border:1px solid var(--border-color,#e5e9f2); border-radius:14px; padding:0; overflow:hidden; }
+  .sd-card-head { padding:14px 16px; border-bottom:1px solid var(--border-color,#eef1f6); display:flex; align-items:center; gap:10px; }
+  .sd-card-head .ic { width:32px; height:32px; border-radius:9px; display:grid; place-items:center; font-size:16px; }
+  .sd-card-head h3 { font-size:15px; margin:0; font-weight:800; }
+  .sd-card-head .sub { font-size:12px; color:var(--text-muted); margin-top:1px; }
+  .sd-card-head .amt { margin-left:auto; font-size:15px; font-weight:800; }
+  .sd-tbl-wrap { overflow-x:auto; max-height:340px; overflow-y:auto; }
+  .sd-tbl { width:100%; border-collapse:collapse; font-size:13px; }
+  .sd-tbl th { position:sticky; top:0; background:var(--surface-2,#f7f8fb); text-align:left; padding:8px 12px; font-size:11px; text-transform:uppercase; letter-spacing:.03em; color:var(--text-muted); font-weight:800; border-bottom:1px solid var(--border-color,#e5e9f2); white-space:nowrap; }
+  .sd-tbl td { padding:8px 12px; border-bottom:1px solid var(--border-color,#f0f2f7); }
+  .sd-tbl td.n { text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; font-weight:600; }
+  .sd-tbl tr:hover td { background:color-mix(in srgb, var(--primary,#4c63d2) 5%, transparent); }
+  .sd-empty { padding:24px 16px; color:var(--text-muted); font-size:13.5px; text-align:center; }
+  .sd-mono { font-family:var(--mono,ui-monospace,monospace); font-size:12px; color:var(--text-muted); }
+  .sd-neg { color:var(--sd-bad); font-weight:700; }
+  .sd-act { display:inline-block; margin-top:2px; font-size:11px; color:var(--primary,#4c63d2); font-weight:700; }
+</style>
+
+<div class="sd">
+  <section class="sd-head">
+    <div>
+      <h1>Κατάστημα — {{ branch_label }}</h1>
+      <p>Τι συμβαίνει και τι να κάνεις — προτεραιοποιημένο κατά € αξία.{% if data.get('snapshot') %} Απόθεμα: {{ data.snapshot[8:10] }}/{{ data.snapshot[5:7] }}/{{ data.snapshot[0:4] }}.{% endif %}</p>
+    </div>
+    <div class="sd-health">
+      <div class="sd-score" style="--h:{{ health }}; --hc:{{ hcolor }}"><span>{{ health }}</span></div>
+      <div><div class="sd-health-label">Store Health</div></div>
+    </div>
+  </section>
+
+  <form method="get" action="/tenant/store-dashboard" class="sd-controls">
+    <div class="sd-field">
+      <label>Κατάστημα</label>
+      <select class="sd-input" name="branch" onchange="this.form.submit()">
+        {% for b in branches %}<option value="{{ b.value }}" {% if b.value == branch_ext %}selected{% endif %}>{{ b.label }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="sd-field">
+      <label>Περίοδος από</label>
+      <span class="sd-datewrap">
+        <input type="text" class="sd-input sd-datetext" inputmode="numeric" maxlength="10" placeholder="ηη/μμ/εεεε" data-sd-date value="{{ period.from[8:10] }}/{{ period.from[5:7] }}/{{ period.from[0:4] }}">
+        <button type="button" class="sd-datebtn" data-sd-datebtn tabindex="-1"><i class="fe fe-calendar"></i></button>
+        <input type="date" class="sd-datepick" data-sd-datepick value="{{ period.from }}" tabindex="-1" aria-hidden="true">
+        <input type="hidden" name="period_from" value="{{ period.from }}" data-sd-iso>
+      </span>
+    </div>
+    <div class="sd-field">
+      <label>Περίοδος έως</label>
+      <span class="sd-datewrap">
+        <input type="text" class="sd-input sd-datetext" inputmode="numeric" maxlength="10" placeholder="ηη/μμ/εεεε" data-sd-date value="{{ period.to[8:10] }}/{{ period.to[5:7] }}/{{ period.to[0:4] }}">
+        <button type="button" class="sd-datebtn" data-sd-datebtn tabindex="-1"><i class="fe fe-calendar"></i></button>
+        <input type="date" class="sd-datepick" data-sd-datepick value="{{ period.to }}" tabindex="-1" aria-hidden="true">
+        <input type="hidden" name="period_to" value="{{ period.to }}" data-sd-iso>
+      </span>
+    </div>
+    <div class="sd-field"><label>&nbsp;</label><button class="btn btn-primary" type="submit"><i class="fe fe-refresh-cw"></i> Εφαρμογή</button></div>
+  </form>
+
+  <section class="sd-kpis">
+    <div class="sd-kpi"><div class="v">{{ money0(k.get('net')) }}</div><div class="l">Τζίρος</div></div>
+    <div class="sd-kpi"><div class="v">{{ money0(k.get('profit')) }}</div><div class="l">Μεικτό Κέρδος</div></div>
+    <div class="sd-kpi"><div class="v">{{ '{:,.1f}'.format(k.get('margin_pct') or 0).replace('.', ',') }}%</div><div class="l">Margin %</div></div>
+    <div class="sd-kpi"><div class="v">{{ money0(k.get('expenses')) }}</div><div class="l">Έξοδα</div></div>
+    <div class="sd-kpi"><div class="v">{{ money0(k.get('stock_value')) }}</div><div class="l">Αξία Αποθέματος</div></div>
+    <div class="sd-kpi"><div class="v">{{ '{:,.0f}'.format(k.get('dio') or 0).replace(',', '.') }} μέρες</div><div class="l">DIO (κάλυψη)</div></div>
+  </section>
+
+  <section class="sd-cards">
+    <!-- Lost sales -->
+    <div class="sd-card">
+      <div class="sd-card-head">
+        <div class="ic" style="background:#fdecec;color:#dc2626">🔴</div>
+        <div><h3>Χαμένες πωλήσεις</h3><div class="sub">Ταχυκίνητα που τελείωσαν από το κατάστημα → παράγγειλέ τα</div></div>
+        <div class="amt" style="color:#dc2626">{{ money0(k.get('lost_value')) }}</div>
+      </div>
+      {% if data.get('lost_sales') %}
+      <div class="sd-tbl-wrap"><table class="sd-tbl">
+        <thead><tr><th>Είδος</th><th class="n">Πωλήσεις περιόδου</th><th class="n">Τεμ.</th><th class="n">~/μέρα</th></tr></thead>
+        <tbody>{% for r in data.lost_sales %}
+          <tr><td>{{ r.name }}<div class="sd-mono">{{ r.barcode }}</div></td>
+              <td class="n">{{ money0(r.sold_value) }}</td><td class="n">{{ num0(r.sold_qty) }}</td>
+              <td class="n">{{ money0(r.lost_daily) }}<br><span class="sd-act">Παραγγελία</span></td></tr>
+        {% endfor %}</tbody>
+      </table></div>
+      {% else %}<div class="sd-empty">Δεν εντοπίστηκαν ταχυκίνητα εκτός αποθέματος. 👍</div>{% endif %}
+    </div>
+
+    <!-- Dead stock -->
+    <div class="sd-card">
+      <div class="sd-card-head">
+        <div class="ic" style="background:#fdf0e2;color:#d97706">🟠</div>
+        <div><h3>Βαλτωμένο απόθεμα</h3><div class="sub">Απόθεμα χωρίς κίνηση {{ data.get('dead_days', 90) }} μέρες → μεταφορά/έκπτωση</div></div>
+        <div class="amt" style="color:#d97706">{{ money0(k.get('dead_value')) }}</div>
+      </div>
+      {% if data.get('dead_stock') %}
+      <div class="sd-tbl-wrap"><table class="sd-tbl">
+        <thead><tr><th>Είδος</th><th class="n">Τεμ. στοκ</th><th class="n">Δεσμευμένο €</th></tr></thead>
+        <tbody>{% for r in data.dead_stock %}
+          <tr><td>{{ r.name }}<div class="sd-mono">{{ r.barcode }}</div></td>
+              <td class="n">{{ num0(r.stock_qty) }}</td>
+              <td class="n">{{ money0(r.tied_value) }}<br><span class="sd-act">Μεταφορά / Έκπτωση</span></td></tr>
+        {% endfor %}</tbody>
+      </table></div>
+      {% else %}<div class="sd-empty">Καθαρό — κανένα βαλτωμένο απόθεμα. 👍</div>{% endif %}
+    </div>
+
+    <!-- Category decline -->
+    <div class="sd-card" style="grid-column:1 / -1">
+      <div class="sd-card-head">
+        <div class="ic" style="background:#eef2fb;color:#4c63d2">📉</div>
+        <div><h3>Κατηγορίες σε πτώση</h3><div class="sub">vs περσινή αντίστοιχη περίοδος → δες γιατί</div></div>
+      </div>
+      {% if data.get('category_decline') %}
+      <div class="sd-tbl-wrap"><table class="sd-tbl">
+        <thead><tr><th>Κατηγορία</th><th class="n">Φέτος</th><th class="n">Πέρσι</th><th class="n">Δ €</th><th class="n">Δ %</th></tr></thead>
+        <tbody>{% for r in data.category_decline %}
+          <tr><td>{{ r.category }}</td>
+              <td class="n">{{ money0(r.now) }}</td><td class="n">{{ money0(r.ly) }}</td>
+              <td class="n sd-neg">{{ money0(r.delta) }}</td>
+              <td class="n sd-neg">{{ '{:,.1f}'.format(r.delta_pct).replace('.', ',') }}%</td></tr>
+        {% endfor %}</tbody>
+      </table></div>
+      {% else %}<div class="sd-empty">Καμία κατηγορία σε πτώση έναντι πέρσι. 👍</div>{% endif %}
+    </div>
+  </section>
+</div>
+
+<script>
+(function () {
+  document.querySelectorAll('.sd-datewrap').forEach(function (wrap) {
+    var text = wrap.querySelector('[data-sd-date]'), hidden = wrap.querySelector('[data-sd-iso]');
+    var pick = wrap.querySelector('[data-sd-datepick]'), btn = wrap.querySelector('[data-sd-datebtn]');
+    function toISO(v){ var m=v.match(/^(\d{2})\/(\d{2})\/(\d{4})$/); if(!m)return''; var iso=m[3]+'-'+m[2]+'-'+m[1]; return isNaN(new Date(iso+'T00:00:00').getTime())?'':iso; }
+    function fromISO(iso){ return (iso&&iso.length===10)?(iso.slice(8,10)+'/'+iso.slice(5,7)+'/'+iso.slice(0,4)):''; }
+    text.addEventListener('input', function(){
+      var d=text.value.replace(/\D/g,'').slice(0,8), o=d;
+      if(d.length>4)o=d.slice(0,2)+'/'+d.slice(2,4)+'/'+d.slice(4); else if(d.length>2)o=d.slice(0,2)+'/'+d.slice(2);
+      text.value=o; var iso=toISO(o); if(hidden)hidden.value=iso; if(pick&&iso)pick.value=iso;
+    });
+    if(btn&&pick){ btn.addEventListener('click', function(){ try{pick.showPicker();}catch(e){pick.focus();pick.click();} });
+      pick.addEventListener('change', function(){ text.value=fromISO(pick.value); if(hidden)hidden.value=pick.value; }); }
+  });
+})();
+</script>
+{% endblock %}

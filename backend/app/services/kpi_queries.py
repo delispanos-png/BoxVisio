@@ -13029,6 +13029,155 @@ async def sales_comparison_by_group(
     return rows, tot
 
 
+async def store_dashboard(
+    db: AsyncSession,
+    *,
+    branch_ext: str,
+    date_from: date,
+    date_to: date,
+    dead_days: int = 90,
+    top_n: int = 15,
+) -> dict:
+    """Prescriptive per-store cockpit: KPIs + health, best-sellers now out of
+    stock (lost sales), dead stock (tied capital), and declining categories vs
+    last year. All sales signed like the dashboard."""
+    days = max(1, (date_to - date_from).days + 1)
+    snapshot = await _latest_inventory_snapshot_date(db, date_to)
+    net = _fact_sales_signed_net_expr()
+    profit = func.coalesce(FactSales.profit_amount, 0) * _fact_sales_behavior_sign_expr(quantity=False)
+    qty = func.coalesce(FactSales.qty, 0) * _fact_sales_behavior_sign_expr(quantity=True)
+
+    srow = (await db.execute(
+        select(func.coalesce(func.sum(net), 0), func.coalesce(func.sum(profit), 0), func.coalesce(func.sum(qty), 0))
+        .where(FactSales.branch_ext_id == branch_ext, FactSales.doc_date >= date_from, FactSales.doc_date <= date_to)
+    )).first()
+    sales_net, sales_profit, sales_qty = float(srow[0] or 0), float(srow[1] or 0), float(srow[2] or 0)
+
+    expenses = float((await db.execute(
+        select(func.coalesce(func.sum(FactExpense.amount_net), 0))
+        .where(FactExpense.branch_ext_id == branch_ext, FactExpense.expense_date >= date_from, FactExpense.expense_date <= date_to)
+    )).scalar() or 0)
+
+    stock_val = stock_cost = 0.0
+    if snapshot:
+        strow = (await db.execute(
+            select(func.coalesce(func.sum(FactInventory.value_amount), 0), func.coalesce(func.sum(FactInventory.cost_amount), 0))
+            .where(FactInventory.branch_ext_id == branch_ext, FactInventory.doc_date == snapshot, FactInventory.movement_type == 'snapshot')
+        )).first()
+        stock_val, stock_cost = float(strow[0] or 0), float(strow[1] or 0)
+
+    cogs = sales_net - sales_profit
+    margin_pct = (sales_profit / sales_net * 100.0) if sales_net else 0.0
+    dio = (stock_cost / (cogs / days)) if cogs > 0 else 0.0
+    kpis = {
+        'net': sales_net, 'profit': sales_profit, 'margin_pct': margin_pct, 'qty': sales_qty,
+        'expenses': expenses, 'net_result': sales_profit - expenses,
+        'stock_value': stock_val, 'stock_cost': stock_cost, 'dio': dio,
+    }
+
+    # Lost sales — sold in the period but 0 stock now (best-sellers gone missing).
+    sold = select(
+        FactSales.item_id.label('iid'),
+        func.coalesce(func.sum(net), 0).label('sv'),
+        func.coalesce(func.sum(qty), 0).label('sq'),
+    ).where(
+        FactSales.branch_ext_id == branch_ext, FactSales.doc_date >= date_from,
+        FactSales.doc_date <= date_to, FactSales.item_id.is_not(None),
+    ).group_by(FactSales.item_id).subquery()
+    lost = []
+    if snapshot:
+        stock_sub = select(
+            FactInventory.item_id.label('iid'),
+            func.coalesce(func.sum(FactInventory.qty_on_hand), 0).label('soh'),
+        ).where(
+            FactInventory.branch_ext_id == branch_ext, FactInventory.doc_date == snapshot,
+            FactInventory.movement_type == 'snapshot',
+        ).group_by(FactInventory.item_id).subquery()
+        lstmt = (
+            select(DimItem.name, DimItem.barcode, sold.c.sv, sold.c.sq, func.coalesce(stock_sub.c.soh, 0).label('soh'))
+            .select_from(sold).join(DimItem, sold.c.iid == DimItem.id)
+            .join(stock_sub, stock_sub.c.iid == sold.c.iid, isouter=True)
+            .where(
+                sold.c.sv > 0,
+                func.coalesce(stock_sub.c.soh, 0) <= 0,
+                func.coalesce(func.trim(DimItem.barcode), '') != '',  # real stockable products only
+            )
+            .order_by(sold.c.sv.desc()).limit(top_n)
+        )
+        lost = [{'name': str(r[0] or ''), 'barcode': str(r[1] or ''), 'sold_value': float(r[2] or 0),
+                 'sold_qty': float(r[3] or 0), 'lost_daily': float(r[2] or 0) / days}
+                for r in (await db.execute(lstmt)).all()]
+
+    # Dead stock — has stock now, but no sales at this store in `dead_days`.
+    dead = []
+    if snapshot:
+        cutoff = date_to - timedelta(days=dead_days)
+        recent = select(FactSales.item_id).where(
+            FactSales.branch_ext_id == branch_ext, FactSales.doc_date >= cutoff, FactSales.item_id.is_not(None),
+        ).distinct()
+        dstock = select(
+            FactInventory.item_id.label('iid'),
+            func.coalesce(func.sum(FactInventory.qty_on_hand), 0).label('soh'),
+            func.coalesce(func.sum(FactInventory.value_amount), 0).label('sv'),
+        ).where(
+            FactInventory.branch_ext_id == branch_ext, FactInventory.doc_date == snapshot,
+            FactInventory.movement_type == 'snapshot',
+        ).group_by(FactInventory.item_id).having(func.sum(FactInventory.qty_on_hand) > 0).subquery()
+        dstmt = (
+            select(DimItem.name, DimItem.barcode, dstock.c.soh, dstock.c.sv)
+            .select_from(dstock).join(DimItem, dstock.c.iid == DimItem.id)
+            .where(dstock.c.iid.notin_(recent))
+            .order_by(dstock.c.sv.desc().nullslast()).limit(top_n)
+        )
+        dead = [{'name': str(r[0] or ''), 'barcode': str(r[1] or ''), 'stock_qty': float(r[2] or 0), 'tied_value': float(r[3] or 0)}
+                for r in (await db.execute(dstmt)).all()]
+
+    # Category decline vs last year (same period).
+    def _shift(d):
+        try:
+            return d.replace(year=d.year - 1)
+        except ValueError:
+            return d.replace(year=d.year - 1, day=28)
+    ly_from, ly_to = _shift(date_from), _shift(date_to)
+    in_now = (FactSales.doc_date >= date_from) & (FactSales.doc_date <= date_to)
+    in_ly = (FactSales.doc_date >= ly_from) & (FactSales.doc_date <= ly_to)
+    cat = func.coalesce(func.nullif(func.trim(func.coalesce(DimItem.category_1, '')), ''), literal('(κενό)'))
+    cstmt = (
+        select(
+            cat.label('c'),
+            func.coalesce(func.sum(case((in_now, net), else_=literal(0.0))), 0).label('now'),
+            func.coalesce(func.sum(case((in_ly, net), else_=literal(0.0))), 0).label('ly'),
+        )
+        .select_from(FactSales).join(DimItem, FactSales.item_id == DimItem.id)
+        .where(FactSales.branch_ext_id == branch_ext, in_now | in_ly).group_by(cat)
+    )
+    decline = []
+    for r in (await db.execute(cstmt)).all():
+        now_v, ly_v = float(r[1] or 0), float(r[2] or 0)
+        if ly_v > 0 and now_v < ly_v:
+            decline.append({'category': str(r[0] or ''), 'now': now_v, 'ly': ly_v,
+                            'delta': now_v - ly_v, 'delta_pct': (now_v - ly_v) / ly_v * 100.0})
+    decline.sort(key=lambda x: x['delta'])
+    decline = decline[:top_n]
+
+    dead_val = sum(d['tied_value'] for d in dead)
+    lost_val = sum(l['sold_value'] for l in lost)
+    dead_ratio = (dead_val / stock_val) if stock_val else 0.0
+    avail_pen = min(30.0, (lost_val / sales_net * 100.0) if sales_net else 0.0)
+    kpis['health'] = int(max(0.0, min(100.0, 100 - dead_ratio * 50 - avail_pen + (margin_pct - 12))))
+    kpis['lost_value'] = lost_val
+    kpis['dead_value'] = dead_val
+
+    return {
+        'kpis': kpis,
+        'snapshot': snapshot.isoformat() if snapshot else None,
+        'lost_sales': lost,
+        'dead_stock': dead,
+        'category_decline': decline,
+        'dead_days': dead_days,
+    }
+
+
 async def inventory_filter_options(
     db: AsyncSession,
     as_of: date,
