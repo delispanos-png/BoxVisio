@@ -12491,13 +12491,31 @@ async def export_item_rows(
     period_to: date | None = None,
     limit: int = 1000,
 ) -> list[dict[str, str]]:
-    """Item rows for the Εξαγωγές report: name, barcode, brand, category 1/2/3.
+    """Item rows for the Εξαγωγές report: name, barcode, brand, category 1/2/3,
+    plus sold quantity (units) and value for the selected scope.
 
-    Brand/category filters apply directly to the item master. When a branch,
-    warehouse or period is set, the list is restricted to items that actually
-    sold within that scope (presence in fact_sales), so the report reflects the
-    selected period and stores.
+    Brand/category filters apply to the item master. Sold quantity/value are
+    aggregated from fact_sales within the selected branch / warehouse / period,
+    using the same behaviour-aware signing as the dashboard (returns subtract).
+    Only items with sales activity in that scope are returned, ordered by value.
     """
+    qty_expr = func.coalesce(FactSales.qty, 0) * _fact_sales_behavior_sign_expr(quantity=True)
+    val_expr = _fact_sales_signed_net_expr()
+    sales = select(
+        FactSales.item_id.label('iid'),
+        func.coalesce(func.sum(qty_expr), 0).label('sold_qty'),
+        func.coalesce(func.sum(val_expr), 0).label('sold_value'),
+    ).where(FactSales.item_id.is_not(None))
+    if period_from:
+        sales = sales.where(FactSales.doc_date >= period_from)
+    if period_to:
+        sales = sales.where(FactSales.doc_date <= period_to)
+    if branches:
+        sales = sales.where(FactSales.branch_ext_id.in_(branches))
+    if warehouses:
+        sales = sales.where(FactSales.warehouse_ext_id.in_(warehouses))
+    sales = sales.group_by(FactSales.item_id).subquery()
+
     stmt = (
         select(
             DimItem.name,
@@ -12506,8 +12524,11 @@ async def export_item_rows(
             DimItem.category_1,
             DimItem.category_2,
             DimItem.category_3,
+            sales.c.sold_qty,
+            sales.c.sold_value,
         )
         .select_from(DimItem)
+        .join(sales, sales.c.iid == DimItem.id)
         .join(DimBrand, DimItem.brand_id == DimBrand.id, isouter=True)
     )
     if brands:
@@ -12518,18 +12539,7 @@ async def export_item_rows(
         stmt = stmt.where(DimItem.category_2.in_(category_2))
     if category_3:
         stmt = stmt.where(DimItem.category_3.in_(category_3))
-    if branches or warehouses or period_from or period_to:
-        sub = select(FactSales.item_id).where(FactSales.item_id.is_not(None))
-        if period_from:
-            sub = sub.where(FactSales.doc_date >= period_from)
-        if period_to:
-            sub = sub.where(FactSales.doc_date <= period_to)
-        if branches:
-            sub = sub.where(FactSales.branch_ext_id.in_(branches))
-        if warehouses:
-            sub = sub.where(FactSales.warehouse_ext_id.in_(warehouses))
-        stmt = stmt.where(DimItem.id.in_(sub))
-    stmt = stmt.order_by(func.lower(func.coalesce(DimItem.name, DimItem.external_id))).limit(limit)
+    stmt = stmt.order_by(sales.c.sold_value.desc().nullslast()).limit(limit)
     rows = (await db.execute(stmt)).all()
     return [
         {
@@ -12539,6 +12549,8 @@ async def export_item_rows(
             'category_1': str(r[3] or ''),
             'category_2': str(r[4] or ''),
             'category_3': str(r[5] or ''),
+            'sold_qty': float(r[6] or 0),
+            'sold_value': float(r[7] or 0),
         }
         for r in rows
     ]

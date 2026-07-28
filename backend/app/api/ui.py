@@ -177,6 +177,11 @@ from app.services.kpi_queries import (
     normalize_eshop_fulfillment_config,
     normalize_price_margin_targets_config,
 )
+from app.services.kpi_participation_scope import (
+    reset_current_sales_kpi_participation_config,
+    set_current_sales_kpi_participation_config,
+)
+from app.services.rule_config import resolve_rule_payload as _resolve_rule_payload
 
 router = APIRouter(tags=['ui'])
 templates = Jinja2Templates(
@@ -15330,6 +15335,18 @@ async def _render_exports_workbench(
         'to': _clean_date(request.query_params.get('period_to')),
     }
 
+    # Sold quantity/value must sign returns exactly like the dashboard, which
+    # depends on the tenant's KPI-participation config being active in context.
+    async with ControlSessionLocal() as control_db:
+        sales_kpi_config = await _resolve_rule_payload(
+            control_db,
+            tenant_id=int(tenant.id),
+            domain=RuleDomain.kpi_participation_rules,
+            stream=OperationalStream.sales_documents,
+            rule_key='sales_kpi_config',
+            fallback_payload={},
+        )
+
     _ROW_LIMIT = 1000
     async for tenant_db in get_tenant_db_session(
         tenant_key=str(tenant.id),
@@ -15345,18 +15362,22 @@ async def _render_exports_workbench(
             valid = {opt['value'] for opt in options.get(key, [])}
             selected[key] = [v for v in (p.strip() for p in raw.split(',')) if v and v in valid]
 
-        rows = await export_item_rows(
-            tenant_db,
-            brands=selected.get('brands'),
-            category_1=selected.get('category_1'),
-            category_2=selected.get('category_2'),
-            category_3=selected.get('category_3'),
-            branches=selected.get('branches'),
-            warehouses=selected.get('warehouses'),
-            period_from=(datetime.strptime(period['from'], '%Y-%m-%d').date() if period['from'] else None),
-            period_to=(datetime.strptime(period['to'], '%Y-%m-%d').date() if period['to'] else None),
-            limit=_ROW_LIMIT,
-        )
+        scope_token = set_current_sales_kpi_participation_config(sales_kpi_config)
+        try:
+            rows = await export_item_rows(
+                tenant_db,
+                brands=selected.get('brands'),
+                category_1=selected.get('category_1'),
+                category_2=selected.get('category_2'),
+                category_3=selected.get('category_3'),
+                branches=selected.get('branches'),
+                warehouses=selected.get('warehouses'),
+                period_from=(datetime.strptime(period['from'], '%Y-%m-%d').date() if period['from'] else None),
+                period_to=(datetime.strptime(period['to'], '%Y-%m-%d').date() if period['to'] else None),
+                limit=_ROW_LIMIT,
+            )
+        finally:
+            reset_current_sales_kpi_participation_config(scope_token)
         break
     else:
         options = {key: [] for key, _label, _ph in _EXPORT_FILTER_FIELDS}

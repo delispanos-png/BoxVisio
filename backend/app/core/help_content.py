@@ -1583,11 +1583,13 @@ CIRCUITS: tuple[dict[str, Any], ...] = (
         ),
         'columns': _tl(
             [
-                'Αποτέλεσμα ανά είδος: Όνομα, Barcode, Brand, Κατηγορία 1, 2, 3.',
+                'Αποτέλεσμα ανά είδος: Όνομα, Barcode, Brand, Κατηγορία 1, 2, 3, Ποσότητα πωλήσεων (τεμ.) και Αξία.',
+                'Ποσότητα/Αξία υπολογίζονται για το επιλεγμένο υποκατάστημα/αποθηκευτικό χώρο/περίοδο, με τις επιστροφές να αφαιρούνται (ίδιος κανόνας με τα dashboards).',
                 'Οι κατηγορίες είναι αλληλεξαρτώμενες: επιλέγοντας Κατηγορία 1 περιορίζονται οι επιλογές της Κατηγορίας 2, και η Κατηγορία 2 περιορίζει την Κατηγορία 3.',
             ],
             [
-                'Result per item: Name, Barcode, Brand, Category 1, 2, 3.',
+                'Result per item: Name, Barcode, Brand, Category 1, 2, 3, sold Quantity (units) and Value.',
+                'Quantity/Value are computed for the selected branch/warehouse/period, with returns subtracted (same rule as the dashboards).',
                 'The categories cascade: picking Category 1 narrows Category 2, and Category 2 narrows Category 3.',
             ],
         ),
