@@ -3,7 +3,7 @@
 {% macro money(x) %}{{ '{:,.2f}'.format(x or 0).replace(',', 'X').replace('.', ',').replace('X', '.') }} €{% endmacro %}
 {% macro fmt(value, kind) %}{% if kind == 'money' %}{{ money(value) }}{% elif kind == 'pct' %}{{ '{:,.2f}'.format(value or 0).replace('.', ',') }}%{% else %}{{ '{:,.0f}'.format(value or 0).replace(',', '.') }}{% endif %}{% endmacro %}
 {# Date field forced to dd/mm/yyyy display (native type=date follows the browser locale, not ours). #}
-{% macro dateinput(name, iso) %}<input type="text" class="exp-date exp-datetext" inputmode="numeric" autocomplete="off" placeholder="ηη/μμ/εεεε" maxlength="10" data-exp-date value="{% if iso and iso|length == 10 %}{{ iso[8:10] }}/{{ iso[5:7] }}/{{ iso[0:4] }}{% endif %}"><input type="hidden" name="{{ name }}" value="{{ iso or '' }}" data-exp-date-iso>{% endmacro %}
+{% macro dateinput(name, iso) %}<span class="exp-datewrap"><input type="text" class="exp-date exp-datetext" inputmode="numeric" autocomplete="off" placeholder="ηη/μμ/εεεε" maxlength="10" data-exp-date value="{% if iso and iso|length == 10 %}{{ iso[8:10] }}/{{ iso[5:7] }}/{{ iso[0:4] }}{% endif %}"><button type="button" class="exp-datebtn" data-exp-datebtn tabindex="-1" title="Άνοιγμα ημερολογίου"><i class="fe fe-calendar"></i></button><input type="date" class="exp-datepick" data-exp-datepick value="{{ iso or '' }}" tabindex="-1" aria-hidden="true"><input type="hidden" name="{{ name }}" value="{{ iso or '' }}" data-exp-date-iso></span>{% endmacro %}
 <style>
   .exp-shell { display: flex; flex-direction: column; gap: 16px; margin-top: 8px; }
   .exp-head h1 { font-size: 22px; margin: 0 0 4px; }
@@ -30,6 +30,11 @@
     background: var(--input-bg, #fff); color: var(--text, #1b2130); font-size: 13.5px;
   }
   .exp-date:focus { outline: none; border-color: var(--primary, #4c63d2); box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary, #4c63d2) 16%, transparent); }
+  .exp-datewrap { position: relative; display: block; }
+  .exp-datewrap .exp-datetext { padding-right: 40px; }
+  .exp-datebtn { position: absolute; top: 50%; right: 6px; transform: translateY(-50%); border: 0; background: transparent; color: var(--text-muted, #626d84); cursor: pointer; padding: 5px 7px; font-size: 15px; line-height: 1; border-radius: 7px; }
+  .exp-datebtn:hover { color: var(--primary, #4c63d2); background: color-mix(in srgb, var(--primary, #4c63d2) 10%, transparent); }
+  .exp-datepick { position: absolute; right: 8px; bottom: 4px; width: 1px; height: 1px; opacity: 0; pointer-events: none; border: 0; padding: 0; margin: 0; }
   .exp-pivot-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 260px)); gap: 12px 16px; margin-bottom: 12px; }
   @media (max-width: 640px) { .exp-pivot-controls { grid-template-columns: 1fr; } }
   .exp-select { width: 100%; padding: 9px 12px; border: 1px solid var(--border-color, #dfe4ee); border-radius: 10px; background: var(--input-bg, #fff); color: var(--text, #1b2130); font-size: 13.5px; }
@@ -478,27 +483,44 @@
     });
   });
 
-  // dd/mm/yyyy text date fields: auto-insert slashes and keep a hidden ISO value
-  // (yyyy-mm-dd) in sync for submission — native type=date can't be forced to el-GR.
-  document.querySelectorAll('[data-exp-date]').forEach(function (inp) {
-    var hidden = inp.nextElementSibling;
+  // dd/mm/yyyy date fields: type with auto-slashes OR click the calendar icon to
+  // open the native picker. A hidden ISO value (yyyy-mm-dd) is kept in sync for
+  // submission — native type=date can't be forced to el-GR display.
+  document.querySelectorAll('.exp-datewrap').forEach(function (wrap) {
+    var text = wrap.querySelector('[data-exp-date]');
+    var hidden = wrap.querySelector('[data-exp-date-iso]');
+    var pick = wrap.querySelector('[data-exp-datepick]');
+    var btn = wrap.querySelector('[data-exp-datebtn]');
+    if (!text) return;
     function toISO(v) {
       var m = v.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
       if (!m) return '';
       var d = +m[1], mo = +m[2];
       if (mo < 1 || mo > 12 || d < 1 || d > 31) return '';
       var iso = m[3] + '-' + m[2] + '-' + m[1];
-      var dt = new Date(iso + 'T00:00:00');
-      return isNaN(dt.getTime()) ? '' : iso;
+      return isNaN(new Date(iso + 'T00:00:00').getTime()) ? '' : iso;
     }
-    inp.addEventListener('input', function () {
-      var digits = inp.value.replace(/\D/g, '').slice(0, 8);
+    function fromISO(iso) { return (iso && iso.length === 10) ? (iso.slice(8, 10) + '/' + iso.slice(5, 7) + '/' + iso.slice(0, 4)) : ''; }
+    text.addEventListener('input', function () {
+      var digits = text.value.replace(/\D/g, '').slice(0, 8);
       var out = digits;
       if (digits.length > 4) out = digits.slice(0, 2) + '/' + digits.slice(2, 4) + '/' + digits.slice(4);
       else if (digits.length > 2) out = digits.slice(0, 2) + '/' + digits.slice(2);
-      inp.value = out;
-      if (hidden) hidden.value = toISO(out);
+      text.value = out;
+      var iso = toISO(out);
+      if (hidden) hidden.value = iso;
+      if (pick && iso) pick.value = iso;
     });
+    if (btn && pick) {
+      btn.addEventListener('click', function () {
+        try { pick.showPicker(); } catch (e) { pick.focus(); pick.click(); }
+      });
+      pick.addEventListener('change', function () {
+        var iso = pick.value;
+        text.value = fromISO(iso);
+        if (hidden) hidden.value = iso;
+      });
+    }
   });
 
   // Analysis report: switching mode shows Period B (comparison) or the metrics
