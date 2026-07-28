@@ -15890,7 +15890,10 @@ async def tenant_store_dashboard(
             scope_token = set_current_sales_kpi_participation_config(sales_kpi_config)
             try:
                 data = await store_dashboard(tenant_db, branch_ext=branch_ext, date_from=date_from, date_to=date_to)
-                transfers = await store_transfer_suggestions(tenant_db, branch_ext=branch_ext, date_from=date_from, date_to=date_to)
+                transfers = await store_transfer_suggestions(
+                    tenant_db, branch_ext=branch_ext, date_from=date_from, date_to=date_to,
+                    target_days=(date_to - date_from).days + 1,
+                )
                 data['transfers'] = transfers.get('transfers', [])
                 data['transfer_value'] = transfers.get('transfer_value', 0.0)
                 data['target_days'] = transfers.get('target_days', 14)
@@ -15958,7 +15961,10 @@ async def tenant_store_dashboard_download(
         scope_token = set_current_sales_kpi_participation_config(sales_kpi_config)
         try:
             if card == 'transfer':
-                data = await store_transfer_suggestions(tenant_db, branch_ext=branch_ext, date_from=date_from, date_to=date_to, top_n=100000)
+                data = await store_transfer_suggestions(
+                    tenant_db, branch_ext=branch_ext, date_from=date_from, date_to=date_to,
+                    target_days=(date_to - date_from).days + 1, top_n=100000,
+                )
             else:
                 data = await store_dashboard(tenant_db, branch_ext=branch_ext, date_from=date_from, date_to=date_to, top_n=100000)
         finally:
