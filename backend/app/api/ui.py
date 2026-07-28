@@ -174,6 +174,7 @@ from app.services.subscription_features import (
 from app.services.kpi_queries import (
     export_filter_options,
     export_item_rows,
+    export_item_totals,
     normalize_document_series_labels_config,
     normalize_eshop_fulfillment_config,
     normalize_price_margin_targets_config,
@@ -15320,10 +15321,10 @@ async def _export_query(
     *,
     limit: int,
     compute: bool,
-) -> tuple[dict, dict, dict, list[dict]]:
+) -> tuple[dict, dict, dict, list[dict], dict]:
     """Shared data path for the Εξαγωγές pages and downloads: open the tenant DB,
     load filter options, parse the request filters, and (when compute) run the
-    per-item sales aggregation. Returns (options, selected, period, rows)."""
+    per-item sales aggregation. Returns (options, selected, period, rows, totals)."""
     period = {
         'from': _export_clean_date(request.query_params.get('period_from')),
         'to': _export_clean_date(request.query_params.get('period_to')),
@@ -15342,7 +15343,18 @@ async def _export_query(
             selected[key] = [v for v in (p.strip() for p in raw.split(',')) if v and v in valid]
 
         rows: list[dict] = []
+        totals: dict = {'count': 0, 'qty': 0.0, 'value': 0.0}
         if compute:
+            filter_kwargs = dict(
+                brands=selected.get('brands'),
+                category_1=selected.get('category_1'),
+                category_2=selected.get('category_2'),
+                category_3=selected.get('category_3'),
+                branches=selected.get('branches'),
+                warehouses=selected.get('warehouses'),
+                period_from=(datetime.strptime(period['from'], '%Y-%m-%d').date() if period['from'] else None),
+                period_to=(datetime.strptime(period['to'], '%Y-%m-%d').date() if period['to'] else None),
+            )
             # Sold quantity/value must sign returns exactly like the dashboard,
             # which depends on the tenant's KPI-participation config in context.
             async with ControlSessionLocal() as control_db:
@@ -15356,24 +15368,14 @@ async def _export_query(
                 )
             scope_token = set_current_sales_kpi_participation_config(sales_kpi_config)
             try:
-                rows = await export_item_rows(
-                    tenant_db,
-                    brands=selected.get('brands'),
-                    category_1=selected.get('category_1'),
-                    category_2=selected.get('category_2'),
-                    category_3=selected.get('category_3'),
-                    branches=selected.get('branches'),
-                    warehouses=selected.get('warehouses'),
-                    period_from=(datetime.strptime(period['from'], '%Y-%m-%d').date() if period['from'] else None),
-                    period_to=(datetime.strptime(period['to'], '%Y-%m-%d').date() if period['to'] else None),
-                    limit=limit,
-                )
+                rows = await export_item_rows(tenant_db, limit=limit, **filter_kwargs)
+                totals = await export_item_totals(tenant_db, **filter_kwargs)
             finally:
                 reset_current_sales_kpi_participation_config(scope_token)
-        return options, selected, period, rows
+        return options, selected, period, rows, totals
 
     empty = {key: [] for key, _label, _ph in _EXPORT_FILTER_FIELDS}
-    return empty, {key: [] for key, _label, _ph in _EXPORT_FILTER_FIELDS}, period, []
+    return empty, {key: [] for key, _label, _ph in _EXPORT_FILTER_FIELDS}, period, [], {'count': 0, 'qty': 0.0, 'value': 0.0}
 
 
 async def _render_exports_workbench(
@@ -15408,7 +15410,7 @@ async def _render_exports_workbench(
     calculated = str(request.query_params.get('calc') or '').strip() in {'1', 'true', 'yes'}
 
     _ROW_LIMIT = 1000
-    options, selected, period, rows = await _export_query(
+    options, selected, period, rows, totals = await _export_query(
         request, tenant, limit=_ROW_LIMIT, compute=calculated
     )
 
@@ -15437,6 +15439,7 @@ async def _render_exports_workbench(
             'rows': rows,
             'row_limit': _ROW_LIMIT,
             'calculated': calculated,
+            'totals': totals,
         },
     )
 
@@ -15494,7 +15497,7 @@ async def _render_exports_download(
     if fmt not in {'csv', 'xlsx'}:
         return Response('Μη έγκυρη μορφή εξαγωγής.', status_code=400, media_type='text/plain; charset=utf-8')
 
-    _options, _selected, period, rows = await _export_query(
+    _options, _selected, period, rows, totals = await _export_query(
         request, tenant, limit=_EXPORT_DOWNLOAD_LIMIT, compute=True
     )
     data_rows = [
@@ -15505,6 +15508,11 @@ async def _render_exports_download(
         ]
         for r in rows
     ]
+    if data_rows:
+        data_rows.append([
+            'ΣΥΝΟΛΟ', '', '', '', '', '',
+            round(float(totals.get('qty') or 0), 3), round(float(totals.get('value') or 0), 2),
+        ])
     base = 'anafores' if variant == 'reports' else 'export'
     span = ''
     if period.get('from') or period.get('to'):

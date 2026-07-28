@@ -68,6 +68,12 @@
   .exp-mono { font-family: var(--mono, ui-monospace, monospace); font-size: 12.5px; color: var(--text-muted); }
   .exp-table th.exp-num, .exp-table td.exp-num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
   .exp-table td.exp-num { font-weight: 600; }
+  .exp-table tfoot .exp-total-row td {
+    position: sticky; bottom: 0; background: var(--surface-2, #f2f4f9);
+    border-top: 2px solid var(--border-color, #d3d9e6); font-weight: 800;
+    color: var(--text, #1b2130); padding: 11px 12px;
+  }
+  .exp-table tfoot .exp-total-row td:first-child { text-transform: uppercase; letter-spacing: .03em; font-size: 12px; }
 </style>
 
 <div class="exp-shell">
@@ -171,6 +177,13 @@
           </tr>
           {% endfor %}
         </tbody>
+        <tfoot>
+          <tr class="exp-total-row">
+            <td colspan="6">ΣΥΝΟΛΟ{% if totals.count %} ({{ '{:,.0f}'.format(totals.count).replace(',', '.') }} είδη){% endif %}</td>
+            <td class="exp-num">{{ '{:,.0f}'.format(totals.qty or 0).replace(',', '.') }}</td>
+            <td class="exp-num">{{ '{:,.2f}'.format(totals.value or 0).replace(',', 'X').replace('.', ',').replace('X', '.') }} €</td>
+          </tr>
+        </tfoot>
       </table>
     </div>
     {% if rows|length >= row_limit %}

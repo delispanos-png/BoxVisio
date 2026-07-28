@@ -12556,6 +12556,63 @@ async def export_item_rows(
     ]
 
 
+async def export_item_totals(
+    db: AsyncSession,
+    *,
+    brands: list[str] | None = None,
+    category_1: list[str] | None = None,
+    category_2: list[str] | None = None,
+    category_3: list[str] | None = None,
+    branches: list[str] | None = None,
+    warehouses: list[str] | None = None,
+    period_from: date | None = None,
+    period_to: date | None = None,
+) -> dict[str, float]:
+    """Grand totals (item count, sold quantity, value) over the FULL filtered
+    set — independent of the on-screen row cap — for the report's ΣΥΝΟΛΟ line."""
+    qty_expr = func.coalesce(FactSales.qty, 0) * _fact_sales_behavior_sign_expr(quantity=True)
+    val_expr = _fact_sales_signed_net_expr()
+    sales = select(
+        FactSales.item_id.label('iid'),
+        func.coalesce(func.sum(qty_expr), 0).label('sold_qty'),
+        func.coalesce(func.sum(val_expr), 0).label('sold_value'),
+    ).where(FactSales.item_id.is_not(None))
+    if period_from:
+        sales = sales.where(FactSales.doc_date >= period_from)
+    if period_to:
+        sales = sales.where(FactSales.doc_date <= period_to)
+    if branches:
+        sales = sales.where(FactSales.branch_ext_id.in_(branches))
+    if warehouses:
+        sales = sales.where(FactSales.warehouse_ext_id.in_(warehouses))
+    sales = sales.group_by(FactSales.item_id).subquery()
+
+    stmt = (
+        select(
+            func.count(),
+            func.coalesce(func.sum(sales.c.sold_qty), 0),
+            func.coalesce(func.sum(sales.c.sold_value), 0),
+        )
+        .select_from(DimItem)
+        .join(sales, sales.c.iid == DimItem.id)
+        .join(DimBrand, DimItem.brand_id == DimBrand.id, isouter=True)
+    )
+    if brands:
+        stmt = stmt.where(DimBrand.external_id.in_(brands))
+    if category_1:
+        stmt = stmt.where(DimItem.category_1.in_(category_1))
+    if category_2:
+        stmt = stmt.where(DimItem.category_2.in_(category_2))
+    if category_3:
+        stmt = stmt.where(DimItem.category_3.in_(category_3))
+    row = (await db.execute(stmt)).first()
+    return {
+        'count': int(row[0] or 0),
+        'qty': float(row[1] or 0),
+        'value': float(row[2] or 0),
+    }
+
+
 async def inventory_filter_options(
     db: AsyncSession,
     as_of: date,
