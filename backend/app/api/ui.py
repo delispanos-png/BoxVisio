@@ -171,6 +171,7 @@ from app.services.subscription_features import (
     normalize_subscription_feature_flags,
 )
 from app.services.kpi_queries import (
+    export_filter_options,
     normalize_document_series_labels_config,
     normalize_eshop_fulfillment_config,
     normalize_price_margin_targets_config,
@@ -15279,21 +15280,89 @@ async def tenant_analytics_receivables_payables(
     return RedirectResponse(url='/tenant/finance-dashboard', status_code=302)
 
 
+# Shared filter definition for the Εξαγωγές circuit (Αναφορές + CSV/Excel). Keep
+# both pages driven by this one list so they stay in parity by construction.
+_EXPORT_FILTER_FIELDS = [
+    ('branches', 'Υποκατάστημα', 'Όλα τα υποκαταστήματα'),
+    ('warehouses', 'Αποθηκευτικός χώρος', 'Όλοι οι αποθηκευτικοί χώροι'),
+    ('brands', 'Brands', 'Όλα τα brands'),
+    ('category_1', 'Κατηγορία 1', 'Όλες οι κατηγορίες 1'),
+    ('category_2', 'Κατηγορία 2', 'Όλες οι κατηγορίες 2'),
+    ('category_3', 'Κατηγορία 3', 'Όλες οι κατηγορίες 3'),
+]
+
+
+async def _render_exports_workbench(
+    *,
+    request: Request,
+    tenant: Tenant,
+    variant: str,
+) -> HTMLResponse:
+    """Render an Εξαγωγές page (Reports or CSV/Excel). Both share the same filter
+    bar and option loader; only titling/target differ."""
+    variants = {
+        'reports': {
+            'active_page': 'exports_reports',
+            'form_action': '/tenant/exports/reports',
+            'heading': 'Αναφορές',
+            'description': 'Κεντρική λίστα αναφορών με φίλτρα ανά υποκατάστημα, αποθηκευτικό χώρο, brand και τις τρεις κατηγορίες είδους.',
+            'title': 'Αναφορές',
+        },
+        'csv_excel': {
+            'active_page': 'exports_csv_excel',
+            'form_action': '/tenant/exports/csv-excel',
+            'heading': 'Εξαγωγές - CSV / Excel',
+            'description': 'Εξαγωγές CSV/Excel με φίλτρα ανά υποκατάστημα, αποθηκευτικό χώρο, brand και τις τρεις κατηγορίες είδους.',
+            'title': 'Εξαγωγές - CSV / Excel',
+        },
+    }
+    cfg = variants[variant]
+    async for tenant_db in get_tenant_db_session(
+        tenant_key=str(tenant.id),
+        db_name=tenant.db_name,
+        db_user=tenant.db_user,
+        db_password=tenant.db_password,
+    ):
+        options = await export_filter_options(tenant_db)
+        break
+    else:
+        options = {key: [] for key, _label, _ph in _EXPORT_FILTER_FIELDS}
+
+    selected: dict[str, list[str]] = {}
+    label_maps: dict[str, dict[str, str]] = {}
+    for key, _label, _ph in _EXPORT_FILTER_FIELDS:
+        raw = str(request.query_params.get(key) or '').strip()
+        valid = {opt['value'] for opt in options.get(key, [])}
+        selected[key] = [v for v in (p.strip() for p in raw.split(',')) if v and v in valid]
+        label_maps[key] = {opt['value']: opt['label'] for opt in options.get(key, [])}
+
+    return templates.TemplateResponse(
+        'tenant/exports_workbench.html',
+        {
+            'request': request,
+            'tenant': tenant,
+            **await _tenant_navigation_context(tenant),
+            'active_page': cfg['active_page'],
+            'title': cfg['title'],
+            'page_title_key': cfg['title'],
+            'page_heading': cfg['heading'],
+            'page_description': cfg['description'],
+            'form_action': cfg['form_action'],
+            'filter_fields': _EXPORT_FILTER_FIELDS,
+            'options': options,
+            'selected': selected,
+            'label_maps': label_maps,
+        },
+    )
+
+
 @router.get('/tenant/exports/reports', response_class=HTMLResponse)
 async def tenant_exports_reports(
     request: Request,
     tenant: Tenant = Depends(get_request_tenant),
     _user=Depends(get_current_user),
 ):
-    return _render_tenant_menu_placeholder(
-        request=request,
-        tenant=tenant,
-        nav_context=await _tenant_navigation_context(tenant),
-        active_page='exports_reports',
-        title='title_exports_reports',
-        page_title_key='reports',
-        page_description='Κεντρική λίστα διαθέσιμων reports με φίλτρα, εκτέλεση και ιστορικό εξαγωγών.',
-    )
+    return await _render_exports_workbench(request=request, tenant=tenant, variant='reports')
 
 
 @router.get('/tenant/exports/sellout', response_class=HTMLResponse)
@@ -15321,12 +15390,4 @@ async def tenant_exports_csv_excel(
     tenant: Tenant = Depends(get_request_tenant),
     _user=Depends(get_current_user),
 ):
-    return _render_tenant_menu_placeholder(
-        request=request,
-        tenant=tenant,
-        nav_context=await _tenant_navigation_context(tenant),
-        active_page='exports_csv_excel',
-        title='title_exports_csv_excel',
-        page_title_key='csv_excel',
-        page_description='Εξαγωγές CSV/Excel από aggregates και operational streams με συμβατή δομή για downstream χρήση.',
-    )
+    return await _render_exports_workbench(request=request, tenant=tenant, variant='csv_excel')

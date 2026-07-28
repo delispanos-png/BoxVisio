@@ -1,0 +1,161 @@
+{% extends "base_tenant.html" %}
+{% block content %}
+<style>
+  .exp-shell { display: flex; flex-direction: column; gap: 16px; margin-top: 8px; }
+  .exp-head h1 { font-size: 22px; margin: 0 0 4px; }
+  .exp-head p { color: var(--text-muted); margin: 0; font-size: 13.5px; }
+  .exp-panel {
+    background: var(--card-bg, #fff); border: 1px solid var(--border-color, #e5e9f2);
+    border-radius: 14px; padding: 18px 20px;
+  }
+  .exp-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
+  .exp-panel-head h2 { font-size: 15px; margin: 0; font-weight: 800; }
+  .exp-panel-head .exp-count { font-size: 12.5px; color: var(--text-muted); font-weight: 700; }
+  .exp-filter-grid {
+    display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px 16px;
+  }
+  @media (max-width: 991px) { .exp-filter-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 640px)  { .exp-filter-grid { grid-template-columns: 1fr; } }
+  .exp-field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+  .exp-field > label { font-size: 12px; font-weight: 800; color: var(--text-muted); letter-spacing: .02em; }
+  .exp-dd { position: relative; }
+  .exp-dd > summary {
+    list-style: none; cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    padding: 9px 12px; border: 1px solid var(--border-color, #dfe4ee); border-radius: 10px;
+    background: var(--input-bg, #fff); font-size: 13.5px; color: var(--text, #1b2130);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .exp-dd > summary::-webkit-details-marker { display: none; }
+  .exp-dd > summary::after { content: "▾"; color: var(--text-muted); font-size: 11px; flex: 0 0 auto; }
+  .exp-dd[open] > summary { border-color: var(--primary, #4c63d2); box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary, #4c63d2) 16%, transparent); }
+  .exp-menu {
+    position: absolute; z-index: 30; top: calc(100% + 4px); left: 0; right: 0;
+    max-height: 280px; overflow-y: auto; background: var(--card-bg, #fff);
+    border: 1px solid var(--border-color, #dfe4ee); border-radius: 10px; padding: 6px;
+    box-shadow: 0 12px 28px rgba(20, 28, 48, .16);
+  }
+  .exp-menu-search { width: 100%; padding: 7px 10px; margin-bottom: 6px; border: 1px solid var(--border-color, #dfe4ee); border-radius: 8px; font-size: 13px; background: var(--input-bg, #fff); color: var(--text); }
+  .exp-opt { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 7px; font-size: 13px; cursor: pointer; color: var(--text); }
+  .exp-opt:hover { background: color-mix(in srgb, var(--primary, #4c63d2) 9%, transparent); }
+  .exp-opt input { flex: 0 0 auto; }
+  .exp-opt.is-hidden { display: none; }
+  .exp-menu-empty { color: var(--text-muted); font-size: 12.5px; padding: 8px; }
+  .exp-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px; }
+  .exp-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+  .exp-chip { font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 999px;
+    background: color-mix(in srgb, var(--primary, #4c63d2) 12%, transparent); color: var(--primary, #4c63d2); }
+  .exp-empty-note { color: var(--text-muted); font-size: 13.5px; }
+</style>
+
+<div class="exp-shell">
+  <section class="exp-head">
+    <h1>{{ page_heading }}</h1>
+    <p>{{ page_description }}</p>
+  </section>
+
+  <form method="get" action="{{ form_action }}">
+    <section class="exp-panel">
+      <div class="exp-panel-head">
+        <h2><i class="fe fe-filter"></i> Φίλτρα</h2>
+        <span class="exp-count" data-exp-total>—</span>
+      </div>
+      <div class="exp-filter-grid">
+        {% for key, label, placeholder in filter_fields %}
+        <div class="exp-field">
+          <label>{{ label }}</label>
+          <input type="hidden" name="{{ key }}" value="{{ (selected.get(key) or [])|join(',') }}" data-exp-value="{{ key }}">
+          <details class="exp-dd" data-exp-dd="{{ key }}" data-placeholder="{{ placeholder }}">
+            <summary data-exp-summary>{{ placeholder }}</summary>
+            <div class="exp-menu">
+              <input type="text" class="exp-menu-search" placeholder="Αναζήτηση…" data-exp-search>
+              {% for opt in options.get(key) or [] %}
+              <label class="exp-opt">
+                <input type="checkbox" value="{{ opt.value }}" {% if opt.value in (selected.get(key) or []) %}checked{% endif %}>
+                <span>{{ opt.label }}</span>
+              </label>
+              {% else %}
+              <div class="exp-menu-empty">Δεν υπάρχουν διαθέσιμες επιλογές.</div>
+              {% endfor %}
+            </div>
+          </details>
+        </div>
+        {% endfor %}
+      </div>
+      <div class="exp-actions">
+        <a class="btn btn-light" href="{{ form_action }}"><i class="fe fe-x"></i> Καθαρισμός</a>
+        <button class="btn btn-primary" type="submit"><i class="fe fe-filter"></i> Εφαρμογή</button>
+      </div>
+    </section>
+  </form>
+
+  <section class="exp-panel">
+    <div class="exp-panel-head">
+      <h2>{{ page_heading }}</h2>
+    </div>
+    {% set any_selected = (selected.values()|map('length')|sum) if selected else 0 %}
+    {% if any_selected %}
+    <p class="exp-empty-note">Ενεργά φίλτρα:</p>
+    <div class="exp-chips">
+      {% for key, label, placeholder in filter_fields %}
+        {% for v in selected.get(key) or [] %}
+        <span class="exp-chip">{{ label }}: {{ label_maps.get(key, {}).get(v, v) }}</span>
+        {% endfor %}
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="exp-empty-note">Επίλεξε φίλτρα και πάτησε «Εφαρμογή». Η δημιουργία του αρχείου εξαγωγής θα προστεθεί στο επόμενο βήμα.</p>
+    {% endif %}
+  </section>
+</div>
+
+<script>
+(function () {
+  function refresh(dd) {
+    var key = dd.getAttribute('data-exp-dd');
+    var hidden = document.querySelector('[data-exp-value="' + key + '"]');
+    var summary = dd.querySelector('[data-exp-summary]');
+    var placeholder = dd.getAttribute('data-placeholder');
+    var checked = Array.prototype.slice.call(dd.querySelectorAll('input[type=checkbox]:checked'));
+    var values = checked.map(function (c) { return c.value; });
+    if (hidden) hidden.value = values.join(',');
+    if (summary) {
+      if (values.length === 0) summary.textContent = placeholder;
+      else if (values.length === 1) summary.textContent = checked[0].parentNode.querySelector('span').textContent;
+      else summary.textContent = values.length + ' επιλεγμένα';
+    }
+    updateTotal();
+  }
+  function updateTotal() {
+    var total = 0;
+    document.querySelectorAll('[data-exp-value]').forEach(function (h) {
+      if (h.value.trim()) total += h.value.split(',').filter(Boolean).length;
+    });
+    var el = document.querySelector('[data-exp-total]');
+    if (el) el.textContent = total ? (total + ' επιλεγμένα φίλτρα') : 'Κανένα φίλτρο';
+  }
+  document.querySelectorAll('[data-exp-dd]').forEach(function (dd) {
+    dd.addEventListener('change', function (e) {
+      if (e.target && e.target.type === 'checkbox') refresh(dd);
+    });
+    var search = dd.querySelector('[data-exp-search]');
+    if (search) {
+      search.addEventListener('click', function (e) { e.preventDefault(); });
+      search.addEventListener('input', function () {
+        var q = search.value.trim().toLowerCase();
+        dd.querySelectorAll('.exp-opt').forEach(function (opt) {
+          var txt = (opt.textContent || '').trim().toLowerCase();
+          opt.classList.toggle('is-hidden', q && txt.indexOf(q) === -1);
+        });
+      });
+    }
+    refresh(dd);
+  });
+  // close dropdowns on outside click
+  document.addEventListener('click', function (e) {
+    document.querySelectorAll('details[data-exp-dd][open]').forEach(function (dd) {
+      if (!dd.contains(e.target)) dd.removeAttribute('open');
+    });
+  });
+})();
+</script>
+{% endblock %}

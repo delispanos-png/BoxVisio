@@ -1569,19 +1569,21 @@ CIRCUITS: tuple[dict[str, Any], ...] = (
         ),
         'steps': _tl(
             [
-                'Όρισε ΠΡΩΤΑ περίοδο και φίλτρα — η εξαγωγή ακολουθεί ό,τι βλέπεις στην οθόνη.',
-                'Διάλεξε τη μορφή (CSV ή Excel).',
-                'Για συμφωνία με SoftOne, κράτα ίδια ημερομηνία, σειρά, υποκατάστημα και συμπεριφορές παραστατικών.',
+                'Όρισε ΠΡΩΤΑ τα φίλτρα — η εξαγωγή ακολουθεί ό,τι βλέπεις στην οθόνη.',
+                'Διαθέσιμα φίλτρα: Υποκατάστημα, Αποθηκευτικός χώρος, Brands και οι τρεις βασικές κατηγορίες του είδους (Κατηγορία 1, 2, 3). Κάθε φίλτρο δέχεται πολλές επιλογές.',
+                'Οι Αναφορές και το CSV/Excel μοιράζονται τα ΙΔΙΑ φίλτρα — ό,τι επιλέγεις εφαρμόζεται με τον ίδιο τρόπο και στα δύο.',
+                'Πάτησε «Εφαρμογή» για να ισχύσουν τα φίλτρα· «Καθαρισμός» για μηδενισμό.',
             ],
             [
-                'Set the period and filters FIRST — the export follows what is on screen.',
-                'Choose the format (CSV or Excel).',
-                'To reconcile against SoftOne, keep the same date, series, branch and document behaviours.',
+                'Set the filters FIRST — the export follows what is on screen.',
+                'Available filters: Branch, Warehouse, Brands and the three basic item categories (Category 1, 2, 3). Each filter accepts multiple selections.',
+                'Reports and CSV/Excel share the SAME filters — a selection applies identically to both.',
+                'Press "Apply" to activate the filters; "Clear" to reset.',
             ],
         ),
         'columns': _tl(
-            ['Λίστα διαθέσιμων αναφορών ανά κύκλωμα.'],
-            ['A list of available reports per stream.'],
+            ['Κοινά φίλτρα (Υποκατάστημα, Αποθηκευτικός χώρος, Brands, Κατηγορία 1/2/3) για Αναφορές και CSV/Excel.'],
+            ['Shared filters (Branch, Warehouse, Brands, Category 1/2/3) for Reports and CSV/Excel.'],
         ),
         'popups': _tl(
             ['Επιλογές μορφής και εύρους πριν την εξαγωγή.'],

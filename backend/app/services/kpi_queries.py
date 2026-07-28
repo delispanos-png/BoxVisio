@@ -12417,6 +12417,52 @@ async def inventory_by_manufacturer(
     ]
 
 
+async def export_filter_options(db: AsyncSession) -> dict[str, list[dict[str, str]]]:
+    """Filter options for the Εξαγωγές circuit (Αναφορές + CSV/Excel).
+
+    Returns branch / warehouse / brand dimensions ({value: external_id, label: name})
+    plus the three basic item category levels (category_1/2/3) each item belongs to,
+    sourced as distinct non-empty text values from dim_items. Shared by the Reports
+    and CSV/Excel pages so the two stay in parity.
+    """
+    async def _dim_options(model) -> list[dict[str, str]]:
+        rows = (
+            await db.execute(
+                select(model.external_id, model.name)
+                .where(model.external_id.is_not(None))
+                .order_by(func.lower(func.coalesce(model.name, model.external_id)))
+            )
+        ).all()
+        out: list[dict[str, str]] = []
+        seen: set[str] = set()
+        for ext, name in rows:
+            value = str(ext or '').strip()
+            if not value or value in seen:
+                continue
+            seen.add(value)
+            out.append({'value': value, 'label': (str(name or '').strip() or value)})
+        return out
+
+    async def _item_category_options(column) -> list[dict[str, str]]:
+        clean = _softone_clean_dimension_text(column)
+        # ORDER BY must reference the selected expression for SELECT DISTINCT.
+        rows = (
+            await db.execute(
+                select(clean.label('v')).distinct().where(clean.is_not(None)).order_by(clean)
+            )
+        ).scalars().all()
+        return [{'value': str(v), 'label': str(v)} for v in rows if str(v or '').strip()]
+
+    return {
+        'branches': await _dim_options(DimBranch),
+        'warehouses': await _dim_options(DimWarehouse),
+        'brands': await _dim_options(DimBrand),
+        'category_1': await _item_category_options(DimItem.category_1),
+        'category_2': await _item_category_options(DimItem.category_2),
+        'category_3': await _item_category_options(DimItem.category_3),
+    }
+
+
 async def inventory_filter_options(
     db: AsyncSession,
     as_of: date,
