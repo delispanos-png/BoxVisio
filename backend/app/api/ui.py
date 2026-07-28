@@ -15581,18 +15581,18 @@ async def _render_exports_download(
             ])
         base = 'sygrisi_omadon'
     elif report_kind == 'channels':
-        headers = ['Κανάλι', 'Καθαρή Αξία', 'Contribution %', 'Margin %']
-        widths = [32, 16, 16, 14]
+        headers = ['Κανάλι', 'Καθαρή Αξία', 'Τεμάχια', 'Contribution %', 'Margin %']
+        widths = [32, 16, 12, 16, 14]
         data_rows = [
             [
-                r['channel'], round(float(r['net_value'] or 0), 2),
+                r['channel'], round(float(r['net_value'] or 0), 2), round(float(r['qty'] or 0), 0),
                 round(float(r['contribution_pct'] or 0), 2), round(float(r['margin_pct'] or 0), 2),
             ]
             for r in rows
         ]
         if data_rows:
             data_rows.append([
-                'ΣΥΝΟΛΟ', round(float(totals.get('net_value') or 0), 2),
+                'ΣΥΝΟΛΟ', round(float(totals.get('net_value') or 0), 2), round(float(totals.get('qty') or 0), 0),
                 round(float(totals.get('contribution_pct') or 0), 2), round(float(totals.get('margin_pct') or 0), 2),
             ])
         base = 'kanali_polisis'

@@ -12646,6 +12646,7 @@ async def sales_by_channel(
     """
     net_expr = _fact_sales_signed_net_expr()
     profit_expr = func.coalesce(FactSales.profit_amount, 0) * _fact_sales_behavior_sign_expr(quantity=False)
+    qty_expr = func.coalesce(FactSales.qty, 0) * _fact_sales_behavior_sign_expr(quantity=True)
     channel_label = func.coalesce(
         func.nullif(func.trim(func.coalesce(FactSales.channel_name, '')), ''),
         literal('Φυσικό κατάστημα'),
@@ -12654,6 +12655,7 @@ async def sales_by_channel(
         channel_label.label('channel'),
         func.coalesce(func.sum(net_expr), 0).label('net_value'),
         func.coalesce(func.sum(profit_expr), 0).label('profit_amount'),
+        func.coalesce(func.sum(qty_expr), 0).label('qty'),
     ).select_from(FactSales)
     if brands or category_1 or category_2 or category_3 or groups:
         stmt = stmt.join(DimItem, FactSales.item_id == DimItem.id)
@@ -12684,19 +12686,22 @@ async def sales_by_channel(
 
     total_net = sum(float(r[1] or 0) for r in raw)
     total_profit = sum(float(r[2] or 0) for r in raw)
+    total_qty = sum(float(r[3] or 0) for r in raw)
     rows = []
-    for channel, net_raw, profit_raw in raw:
+    for channel, net_raw, profit_raw, qty_raw in raw:
         net = float(net_raw or 0)
         profit = float(profit_raw or 0)
         rows.append({
             'channel': str(channel or 'Φυσικό κατάστημα'),
             'net_value': net,
+            'qty': float(qty_raw or 0),
             'contribution_pct': (net / total_net * 100.0) if total_net else 0.0,
             'margin_pct': (profit / net * 100.0) if net else 0.0,
         })
     totals = {
         'count': len(rows),
         'net_value': total_net,
+        'qty': total_qty,
         'contribution_pct': 100.0 if total_net else 0.0,
         'margin_pct': (total_profit / total_net * 100.0) if total_net else 0.0,
     }

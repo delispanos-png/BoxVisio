@@ -209,13 +209,14 @@
     <div class="exp-table-wrap">
       <table class="exp-table">
         <thead>
-          <tr><th>Κανάλι</th><th class="exp-num">Καθαρή Αξία</th><th class="exp-num">Contribution %</th><th class="exp-num">Margin %</th></tr>
+          <tr><th>Κανάλι</th><th class="exp-num">Καθαρή Αξία</th><th class="exp-num">Τεμάχια</th><th class="exp-num">Contribution %</th><th class="exp-num">Margin %</th></tr>
         </thead>
         <tbody>
           {% for r in rows %}
           <tr>
             <td>{{ r.channel }}</td>
-            <td class="exp-num">{{ '{:,.2f}'.format(r.net_value).replace(',', 'X').replace('.', ',').replace('X', '.') }} €</td>
+            <td class="exp-num">{{ money(r.net_value) }}</td>
+            <td class="exp-num">{{ '{:,.0f}'.format(r.qty or 0).replace(',', '.') }}</td>
             <td class="exp-num">{{ '{:,.2f}'.format(r.contribution_pct).replace('.', ',') }}%</td>
             <td class="exp-num">{{ '{:,.2f}'.format(r.margin_pct).replace('.', ',') }}%</td>
           </tr>
@@ -224,7 +225,8 @@
         <tfoot>
           <tr class="exp-total-row">
             <td>ΣΥΝΟΛΟ{% if totals.count %} ({{ totals.count }} κανάλια){% endif %}</td>
-            <td class="exp-num">{{ '{:,.2f}'.format(totals.net_value or 0).replace(',', 'X').replace('.', ',').replace('X', '.') }} €</td>
+            <td class="exp-num">{{ money(totals.net_value) }}</td>
+            <td class="exp-num">{{ '{:,.0f}'.format(totals.qty or 0).replace(',', '.') }}</td>
             <td class="exp-num">100,00%</td>
             <td class="exp-num">{{ '{:,.2f}'.format(totals.margin_pct or 0).replace('.', ',') }}%</td>
           </tr>
