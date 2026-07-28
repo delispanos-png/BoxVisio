@@ -15336,6 +15336,18 @@ async def _render_exports_workbench(
         selected[key] = [v for v in (p.strip() for p in raw.split(',')) if v and v in valid]
         label_maps[key] = {opt['value']: opt['label'] for opt in options.get(key, [])}
 
+    def _clean_date(value: str) -> str:
+        value = str(value or '').strip()
+        try:
+            datetime.strptime(value, '%Y-%m-%d')
+            return value
+        except ValueError:
+            return ''
+    period = {
+        'from': _clean_date(request.query_params.get('period_from')),
+        'to': _clean_date(request.query_params.get('period_to')),
+    }
+
     return templates.TemplateResponse(
         'tenant/exports_workbench.html',
         {
@@ -15352,6 +15364,7 @@ async def _render_exports_workbench(
             'options': options,
             'selected': selected,
             'label_maps': label_maps,
+            'period': period,
         },
     )
 

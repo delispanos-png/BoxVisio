@@ -16,6 +16,16 @@
   }
   @media (max-width: 991px) { .exp-filter-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
   @media (max-width: 640px)  { .exp-filter-grid { grid-template-columns: 1fr; } }
+  .exp-period {
+    display: grid; grid-template-columns: repeat(2, minmax(0, 260px)); gap: 12px 16px;
+    margin-bottom: 14px; padding-bottom: 14px; border-bottom: 1px dashed var(--border-color, #e5e9f2);
+  }
+  @media (max-width: 640px) { .exp-period { grid-template-columns: 1fr; } }
+  .exp-date {
+    width: 100%; padding: 9px 12px; border: 1px solid var(--border-color, #dfe4ee); border-radius: 10px;
+    background: var(--input-bg, #fff); color: var(--text, #1b2130); font-size: 13.5px;
+  }
+  .exp-date:focus { outline: none; border-color: var(--primary, #4c63d2); box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary, #4c63d2) 16%, transparent); }
   .exp-field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
   .exp-field > label { font-size: 12px; font-weight: 800; color: var(--text-muted); letter-spacing: .02em; }
   .exp-dd { position: relative; }
@@ -59,6 +69,16 @@
         <h2><i class="fe fe-filter"></i> Φίλτρα</h2>
         <span class="exp-count" data-exp-total>—</span>
       </div>
+      <div class="exp-period">
+        <div class="exp-field">
+          <label>Περίοδος από</label>
+          <input type="date" class="exp-date" name="period_from" value="{{ period.from if period else '' }}">
+        </div>
+        <div class="exp-field">
+          <label>Περίοδος έως</label>
+          <input type="date" class="exp-date" name="period_to" value="{{ period.to if period else '' }}">
+        </div>
+      </div>
       <div class="exp-filter-grid">
         {% for key, label, placeholder in filter_fields %}
         <div class="exp-field">
@@ -92,10 +112,14 @@
     <div class="exp-panel-head">
       <h2>{{ page_heading }}</h2>
     </div>
-    {% set any_selected = (selected.values()|map('length')|sum) if selected else 0 %}
-    {% if any_selected %}
+    {% set filters_selected = (selected.values()|map('length')|sum) if selected else 0 %}
+    {% set has_period = period and (period.from or period.to) %}
+    {% if filters_selected or has_period %}
     <p class="exp-empty-note">Ενεργά φίλτρα:</p>
     <div class="exp-chips">
+      {% if has_period %}
+      <span class="exp-chip">Περίοδος: {{ period.from or '…' }} → {{ period.to or '…' }}</span>
+      {% endif %}
       {% for key, label, placeholder in filter_fields %}
         {% for v in selected.get(key) or [] %}
         <span class="exp-chip">{{ label }}: {{ label_maps.get(key, {}).get(v, v) }}</span>
@@ -103,7 +127,7 @@
       {% endfor %}
     </div>
     {% else %}
-    <p class="exp-empty-note">Επίλεξε φίλτρα και πάτησε «Εφαρμογή». Η δημιουργία του αρχείου εξαγωγής θα προστεθεί στο επόμενο βήμα.</p>
+    <p class="exp-empty-note">Όρισε περίοδο και φίλτρα και πάτησε «Εφαρμογή». Η δημιουργία του αρχείου εξαγωγής θα προστεθεί στο επόμενο βήμα.</p>
     {% endif %}
   </section>
 </div>
