@@ -2645,7 +2645,11 @@ def _build_fact(
 
         if financial_value_amount is not None and explicit_value_amount is None:
             value_amount = financial_value_amount
-        if is_financial_doc is False:
+        # Zero the monetary fields only for non-financial *movement* documents (e.g. a
+        # delivery note without an invoice), so they don't double-count in financials.
+        # A stock *snapshot* is flagged non-financial too, but its value_amount IS the
+        # stock valuation we need (stock value / dead stock / DIO) — keep it.
+        if is_financial_doc is False and movement_type != 'snapshot':
             value_amount = 0.0
             cost_amount = 0.0
 
@@ -3348,7 +3352,13 @@ async def _process_job_once(job: dict[str, Any]) -> dict[str, Any]:
                 update_ingest_progress(tenant_slug, status='running')
 
         await _flush_fact_batch()
-        relink_counts = await _relink_fact_dimensions_after_bulk_ingest(tenant_db, entity) if bulk_fact_mode else {}
+        # Relink surrogate FKs after the flush. bulk_fact_mode covers SQL connectors,
+        # but non-SQL connectors (external_api) skip both the bulk path and — in
+        # backfill mode — per-row resolution, leaving fact rows with NULL item_id and
+        # breaking every item/group/category join downstream. The relink only touches
+        # NULL item_id rows (idempotent, cheap), so it is safe to run here for them too.
+        should_relink_facts = bulk_fact_mode or connector_type not in SQL_CONNECTOR_ALIASES
+        relink_counts = await _relink_fact_dimensions_after_bulk_ingest(tenant_db, entity) if should_relink_facts else {}
         if not ignore_sync_state:
             sync_state.last_sync_timestamp = last_ts
             sync_state.last_sync_id = last_id
