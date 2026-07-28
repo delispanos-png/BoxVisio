@@ -15906,6 +15906,82 @@ async def tenant_store_dashboard(
     )
 
 
+@router.get('/tenant/store-dashboard/download/{card}/{fmt}')
+async def tenant_store_dashboard_download(
+    card: str,
+    fmt: str,
+    request: Request,
+    tenant: Tenant = Depends(get_request_tenant),
+    _user=Depends(get_current_user),
+):
+    from app.services.kpi_queries import store_dashboard
+    fmt = (fmt or '').strip().lower()
+    card = (card or '').strip().lower()
+    if fmt not in {'csv', 'xlsx'} or card not in {'lost', 'dead'}:
+        return Response('Μη έγκυρη εξαγωγή.', status_code=400, media_type='text/plain; charset=utf-8')
+
+    today = datetime.utcnow().date()
+    dfrom = _export_clean_date(request.query_params.get('period_from')) or today.replace(day=1).isoformat()
+    dto = _export_clean_date(request.query_params.get('period_to')) or today.isoformat()
+    date_from = datetime.strptime(dfrom, '%Y-%m-%d').date()
+    date_to = datetime.strptime(dto, '%Y-%m-%d').date()
+    branch_ext = str(request.query_params.get('branch') or '').strip()
+    if not branch_ext:
+        return Response('Δεν επιλέχθηκε κατάστημα.', status_code=400, media_type='text/plain; charset=utf-8')
+
+    async with ControlSessionLocal() as control_db:
+        sales_kpi_config = await _resolve_rule_payload(
+            control_db, tenant_id=int(tenant.id),
+            domain=RuleDomain.kpi_participation_rules, stream=OperationalStream.sales_documents,
+            rule_key='sales_kpi_config', fallback_payload={},
+        )
+    data: dict = {}
+    async for tenant_db in get_tenant_db_session(
+        tenant_key=str(tenant.id), db_name=tenant.db_name,
+        db_user=tenant.db_user, db_password=tenant.db_password,
+    ):
+        scope_token = set_current_sales_kpi_participation_config(sales_kpi_config)
+        try:
+            data = await store_dashboard(tenant_db, branch_ext=branch_ext, date_from=date_from, date_to=date_to, top_n=100000)
+        finally:
+            reset_current_sales_kpi_participation_config(scope_token)
+        break
+
+    if card == 'lost':
+        headers = ['Είδος', 'Barcode', 'Πωλήσεις περιόδου', 'Τεμάχια', 'Ημερήσιο (~)']
+        widths = [46, 16, 18, 12, 14]
+        data_rows = [[r['name'], r['barcode'], round(float(r['sold_value'] or 0), 2),
+                      round(float(r['sold_qty'] or 0), 0), round(float(r['lost_daily'] or 0), 2)]
+                     for r in data.get('lost_sales', [])]
+        base, sheet = 'xamenes_polisis', 'Χαμένες πωλήσεις'
+    else:
+        headers = ['Είδος', 'Barcode', 'Τεμ. στοκ', 'Δεσμευμένο €']
+        widths = [46, 16, 12, 16]
+        data_rows = [[r['name'], r['barcode'], round(float(r['stock_qty'] or 0), 0), round(float(r['tied_value'] or 0), 2)]
+                     for r in data.get('dead_stock', [])]
+        base, sheet = 'valtomeno_apothema', 'Βαλτωμένο απόθεμα'
+
+    stamp = datetime.utcnow().strftime('%Y%m%d')
+    filename = f'{base}_{branch_ext.replace(":", "-")}_{dfrom}_{dto}_{stamp}.{fmt}'
+    if fmt == 'csv':
+        buffer = io.StringIO()
+        buffer.write('﻿')
+        writer = csv.writer(buffer, delimiter=';')
+        writer.writerow(headers)
+        writer.writerows(data_rows)
+        return Response(
+            content=buffer.getvalue().encode('utf-8'),
+            media_type='text/csv; charset=utf-8',
+            headers={'Content-Disposition': f'attachment; filename="{filename}"'},
+        )
+    content = _build_xlsx_bytes(sheet_name=sheet, headers=headers, rows=data_rows, column_widths=widths)
+    return Response(
+        content=content,
+        media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        headers={'Content-Disposition': f'attachment; filename="{filename}"'},
+    )
+
+
 @router.get('/tenant/exports/analysis/download/{fmt}')
 async def tenant_exports_analysis_download(
     fmt: str,

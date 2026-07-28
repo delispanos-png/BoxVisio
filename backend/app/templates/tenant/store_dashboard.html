@@ -37,6 +37,8 @@
   .sd-card-head h3 { font-size:15px; margin:0; font-weight:800; }
   .sd-card-head .sub { font-size:12px; color:var(--text-muted); margin-top:1px; }
   .sd-card-head .amt { margin-left:auto; font-size:15px; font-weight:800; }
+  .sd-dl { display:inline-flex; align-items:center; gap:5px; font-size:12px; font-weight:700; padding:6px 11px; border:1px solid var(--border-color,#dfe4ee); border-radius:8px; color:#16794c; background:var(--card-bg,#fff); white-space:nowrap; text-decoration:none; }
+  .sd-dl:hover { border-color:#16a34a; background:color-mix(in srgb,#16a34a 8%,transparent); }
   .sd-tbl-wrap { overflow-x:auto; max-height:340px; overflow-y:auto; }
   .sd-tbl { width:100%; border-collapse:collapse; font-size:13px; }
   .sd-tbl th { position:sticky; top:0; background:var(--surface-2,#f7f8fb); text-align:left; padding:8px 12px; font-size:11px; text-transform:uppercase; letter-spacing:.03em; color:var(--text-muted); font-weight:800; border-bottom:1px solid var(--border-color,#e5e9f2); white-space:nowrap; }
@@ -105,6 +107,7 @@
         <div class="ic" style="background:#fdecec;color:#dc2626">🔴</div>
         <div><h3>Χαμένες πωλήσεις</h3><div class="sub">Ταχυκίνητα που τελείωσαν από το κατάστημα → παράγγειλέ τα</div></div>
         <div class="amt" style="color:#dc2626">{{ money0(k.get('lost_value')) }}</div>
+        <a class="sd-dl" href="/tenant/store-dashboard/download/lost/xlsx?branch={{ branch_ext|urlencode }}&period_from={{ period.from }}&period_to={{ period.to }}"><i class="fe fe-download"></i> Excel</a>
       </div>
       {% if data.get('lost_sales') %}
       <div class="sd-tbl-wrap"><table class="sd-tbl">
@@ -124,6 +127,7 @@
         <div class="ic" style="background:#fdf0e2;color:#d97706">🟠</div>
         <div><h3>Βαλτωμένο απόθεμα</h3><div class="sub">Απόθεμα χωρίς κίνηση {{ data.get('dead_days', 90) }} μέρες → μεταφορά/έκπτωση</div></div>
         <div class="amt" style="color:#d97706">{{ money0(k.get('dead_value')) }}</div>
+        <a class="sd-dl" href="/tenant/store-dashboard/download/dead/xlsx?branch={{ branch_ext|urlencode }}&period_from={{ period.from }}&period_to={{ period.to }}"><i class="fe fe-download"></i> Excel</a>
       </div>
       {% if data.get('dead_stock') %}
       <div class="sd-tbl-wrap"><table class="sd-tbl">
