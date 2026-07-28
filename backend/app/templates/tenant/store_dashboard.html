@@ -165,7 +165,7 @@
     <div class="sd-card" style="grid-column:1 / -1">
       <div class="sd-card-head">
         <div class="ic" style="background:#e8f0fe;color:#2563eb">🔄</div>
-        <div><h3>Προτεινόμενες μεταφορές — ενίσχυση χαμένων πωλήσεων</h3><div class="sub">Είδη που λείπουν εδώ &amp; πουλάνε → μεταφορά από όπου περισσεύει (χωρίς να στραγγίζει τον δότη). Στόχος κάλυψης {{ data.get('target_days', 14) }} ημ.</div></div>
+        <div><h3>Προτεινόμενες μεταφορές — ενίσχυση χαμένων πωλήσεων</h3><div class="sub">Είδη που λείπουν εδώ &amp; πουλάνε → μεταφορά από όπου περισσεύει (χωρίς να παίρνουμε πολύ απόθεμα από τον δότη). Στόχος κάλυψης {{ data.get('target_days', 14) }} ημ.</div></div>
         <div class="amt" style="color:#2563eb">{{ money0(data.get('transfer_value')) }}</div>
         <a class="sd-dl" href="/tenant/store-dashboard/download/transfer/xlsx?branch={{ branch_ext|urlencode }}&period_from={{ period.from }}&period_to={{ period.to }}"><i class="fe fe-download"></i> Excel</a>
       </div>
