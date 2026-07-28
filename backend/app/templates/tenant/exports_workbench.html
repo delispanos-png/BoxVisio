@@ -2,6 +2,8 @@
 {% block content %}
 {% macro money(x) %}{{ '{:,.2f}'.format(x or 0).replace(',', 'X').replace('.', ',').replace('X', '.') }} €{% endmacro %}
 {% macro fmt(value, kind) %}{% if kind == 'money' %}{{ money(value) }}{% elif kind == 'pct' %}{{ '{:,.2f}'.format(value or 0).replace('.', ',') }}%{% else %}{{ '{:,.0f}'.format(value or 0).replace(',', '.') }}{% endif %}{% endmacro %}
+{# Date field forced to dd/mm/yyyy display (native type=date follows the browser locale, not ours). #}
+{% macro dateinput(name, iso) %}<input type="text" class="exp-date exp-datetext" inputmode="numeric" autocomplete="off" placeholder="ηη/μμ/εεεε" maxlength="10" data-exp-date value="{% if iso and iso|length == 10 %}{{ iso[8:10] }}/{{ iso[5:7] }}/{{ iso[0:4] }}{% endif %}"><input type="hidden" name="{{ name }}" value="{{ iso or '' }}" data-exp-date-iso>{% endmacro %}
 <style>
   .exp-shell { display: flex; flex-direction: column; gap: 16px; margin-top: 8px; }
   .exp-head h1 { font-size: 22px; margin: 0 0 4px; }
@@ -135,23 +137,23 @@
       {% endif %}
       <div class="exp-period">
         {% if report_kind == 'analysis' %}
-        <div class="exp-field"><label>Περίοδος{% if pivot_mode == 'comparison' %} Α{% endif %} — από</label><input type="date" class="exp-date" lang="el-GR" name="period_from" value="{{ period.from }}"></div>
-        <div class="exp-field"><label>Περίοδος{% if pivot_mode == 'comparison' %} Α{% endif %} — έως</label><input type="date" class="exp-date" lang="el-GR" name="period_to" value="{{ period.to }}"></div>
-        <div class="exp-field exp-period-b" {% if pivot_mode != 'comparison' %}style="display:none"{% endif %}><label>Περίοδος Β — από</label><input type="date" class="exp-date" lang="el-GR" name="period_b_from" value="{{ period.b_from }}"></div>
-        <div class="exp-field exp-period-b" {% if pivot_mode != 'comparison' %}style="display:none"{% endif %}><label>Περίοδος Β — έως</label><input type="date" class="exp-date" lang="el-GR" name="period_b_to" value="{{ period.b_to }}"></div>
+        <div class="exp-field"><label>Περίοδος{% if pivot_mode == 'comparison' %} Α{% endif %} — από</label>{{ dateinput('period_from', period.from) }}</div>
+        <div class="exp-field"><label>Περίοδος{% if pivot_mode == 'comparison' %} Α{% endif %} — έως</label>{{ dateinput('period_to', period.to) }}</div>
+        <div class="exp-field exp-period-b" {% if pivot_mode != 'comparison' %}style="display:none"{% endif %}><label>Περίοδος Β — από</label>{{ dateinput('period_b_from', period.b_from) }}</div>
+        <div class="exp-field exp-period-b" {% if pivot_mode != 'comparison' %}style="display:none"{% endif %}><label>Περίοδος Β — έως</label>{{ dateinput('period_b_to', period.b_to) }}</div>
         {% elif report_kind == 'group_comparison' %}
-        <div class="exp-field"><label>Περίοδος Α — από</label><input type="date" class="exp-date" lang="el-GR" name="period_from" value="{{ period.from }}"></div>
-        <div class="exp-field"><label>Περίοδος Α — έως</label><input type="date" class="exp-date" lang="el-GR" name="period_to" value="{{ period.to }}"></div>
-        <div class="exp-field"><label>Περίοδος Β — από</label><input type="date" class="exp-date" lang="el-GR" name="period_b_from" value="{{ period.b_from }}"></div>
-        <div class="exp-field"><label>Περίοδος Β — έως</label><input type="date" class="exp-date" lang="el-GR" name="period_b_to" value="{{ period.b_to }}"></div>
+        <div class="exp-field"><label>Περίοδος Α — από</label>{{ dateinput('period_from', period.from) }}</div>
+        <div class="exp-field"><label>Περίοδος Α — έως</label>{{ dateinput('period_to', period.to) }}</div>
+        <div class="exp-field"><label>Περίοδος Β — από</label>{{ dateinput('period_b_from', period.b_from) }}</div>
+        <div class="exp-field"><label>Περίοδος Β — έως</label>{{ dateinput('period_b_to', period.b_to) }}</div>
         {% else %}
         <div class="exp-field">
           <label>Περίοδος από</label>
-          <input type="date" class="exp-date" lang="el-GR" name="period_from" value="{{ period.from if period else '' }}">
+          {{ dateinput('period_from', period.from if period else '') }}
         </div>
         <div class="exp-field">
           <label>Περίοδος έως</label>
-          <input type="date" class="exp-date" lang="el-GR" name="period_to" value="{{ period.to if period else '' }}">
+          {{ dateinput('period_to', period.to if period else '') }}
         </div>
         {% endif %}
       </div>
@@ -458,6 +460,29 @@
   document.addEventListener('click', function (e) {
     document.querySelectorAll('details[data-exp-dd][open]').forEach(function (dd) {
       if (!dd.contains(e.target)) dd.removeAttribute('open');
+    });
+  });
+
+  // dd/mm/yyyy text date fields: auto-insert slashes and keep a hidden ISO value
+  // (yyyy-mm-dd) in sync for submission — native type=date can't be forced to el-GR.
+  document.querySelectorAll('[data-exp-date]').forEach(function (inp) {
+    var hidden = inp.nextElementSibling;
+    function toISO(v) {
+      var m = v.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+      if (!m) return '';
+      var d = +m[1], mo = +m[2];
+      if (mo < 1 || mo > 12 || d < 1 || d > 31) return '';
+      var iso = m[3] + '-' + m[2] + '-' + m[1];
+      var dt = new Date(iso + 'T00:00:00');
+      return isNaN(dt.getTime()) ? '' : iso;
+    }
+    inp.addEventListener('input', function () {
+      var digits = inp.value.replace(/\D/g, '').slice(0, 8);
+      var out = digits;
+      if (digits.length > 4) out = digits.slice(0, 2) + '/' + digits.slice(2, 4) + '/' + digits.slice(4);
+      else if (digits.length > 2) out = digits.slice(0, 2) + '/' + digits.slice(2);
+      inp.value = out;
+      if (hidden) hidden.value = toISO(out);
     });
   });
 
