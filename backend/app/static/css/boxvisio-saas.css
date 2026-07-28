@@ -895,10 +895,25 @@ body.tenant-shell .dashboard-shell h3:first-child {
   letter-spacing: -.02em;
 }
 
+/* The hardcoded #0f172a above is also the dark-theme page background, so in dark
+   mode every page heading rendered invisible (1:1 contrast). */
+body.tenant-shell[data-theme='dark'] .bv-page-title,
+body.tenant-shell[data-theme='dark'] .dashboard-shell .bv-page-head h3,
+body.tenant-shell[data-theme='dark'] .dashboard-shell h3:first-child {
+  color: var(--bv-heading, #f8fafc);
+}
+
 body.tenant-shell .bv-page-subtitle,
 body.tenant-shell .dashboard-shell .bv-page-head p {
   color: #637083;
   font-size: .96rem;
+}
+
+/* #637083 lands at ~3.3:1 on the dark background — below the 4.5:1 needed for
+   body text. */
+body.tenant-shell[data-theme='dark'] .bv-page-subtitle,
+body.tenant-shell[data-theme='dark'] .dashboard-shell .bv-page-head p {
+  color: var(--bv-muted, #94a3b8);
 }
 
 body.tenant-shell .filter-card {
