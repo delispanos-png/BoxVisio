@@ -13160,6 +13160,30 @@ async def store_dashboard(
     decline.sort(key=lambda x: x['delta'])
     decline = decline[:top_n]
 
+    # Revenue by sales channel and by item group (this store, this period).
+    chan_label = func.coalesce(func.nullif(func.trim(func.coalesce(FactSales.channel_name, '')), ''), literal('Φυσικό κατάστημα'))
+    chan_rows = (await db.execute(
+        select(chan_label, func.coalesce(func.sum(net), 0))
+        .where(FactSales.branch_ext_id == branch_ext, FactSales.doc_date >= date_from, FactSales.doc_date <= date_to)
+        .group_by(chan_label).order_by(func.sum(net).desc())
+    )).all()
+    tot_ch = sum(float(r[1] or 0) for r in chan_rows) or 0.0
+    by_channel = [{'label': str(r[0] or ''), 'net': float(r[1] or 0),
+                   'pct': (float(r[1] or 0) / tot_ch * 100.0) if tot_ch else 0.0} for r in chan_rows]
+
+    grp_label = func.coalesce(func.nullif(func.trim(func.coalesce(DimGroup.name, '')), ''), literal('Χωρίς ομάδα'))
+    grp_rows = (await db.execute(
+        select(grp_label, func.coalesce(func.sum(net), 0))
+        .select_from(FactSales)
+        .join(DimItem, FactSales.item_id == DimItem.id, isouter=True)
+        .join(DimGroup, DimItem.group_id == DimGroup.id, isouter=True)
+        .where(FactSales.branch_ext_id == branch_ext, FactSales.doc_date >= date_from, FactSales.doc_date <= date_to)
+        .group_by(grp_label).order_by(func.sum(net).desc())
+    )).all()
+    tot_g = sum(float(r[1] or 0) for r in grp_rows) or 0.0
+    by_group = [{'label': str(r[0] or ''), 'net': float(r[1] or 0),
+                 'pct': (float(r[1] or 0) / tot_g * 100.0) if tot_g else 0.0} for r in grp_rows]
+
     dead_val = sum(d['tied_value'] for d in dead)
     lost_val = sum(l['sold_value'] for l in lost)
     dead_ratio = (dead_val / stock_val) if stock_val else 0.0
@@ -13174,6 +13198,8 @@ async def store_dashboard(
         'lost_sales': lost,
         'dead_stock': dead,
         'category_decline': decline,
+        'by_channel': by_channel,
+        'by_group': by_group,
         'dead_days': dead_days,
     }
 

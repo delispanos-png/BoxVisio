@@ -102,6 +102,38 @@
   </section>
 
   <section class="sd-cards">
+    <!-- Revenue by sales channel -->
+    <div class="sd-card">
+      <div class="sd-card-head">
+        <div class="ic" style="background:#e8f0fe;color:#2563eb">🛒</div>
+        <div><h3>Έσοδα ανά κανάλι πώλησης</h3><div class="sub">Καθαρή αξία & συνεισφορά ανά κανάλι</div></div>
+      </div>
+      {% if data.get('by_channel') %}
+      <div class="sd-tbl-wrap"><table class="sd-tbl">
+        <thead><tr><th>Κανάλι</th><th class="n">Καθαρή Αξία</th><th class="n">Συνεισφορά %</th></tr></thead>
+        <tbody>{% for r in data.by_channel %}
+          <tr><td>{{ r.label }}</td><td class="n">{{ money0(r.net) }}</td><td class="n">{{ '{:,.1f}'.format(r.pct).replace('.', ',') }}%</td></tr>
+        {% endfor %}</tbody>
+      </table></div>
+      {% else %}<div class="sd-empty">Δεν υπάρχουν πωλήσεις στην περίοδο.</div>{% endif %}
+    </div>
+
+    <!-- Revenue by item group -->
+    <div class="sd-card">
+      <div class="sd-card-head">
+        <div class="ic" style="background:#eef7ee;color:#16a34a">📦</div>
+        <div><h3>Έσοδα ανά ομάδα ειδών</h3><div class="sub">Καθαρή αξία & συνεισφορά ανά ομάδα</div></div>
+      </div>
+      {% if data.get('by_group') %}
+      <div class="sd-tbl-wrap"><table class="sd-tbl">
+        <thead><tr><th>Ομάδα</th><th class="n">Καθαρή Αξία</th><th class="n">Συνεισφορά %</th></tr></thead>
+        <tbody>{% for r in data.by_group %}
+          <tr><td>{{ r.label }}</td><td class="n">{{ money0(r.net) }}</td><td class="n">{{ '{:,.1f}'.format(r.pct).replace('.', ',') }}%</td></tr>
+        {% endfor %}</tbody>
+      </table></div>
+      {% else %}<div class="sd-empty">Δεν υπάρχουν πωλήσεις στην περίοδο.</div>{% endif %}
+    </div>
+
     <!-- Lost sales -->
     <div class="sd-card">
       <div class="sd-card-head">
