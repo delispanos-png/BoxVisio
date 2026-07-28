@@ -32,8 +32,19 @@ from sqlalchemy.orm.attributes import flag_modified
 
 from app.api.deps import get_current_user, get_request_tenant, get_tenant_db, require_roles
 from app.core.celery_sender import make_celery_sender
-from app.core.config import settings
+from app.core.config import app_version_detailed, settings
+from app.core.help_content import circuit_for_lang as help_circuit_for_lang
+from app.core.help_content import circuit_groups as help_circuit_groups
+from app.core.help_content import circuits_by_id_for_lang as help_circuits_by_id
+from app.core.help_content import circuits_for_lang as help_circuits
+from app.core.help_content import faq_for_lang as help_faq
+from app.core.help_content import kpis_for_circuit as help_kpis_for_circuit
+from app.core.help_content import shot_url as help_shot_url
+from app.core.help_content import task_groups_for_lang as help_task_groups
 from app.core.i18n import normalize_lang, tt
+from app.core.kpi_catalog import catalog_by_circuit as kpi_catalog_by_circuit
+from app.core.kpi_catalog import catalog_for_lang as kpi_catalog_for_lang
+from app.core.kpi_catalog import default_help as kpi_default_help
 from app.core.security import (
     audience_for_role,
     create_access_token,
@@ -168,10 +179,17 @@ from app.services.kpi_queries import (
 router = APIRouter(tags=['ui'])
 templates = Jinja2Templates(
     directory=str(Path(__file__).resolve().parents[1] / 'templates'),
-    context_processors=[lambda request: {'tt': tt, 'app_version': settings.app_version, 'project_name': settings.project_name}],
+    context_processors=[lambda request: {
+        'tt': tt,
+        'app_version': settings.app_version,
+        #  Callable, not a value: the dirty marker has to be evaluated per render.
+        'app_version_detailed': app_version_detailed,
+        'project_name': settings.project_name,
+    }],
 )
 templates.env.globals.setdefault('tt', tt)
 templates.env.globals.setdefault('app_version', settings.app_version)
+templates.env.globals.setdefault('app_version_detailed', app_version_detailed)
 templates.env.globals.setdefault('project_name', settings.project_name)
 celery_client = make_celery_sender('ui_sender')
 logger = logging.getLogger(__name__)
@@ -14330,6 +14348,7 @@ async def tenant_fnr_dashboard(
             **feature_flags,
             'feature_locked': feature_locked,
             'active_page': 'replenishment',
+            'manual_help_anchor': 'fnr',
             'title': 'FNR',
             'fnr': fnr,
             'columns': FNR_OUTPUT_COLUMNS,
@@ -14732,23 +14751,218 @@ async def tenant_supplier_targets_dashboard(
     )
 
 
-@router.get('/tenant/manual', response_class=HTMLResponse)
-async def tenant_user_manual(
+# --- Help section ----------------------------------------------------------
+# The manual used to be a single long page at /tenant/manual reachable only from
+# a small button in each page header. It is now its own sidebar section with a
+# task-oriented entry point, because people arrive with a question ("who owes me
+# money?") rather than with a page name.
+
+_HELP_SHOT_DIR = Path(__file__).resolve().parents[1] / 'static' / 'docs' / 'manual'
+
+
+def _help_shot_exists(shot: str | None) -> bool:
+    """Screenshots are generated out of band, so a page must render fine when
+    one is missing rather than showing a broken image."""
+    if not shot:
+        return False
+    try:
+        return (_HELP_SHOT_DIR / f'{shot}.jpg').is_file()
+    except OSError:
+        return False
+
+
+def _help_shot_or_none(shot: str) -> str | None:
+    return help_shot_url(shot) if _help_shot_exists(shot) else None
+
+
+def _help_lang(request: Request) -> str:
+    return 'en' if str(request.cookies.get('lang', 'el')).lower().startswith('en') else 'el'
+
+
+#  Page titles are the only Help strings not held in help_content, because the
+#  shell renders them before the content module is consulted.
+_HELP_TITLES = {
+    'help_home': ('Βοήθεια', 'Help'),
+    'help_find': ('Πώς θα βρω…', 'How do I find…'),
+    'help_circuits': ('Οι σελίδες βήμα-βήμα', 'Every screen, step by step'),
+    'help_kpis': ('Λεξικό KPI', 'KPI dictionary'),
+    'help_faq': ('Συχνές απορίες', 'Common questions'),
+}
+
+
+async def _help_context(
+    request: Request,
+    tenant: Tenant,
+    active_page: str,
+    title: str | None = None,
+) -> dict[str, Any]:
+    lang = _help_lang(request)
+    titles = _HELP_TITLES.get(active_page)
+    resolved_title = title or (titles[1] if lang == 'en' and titles else (titles[0] if titles else 'Help'))
+    return {
+        'request': request,
+        'tenant': tenant,
+        **(await _tenant_navigation_context(tenant)),
+        'hide_page_filters': True,
+        'active_page': active_page,
+        'title': resolved_title,
+        'lang': lang,
+        'circuits': help_circuits(lang),
+        'circuits_by_id': help_circuits_by_id(lang),
+        'circuit_groups': help_circuit_groups(lang),
+        'task_groups': help_task_groups(lang),
+        'faq': help_faq(lang),
+        'kpi_count': len(kpi_catalog_for_lang(lang)),
+        'kpis_for_circuit': help_kpis_for_circuit,
+        'kpis_own': lambda circuit_id, lg='el': kpi_catalog_by_circuit(lg).get(circuit_id, []),
+        'shot_url': help_shot_url,
+        'shot_exists': _help_shot_exists,
+        'shots': {
+            'ui_tour': _help_shot_or_none('ui-tour-full'),
+            'kpi_help': _help_shot_or_none('ui-kpi-help'),
+            'date_modal': _help_shot_or_none('ui-date-modal'),
+            'filters': _help_shot_or_none('ui-filters'),
+            'sidebar': _help_shot_or_none('ui-sidebar'),
+        },
+    }
+
+
+@router.get('/tenant/help', response_class=HTMLResponse)
+async def tenant_help_home(
     request: Request,
     tenant: Tenant = Depends(get_request_tenant),
     _user=Depends(get_current_user),
 ):
     return templates.TemplateResponse(
-        'tenant/user_manual.html',
+        'tenant/help/index.html',
+        await _help_context(request, tenant, 'help_home'),
+    )
+
+
+@router.get('/tenant/help/find', response_class=HTMLResponse)
+async def tenant_help_find(
+    request: Request,
+    tenant: Tenant = Depends(get_request_tenant),
+    _user=Depends(get_current_user),
+):
+    return templates.TemplateResponse(
+        'tenant/help/find.html',
+        await _help_context(request, tenant, 'help_find'),
+    )
+
+
+@router.get('/tenant/help/circuits', response_class=HTMLResponse)
+async def tenant_help_circuits(
+    request: Request,
+    tenant: Tenant = Depends(get_request_tenant),
+    _user=Depends(get_current_user),
+):
+    return templates.TemplateResponse(
+        'tenant/help/circuits.html',
+        await _help_context(request, tenant, 'help_circuits'),
+    )
+
+
+@router.get('/tenant/help/kpis', response_class=HTMLResponse)
+async def tenant_help_kpis(
+    request: Request,
+    tenant: Tenant = Depends(get_request_tenant),
+    _user=Depends(get_current_user),
+):
+    return templates.TemplateResponse(
+        'tenant/help/kpis.html',
+        await _help_context(request, tenant, 'help_kpis'),
+    )
+
+
+@router.get('/tenant/help/faq', response_class=HTMLResponse)
+async def tenant_help_faq(
+    request: Request,
+    tenant: Tenant = Depends(get_request_tenant),
+    _user=Depends(get_current_user),
+):
+    return templates.TemplateResponse(
+        'tenant/help/faq.html',
+        await _help_context(request, tenant, 'help_faq'),
+    )
+
+
+@router.get('/tenant/help/circuits/{circuit_id}', response_class=HTMLResponse)
+async def tenant_help_circuit(
+    circuit_id: str,
+    request: Request,
+    tenant: Tenant = Depends(get_request_tenant),
+    _user=Depends(get_current_user),
+):
+    """Help for one circuit on its own page — linkable, printable, shareable.
+
+    The combined page stays available; this is what the in-page help button and
+    every "open the full guide" link point at.
+    """
+    lang = _help_lang(request)
+    circuit = help_circuit_for_lang(circuit_id, lang)
+    if circuit is None:
+        return RedirectResponse(url='/tenant/help/circuits', status_code=302)
+    context = await _help_context(request, tenant, 'help_circuits', title=circuit['title'])
+    context['circuit'] = circuit
+    context['circuit_kpis'] = help_kpis_for_circuit(circuit_id, lang)
+    return templates.TemplateResponse('tenant/help/circuit.html', context)
+
+
+@router.get('/tenant/help/circuits/{circuit_id}/panel', response_class=HTMLResponse)
+async def tenant_help_circuit_panel(
+    circuit_id: str,
+    request: Request,
+    tenant: Tenant = Depends(get_request_tenant),
+    _user=Depends(get_current_user),
+):
+    """The same circuit help as a bare fragment, for the in-page slide-over.
+
+    Contextual help must not cost the user their filters, so the panel is loaded
+    into the current page instead of navigating away from it.
+    """
+    lang = _help_lang(request)
+    circuit = help_circuit_for_lang(circuit_id, lang)
+    if circuit is None:
+        return HTMLResponse('', status_code=404)
+    return templates.TemplateResponse(
+        'tenant/help/_circuit_panel.html',
         {
             'request': request,
             'tenant': tenant,
-            **(await _tenant_navigation_context(tenant)),
-            'hide_page_filters': True,
-            'active_page': 'user_manual',
-            'title': 'Εγχειρίδιο Χρήστη',
+            'lang': lang,
+            'circuit': circuit,
+            'circuit_kpis': help_kpis_for_circuit(circuit_id, lang),
+            'circuits_by_id': help_circuits_by_id(lang),
+            'shot_url': help_shot_url,
+            'shot_exists': _help_shot_exists,
         },
     )
+
+
+@router.get('/tenant/help/kpi-catalog.json')
+async def tenant_help_kpi_catalog(
+    request: Request,
+    _tenant: Tenant = Depends(get_request_tenant),
+    _user=Depends(get_current_user),
+):
+    """Feeds the KPI help popup. Served separately (and cached) rather than
+    inlined into every page, since the catalog is ~50 KB of static text."""
+    lang = 'en' if str(request.cookies.get('lang', 'el')).lower().startswith('en') else 'el'
+    return JSONResponse(
+        {'lang': lang, 'entries': kpi_catalog_for_lang(lang), 'fallback': kpi_default_help(lang)},
+        headers={'Cache-Control': 'private, max-age=3600'},
+    )
+
+
+@router.get('/tenant/manual')
+async def tenant_user_manual(request: Request):
+    """Kept so existing per-page help links (and bookmarks) still resolve.
+
+    The old anchors are circuit ids, which the new circuits page reuses verbatim,
+    so /tenant/manual#price-control lands exactly where it used to.
+    """
+    return RedirectResponse(url='/tenant/help/circuits', status_code=301)
 
 
 @router.get('/tenant/price-control', response_class=HTMLResponse)

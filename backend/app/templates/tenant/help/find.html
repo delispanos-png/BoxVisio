@@ -1,0 +1,113 @@
+{% extends "tenant/help/_layout.html" %}
+{% set en = lang == 'en' %}
+
+{% block help_title %}{{ 'How do I find…' if en else 'Πώς θα βρω…' }}{% endblock %}
+{% block help_lead %}
+{{ 'Start from your question, not from the menu. Type a couple of words for whatever you are after and
+you will see which screen answers it, with the steps and why that is the right route.' if en else
+'Ξεκίνα από την ερώτηση, όχι από το μενού. Γράψε δυο λέξεις για ό,τι ψάχνεις και θα δεις
+ποια οθόνη το απαντάει, με ποια βήματα και γιατί είναι αυτή η σωστή διαδρομή.' }}
+{% endblock %}
+
+{% block help_body %}
+
+<div class="bv-help-search">
+  <i class="fe fe-search" aria-hidden="true"></i>
+  <label class="visually-hidden" for="helpTaskSearch">{{ 'Search questions' if en else 'Αναζήτηση ερώτησης' }}</label>
+  <input type="search" id="helpTaskSearch" data-help-filter="#helpTasks"
+         placeholder="{{ 'e.g. turnover, stock, who owes me, ordering, VAT…' if en else 'π.χ. τζίρος, απόθεμα, ποιος μου χρωστάει, παραγγελία, ΦΠΑ…' }}"
+         autocomplete="off">
+</div>
+
+<div id="helpTasks">
+  {% for group in task_groups %}
+  <section class="bv-task-group" data-help-group>
+    <div class="bv-task-group-head">
+      <i class="fe {{ group.icon }}" aria-hidden="true"></i>
+      <h5>{{ group.title }}</h5>
+    </div>
+
+    {% for task in group.tasks %}
+    {% set circuit = circuits_by_id.get(task.circuit) %}
+    <details class="bv-task" data-help-item
+             data-help-text="{{ task.q }} {{ task.why }} {{ circuit.title if circuit else '' }} {{ task.steps|join(' ') }}">
+      <summary>
+        <i class="fe fe-help-circle text-muted" aria-hidden="true"></i>
+        <span>{{ task.q }}</span>
+      </summary>
+      <div class="bv-task-body">
+        {% if circuit %}
+        <div class="bv-help-where">
+          <i class="fe fe-map-pin" aria-hidden="true"></i>{{ circuit.group }}
+        </div>
+        {% endif %}
+
+        <ol>
+          {% for step in task.steps %}<li>{{ step }}</li>{% endfor %}
+        </ol>
+
+        {% if task.why %}
+        <div class="bv-task-why mb-3">
+          <strong>{{ 'Why here:' if en else 'Γιατί εδώ:' }}</strong> {{ task.why }}
+        </div>
+        {% endif %}
+
+        <div class="d-flex flex-wrap gap-2">
+          <a class="btn btn-sm btn-primary" href="{{ task.route }}">
+            <i class="fe fe-arrow-right me-1" aria-hidden="true"></i>{{ 'Open the screen' if en else 'Άνοιξε τη σελίδα' }}
+          </a>
+          {% if circuit %}
+          <a class="btn btn-sm btn-outline-secondary" href="/tenant/help/circuits/{{ circuit.id }}">
+            <i class="fe fe-book-open me-1" aria-hidden="true"></i>{{ 'Detailed guide' if en else 'Αναλυτικές οδηγίες' }}
+          </a>
+          {% endif %}
+        </div>
+      </div>
+    </details>
+    {% endfor %}
+  </section>
+  {% endfor %}
+</div>
+
+<div class="bv-help-empty" data-help-empty>
+  <i class="fe fe-search d-block mb-2" style="font-size: 26px;" aria-hidden="true"></i>
+  {% if en %}
+  No question matches those words.
+  Try the <a href="/tenant/help/kpis">KPI dictionary</a> or
+  <a href="/tenant/help/circuits">the screen-by-screen guide</a>.
+  {% else %}
+  Δεν βρέθηκε ερώτηση με αυτούς τους όρους.
+  Δοκίμασε το <a href="/tenant/help/kpis">Λεξικό KPI</a> ή
+  <a href="/tenant/help/circuits">τις σελίδες βήμα-βήμα</a>.
+  {% endif %}
+</div>
+
+<div class="card content-card mt-4">
+  <div class="card-header">
+    <h5 class="mb-0">{{ 'Did not find your question?' if en else 'Δεν βρήκες την ερώτησή σου;' }}</h5>
+  </div>
+  <div class="card-body">
+    <p class="mb-2">
+      {{ 'Three rules that cover almost any search:' if en else 'Τρεις γενικοί κανόνες που καλύπτουν σχεδόν κάθε αναζήτηση:' }}
+    </p>
+    <ul class="mb-0">
+      {% if en %}
+      <li>Need <strong>one specific document or customer</strong>? Go to
+        <strong>Operational Streams</strong> — that is where the itemised rows live.</li>
+      <li>Need <strong>totals, trends or a comparison</strong>? Go to <strong>Analytics</strong>.</li>
+      <li>Need <strong>to decide what to do</strong> (what to order, what to price, what to clear)?
+        Go to <strong>Sell Out</strong>, <strong>FnR</strong>,
+        <strong>Price Control</strong> or <strong>Business Advisor</strong>.</li>
+      {% else %}
+      <li>Θέλεις <strong>ένα συγκεκριμένο παραστατικό ή έναν πελάτη</strong>; Πήγαινε σε
+        <strong>Επιχειρησιακά Κυκλώματα</strong> — εκεί ζουν οι αναλυτικές γραμμές.</li>
+      <li>Θέλεις <strong>σύνολα, τάσεις ή σύγκριση</strong>; Πήγαινε σε <strong>Αναλύσεις</strong>.</li>
+      <li>Θέλεις <strong>να αποφασίσεις τι να κάνεις</strong> (τι να παραγγείλεις, τι τιμή να βάλεις,
+        τι να ξεφορτωθείς); Πήγαινε σε <strong>Sell Out</strong>, <strong>FnR</strong>,
+        <strong>Έλεγχος Τιμών</strong> ή <strong>Σύμβουλος Επιχείρησης</strong>.</li>
+      {% endif %}
+    </ul>
+  </div>
+</div>
+
+{% endblock %}

@@ -1,0 +1,72 @@
+{% extends "tenant/help/_layout.html" %}
+{% set en = lang == 'en' %}
+
+{% block help_title %}{{ 'Every screen, step by step' if en else 'Οι σελίδες βήμα-βήμα' }}{% endblock %}
+{% block help_lead %}
+{{ 'Every screen in the BI: what it does, where it lives in the menu, how to drive it step by step,
+which metrics it shows and what to check before drawing a conclusion.' if en else
+'Κάθε οθόνη του BI: τι κάνει, πού βρίσκεται στο μενού, πώς τη χρησιμοποιείς βήμα-βήμα,
+ποιους δείκτες δείχνει και τι πρέπει να προσέξεις πριν βγάλεις συμπέρασμα.' }}
+{% endblock %}
+
+{% block help_body %}
+
+<div class="row g-4">
+  {# ---------------- Table of contents ---------------- #}
+  <div class="col-lg-3 d-none d-lg-block">
+    <div class="card content-card bv-help-toc bv-help-toc-sticky">
+      <div class="card-body py-3">
+        {% for group_name, group_circuits in circuit_groups %}
+        <h6>{{ group_name }}</h6>
+        {% for c in group_circuits %}
+        <a href="#{{ c.id }}">{{ c.title }}</a>
+        {% endfor %}
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  {# ---------------- Circuits ---------------- #}
+  <div class="col-lg-9">
+    {# Mobile quick jump #}
+    <div class="card content-card mb-3 d-lg-none">
+      <div class="card-body py-3">
+        <label class="form-label mb-1" for="helpCircuitJump">
+          {{ 'Jump to a screen' if en else 'Πήγαινε σε σελίδα' }}
+        </label>
+        <select class="form-select" id="helpCircuitJump" data-help-jump>
+          <option value="">{{ 'Choose…' if en else 'Επίλεξε…' }}</option>
+          {% for group_name, group_circuits in circuit_groups %}
+          <optgroup label="{{ group_name }}">
+            {% for c in group_circuits %}<option value="#{{ c.id }}">{{ c.title }}</option>{% endfor %}
+          </optgroup>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
+    {% for c in circuits %}
+    <section class="card content-card mb-4 bv-help-section" id="{{ c.id }}">
+      <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+        <h5 class="mb-0">{{ c.title }}</h5>
+        <div class="d-flex flex-wrap gap-1">
+          <a class="btn btn-sm btn-outline-secondary" href="/tenant/help/circuits/{{ c.id }}">
+            <i class="fe fe-book-open me-1" aria-hidden="true"></i>{{ 'Only this' if en else 'Μόνο αυτό' }}
+          </a>
+          <a class="btn btn-sm btn-outline-primary" href="{{ c.route }}">
+            <i class="fe fe-external-link me-1" aria-hidden="true"></i>{{ 'Open the screen' if en else 'Άνοιξε τη σελίδα' }}
+          </a>
+        </div>
+      </div>
+      <div class="card-body">
+        {# One source of markup for the combined page, the standalone page and the panel. #}
+        {% with circuit = c, circuit_kpis = kpis_for_circuit(c.id, lang) %}
+          {% include "tenant/help/_circuit_panel.html" %}
+        {% endwith %}
+      </div>
+    </section>
+    {% endfor %}
+  </div>
+</div>
+
+{% endblock %}

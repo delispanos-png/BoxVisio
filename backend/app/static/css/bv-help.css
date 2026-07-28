@@ -1,0 +1,422 @@
+/* Help section (/tenant/help) — built on bv-tokens so it follows light/dark. */
+
+.bv-help-hero {
+  border: 1px solid var(--bv-border);
+  border-radius: var(--bv-radius-xl);
+  background:
+    radial-gradient(120% 140% at 100% 0%, var(--bv-brand-violet-soft) 0%, transparent 55%),
+    linear-gradient(135deg, var(--bv-brand-primary-soft), var(--bv-surface-2));
+  padding: 22px 24px;
+  box-shadow: var(--bv-shadow-sm);
+}
+.bv-help-hero h4 { color: var(--bv-heading); margin-bottom: 8px; }
+.bv-help-hero p { color: var(--bv-text); margin-bottom: 0; max-width: 74ch; }
+
+/* Sub-navigation across the help pages */
+.bv-help-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 16px 0 18px;
+}
+.bv-help-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 8px 14px;
+  border: 1px solid var(--bv-border);
+  border-radius: var(--bv-radius-pill);
+  background: var(--bv-surface);
+  color: var(--bv-text);
+  font-weight: 600;
+  font-size: 14px;
+  text-decoration: none;
+  transition: border-color .15s ease, background .15s ease, color .15s ease;
+}
+.bv-help-tab:hover { border-color: var(--bv-brand-primary); color: var(--bv-brand-primary); }
+.bv-help-tab.is-active {
+  background: var(--bv-brand-primary);
+  border-color: var(--bv-brand-primary);
+  color: #fff;
+}
+.bv-help-tab.is-active:hover { color: #fff; }
+
+/* Search box used by the task finder and the KPI dictionary */
+.bv-help-search { position: relative; margin-bottom: 16px; }
+.bv-help-search input {
+  width: 100%;
+  min-height: 48px;
+  padding: 10px 16px 10px 44px;
+  border: 1px solid var(--bv-border);
+  border-radius: var(--bv-radius-lg);
+  background: var(--bv-surface);
+  color: var(--bv-text);
+  font-size: 15px;
+}
+.bv-help-search input:focus {
+  outline: none;
+  border-color: var(--bv-brand-primary);
+  box-shadow: 0 0 0 3px var(--bv-brand-primary-soft);
+}
+.bv-help-search .fe {
+  position: absolute;
+  left: 15px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--bv-muted);
+  pointer-events: none;
+}
+.bv-help-empty {
+  display: none;
+  padding: 24px;
+  text-align: center;
+  color: var(--bv-muted);
+}
+.bv-help-empty.is-shown { display: block; }
+
+/* Task cards — the "how do I find X" index */
+.bv-task-group { margin-bottom: 26px; }
+.bv-task-group-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.bv-task-group-head .fe {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--bv-radius-md);
+  background: var(--bv-brand-primary-soft);
+  color: var(--bv-brand-primary);
+}
+.bv-task-group-head h5 { margin: 0; color: var(--bv-heading); }
+
+.bv-task {
+  border: 1px solid var(--bv-border);
+  border-radius: var(--bv-radius-lg);
+  background: var(--bv-surface);
+  padding: 0;
+  margin-bottom: 10px;
+  overflow: hidden;
+}
+.bv-task > summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--bv-heading);
+  list-style: none;
+}
+.bv-task > summary::-webkit-details-marker { display: none; }
+.bv-task > summary::after {
+  content: '';
+  margin-inline-start: auto;
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid var(--bv-muted);
+  border-bottom: 2px solid var(--bv-muted);
+  transform: rotate(45deg);
+  transition: transform .15s ease;
+  flex: 0 0 auto;
+}
+.bv-task[open] > summary::after { transform: rotate(-135deg); }
+.bv-task[open] > summary { border-bottom: 1px solid var(--bv-border); }
+.bv-task-body { padding: 14px 16px 16px; }
+.bv-task-body ol { margin: 0 0 12px; padding-inline-start: 20px; }
+.bv-task-body ol li { margin-bottom: 6px; color: var(--bv-text); }
+.bv-task-why {
+  border-inline-start: 3px solid var(--bv-brand-primary);
+  background: var(--bv-surface-3);
+  border-radius: var(--bv-radius-sm);
+  padding: 10px 12px;
+  color: var(--bv-text);
+  font-size: 14px;
+}
+.bv-task-why strong { color: var(--bv-heading); }
+
+/* Circuit sections */
+.bv-help-section { scroll-margin-top: 96px; }
+.bv-help-shot {
+  border: 1px solid var(--bv-border);
+  border-radius: var(--bv-radius-lg);
+  overflow: hidden;
+  background: var(--bv-surface-3);
+  margin-bottom: 16px;
+}
+.bv-help-shot img { display: block; width: 100%; height: auto; }
+.bv-help-shot figcaption {
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--bv-muted);
+  border-top: 1px solid var(--bv-border);
+  background: var(--bv-surface);
+}
+.bv-help-where {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: var(--bv-radius-pill);
+  background: var(--bv-brand-primary-soft);
+  color: var(--bv-brand-primary-strong);
+  font-weight: 600;
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+.bv-help-steps { counter-reset: bvstep; list-style: none; padding: 0; margin: 0 0 16px; }
+.bv-help-steps li {
+  counter-increment: bvstep;
+  position: relative;
+  padding-inline-start: 38px;
+  margin-bottom: 10px;
+  color: var(--bv-text);
+}
+.bv-help-steps li::before {
+  content: counter(bvstep);
+  position: absolute;
+  inset-inline-start: 0;
+  top: -1px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--bv-brand-primary);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.bv-help-checks {
+  border: 1px solid var(--bv-warning);
+  background: var(--bv-warning-soft);
+  border-radius: var(--bv-radius-lg);
+  padding: 12px 14px;
+}
+.bv-help-checks h6 { color: #92400e; margin-bottom: 8px; }
+.bv-help-checks ul { margin: 0; padding-inline-start: 18px; }
+.bv-help-checks li { margin-bottom: 5px; }
+
+/* KPI dictionary */
+.bv-kpi-entry {
+  border: 1px solid var(--bv-border);
+  border-radius: var(--bv-radius-lg);
+  background: var(--bv-surface);
+  padding: 16px;
+  height: 100%;
+}
+.bv-kpi-entry h6 {
+  color: var(--bv-heading);
+  margin-bottom: 10px;
+  font-size: 16px;
+}
+.bv-kpi-field { margin-bottom: 10px; }
+.bv-kpi-field:last-child { margin-bottom: 0; }
+.bv-kpi-field-label {
+  display: block;
+  font-size: 11px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--bv-soft);
+  margin-bottom: 3px;
+}
+.bv-kpi-field p { margin: 0; color: var(--bv-text); font-size: 14px; }
+.bv-kpi-field--formula p {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  background: var(--bv-surface-3);
+  border-radius: var(--bv-radius-sm);
+  padding: 8px 10px;
+}
+.bv-kpi-field--caveats {
+  border-inline-start: 3px solid var(--bv-warning);
+  padding-inline-start: 10px;
+}
+
+/* Cross links */
+.bv-help-related { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.bv-help-related a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  border: 1px solid var(--bv-border);
+  border-radius: var(--bv-radius-pill);
+  background: var(--bv-surface);
+  color: var(--bv-text);
+  font-size: 13px;
+  text-decoration: none;
+}
+.bv-help-related a:hover { border-color: var(--bv-brand-primary); color: var(--bv-brand-primary); }
+
+/* Index grid on the help home page */
+.bv-help-index a {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  min-height: 100%;
+  padding: 16px;
+  border: 1px solid var(--bv-border);
+  border-radius: var(--bv-radius-lg);
+  background: var(--bv-surface);
+  color: var(--bv-text);
+  text-decoration: none;
+  transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease;
+}
+.bv-help-index a:hover {
+  border-color: var(--bv-brand-primary);
+  box-shadow: var(--bv-shadow-sm);
+  transform: translateY(-1px);
+}
+.bv-help-index .fe {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: var(--bv-radius-md);
+  background: var(--bv-brand-primary-soft);
+  color: var(--bv-brand-primary);
+  font-size: 18px;
+}
+.bv-help-index strong { display: block; color: var(--bv-heading); margin-bottom: 3px; }
+.bv-help-index span.text-muted { font-size: 13px; }
+
+/* Table of contents on the circuits page */
+.bv-help-toc a {
+  display: block;
+  padding: 7px 10px;
+  border-radius: var(--bv-radius-sm);
+  color: var(--bv-text);
+  text-decoration: none;
+  font-size: 14px;
+}
+.bv-help-toc a:hover { background: var(--bv-surface-3); color: var(--bv-brand-primary); }
+.bv-help-toc h6 {
+  font-size: 11px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--bv-soft);
+  margin: 14px 0 4px;
+}
+@media (min-width: 992px) {
+  .bv-help-toc-sticky { position: sticky; top: 88px; max-height: calc(100vh - 110px); overflow-y: auto; }
+}
+
+/* Dark theme adjustments the tokens do not cover on their own */
+body[data-theme='dark'] .bv-help-hero {
+  background: linear-gradient(135deg, rgba(37, 99, 235, .14), var(--bv-surface-2));
+}
+body[data-theme='dark'] .bv-help-checks { background: rgba(245, 158, 11, .12); }
+body[data-theme='dark'] .bv-help-checks h6 { color: var(--bv-warning); }
+body[data-theme='dark'] .bv-help-where {
+  background: rgba(37, 99, 235, .16);
+  color: #93b4fd;
+}
+
+@media print {
+  .bv-help-tabs, .bv-help-toc, .bv-help-search { display: none !important; }
+  .bv-task { break-inside: avoid; }
+  .bv-task > summary::after { display: none; }
+  .bv-help-section { break-before: page; }
+}
+
+/* ---------------------------------------------------------------------------
+   Contextual help drawer — available on every tenant page, not just /help.
+   --------------------------------------------------------------------------- */
+.bv-help-drawer { position: fixed; inset: 0; z-index: 1080; }
+.bv-help-drawer[hidden] { display: none; }
+
+.bv-help-drawer-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(15, 23, 42, .45);
+  animation: bvHelpFade .18s ease;
+}
+
+.bv-help-drawer-panel {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-end: 0;
+  width: min(720px, 100%);
+  display: flex;
+  flex-direction: column;
+  background: var(--bv-surface);
+  border-inline-start: 1px solid var(--bv-border);
+  box-shadow: var(--bv-shadow-lg);
+  animation: bvHelpSlide .22s cubic-bezier(.22, .61, .36, 1);
+}
+.bv-help-drawer-panel:focus { outline: none; }
+
+@keyframes bvHelpFade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes bvHelpSlide { from { transform: translateX(24px); opacity: .4; } to { transform: none; opacity: 1; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .bv-help-drawer-backdrop,
+  .bv-help-drawer-panel { animation: none; }
+}
+
+.bv-help-drawer-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--bv-border);
+  background: var(--bv-surface-2);
+}
+.bv-help-drawer-head h5 { color: var(--bv-heading); }
+.bv-help-drawer-kicker {
+  display: block;
+  font-size: 11px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--bv-brand-primary);
+  margin-bottom: 2px;
+}
+
+.bv-help-drawer-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 18px 20px;
+  color: var(--bv-text);
+}
+.bv-help-drawer-body h6 { color: var(--bv-heading); }
+.bv-help-drawer-body > :last-child { margin-bottom: 0; }
+
+.bv-help-drawer-loading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 28px 0;
+  color: var(--bv-muted);
+  justify-content: center;
+}
+
+.bv-help-drawer-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--bv-border);
+  background: var(--bv-surface-2);
+}
+
+/* Stop the page behind from scrolling while the drawer is modal. */
+body.bv-help-drawer-open { overflow: hidden; }
+
+@media (max-width: 575.98px) {
+  .bv-help-drawer-panel { width: 100%; border-inline-start: 0; }
+  .bv-help-drawer-body { padding: 14px; }
+}

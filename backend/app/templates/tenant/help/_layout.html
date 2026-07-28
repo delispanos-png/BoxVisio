@@ -1,0 +1,37 @@
+{% extends "base_tenant.html" %}
+
+{#
+  Shared chrome for every Help page: the hero and the sub-navigation.
+  Child templates fill `help_body`. bv-help.css ships in the global bundle
+  because the contextual help drawer uses the same classes on every page.
+#}
+
+{% set en = lang == 'en' %}
+{% set help_tabs = [
+  ('help_home',     '/tenant/help',           'fe-home',        'Getting started' if en else 'Ξεκινώντας'),
+  ('help_find',     '/tenant/help/find',      'fe-search',      'How do I find…' if en else 'Πώς θα βρω…'),
+  ('help_circuits', '/tenant/help/circuits',  'fe-layers',      'Screen by screen' if en else 'Οι σελίδες βήμα-βήμα'),
+  ('help_kpis',     '/tenant/help/kpis',      'fe-bar-chart-2', 'KPI dictionary' if en else 'Λεξικό KPI'),
+  ('help_faq',      '/tenant/help/faq',       'fe-help-circle', 'Common questions' if en else 'Συχνές απορίες')
+] %}
+
+{% block content %}
+<div class="bv-help-hero">
+  <h4 class="mb-2">{% block help_title %}{{ 'Help' if en else 'Βοήθεια' }}{% endblock %}</h4>
+  <p>{% block help_lead %}{% endblock %}</p>
+</div>
+
+<nav class="bv-help-tabs" aria-label="{{ 'Help sections' if en else 'Ενότητες βοήθειας' }}">
+  {% for key, href, icon, label in help_tabs %}
+  <a class="bv-help-tab {% if active_page == key %}is-active{% endif %}"
+     href="{{ href }}"
+     {% if active_page == key %}aria-current="page"{% endif %}>
+    <i class="fe {{ icon }}" aria-hidden="true"></i>{{ label }}
+  </a>
+  {% endfor %}
+</nav>
+
+{% block help_body %}{% endblock %}
+
+<script src="/static/js/bv-help.js?v={{ app_version }}" defer></script>
+{% endblock %}

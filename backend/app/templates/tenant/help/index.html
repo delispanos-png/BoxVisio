@@ -1,0 +1,242 @@
+{% extends "tenant/help/_layout.html" %}
+{% set en = lang == 'en' %}
+
+{% block help_title %}{{ 'BoxVisio BI Help' if en else 'Βοήθεια BoxVisio BI' }}{% endblock %}
+{% block help_lead %}
+{{ 'Everything you need to work with the BI: how to read each screen, what exactly each metric
+computes and — most importantly — where to look when you have a specific question.' if en else
+'Ό,τι χρειάζεσαι για να δουλέψεις με το BI: πώς διαβάζεται κάθε οθόνη, τι ακριβώς υπολογίζει
+κάθε δείκτης και — το σημαντικότερο — πού να ψάξεις όταν έχεις μια συγκεκριμένη ερώτηση.' }}
+{% endblock %}
+
+{% block help_body %}
+
+<div class="row g-3 bv-help-index mb-4">
+  <div class="col-md-6 col-xl-4">
+    <a href="/tenant/help/find">
+      <i class="fe fe-search" aria-hidden="true"></i>
+      <span>
+        <strong>{{ 'How do I find…' if en else 'Πώς θα βρω…' }}</strong>
+        <span class="text-muted">{{ 'Start from your question and we route you to the right screen, with the steps.'
+          if en else 'Ξεκίνα από την ερώτησή σου και σε οδηγούμε στη σωστή οθόνη με τα βήματα.' }}</span>
+      </span>
+    </a>
+  </div>
+  <div class="col-md-6 col-xl-4">
+    <a href="/tenant/help/circuits">
+      <i class="fe fe-layers" aria-hidden="true"></i>
+      <span>
+        <strong>{{ 'Screen by screen' if en else 'Οι σελίδες βήμα-βήμα' }}</strong>
+        <span class="text-muted">{{ 'Every screen with a picture, its purpose, the steps and what to watch for.'
+          if en else 'Κάθε οθόνη με εικόνα, σκοπό, βήματα χρήσης και τι να προσέξεις.' }}</span>
+      </span>
+    </a>
+  </div>
+  <div class="col-md-6 col-xl-4">
+    <a href="/tenant/help/kpis">
+      <i class="fe fe-bar-chart-2" aria-hidden="true"></i>
+      <span>
+        <strong>{{ 'KPI dictionary' if en else 'Λεξικό KPI' }}</strong>
+        <span class="text-muted">{{ kpi_count }} {{ 'metrics with the exact formula, data source and pitfalls.'
+          if en else 'δείκτες με ακριβή τύπο, πηγή δεδομένων και παγίδες.' }}</span>
+      </span>
+    </a>
+  </div>
+  <div class="col-md-6 col-xl-4">
+    <a href="/tenant/help/faq">
+      <i class="fe fe-help-circle" aria-hidden="true"></i>
+      <span>
+        <strong>{{ 'Common questions' if en else 'Συχνές απορίες' }}</strong>
+        <span class="text-muted">{{ 'When something will not match SoftOne, or a screen shows zeros.'
+          if en else 'Όταν κάτι δεν συμφωνεί με το SoftOne ή μια οθόνη δείχνει μηδενικά.' }}</span>
+      </span>
+    </a>
+  </div>
+  <div class="col-md-6 col-xl-4">
+    <a href="/tenant/help/circuits/dashboard">
+      <i class="fe fe-home" aria-hidden="true"></i>
+      <span>
+        <strong>{{ 'Executive Dashboard' if en else 'Πίνακας Διοίκησης' }}</strong>
+        <span class="text-muted">{{ 'The screen your day starts on.' if en else 'Η οθόνη από την οποία ξεκινάει η μέρα σου.' }}</span>
+      </span>
+    </a>
+  </div>
+  <div class="col-md-6 col-xl-4">
+    <a href="/tenant/help/faq#mismatch">
+      <i class="fe fe-check-square" aria-hidden="true"></i>
+      <span>
+        <strong>{{ 'Reconciling with SoftOne' if en else 'Συμφωνία με SoftOne' }}</strong>
+        <span class="text-muted">{{ 'The six-point check for when a number will not add up.'
+          if en else 'Ο έλεγχος έξι σημείων όταν ένα νούμερο δεν βγαίνει.' }}</span>
+      </span>
+    </a>
+  </div>
+</div>
+
+<div class="card content-card mb-3">
+  <div class="card-header"><h5 class="mb-0">{{ 'A tour of the screen' if en else 'Ξενάγηση στην οθόνη' }}</h5></div>
+  <div class="card-body">
+    <p>{{ 'Every page in the BI has the same structure. Learn it once and you know them all.'
+      if en else 'Κάθε σελίδα του BI έχει την ίδια δομή. Μόλις τη μάθεις, τις ξέρεις όλες.' }}</p>
+    {% if shots.ui_tour %}
+    <figure class="bv-help-shot">
+      <img src="{{ shots.ui_tour }}" alt="{{ 'The BI screen layout' if en else 'Γενική εικόνα της οθόνης του BI' }}" loading="lazy">
+      <figcaption>{{ 'The typical page: menu on the left, toolbar on top, filters, KPI cards and tables.'
+        if en else 'Η τυπική δομή μιας σελίδας: μενού αριστερά, μπάρα εργαλείων πάνω, φίλτρα, κάρτες KPI και πίνακες.' }}</figcaption>
+    </figure>
+    {% endif %}
+    <div class="row g-3">
+      <div class="col-lg-6">
+        <h6><i class="fe fe-sidebar me-1" aria-hidden="true"></i>{{ 'The menu (left)' if en else 'Μενού (αριστερά)' }}</h6>
+        <p class="text-muted mb-3">
+          {% if en %}
+          Pages are grouped into <strong>Dashboards</strong>, <strong>Operational Streams</strong>,
+          <strong>Analytics</strong>, <strong>Comparisons</strong>, <strong>Exports</strong> and <strong>Help</strong>.
+          The search box at the top of the menu finds a page by name.
+          A padlock means the page is not part of your package.
+          {% else %}
+          Οι σελίδες είναι ομαδοποιημένες σε <strong>Πίνακες</strong>, <strong>Επιχειρησιακά Κυκλώματα</strong>,
+          <strong>Αναλύσεις</strong>, <strong>Συγκρίσεις</strong>, <strong>Εξαγωγές</strong> και <strong>Βοήθεια</strong>.
+          Η αναζήτηση στην κορυφή του μενού βρίσκει σελίδα με το όνομά της.
+          Εικονίδιο κλειδαριάς σημαίνει ότι η σελίδα δεν περιλαμβάνεται στο πακέτο σου.
+          {% endif %}
+        </p>
+        <h6><i class="fe fe-filter me-1" aria-hidden="true"></i>{{ 'Filters' if en else 'Φίλτρα' }}</h6>
+        <p class="text-muted mb-0">
+          {% if en %}
+          Every number on screen obeys the filters. <strong>From / To</strong> sets the period;
+          branch, warehouse, channel and series narrow the scope.
+          <strong>Clear</strong> resets the page when you are not sure what is still active.
+          {% else %}
+          Κάθε αριθμός στην οθόνη υπακούει στα φίλτρα. Το <strong>«Από / Έως»</strong> ορίζει την περίοδο·
+          υποκατάστημα, αποθηκευτικός χώρος, κανάλι και σειρά περιορίζουν το εύρος.
+          Το <strong>«Καθαρισμός»</strong> επαναφέρει τη σελίδα όταν δεν είσαι σίγουρος τι είναι ενεργό.
+          {% endif %}
+        </p>
+      </div>
+      <div class="col-lg-6">
+        <h6><i class="fe fe-info me-1" aria-hidden="true"></i>{{ 'KPI cards' if en else 'Κάρτες KPI' }}</h6>
+        <p class="text-muted mb-3">
+          {% if en %}
+          Each card shows one metric. <strong>Click its icon</strong> and you get what it shows,
+          the exact formula, which stream it reads from, which filters affect it and what it
+          <em>does not</em> include.
+          {% else %}
+          Κάθε κάρτα δείχνει έναν δείκτη. <strong>Πάτησε το εικονίδιό της</strong> και ανοίγει επεξήγηση
+          με τι δείχνει, τον ακριβή υπολογισμό, από ποιο κύκλωμα διαβάζει, ποια φίλτρα την επηρεάζουν
+          και τι <em>δεν</em> περιλαμβάνει.
+          {% endif %}
+        </p>
+        <h6><i class="fe fe-life-buoy me-1" aria-hidden="true"></i>{{ 'Help on every page' if en else 'Βοήθεια σε κάθε σελίδα' }}</h6>
+        <p class="text-muted mb-0">
+          {% if en %}
+          Every screen carries its own <strong>Help</strong> button under the title. It opens that
+          screen's guide in a side panel — your filters stay exactly as they were.
+          {% else %}
+          Κάθε οθόνη έχει το δικό της κουμπί <strong>«Βοήθεια»</strong> κάτω από τον τίτλο. Ανοίγει τον
+          οδηγό της συγκεκριμένης σελίδας σε πλαϊνό πάνελ — τα φίλτρα σου μένουν ακριβώς όπως ήταν.
+          {% endif %}
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-lg-6">
+    <div class="card content-card h-100">
+      <div class="card-header"><h5 class="mb-0">{{ 'KPI help' if en else 'Η βοήθεια των KPI' }}</h5></div>
+      <div class="card-body">
+        <p>
+          {% if en %}
+          You do not have to remember what each metric computes. Click any KPI card and you get five
+          things: <strong>what it shows</strong>, <strong>the formula</strong>,
+          <strong>the data source</strong>, <strong>what affects it</strong> and <strong>what to watch for</strong>.
+          {% else %}
+          Δεν χρειάζεται να θυμάσαι τι υπολογίζει ο κάθε δείκτης. Πάτα οποιαδήποτε κάρτα KPI
+          και θα δεις πέντε πράγματα: <strong>τι δείχνει</strong>, <strong>τον υπολογισμό</strong>,
+          <strong>την πηγή δεδομένων</strong>, <strong>τι τον επηρεάζει</strong> και <strong>τι να προσέξεις</strong>.
+          {% endif %}
+        </p>
+        {% if shots.kpi_help %}
+        <figure class="bv-help-shot mb-0">
+          <img src="{{ shots.kpi_help }}" alt="{{ 'The KPI explanation popup' if en else 'Το popup επεξήγησης ενός KPI' }}" loading="lazy">
+          <figcaption>{{ 'The explanation opens with one click on the card.' if en else 'Η επεξήγηση ανοίγει με ένα κλικ πάνω στην κάρτα.' }}</figcaption>
+        </figure>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card content-card h-100">
+      <div class="card-header"><h5 class="mb-0">{{ 'Choosing a period' if en else 'Επιλογή περιόδου' }}</h5></div>
+      <div class="card-body">
+        <p>
+          {% if en %}
+          The calendar has ready-made ranges (today, this month, last year…) so you rarely need to
+          type a date. The <strong>To</strong> date is the reference day: the Day, Week, Month and
+          YTD cards all derive from it.
+          {% else %}
+          Το ημερολόγιο έχει έτοιμες επιλογές (σήμερα, τρέχων μήνας, προηγούμενο έτος…) ώστε να μη
+          χρειάζεται να πληκτρολογείς ημερομηνίες. Η ημερομηνία <strong>«Έως»</strong> είναι η
+          ημέρα αναφοράς: από αυτήν προκύπτουν οι κάρτες Ημέρας, Εβδομάδας, Μήνα και YTD.
+          {% endif %}
+        </p>
+        {% if shots.date_modal %}
+        <figure class="bv-help-shot mb-0">
+          <img src="{{ shots.date_modal }}" alt="{{ 'The period picker' if en else 'Το παράθυρο επιλογής περιόδου' }}" loading="lazy">
+          <figcaption>{{ 'Ready-made ranges and a dual calendar for an exact window.' if en else 'Έτοιμες περίοδοι και διπλό ημερολόγιο για ακριβές εύρος.' }}</figcaption>
+        </figure>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card content-card mb-3">
+  <div class="card-header"><h5 class="mb-0">{{ 'The three reading rules' if en else 'Οι τρεις κανόνες ανάγνωσης' }}</h5></div>
+  <div class="card-body">
+    <div class="row g-3">
+      <div class="col-lg-4">
+        <h6>{{ '1. Everything is net, excluding VAT' if en else '1. Όλα είναι καθαρά, χωρίς ΦΠΑ' }}</h6>
+        <p class="text-muted mb-0">
+          {% if en %}
+          Turnover, purchases, profit and margin are all net. VAT appears only in the document
+          streams, as its own column. The document "Grand Total" is the only figure that includes it.
+          {% else %}
+          Τζίρος, αγορές, κέρδος και περιθώριο είναι καθαρές αξίες. Ο ΦΠΑ εμφανίζεται μόνο στα
+          κυκλώματα παραστατικών, ως ξεχωριστή στήλη. Το «Γενικό Σύνολο» του παραστατικού είναι
+          το μόνο μέγεθος που τον περιέχει.
+          {% endif %}
+        </p>
+      </div>
+      <div class="col-lg-4">
+        <h6>{{ '2. A period is not a snapshot' if en else '2. Περίοδος ≠ φωτογραφία' }}</h6>
+        <p class="text-muted mb-0">
+          {% if en %}
+          Sales, purchases and expenses add up over a period. Stock and customer/supplier balances
+          are a point in time — they do not add up and often do not even respond to From / To.
+          {% else %}
+          Πωλήσεις, αγορές και έξοδα αθροίζονται σε μια περίοδο. Το απόθεμα και τα υπόλοιπα
+          πελατών/προμηθευτών είναι φωτογραφία μιας στιγμής — δεν αθροίζονται και συχνά δεν
+          αλλάζουν καν με το «Από / Έως».
+          {% endif %}
+        </p>
+      </div>
+      <div class="col-lg-4">
+        <h6>{{ '3. What you see depends on the filters' if en else '3. Ό,τι βλέπεις εξαρτάται από τα φίλτρα' }}</h6>
+        <p class="text-muted mb-0">
+          {% if en %}
+          If a number looks wrong, the first things to check are the period and the active filters —
+          then the time of the last sync.
+          {% else %}
+          Αν ένας αριθμός σου φαίνεται λάθος, το πρώτο που ελέγχεις είναι η περίοδος και τα
+          ενεργά φίλτρα — και μετά η ώρα του τελευταίου συγχρονισμού.
+          {% endif %}
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

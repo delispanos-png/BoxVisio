@@ -1,0 +1,93 @@
+{% extends "tenant/help/_layout.html" %}
+{% set en = lang == 'en' %}
+
+{% block help_title %}{{ 'KPI dictionary' if en else 'Λεξικό KPI' }}{% endblock %}
+{% block help_lead %}
+{{ 'All ' ~ kpi_count ~ ' metrics in the BI, with their exact formula, the source they read from,
+the filters that move them and the pitfalls that make a correct number look wrong. It is the same
+text you get when you click a KPI card inside the app.' if en else
+'Όλοι οι ' ~ kpi_count ~ ' δείκτες του BI, με τον ακριβή τους υπολογισμό, την πηγή από την οποία
+διαβάζουν, τα φίλτρα που τους μετακινούν και τις παγίδες που κάνουν έναν σωστό αριθμό να
+φαίνεται λάθος. Είναι το ίδιο κείμενο που βλέπεις όταν πατάς μια κάρτα KPI μέσα στην εφαρμογή.' }}
+{% endblock %}
+
+{% block help_body %}
+
+<div class="bv-help-search">
+  <i class="fe fe-search" aria-hidden="true"></i>
+  <label class="visually-hidden" for="helpKpiSearch">{{ 'Search metrics' if en else 'Αναζήτηση δείκτη' }}</label>
+  <input type="search" id="helpKpiSearch" data-help-filter="#helpKpis"
+         placeholder="{{ 'e.g. margin, turnover, stock, GMROI, VAT…' if en else 'π.χ. περιθώριο, τζίρος, απόθεμα, GMROI, ΦΠΑ…' }}" autocomplete="off">
+</div>
+
+<div id="helpKpis">
+  {% for group_name, group_circuits in circuit_groups %}
+    {% set ns = namespace(printed=false) %}
+    {% for c in group_circuits %}
+      {% set kpis = kpis_own(c.id, lang) %}
+      {% if kpis %}
+      <section class="mb-4" id="circuit-{{ c.id }}" data-help-group>
+        <div class="bv-task-group-head">
+          <i class="fe fe-bar-chart-2" aria-hidden="true"></i>
+          <h5>{{ c.title }}</h5>
+          <a class="btn btn-sm btn-outline-secondary ms-auto" href="/tenant/help/circuits/{{ c.id }}">
+            {{ 'Screen guide' if en else 'Οδηγίες σελίδας' }}
+          </a>
+        </div>
+        <div class="row g-3">
+          {% for k in kpis %}
+          <div class="col-xl-6" data-help-item
+               {# k['keys'] rather than k.keys: on a dict, Jinja resolves the attribute first
+                  and would hand back the dict's own keys() method. #}
+               data-help-text="{{ k.title }} {{ k.what }} {{ k.formula }} {{ k.source }} {{ k.caveats }} {{ k['keys']|join(' ') }}">
+            <article class="bv-kpi-entry" id="kpi-{{ k.id }}">
+              <h6>{{ k.title }}</h6>
+
+              <div class="bv-kpi-field">
+                <span class="bv-kpi-field-label">{{ 'What it shows' if en else 'Τι δείχνει' }}</span>
+                <p>{{ k.what }}</p>
+              </div>
+
+              <div class="bv-kpi-field bv-kpi-field--formula">
+                <span class="bv-kpi-field-label">{{ 'Formula' if en else 'Υπολογισμός' }}</span>
+                <p>{{ k.formula }}</p>
+              </div>
+
+              {% if k.source %}
+              <div class="bv-kpi-field">
+                <span class="bv-kpi-field-label">{{ 'Data source' if en else 'Πηγή δεδομένων' }}</span>
+                <p>{{ k.source }}</p>
+              </div>
+              {% endif %}
+
+              {% if k.filters %}
+              <div class="bv-kpi-field">
+                <span class="bv-kpi-field-label">{{ 'Affected by' if en else 'Επηρεάζεται από' }}</span>
+                <p>{{ k.filters }}</p>
+              </div>
+              {% endif %}
+
+              {% if k.caveats %}
+              <div class="bv-kpi-field bv-kpi-field--caveats">
+                <span class="bv-kpi-field-label">{{ 'Watch out' if en else 'Προσοχή' }}</span>
+                <p>{{ k.caveats }}</p>
+              </div>
+              {% endif %}
+            </article>
+          </div>
+          {% endfor %}
+        </div>
+      </section>
+      {% endif %}
+    {% endfor %}
+  {% endfor %}
+</div>
+
+<div class="bv-help-empty" data-help-empty>
+  <i class="fe fe-search d-block mb-2" style="font-size: 26px;" aria-hidden="true"></i>
+  {% if en %}No metric matches those words. Try <a href="/tenant/help/find">"How do I find…"</a>.
+  {% else %}Δεν βρέθηκε δείκτης με αυτούς τους όρους.
+  Δοκίμασε <a href="/tenant/help/find">«Πώς θα βρω…»</a>.{% endif %}
+</div>
+
+{% endblock %}

@@ -8,9 +8,11 @@
   <link href="/static/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
   <link href="/static/css/boxvisio-unified.css?v=20260603uinext6" rel="stylesheet">
   <script src="/static/js/bv-unified-ui.js?v=20260513multi"></script>
+  <script src="/static/js/bv-help-drawer.js?v=20260728help1" defer></script>
   {% block head_extra %}{% endblock %}
 </head>
 {% set _theme = request.cookies.get('theme', 'light') %}
+{% set _en = request.cookies.get('lang', 'el') == 'en' %}
 {# Canary: opt-in tenants get the experimental UI (compact dashboard cards, menu search).
    Expand _ui_next_tenants as each piece is verified. #}
 {% set _ui_next_tenants = [1] %}
@@ -161,6 +163,8 @@
         {% set _comparison_pages = ['compare_period', 'compare_branch', 'compare_category'] %}
         {% set _comparison_open = active_page in _comparison_pages %}
         {% set _exports_open = active_page in ['exports_reports', 'exports_csv_excel'] %}
+        {% set _help_pages = ['help_home', 'help_find', 'help_circuits', 'help_kpis', 'help_faq'] %}
+        {% set _help_open = active_page in _help_pages %}
         <ul class="list">
           {% if _show_dashboard_group %}
           <li class="nav-item bv-menu-group {% if _dashboard_open %}active open{% endif %}">
@@ -487,6 +491,38 @@
             </ul>
           </li>
           {% endif %}
+
+          {# Help is always available: it does not depend on the subscription package. #}
+          <li class="nav-item bv-menu-group {% if _help_open %}active open{% endif %}">
+            <button
+              type="button"
+              class="nav-link bv-group-toggle"
+              data-menu-group-toggle="tenant-help"
+              data-menu-group-open="{{ '1' if _help_open else '0' }}"
+              aria-expanded="{{ 'true' if _help_open else 'false' }}"
+            >
+              <i class="fe fe-life-buoy sidemenu-icon"></i>
+              <span class="sidemenu-label">{{ tt(request, 'help') }}</span>
+              <i class="fe fe-chevron-down bv-group-arrow"></i>
+            </button>
+            <ul class="bv-submenu" data-menu-group="tenant-help">
+              <li class="{% if active_page == 'help_home' %}is-active{% endif %}">
+                <a class="bv-submenu-link" href="/tenant/help"><i class="fe fe-home"></i><span>{{ 'Getting started' if _en else 'Ξεκινώντας' }}</span></a>
+              </li>
+              <li class="{% if active_page == 'help_find' %}is-active{% endif %}">
+                <a class="bv-submenu-link" href="/tenant/help/find"><i class="fe fe-search"></i><span>{{ 'How do I find…' if _en else 'Πώς θα βρω…' }}</span></a>
+              </li>
+              <li class="{% if active_page == 'help_circuits' %}is-active{% endif %}">
+                <a class="bv-submenu-link" href="/tenant/help/circuits"><i class="fe fe-layers"></i><span>{{ 'Screen by screen' if _en else 'Οι σελίδες βήμα-βήμα' }}</span></a>
+              </li>
+              <li class="{% if active_page == 'help_kpis' %}is-active{% endif %}">
+                <a class="bv-submenu-link" href="/tenant/help/kpis"><i class="fe fe-bar-chart-2"></i><span>{{ 'KPI dictionary' if _en else 'Λεξικό KPI' }}</span></a>
+              </li>
+              <li class="{% if active_page == 'help_faq' %}is-active{% endif %}">
+                <a class="bv-submenu-link" href="/tenant/help/faq"><i class="fe fe-help-circle"></i><span>{{ 'Common questions' if _en else 'Συχνές απορίες' }}</span></a>
+              </li>
+            </ul>
+          </li>
         </ul>
       </div>
       <div class="sidebar-foot">
@@ -544,7 +580,9 @@
             <i class="fe fe-refresh-cw"></i>
             <div>
               <span class="sync-chip-label">{{ tt(request, 'last_sync') }}</span>
-              <span class="sync-chip-value" data-last-sync-value>{{ tenant_softone_last_sync_display if tenant_softone_last_sync_display is defined else tt(request, 'not_available') }}</span>
+              {# The context builder has no request, so its "not yet synced" placeholder is
+                 Greek-only; swap it here where the language is known. #}
+              <span class="sync-chip-value" data-last-sync-value>{{ ('Not available' if _en else 'Μη διαθέσιμο') if (tenant_softone_last_sync_at is not defined or not tenant_softone_last_sync_at) else tenant_softone_last_sync_display }}</span>
             </div>
           </div>
           {% set _bv_user = request.state.current_user if request.state.current_user is defined else none %}
@@ -599,7 +637,7 @@
             'iqvia': 'iqvia',
             'purchases': 'purchases-analytics',
             'inventory': 'inventory-analytics',
-            'replenishment': 'fnr',
+            'replenishment': 'replenishment',
             'availability': 'availability',
             'destocking': 'destocking',
             'items': 'warehouse-items',
@@ -610,7 +648,6 @@
             'tenant_profile': 'tenant-profile',
             'tenant_settings': 'tenant-settings',
             'tenant_messages': 'tenant-messages',
-            'user_manual': 'quick-start',
             'compare_period': 'comparisons',
             'compare_branch': 'comparisons',
             'compare_category': 'comparisons',
@@ -645,12 +682,19 @@
             <p class="bv-page-subtitle">{{ tt(request, 'page_subtitle_comparisons') }}</p>
             {% elif active_page in ['exports_reports', 'exports_csv_excel'] %}
             <p class="bv-page-subtitle">{{ tt(request, 'page_subtitle_exports') }}</p>
-            {% elif active_page in ['tenant_users', 'tenant_profile', 'tenant_settings', 'tenant_messages', 'user_manual'] %}
+            {% elif active_page in ['tenant_users', 'tenant_profile', 'tenant_settings', 'tenant_messages'] %}
             <p class="bv-page-subtitle">{{ tt(request, 'page_subtitle_settings') }}</p>
+            {% elif active_page in _help_pages %}
+            <p class="bv-page-subtitle">{{ 'Guides, step-by-step instructions and the full KPI dictionary.' if request.cookies.get('lang', 'el') == 'en' else 'Οδηγοί χρήσης, βήμα-βήμα οδηγίες και το πλήρες λεξικό KPI.' }}</p>
             {% endif %}
-            {% if _manual_help_anchor %}
+            {% if _manual_help_anchor and active_page not in _help_pages %}
+            {# Opens this circuit's help in a slide-over so the user keeps their
+               filters. The href is the real page, so it still works without JS
+               and middle-click/open-in-new-tab behave as expected. #}
             <div class="mt-2">
-              <a class="btn btn-sm btn-outline-primary" href="/tenant/manual#{{ _manual_help_anchor }}">
+              <a class="btn btn-sm btn-outline-primary"
+                 href="/tenant/help/circuits/{{ _manual_help_anchor }}"
+                 data-help-panel="{{ _manual_help_anchor }}">
                 <i class="fe fe-help-circle me-1"></i>{{ tt(request, 'help') }}
               </a>
             </div>
@@ -754,6 +798,34 @@
           </div>
         </div>
       </div>
+      {# Contextual per-circuit help. Content is fetched on first open from
+         /tenant/help/circuits/<id>/panel and cached for the page's lifetime. #}
+      <div class="bv-help-drawer" id="bvHelpDrawer" hidden>
+        <div class="bv-help-drawer-backdrop" data-help-drawer-close></div>
+        <aside class="bv-help-drawer-panel" role="dialog" aria-modal="true" aria-labelledby="bvHelpDrawerTitle" tabindex="-1">
+          <header class="bv-help-drawer-head">
+            <div>
+              <span class="bv-help-drawer-kicker">{{ tt(request, 'help') }}</span>
+              <h5 id="bvHelpDrawerTitle" class="mb-0">{{ tt(request, title) if title else tt(request, 'tenant_portal_title') }}</h5>
+            </div>
+            <button type="button" class="btn-close" data-help-drawer-close
+                    aria-label="{{ 'Close' if request.cookies.get('lang', 'el') == 'en' else 'Κλείσιμο' }}"></button>
+          </header>
+          <div class="bv-help-drawer-body" id="bvHelpDrawerBody">
+            <div class="bv-help-drawer-loading">
+              <div class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></div>
+              <span>{{ 'Loading…' if request.cookies.get('lang', 'el') == 'en' else 'Φόρτωση…' }}</span>
+            </div>
+          </div>
+          <footer class="bv-help-drawer-foot">
+            <a class="btn btn-sm btn-outline-secondary" id="bvHelpDrawerFull" href="/tenant/help/circuits">
+              <i class="fe fe-book-open me-1"></i>{{ 'Full guide' if request.cookies.get('lang', 'el') == 'en' else 'Πλήρης οδηγός' }}
+            </a>
+            <button type="button" class="btn btn-sm btn-primary" data-help-drawer-close>OK</button>
+          </footer>
+        </aside>
+      </div>
+
       <div class="modal fade bv-modal bv-modal--responsive bv-modal--sm" id="kpiHelpModal" tabindex="-1" aria-hidden="true" data-bv-modal="true" data-bv-close-on-backdrop="true">
         <div class="modal-dialog modal-dialog-centered">
           <div class="modal-content">
@@ -771,8 +843,23 @@
                 <h6 id="kpiHelpFormulaLabel">{{ tt(request, 'kpi_formula_label') }}</h6>
                 <p id="kpiHelpFormula">-</p>
               </div>
+              <div class="bv-kpi-help-block" id="kpiHelpSourceBlock" hidden>
+                <h6 id="kpiHelpSourceLabel">{{ 'Data source' if _en else 'Πηγή δεδομένων' }}</h6>
+                <p id="kpiHelpSource">-</p>
+              </div>
+              <div class="bv-kpi-help-block" id="kpiHelpFiltersBlock" hidden>
+                <h6 id="kpiHelpFiltersLabel">{{ 'Affected by' if _en else 'Επηρεάζεται από' }}</h6>
+                <p id="kpiHelpFilters">-</p>
+              </div>
+              <div class="bv-kpi-help-block bv-kpi-help-block--warn" id="kpiHelpCaveatsBlock" hidden>
+                <h6 id="kpiHelpCaveatsLabel">{{ 'Watch out' if _en else 'Προσοχή' }}</h6>
+                <p id="kpiHelpCaveats">-</p>
+              </div>
             </div>
-            <div class="modal-footer">
+            <div class="modal-footer justify-content-between">
+              <a href="/tenant/help/kpis" id="kpiHelpManualLink" class="btn btn-link btn-sm px-0">
+                <i class="fe fe-book-open me-1"></i><span id="kpiHelpManualLabel">{{ 'Open in the manual' if _en else 'Δες στο εγχειρίδιο' }}</span>
+              </a>
               <button type="button" class="btn btn-primary" data-bs-dismiss="modal">OK</button>
             </div>
           </div>
@@ -849,265 +936,102 @@
       return datePart;
     }
 
+    //  Must stay byte-for-byte equivalent to normalize_kpi_key() in
+    //  app/core/kpi_catalog.py — the catalog ships pre-normalised keys and they
+    //  have to match what we compute here from the card title.
+    //  (The previous implementation used [^a-z0-9%], which is ASCII-only and so
+    //  reduced every Greek title to an empty string.)
     function normalizeKpiKey(raw) {
       if (!raw) return '';
       return String(raw)
         .normalize('NFD')
         .replace(/[\u0300-\u036f]/g, '')
         .toLowerCase()
-        .replace(/[^a-z0-9%]+/g, ' ')
-        .trim();
+        .replace(/[^\p{L}\p{N}]+/gu, ' ')
+        .trim()
+        .replace(/\s+/g, ' ');
     }
 
-    function kpiDictionary(lang) {
-      const isEl = lang !== 'en';
-      const t = (el, en) => (isEl ? el : en);
-      return [
-        {
-          keys: ['τζιρος ημερας', 'day turnover', 'daily turnover'],
-          title: t('Τζίρος Ημέρας', 'Daily Turnover'),
-          what: t('Συνολική καθαρή αξία πωλήσεων για την ημέρα.', 'Total net sales value for the day.'),
-          formula: t('Άθροισμα καθαρής αξίας πωλήσεων (net_value) για την επιλεγμένη ημερομηνία, με τα ενεργά φίλτρα.', 'Sum of sales net_value for the selected date, with active filters.')
-        },
-        {
-          keys: ['τζιρος εβδομαδας', 'week turnover', 'weekly turnover'],
-          title: t('Τζίρος Εβδομάδας', 'Weekly Turnover'),
-          what: t('Συνολική καθαρή αξία πωλήσεων από την αρχή της εβδομάδας έως την ημερομηνία φίλτρου.', 'Total net sales value from week start to the selected date.'),
-          formula: t('Άθροισμα net_value στο διάστημα [αρχή εβδομάδας, ημερομηνία “έως”] με τα ενεργά φίλτρα.', 'Sum of net_value in [week start, selected “to” date] with filters.')
-        },
-        {
-          keys: ['τζιρος μηνα', 'month turnover', 'monthly turnover'],
-          title: t('Τζίρος Μήνα', 'Monthly Turnover'),
-          what: t('Συνολική καθαρή αξία πωλήσεων του τρέχοντος μήνα (μέχρι την ημερομηνία “έως”).', 'Total net sales value for the current month (up to selected “to” date).'),
-          formula: t('Άθροισμα net_value στο διάστημα [αρχή μήνα, ημερομηνία “έως”].', 'Sum of net_value in [month start, selected “to” date].')
-        },
-        {
-          keys: ['τζιρος ytd', 'ytd turnover', 'ytd'],
-          title: t('Τζίρος (YTD)', 'Turnover (YTD)'),
-          what: t('Συνολική καθαρή αξία πωλήσεων από 01/01 έως την ημερομηνία φίλτρου.', 'Total net sales value from 01/01 up to the selected date.'),
-          formula: t('Άθροισμα net_value στο διάστημα [01/01, ημερομηνία “έως”] με φίλτρα.', 'Sum of net_value in [01/01, selected “to” date] with filters.')
-        },
-        {
-          keys: ['full year', 'full-year turnover', 'full year turnover', 'full year ytd', 'full year sales', 'full year revenue', 'full year turnover', 'full year'],
-          title: t('Τζίρος (Full Year)', 'Turnover (Full Year)'),
-          what: t('Συνολική καθαρή αξία πωλήσεων για ολόκληρο το έτος.', 'Total net sales value for the full year.'),
-          formula: t('Άθροισμα net_value στο διάστημα [01/01, 31/12] του έτους.', 'Sum of net_value in [01/01, 31/12] of the year.')
-        },
-        {
-          keys: ['ytd vs full', 'ytd vs full year', 'ytd vs full'],
-          title: t('Τζίρος (YTD vs FULL)', 'Turnover (YTD vs FULL)'),
-          what: t('Σύγκριση τζίρου YTD με το σύνολο του προηγούμενου έτους.', 'Comparison of YTD turnover vs previous full year.'),
-          formula: t('Δ% = (Τζίρος YTD - Τζίρος προηγ. full) / Τζίρος προηγ. full * 100.', 'Delta% = (YTD turnover - prev full year) / prev full year * 100.')
-        },
-        {
-          keys: ['total turnover', 'συνολικος τζιρος', 'πωλησεις περιοδου', 'πωλησεις'],
-          title: t('Πωλήσεις Περιόδου', 'Period Sales'),
-          what: t('Συνολικός τζίρος για το επιλεγμένο διάστημα.', 'Total turnover for selected period.'),
-          formula: t('Άθροισμα net_value για παραστατικά πωλήσεων στο [Από, Έως] και στα ενεργά φίλτρα.', 'Sum of sales net_value within [From, To] and active filters.')
-        },
-        {
-          keys: ['αγορες περιοδου', 'total purchases', 'purchase cost', 'purchased qty', 'αγορες'],
-          title: t('Αγορές Περιόδου', 'Period Purchases'),
-          what: t('Συνολικό κόστος αγορών προμηθειών στο διάστημα.', 'Total procurement cost in the period.'),
-          formula: t('Άθροισμα cost_amount/net_value για παραστατικά αγορών στο [Από, Έως].', 'Sum of cost_amount/net_value for purchase documents within [From, To].')
-        },
-        {
-          keys: ['μικτο κερδος περιοδου', 'gross profit period', 'gross profit'],
-          title: t('Μικτό Κέρδος Περιόδου', 'Period Gross Profit'),
-          what: t('Μικτό αποτέλεσμα πωλήσεων για το επιλεγμένο διάστημα.', 'Gross profit for the selected period.'),
-          formula: t('Μικτό Κέρδος = Πωλήσεις Περιόδου - Αγορές Περιόδου.', 'Gross Profit = Period Sales - Period Purchases.')
-        },
-        {
-          keys: ['margin', 'margin %', 'περιθωριο', 'μεσο περιθωριο'],
-          title: t('Μέσο Περιθώριο %', 'Average Margin %'),
-          what: t('Ποσοστό κερδοφορίας σε σχέση με τις πωλήσεις της περιόδου.', 'Profitability percentage relative to period sales.'),
-          formula: t('Περιθώριο % = (Πωλήσεις - Αγορές) / Πωλήσεις * 100.', 'Margin % = (Sales - Purchases) / Sales * 100.')
-        },
-        {
-          keys: ['ρυθμος αγορων πωλησεων', 'purchases to sales'],
-          title: t('Ρυθμός Αγορών / Πωλήσεων', 'Purchases to Sales Ratio'),
-          what: t('Δείχνει τι ποσοστό των πωλήσεων καλύπτει το κόστος αγορών.', 'Shows what share of sales is represented by purchase costs.'),
-          formula: t('Λόγος = Αγορές Περιόδου / Πωλήσεις Περιόδου * 100.', 'Ratio = Period Purchases / Period Sales * 100.')
-        },
-        {
-          keys: ['ενεργα υποκαταστηματα', 'active branches'],
-          title: t('Ενεργά Υποκαταστήματα', 'Active Branches'),
-          what: t('Πλήθος υποκαταστημάτων με θετικό τζίρο στο έτος (YTD).', 'Count of branches with positive turnover in the year (YTD).'),
-          formula: t('Count(υποκαταστήματα) όπου net_value(YTD) > 0.', 'Count(branches) where YTD net_value > 0.')
-        },
-        {
-          keys: ['συγκεντρωση κορυφαιου καταστηματος', 'top branch concentration', 'top branch share'],
-          title: t('Συγκέντρωση Κορυφαίου Καταστήματος', 'Top Branch Concentration'),
-          what: t('Το ποσοστό τζίρου που παράγει το #1 υποκατάστημα στο έτος.', 'Turnover share generated by the top branch in the year.'),
-          formula: t('Top Share = max(branch net_value YTD) / total net_value YTD * 100.', 'Top Share = max(branch net_value YTD) / total net_value YTD * 100.')
-        },
-        {
-          keys: ['μεσος ημερησιος τζιρος', 'avg daily turnover'],
-          title: t('Μέσος Ημερήσιος Τζίρος', 'Avg Daily Turnover'),
-          what: t('Μέσος ημερήσιος τζίρος στο επιλεγμένο διάστημα.', 'Average daily turnover in selected period.'),
-          formula: t('Μέσος = Πωλήσεις Περιόδου / Πλήθος ημερών (συμπεριλαμβανομένων).', 'Average = Period Sales / Number of days (inclusive).')
-        },
-        {
-          keys: ['μικτο κερδος ετους', 'gross profit year'],
-          title: t('Μικτό Κέρδος Έτους', 'Year Gross Profit'),
-          what: t('Μικτό κέρδος από αρχή έτους μέχρι σήμερα.', 'Gross profit from year start to current date.'),
-          formula: t('Μικτό Κέρδος YTD = Πωλήσεις YTD - Αγορές YTD.', 'YTD Gross Profit = Sales YTD - Purchases YTD.')
-        },
-        {
-          keys: ['ποσοτητα μηνα', 'quantity month', 'units sold', 'quantity sold', 'πωληθεισα ποσοτητα'],
-          title: t('Ποσότητα Μήνα', 'Monthly Quantity'),
-          what: t('Συνολικές μονάδες πωλήσεων για τον τρέχοντα μήνα.', 'Total sold units for the current month.'),
-          formula: t('Άθροισμα qty σε παραστατικά πωλήσεων στο [αρχή μήνα, “έως”].', 'Sum of sales qty in [month start, “to”].')
-        },
-        {
-          keys: ['stock value', 'αξια αποθεματος'],
-          title: t('Αξία Αποθέματος', 'Stock Value'),
-          what: t('Τρέχουσα αποτίμηση αποθέματος σε αξία.', 'Current stock valuation amount.'),
-          formula: t('Άθροισμα value_amount (ή stock_value) από το snapshot αποθήκης.', 'Sum of value_amount (or stock_value) from inventory snapshot.')
-        },
-        {
-          keys: ['qty on hand', 'ποσοτητα αποθεματος', 'ποσοτητα σε αποθεμα'],
-          title: t('Ποσότητα σε Απόθεμα', 'Qty On Hand'),
-          what: t('Συνολικά διαθέσιμα τεμάχια στην αποθήκη.', 'Total available units in stock.'),
-          formula: t('Άθροισμα qty_on_hand από το snapshot αποθήκης.', 'Sum of qty_on_hand from inventory snapshot.')
-        },
-        {
-          keys: ['cost amount', 'κοστος αποθεματος'],
-          title: t('Κόστος Αποθέματος', 'Inventory Cost'),
-          what: t('Συνολικό λογιστικό κόστος του αποθέματος.', 'Total inventory book cost.'),
-          formula: t('Άθροισμα cost_amount από το snapshot αποθήκης.', 'Sum of cost_amount from inventory snapshot.')
-        },
-        {
-          keys: ['reserved qty', 'δεσμευμενη ποσοτητα'],
-          title: t('Δεσμευμένη Ποσότητα', 'Reserved Quantity'),
-          what: t('Ποσότητα που έχει δεσμευτεί και δεν είναι άμεσα διαθέσιμη.', 'Quantity reserved and not immediately available.'),
-          formula: t('Άθροισμα qty_reserved από το snapshot αποθήκης.', 'Sum of qty_reserved from inventory snapshot.')
-        },
-        {
-          keys: ['total items', 'συνολο ειδων', 'total items count'],
-          title: t('Σύνολο Ειδών', 'Total Items'),
-          what: t('Πλήθος ειδών που υπάρχουν στο αρχείο ειδών.', 'Total number of items in the item master.'),
-          formula: t('Count(items) στο master ειδών για το tenant.', 'Count(items) in the item master for the tenant.')
-        },
-        {
-          keys: ['active items', 'ενεργα ειδη'],
-          title: t('Ενεργά Είδη', 'Active Items'),
-          what: t('Πλήθος ειδών που είναι ενεργά.', 'Number of items marked as active.'),
-          formula: t('Count(items) όπου status = ενεργό.', 'Count(items) where status = active.')
-        },
-        {
-          keys: ['inactive items', 'ανενεργα ειδη'],
-          title: t('Ανενεργά Είδη', 'Inactive Items'),
-          what: t('Πλήθος ειδών που είναι ανενεργά.', 'Number of items marked as inactive.'),
-          formula: t('Count(items) όπου status = ανενεργό.', 'Count(items) where status = inactive.')
-        },
-        {
-          keys: ['fast items', 'ταχυκινητα ειδη', 'fast-moving items'],
-          title: t('Ταχυκίνητα Είδη', 'Fast-Moving Items'),
-          what: t('Είδη με υψηλή κίνηση στο επιλεγμένο διάστημα.', 'Items with high movement in the selected period.'),
-          formula: t('Count(items) όπου πωλήσεις/ημέρα >= όριο “ταχυκίνητο”.', 'Count(items) where sales/day >= fast threshold.')
-        },
-        {
-          keys: ['slow items', 'αργοκινητα ειδη', 'slow-moving items'],
-          title: t('Αργοκίνητα Είδη', 'Slow-Moving Items'),
-          what: t('Είδη με χαμηλή κίνηση στο επιλεγμένο διάστημα.', 'Items with low movement in the selected period.'),
-          formula: t('Count(items) όπου πωλήσεις/ημέρα <= όριο “αργοκίνητο”.', 'Count(items) where sales/day <= slow threshold.')
-        },
-        {
-          keys: ['cash in', 'εισροες'],
-          title: t('Εισροές', 'Cash In'),
-          what: t('Συνολικά χρηματικά ποσά που εισέρχονται.', 'Total incoming cash amount.'),
-          formula: t('Άθροισμα ποσών τύπου inflow στο διάστημα.', 'Sum of inflow amounts in the period.')
-        },
-        {
-          keys: ['cash out', 'εκροες'],
-          title: t('Εκροές', 'Cash Out'),
-          what: t('Συνολικά χρηματικά ποσά που εξέρχονται.', 'Total outgoing cash amount.'),
-          formula: t('Άθροισμα ποσών τύπου outflow στο διάστημα.', 'Sum of outflow amounts in the period.')
-        },
-        {
-          keys: ['net cash', 'καθαρη ροη', 'καθαρη ταμειακη ροη'],
-          title: t('Καθαρή Ταμειακή Ροή', 'Net Cash Flow'),
-          what: t('Καθαρό αποτέλεσμα ροής στο διάστημα.', 'Net cash result for selected period.'),
-          formula: t('Καθαρή Ροή = Εισροές - Εκροές.', 'Net Cash = Cash In - Cash Out.')
-        },
-        {
-          keys: ['entries', 'εγγραφες', 'πληθος εγγραφων'],
-          title: t('Πλήθος Εγγραφών', 'Entries'),
-          what: t('Πλήθος εγγραφών/κινήσεων στο διάστημα.', 'Number of entries/transactions in the period.'),
-          formula: t('Count(rows) στο σχετικό stream (π.χ. cashflow).', 'Count(rows) in the relevant stream (e.g. cashflow).')
-        },
-        {
-          keys: ['συνολο εξοδων', 'total expenses'],
-          title: t('Σύνολο Εξόδων', 'Total Expenses'),
-          what: t('Καθαρές δαπάνες της περιόδου.', 'Net expenses of the period.'),
-          formula: t('Άθροισμα amount για παραστατικά εξόδων στο [Από, Έως].', 'Sum of expense amounts within [From, To].')
-        },
-        {
-          keys: ['εξοδα εσοδα', 'expense ratio', 'expenses to revenue'],
-          title: t('Έξοδα / Έσοδα', 'Expenses / Revenue'),
-          what: t('Δείχνει το ποσοστό εξόδων σε σχέση με τα έσοδα.', 'Shows expense ratio relative to revenue.'),
-          formula: t('Expense Ratio = Σύνολο Εξόδων / Πωλήσεις Περιόδου * 100.', 'Expense Ratio = Total Expenses / Period Sales * 100.')
-        },
-        {
-          keys: ['κατηγοριες', 'categories'],
-          title: t('Κατηγορίες', 'Categories'),
-          what: t('Πλήθος ενεργών κατηγοριών στο διάστημα.', 'Number of active categories in the period.'),
-          formula: t('Count(distinct category) στα έξοδα της περιόδου.', 'Count(distinct category) in expense records.')
-        },
-        {
-          keys: ['συνολικες απαιτησεις', 'receivables'],
-          title: t('Συνολικές Απαιτήσεις', 'Total Receivables'),
-          what: t('Συνολικό ανοικτό υπόλοιπο πελατών.', 'Total open customer receivables.'),
-          formula: t('Άθροισμα υπολοίπων πελατών από balances.', 'Sum of customer open balances.')
-        },
-        {
-          keys: ['ληξιπροθεσμες απαιτησεις', 'overdue receivables'],
-          title: t('Ληξιπρόθεσμες Απαιτήσεις', 'Overdue Receivables'),
-          what: t('Απαιτήσεις που έχουν ξεπεράσει την ημερομηνία λήξης.', 'Receivables past due date.'),
-          formula: t('Άθροισμα υπολοίπων με due_date < σήμερα και το ποσοστό τους.', 'Sum of balances with due_date < today and their ratio.')
-        },
-        {
-          keys: ['υποχρεωσεις προμηθευτων', 'payables'],
-          title: t('Υποχρεώσεις Προμηθευτών', 'Supplier Payables'),
-          what: t('Συνολικό ανοικτό υπόλοιπο προμηθευτών.', 'Total open supplier payables.'),
-          formula: t('Άθροισμα υπολοίπων προμηθευτών από balances.', 'Sum of supplier open balances.')
-        },
-        {
-          keys: ['discount %', 'εκπτωση', 'discount'],
-          title: t('Έκπτωση %', 'Discount %'),
-          what: t('Μέση αποτελεσματική έκπτωση σε είδη/τιμές.', 'Average effective discount on items/pricing.'),
-          formula: t('Μέσος όρος (Τιμή καταλόγου - Τιμή πώλησης) / Τιμή καταλόγου * 100.', 'Average (List Price - Sale Price) / List Price * 100.')
+    //  Every KPI tile shape in the portal. pc-metric-card and fnr-kpi were never
+    //  wired up before, so their cards (and their data-kpi-* text) did nothing on
+    //  click; they are included here.
+    const BV_KPI_CARD_SELECTOR = '.bv-kpi-box, .bv-stat-strip, .bv-metric-card, .pc-metric-card, .fnr-kpi';
+    //  Cards that already own their click (price control's above/below tiles open
+    //  an item analysis) are excluded — help must not steal their behaviour.
+    const BV_KPI_TRIGGER_SELECTOR = [
+      '.bv-kpi-box .kpi-icon',
+      '.bv-stat-strip .kpi-icon',
+      '.bv-metric-card .mc-icon',
+      '.bv-metric-card:not([data-executive-card]):not([data-intraday]):not([data-weekly]):not([data-monthly]):not([data-ytd])',
+      '.pc-metric-card:not([role="button"])',
+      '.fnr-kpi'
+    ].join(', ');
+
+    //  The catalog is served from /tenant/help/kpi-catalog.json and cached by the
+    //  browser, so it is fetched once per session rather than inlined into every
+    //  page. Kick the request off early; the click handler awaits it if needed.
+    const bvKpiCatalog = (function () {
+      let promise = null;
+      let data = null;
+      function load() {
+        if (!promise) {
+          promise = fetch('/tenant/help/kpi-catalog.json', { credentials: 'same-origin' })
+            .then((r) => (r.ok ? r.json() : null))
+            .then((payload) => { data = payload; return payload; })
+            .catch(() => null);
         }
-      ];
+        return promise;
+      }
+      return {
+        load,
+        get ready() { return data; },
+        resolve(titleRaw, lang, explicitId) { return resolveKpiHelp(titleRaw, lang, data, explicitId); }
+      };
+    })();
+
+    function kpiFallbackHelp(titleRaw, lang, payload) {
+      const fb = (payload && payload.fallback) || {};
+      const en = lang === 'en';
+      return {
+        title: titleRaw || 'KPI',
+        what: fb.what || (en
+          ? 'This metric summarizes the selected business value for the active filters.'
+          : 'Το KPI συνοψίζει την επιχειρηματική τιμή για τα ενεργά φίλτρα.'),
+        formula: fb.formula || (en
+          ? 'Calculated from aggregated data based on selected date range and filters.'
+          : 'Υπολογίζεται από τα συγκεντρωτικά δεδομένα βάσει ημερομηνιακού διαστήματος και φίλτρων.'),
+        source: fb.source || '',
+        filters: fb.filters || '',
+        caveats: fb.caveats || '',
+        circuit: ''
+      };
     }
 
-    function resolveKpiHelp(titleRaw, lang) {
-      const key = normalizeKpiKey(titleRaw);
-      if (!key) {
-        return {
-          title: titleRaw || (lang === 'en' ? 'KPI' : 'KPI'),
-          what: lang === 'en'
-            ? 'This metric summarizes the selected business value for the active filters.'
-            : 'Το KPI συνοψίζει την επιχειρηματική τιμή για τα ενεργά φίλτρα.',
-          formula: lang === 'en'
-            ? 'Calculated from aggregated data based on selected date range and filters.'
-            : 'Υπολογίζεται από τα συγκεντρωτικά δεδομένα βάσει ημερομηνιακού διαστήματος και φίλτρων.'
-        };
+    //  Cards carry human titles ("Τζίρος 2026 (YTD)"), not ids, so matching is
+    //  fuzzy: exact key first, then whole-word containment, then substring.
+    function resolveKpiHelp(titleRaw, lang, payload, explicitId) {
+      const entries = (payload && payload.entries) || [];
+      //  A card can name its catalog entry outright with data-kpi-id. Needed where
+      //  the visible label is ambiguous across pages ("Προϊόντα" means one thing on
+      //  price control and another on the market-data screens).
+      if (explicitId && entries.length) {
+        const direct = entries.find((e) => e.id === explicitId);
+        if (direct) return direct;
       }
-      const dict = kpiDictionary(lang);
+      const key = normalizeKpiKey(titleRaw);
+      if (!key || !entries.length) return kpiFallbackHelp(titleRaw, lang, payload);
+
       let best = null;
       let bestScore = -1;
-      for (const item of dict) {
-        for (const candidate of item.keys) {
-          const c = normalizeKpiKey(candidate);
-          if (!c) continue;
-          if (key === c) return item;
+      for (const item of entries) {
+        for (const candidate of (item.keys || [])) {
+          if (!candidate) continue;
+          if (key === candidate) return item;
           let score = -1;
-          if (key.startsWith(`${c} `) || key.endsWith(` ${c}`) || key.includes(` ${c} `)) {
-            score = c.length + 20;
-          } else if (c.length >= 6 && key.includes(c)) {
-            score = c.length;
+          if (key.startsWith(candidate + ' ') || key.endsWith(' ' + candidate) || key.includes(' ' + candidate + ' ')) {
+            score = candidate.length + 20;
+          } else if (candidate.length >= 6 && key.includes(candidate)) {
+            score = candidate.length;
           }
           if (score > bestScore) {
             bestScore = score;
@@ -1116,15 +1040,7 @@
         }
       }
       if (best && bestScore >= 6) return best;
-      return {
-        title: titleRaw || (lang === 'en' ? 'KPI' : 'KPI'),
-        what: lang === 'en'
-          ? 'This metric summarizes the selected business value for the active filters.'
-          : 'Το KPI συνοψίζει την επιχειρηματική τιμή για τα ενεργά φίλτρα.',
-        formula: lang === 'en'
-          ? 'Calculated from aggregated data based on selected date range and filters.'
-          : 'Υπολογίζεται από τα συγκεντρωτικά δεδομένα βάσει ημερομηνιακού διαστήματος και φίλτρων.'
-      };
+      return kpiFallbackHelp(titleRaw, lang, payload);
     }
 
     function replaceIsoDatesInText(text) {
@@ -2191,39 +2107,98 @@
       const kpiHelpFormula = document.getElementById('kpiHelpFormula');
       const kpiHelpWhatLabel = document.getElementById('kpiHelpWhatLabel');
       const kpiHelpFormulaLabel = document.getElementById('kpiHelpFormulaLabel');
+      const kpiHelpSource = document.getElementById('kpiHelpSource');
+      const kpiHelpFilters = document.getElementById('kpiHelpFilters');
+      const kpiHelpCaveats = document.getElementById('kpiHelpCaveats');
+      const kpiHelpSourceBlock = document.getElementById('kpiHelpSourceBlock');
+      const kpiHelpFiltersBlock = document.getElementById('kpiHelpFiltersBlock');
+      const kpiHelpCaveatsBlock = document.getElementById('kpiHelpCaveatsBlock');
+      const kpiHelpManualLink = document.getElementById('kpiHelpManualLink');
       const kpiHelpLang = (document.documentElement.lang || 'el').toLowerCase().startsWith('en') ? 'en' : 'el';
-      if (kpiHelpWhatLabel) kpiHelpWhatLabel.textContent = kpiHelpLang === 'en' ? 'What it shows' : 'Τι δείχνει';
-      if (kpiHelpFormulaLabel) kpiHelpFormulaLabel.textContent = kpiHelpLang === 'en' ? 'Formula' : 'Υπολογισμός';
+      const kpiHelpText = kpiHelpLang === 'en'
+        ? { what: 'What it shows', formula: 'Formula', source: 'Data source', filters: 'Affected by', caveats: 'Watch out', manual: 'Open in the manual' }
+        : { what: 'Τι δείχνει', formula: 'Υπολογισμός', source: 'Πηγή δεδομένων', filters: 'Επηρεάζεται από', caveats: 'Προσοχή', manual: 'Δες στο εγχειρίδιο' };
+      if (kpiHelpWhatLabel) kpiHelpWhatLabel.textContent = kpiHelpText.what;
+      if (kpiHelpFormulaLabel) kpiHelpFormulaLabel.textContent = kpiHelpText.formula;
+      ['Source', 'Filters', 'Caveats'].forEach((part) => {
+        const el = document.getElementById('kpiHelp' + part + 'Label');
+        if (el) el.textContent = kpiHelpText[part.toLowerCase()];
+      });
+      const kpiHelpManualLabel = document.getElementById('kpiHelpManualLabel');
+      if (kpiHelpManualLabel) kpiHelpManualLabel.textContent = kpiHelpText.manual;
 
       function getCardTitle(card) {
         if (!card) return '';
         const explicit = (card.dataset.kpiTitle || '').trim();
         if (explicit) return explicit;
-        const direct = card.querySelector(':scope > .kpi-title, :scope > .label, :scope > .mc-label');
+        const direct = card.querySelector(':scope > .kpi-title, :scope > .label, :scope > .mc-label, :scope > .pc-metric-label');
         if (direct && (direct.textContent || '').trim()) return direct.textContent.trim();
-        const fallback = card.querySelector('.kpi-title, .label, .mc-label');
-        return (fallback?.textContent || '').trim();
+        const fallback = card.querySelector('.kpi-title, .label, .mc-label, .pc-metric-label');
+        if (fallback && (fallback.textContent || '').trim()) return fallback.textContent.trim();
+        //  Label-less tiles (e.g. the FnR summary strip: <span>label</span><strong>value</strong>).
+        const firstSpan = card.querySelector(':scope > span');
+        return (firstSpan?.textContent || '').trim();
       }
 
-      document.querySelectorAll('.bv-kpi-box, .bv-stat-strip, .bv-metric-card').forEach((card) => {
+      //  Warm the catalog while the page is idle so the first KPI click is instant.
+      if (window.requestIdleCallback) {
+        window.requestIdleCallback(() => bvKpiCatalog.load(), { timeout: 4000 });
+      } else {
+        window.setTimeout(() => bvKpiCatalog.load(), 1200);
+      }
+
+      document.querySelectorAll(BV_KPI_CARD_SELECTOR).forEach((card) => {
         const title = getCardTitle(card);
         if (title) {
           card.dataset.kpiTitle = title;
-          const icon = card.querySelector('.kpi-icon, .mc-icon');
+          const icon = card.querySelector('.kpi-icon, .mc-icon, .pc-metric-icon');
           if (icon) icon.dataset.kpiTitle = title;
         }
       });
 
+      function setKpiHelpBlock(block, target, value) {
+        if (!block || !target) return;
+        const text = (value || '').trim();
+        block.hidden = !text;
+        target.textContent = text || '-';
+      }
+
+      function renderKpiHelp(info, overrides) {
+        if (kpiHelpTitle) kpiHelpTitle.textContent = overrides.title || info.title;
+        if (kpiHelpWhat) kpiHelpWhat.textContent = overrides.what || info.what;
+        if (kpiHelpFormula) kpiHelpFormula.textContent = overrides.formula || info.formula;
+        setKpiHelpBlock(kpiHelpSourceBlock, kpiHelpSource, overrides.source || info.source);
+        setKpiHelpBlock(kpiHelpFiltersBlock, kpiHelpFilters, overrides.filters || info.filters);
+        setKpiHelpBlock(kpiHelpCaveatsBlock, kpiHelpCaveats, overrides.caveats || info.caveats);
+        if (kpiHelpManualLink) {
+          kpiHelpManualLink.href = info.id
+            ? '/tenant/help/kpis#kpi-' + info.id
+            : (info.circuit ? '/tenant/help/circuits#' + info.circuit : '/tenant/help/kpis');
+        }
+      }
+
       function openKpiHelpForCard(card, trigger) {
         if (!kpiHelpModalEl || !card) return;
         const titleText = (trigger?.dataset?.kpiTitle || card?.dataset?.kpiTitle || getCardTitle(card) || '').trim();
-        const info = resolveKpiHelp(titleText, kpiHelpLang);
-        const explicitTitle = (trigger?.dataset?.kpiTitle || card?.dataset?.kpiTitle || '').trim();
-        const explicitWhat = (trigger?.dataset?.kpiWhat || card?.dataset?.kpiWhat || '').trim();
-        const explicitFormula = (trigger?.dataset?.kpiFormula || card?.dataset?.kpiFormula || '').trim();
-        if (kpiHelpTitle) kpiHelpTitle.textContent = explicitTitle || info.title;
-        if (kpiHelpWhat) kpiHelpWhat.textContent = explicitWhat || info.what;
-        if (kpiHelpFormula) kpiHelpFormula.textContent = explicitFormula || info.formula;
+        //  Per-card data-kpi-* attributes always win over the catalog: a page can
+        //  describe a metric the shared catalog cannot know about.
+        const overrides = {
+          title: (trigger?.dataset?.kpiTitle || card?.dataset?.kpiTitle || '').trim(),
+          what: (trigger?.dataset?.kpiWhat || card?.dataset?.kpiWhat || '').trim(),
+          formula: (trigger?.dataset?.kpiFormula || card?.dataset?.kpiFormula || '').trim(),
+          source: (trigger?.dataset?.kpiSource || card?.dataset?.kpiSource || '').trim(),
+          filters: (trigger?.dataset?.kpiFilters || card?.dataset?.kpiFilters || '').trim(),
+          caveats: (trigger?.dataset?.kpiCaveats || card?.dataset?.kpiCaveats || '').trim()
+        };
+        const explicitId = (trigger?.dataset?.kpiId || card?.dataset?.kpiId || '').trim();
+        renderKpiHelp(bvKpiCatalog.resolve(titleText, kpiHelpLang, explicitId), overrides);
+        //  The catalog may still be in flight on a fast first click — re-render
+        //  once it lands so the popup fills in rather than staying generic.
+        if (!bvKpiCatalog.ready) {
+          bvKpiCatalog.load().then(() => {
+            renderKpiHelp(bvKpiCatalog.resolve(titleText, kpiHelpLang, explicitId), overrides);
+          });
+        }
         if (kpiHelpModal?.show) {
           try {
             kpiHelpModal.show(trigger || card);
@@ -2260,9 +2235,9 @@
       }
 
       document.addEventListener('click', (e) => {
-        const kpiTarget = e.target.closest('.bv-kpi-box .kpi-icon, .bv-stat-strip .kpi-icon, .bv-metric-card .mc-icon, .bv-metric-card:not([data-executive-card]):not([data-intraday]):not([data-weekly]):not([data-monthly]):not([data-ytd])');
+        const kpiTarget = e.target.closest(BV_KPI_TRIGGER_SELECTOR);
         if (kpiTarget) {
-          const card = kpiTarget.closest('.bv-kpi-box, .bv-stat-strip, .bv-metric-card');
+          const card = kpiTarget.closest(BV_KPI_CARD_SELECTOR);
           if (card?.dataset?.intraday || card?.dataset?.weekly || card?.dataset?.monthly || card?.dataset?.ytd) return;
           e.preventDefault();
           e.stopPropagation();

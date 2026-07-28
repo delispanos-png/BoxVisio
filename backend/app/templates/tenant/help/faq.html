@@ -1,0 +1,97 @@
+{% extends "tenant/help/_layout.html" %}
+{% set en = lang == 'en' %}
+
+{% block help_title %}{{ 'Common questions' if en else 'Συχνές απορίες' }}{% endblock %}
+{% block help_lead %}
+{{ 'The issues that come up most in daily use, each with the checking order that resolves it.' if en else
+'Τα θέματα που εμφανίζονται πιο συχνά στην καθημερινή χρήση, με τη σειρά ελέγχου που τα λύνει.' }}
+{% endblock %}
+
+{% block help_body %}
+
+<div class="row g-3">
+  <div class="col-lg-8">
+    {% for item in faq %}
+    <section class="card content-card mb-3 bv-help-section" id="{{ item.id }}">
+      <div class="card-header"><h5 class="mb-0">{{ item.q }}</h5></div>
+      <div class="card-body">
+        <ol class="bv-help-steps">
+          {% for step in item.steps %}<li>{{ step }}</li>{% endfor %}
+        </ol>
+        {% if item.tip %}
+        <div class="bv-task-why"><strong>{{ 'Rule:' if en else 'Κανόνας:' }}</strong> {{ item.tip }}</div>
+        {% endif %}
+      </div>
+    </section>
+    {% endfor %}
+  </div>
+
+  <div class="col-lg-4">
+    <div class="card content-card mb-3">
+      <div class="card-header"><h5 class="mb-0">{{ 'Quick reference' if en else 'Γρήγορη αναφορά' }}</h5></div>
+      <div class="card-body">
+        {% if en %}
+        <h6>With or without VAT?</h6>
+        <p class="text-muted small">
+          Every KPI is net. Only the documents' "Grand Total" includes VAT.
+        </p>
+        <h6>Two different "gross profits"</h6>
+        <p class="text-muted small">
+          Dashboard: Sales − <strong>Purchases</strong> (a cash view).<br>
+          Sales Analytics: Turnover − <strong>Cost of goods sold</strong> (a commercial view).
+        </p>
+        <h6>Period or snapshot?</h6>
+        <p class="text-muted small">
+          Sales, purchases, expenses, cash → period.<br>
+          Stock, customer/supplier balances → a point in time.
+        </p>
+        <h6 class="mb-1">How fresh is the data?</h6>
+        <p class="text-muted small mb-0">
+          Check the "Last sync" indicator at the top right of every page.
+        </p>
+        {% else %}
+        <h6>Με ΦΠΑ ή χωρίς;</h6>
+        <p class="text-muted small">
+          Όλα τα KPI είναι καθαρά. Μόνο το «Γενικό Σύνολο» των παραστατικών περιέχει ΦΠΑ.
+        </p>
+        <h6>Δύο διαφορετικά «μικτά κέρδη»</h6>
+        <p class="text-muted small">
+          Dashboard: Πωλήσεις − <strong>Αγορές</strong> (ταμειακή οπτική).<br>
+          Ανάλυση Πωλήσεων: Τζίρος − <strong>Κόστος πωληθέντων</strong> (εμπορική οπτική).
+        </p>
+        <h6>Περίοδος ή φωτογραφία;</h6>
+        <p class="text-muted small">
+          Πωλήσεις, αγορές, έξοδα, ταμείο → περίοδος.<br>
+          Απόθεμα, υπόλοιπα πελατών/προμηθευτών → φωτογραφία μιας στιγμής.
+        </p>
+        <h6 class="mb-1">Πόσο φρέσκα είναι τα δεδομένα;</h6>
+        <p class="text-muted small mb-0">
+          Δες την ένδειξη «Τελευταίος συγχρονισμός» πάνω δεξιά σε κάθε σελίδα.
+        </p>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="card content-card">
+      <div class="card-header"><h5 class="mb-0">{{ 'Need something else?' if en else 'Χρειάζεσαι κάτι άλλο;' }}</h5></div>
+      <div class="card-body">
+        <p class="mb-2">
+          {% if en %}
+          If none of the above resolves it, note the <strong>page</strong>, the
+          <strong>period</strong>, the <strong>active filters</strong> and
+          <strong>the number you expected</strong>. With those four, the check is immediate.
+          {% else %}
+          Αν κάτι δεν λύνεται με τα παραπάνω, σημείωσε <strong>τη σελίδα</strong>,
+          <strong>την περίοδο</strong>, <strong>τα ενεργά φίλτρα</strong> και
+          <strong>τον αριθμό που περίμενες</strong>. Με αυτά τα τέσσερα ο έλεγχος γίνεται αμέσως.
+          {% endif %}
+        </p>
+        <a class="btn btn-sm btn-outline-primary" href="/tenant/help/find">
+          <i class="fe fe-search me-1" aria-hidden="true"></i>{{ 'How do I find…' if en else 'Πώς θα βρω…' }}
+        </a>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

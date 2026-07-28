@@ -1,0 +1,103 @@
+{#
+  The help body for ONE circuit. Rendered in three places, so the markup lives
+  only here:
+    * /tenant/help/circuits            (the combined page, in a loop)
+    * /tenant/help/circuits/<id>       (the standalone page)
+    * /tenant/help/circuits/<id>/panel (the in-page slide-over)
+
+  Expects: circuit, circuit_kpis, circuits_by_id, shot_url, shot_exists, lang.
+  `panel_mode` suppresses the cross-links that only make sense on a full page.
+#}
+{% set panel_mode = panel_mode if panel_mode is defined else false %}
+{% set en = lang == 'en' %}
+
+{% if circuit.group %}
+<div class="bv-help-where">
+  <i class="fe fe-map-pin" aria-hidden="true"></i>{{ circuit.group }}
+</div>
+{% endif %}
+
+<p>{{ circuit.purpose }}</p>
+
+{% set shot = shot_url(circuit.shot) %}
+{% if shot and shot_exists(circuit.shot) %}
+<figure class="bv-help-shot">
+  <img src="{{ shot }}" alt="{{ circuit.title }}" loading="lazy">
+  <figcaption>{{ circuit.title }} — <code>{{ circuit.route }}</code></figcaption>
+</figure>
+{% endif %}
+
+{% if circuit.steps %}
+<h6 class="mt-3">{{ 'Step by step' if en else 'Βήμα-βήμα' }}</h6>
+<ol class="bv-help-steps">
+  {% for step in circuit.steps %}<li>{{ step }}</li>{% endfor %}
+</ol>
+{% endif %}
+
+{% if circuit_kpis %}
+<h6>{{ 'Metrics on this screen' if en else 'Δείκτες αυτής της σελίδας' }}</h6>
+<div class="table-responsive mb-2">
+  <table class="table table-sm table-bordered align-middle">
+    <thead>
+      <tr>
+        <th style="min-width: 160px;">KPI</th>
+        <th>{{ 'What it shows' if en else 'Τι δείχνει' }}</th>
+        <th style="min-width: 200px;">{{ 'Formula' if en else 'Υπολογισμός' }}</th>
+        <th style="min-width: 190px;">{{ 'Watch out' if en else 'Προσοχή' }}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for k in circuit_kpis %}
+      <tr>
+        <td><strong>{{ k.title }}</strong></td>
+        <td>{{ k.what }}</td>
+        <td><small>{{ k.formula }}</small></td>
+        <td><small>{{ k.caveats }}</small></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<p class="text-muted small">
+  {{ 'Full detail for every metric, including its data source, in the' if en else 'Πλήρης ανάλυση κάθε δείκτη, μαζί με την πηγή δεδομένων, στο' }}
+  <a href="/tenant/help/kpis#circuit-{{ circuit.id }}">{{ 'KPI dictionary' if en else 'Λεξικό KPI' }}</a>.
+</p>
+{% endif %}
+
+<div class="row g-3">
+  {% if circuit.columns %}
+  <div class="col-lg-6">
+    <h6>{{ 'What the screen holds' if en else 'Τι περιέχει η οθόνη' }}</h6>
+    <ul>{% for item in circuit.columns %}<li>{{ item }}</li>{% endfor %}</ul>
+  </div>
+  {% endif %}
+  {% if circuit.popups %}
+  <div class="col-lg-6">
+    <h6>{{ 'Popups and actions' if en else 'Popups και ενέργειες' }}</h6>
+    <ul>{% for item in circuit.popups %}<li>{{ item }}</li>{% endfor %}</ul>
+  </div>
+  {% endif %}
+</div>
+
+{% if circuit.checks %}
+<div class="bv-help-checks mt-2">
+  <h6 class="mb-2">
+    <i class="fe fe-alert-triangle me-1" aria-hidden="true"></i>{{ 'Watch out for' if en else 'Τι να προσέξεις' }}
+  </h6>
+  <ul>{% for item in circuit.checks %}<li>{{ item }}</li>{% endfor %}</ul>
+</div>
+{% endif %}
+
+{% if circuit.related %}
+<h6 class="mt-3 mb-1">{{ 'Related screens' if en else 'Σχετικές σελίδες' }}</h6>
+<div class="bv-help-related">
+  {% for rid in circuit.related %}
+  {% set rel = circuits_by_id.get(rid) %}
+  {% if rel %}
+  <a href="{{ ('#' ~ rel.id) if not panel_mode else ('/tenant/help/circuits/' ~ rel.id) }}">
+    <i class="fe fe-corner-down-right" aria-hidden="true"></i>{{ rel.title }}
+  </a>
+  {% endif %}
+  {% endfor %}
+</div>
+{% endif %}

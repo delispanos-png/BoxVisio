@@ -1,0 +1,25 @@
+{% extends "tenant/help/_layout.html" %}
+{% set en = lang == 'en' %}
+
+{% block help_title %}{{ circuit.title }}{% endblock %}
+{% block help_lead %}{{ circuit.purpose }}{% endblock %}
+
+{% block help_body %}
+
+<nav aria-label="breadcrumb" class="mb-3">
+  <a class="btn btn-sm btn-outline-secondary" href="/tenant/help/circuits">
+    <i class="fe fe-arrow-left me-1" aria-hidden="true"></i>{{ 'All screens' if en else 'Όλες οι σελίδες' }}
+  </a>
+  <a class="btn btn-sm btn-primary ms-1" href="{{ circuit.route }}">
+    <i class="fe fe-external-link me-1" aria-hidden="true"></i>{{ 'Open the screen' if en else 'Άνοιξε τη σελίδα' }}
+  </a>
+</nav>
+
+<div class="card content-card mb-3">
+  <div class="card-header"><h5 class="mb-0">{{ circuit.title }}</h5></div>
+  <div class="card-body">
+    {% include "tenant/help/_circuit_panel.html" %}
+  </div>
+</div>
+
+{% endblock %}
