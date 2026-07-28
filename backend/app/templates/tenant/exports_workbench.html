@@ -36,10 +36,18 @@
   .exp-select:focus { outline: none; border-color: var(--primary, #4c63d2); box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary, #4c63d2) 16%, transparent); }
   .exp-metrics { margin: 2px 0 14px; padding: 12px 14px; border: 1px dashed var(--border-color, #e5e9f2); border-radius: 10px; background: var(--surface-2, #fafbfe); }
   .exp-metrics-title { font-size: 12px; font-weight: 800; color: var(--text-muted, #626d84); margin-bottom: 8px; letter-spacing: .02em; }
-  .exp-metrics-list { display: flex; flex-wrap: wrap; gap: 8px; }
-  .exp-metric-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; padding: 5px 11px; border: 1px solid var(--border-color, #dfe4ee); border-radius: 999px; cursor: pointer; background: var(--card-bg, #fff); color: var(--text, #1b2130); }
-  .exp-metric-chip input { margin: 0; }
-  .exp-metric-chip:has(input:checked) { border-color: var(--primary, #4c63d2); background: color-mix(in srgb, var(--primary, #4c63d2) 10%, transparent); color: var(--primary, #4c63d2); font-weight: 700; }
+  .exp-col-row { display: flex; align-items: flex-start; gap: 10px; flex-wrap: wrap; }
+  .exp-col-chips { display: flex; flex-wrap: wrap; gap: 8px; flex: 1 1 auto; min-width: 0; }
+  .exp-col-chips:empty::before { content: "Καμία στήλη επιλεγμένη — πάτησε «Προσθήκη στήλης»."; color: var(--text-muted, #626d84); font-size: 13px; font-style: italic; }
+  .exp-col-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; font-weight: 700; padding: 5px 6px 5px 12px; border-radius: 999px; background: color-mix(in srgb, var(--primary, #4c63d2) 12%, transparent); color: var(--primary, #4c63d2); }
+  .exp-col-chip button { border: 0; background: transparent; color: inherit; cursor: pointer; font-size: 16px; line-height: 1; padding: 0 4px; opacity: .65; }
+  .exp-col-chip button:hover { opacity: 1; }
+  .exp-col-dd { position: relative; flex: 0 0 auto; }
+  .exp-col-dd > summary { list-style: none; }
+  .exp-col-dd > summary::-webkit-details-marker { display: none; }
+  .exp-addcol { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font-size: 13px; font-weight: 700; padding: 7px 14px; border: 1px dashed var(--primary, #4c63d2); border-radius: 999px; color: var(--primary, #4c63d2); background: var(--card-bg, #fff); white-space: nowrap; }
+  .exp-addcol:hover { background: color-mix(in srgb, var(--primary, #4c63d2) 8%, transparent); }
+  .exp-col-dd .exp-menu { left: auto; right: 0; min-width: 240px; }
   .exp-field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
   .exp-field > label { font-size: 12px; font-weight: 800; color: var(--text-muted); letter-spacing: .02em; }
   .exp-dd { position: relative; }
@@ -127,11 +135,18 @@
         </div>
       </div>
       <div class="exp-metrics" data-exp-metrics {% if pivot_mode == 'comparison' %}style="display:none"{% endif %}>
-        <div class="exp-metrics-title">Δείκτες (στήλες) — πρόσθεσε όσους θες:</div>
-        <div class="exp-metrics-list">
-          {% for key, label, kind in pivot_metrics_catalog %}
-          <label class="exp-metric-chip"><input type="checkbox" name="metric" value="{{ key }}" {% if key in pivot_metrics_selected %}checked{% endif %}> {{ label }}</label>
-          {% endfor %}
+        <div class="exp-metrics-title">Στήλες αναφοράς</div>
+        <div class="exp-col-row">
+          <div class="exp-col-chips" data-exp-col-chips></div>
+          <details class="exp-col-dd" data-exp-coldd>
+            <summary class="exp-addcol"><i class="fe fe-plus"></i> Προσθήκη στήλης</summary>
+            <div class="exp-menu">
+              <input type="text" class="exp-menu-search" placeholder="Αναζήτηση πεδίου…" autocomplete="off" data-exp-colsearch>
+              {% for key, label, kind in pivot_metrics_catalog %}
+              <label class="exp-opt"><input type="checkbox" name="metric" value="{{ key }}" data-exp-col {% if key in pivot_metrics_selected %}checked{% endif %}> <span>{{ label }}</span></label>
+              {% endfor %}
+            </div>
+          </details>
         </div>
       </div>
       {% endif %}
@@ -497,6 +512,40 @@
       if (metrics) metrics.style.display = comparison ? 'none' : '';
     });
   }
+
+  // Column picker: chosen metrics show as removable chips; "Προσθήκη στήλης"
+  // opens the field list. The checkboxes are what the form submits.
+  var chipBox = document.querySelector('[data-exp-col-chips]');
+  if (chipBox) {
+    var colBoxes = Array.prototype.slice.call(document.querySelectorAll('[data-exp-col]'));
+    var labelOf = function (cb) { var s = cb.parentNode.querySelector('span'); return s ? s.textContent.trim() : cb.value; };
+    var renderChips = function () {
+      chipBox.innerHTML = '';
+      colBoxes.filter(function (cb) { return cb.checked; }).forEach(function (cb) {
+        var chip = document.createElement('span'); chip.className = 'exp-col-chip';
+        var txt = document.createElement('span'); txt.textContent = labelOf(cb);
+        var btn = document.createElement('button'); btn.type = 'button'; btn.innerHTML = '&times;'; btn.title = 'Αφαίρεση στήλης';
+        btn.addEventListener('click', function () { cb.checked = false; renderChips(); });
+        chip.appendChild(txt); chip.appendChild(btn); chipBox.appendChild(chip);
+      });
+    };
+    colBoxes.forEach(function (cb) { cb.addEventListener('change', renderChips); });
+    renderChips();
+    var colSearch = document.querySelector('[data-exp-colsearch]');
+    if (colSearch) {
+      colSearch.addEventListener('input', function () {
+        var q = colSearch.value.trim().toLowerCase();
+        document.querySelectorAll('[data-exp-coldd] .exp-opt').forEach(function (opt) {
+          opt.classList.toggle('is-hidden', q && (opt.textContent || '').trim().toLowerCase().indexOf(q) === -1);
+        });
+      });
+    }
+  }
+  document.addEventListener('click', function (e) {
+    document.querySelectorAll('details[data-exp-coldd][open]').forEach(function (dd) {
+      if (!dd.contains(e.target)) dd.removeAttribute('open');
+    });
+  });
 })();
 </script>
 {% endblock %}
