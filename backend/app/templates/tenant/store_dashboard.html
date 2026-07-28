@@ -43,6 +43,7 @@
   .sd-tbl { width:100%; border-collapse:collapse; font-size:13px; }
   .sd-tbl th { position:sticky; top:0; background:var(--surface-2,#f7f8fb); text-align:left; padding:8px 12px; font-size:11px; text-transform:uppercase; letter-spacing:.03em; color:var(--text-muted); font-weight:800; border-bottom:1px solid var(--border-color,#e5e9f2); white-space:nowrap; }
   .sd-tbl td { padding:8px 12px; border-bottom:1px solid var(--border-color,#f0f2f7); }
+  .sd-tbl th.n { text-align:right; }
   .sd-tbl td.n { text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; font-weight:600; }
   .sd-tbl tr:hover td { background:color-mix(in srgb, var(--primary,#4c63d2) 5%, transparent); }
   .sd-empty { padding:24px 16px; color:var(--text-muted); font-size:13.5px; text-align:center; }
@@ -141,27 +142,6 @@
       {% else %}<div class="sd-empty">Καθαρό — κανένα βαλτωμένο απόθεμα. 👍</div>{% endif %}
     </div>
 
-    <!-- Suggested internal transfers -->
-    <div class="sd-card" style="grid-column:1 / -1">
-      <div class="sd-card-head">
-        <div class="ic" style="background:#e8f0fe;color:#2563eb">🔄</div>
-        <div><h3>Προτεινόμενες μεταφορές (από άλλα καταστήματα)</h3><div class="sub">Βάσει ταχύτητας κίνησης ανά κατάστημα — στόχος κάλυψης {{ data.get('target_days', 14) }} ημερών</div></div>
-        <div class="amt" style="color:#2563eb">{{ money0(data.get('transfer_value')) }}</div>
-        <a class="sd-dl" href="/tenant/store-dashboard/download/transfer/xlsx?branch={{ branch_ext|urlencode }}&period_from={{ period.from }}&period_to={{ period.to }}"><i class="fe fe-download"></i> Excel</a>
-      </div>
-      {% if data.get('transfers') %}
-      <div class="sd-tbl-wrap"><table class="sd-tbl">
-        <thead><tr><th>Είδος</th><th>Από κατάστημα</th><th class="n">Ποσότητα</th><th class="n">Αξία</th></tr></thead>
-        <tbody>{% for r in data.transfers %}
-          <tr><td>{{ r.name }}<div class="sd-mono">{{ r.barcode }}</div></td>
-              <td><strong>{{ r.from_branch }}</strong></td>
-              <td class="n">{{ num0(r.qty) }} τεμ.<br><span class="sd-act">Μεταφορά</span></td>
-              <td class="n">{{ money0(r.value) }}</td></tr>
-        {% endfor %}</tbody>
-      </table></div>
-      {% else %}<div class="sd-empty">Καμία πρόταση μεταφοράς — τα καταστήματα είναι ισορροπημένα ή δεν υπάρχει πλεόνασμα αλλού. 👍</div>{% endif %}
-    </div>
-
     <!-- Category decline -->
     <div class="sd-card" style="grid-column:1 / -1">
       <div class="sd-card-head">
@@ -179,6 +159,29 @@
         {% endfor %}</tbody>
       </table></div>
       {% else %}<div class="sd-empty">Καμία κατηγορία σε πτώση έναντι πέρσι. 👍</div>{% endif %}
+    </div>
+
+    <!-- Suggested internal transfers -->
+    <div class="sd-card" style="grid-column:1 / -1">
+      <div class="sd-card-head">
+        <div class="ic" style="background:#e8f0fe;color:#2563eb">🔄</div>
+        <div><h3>Προτεινόμενες μεταφορές — ενίσχυση χαμένων πωλήσεων</h3><div class="sub">Είδη που λείπουν εδώ &amp; πουλάνε → μεταφορά από όπου περισσεύει (χωρίς να στραγγίζει τον δότη). Στόχος κάλυψης {{ data.get('target_days', 14) }} ημ.</div></div>
+        <div class="amt" style="color:#2563eb">{{ money0(data.get('transfer_value')) }}</div>
+        <a class="sd-dl" href="/tenant/store-dashboard/download/transfer/xlsx?branch={{ branch_ext|urlencode }}&period_from={{ period.from }}&period_to={{ period.to }}"><i class="fe fe-download"></i> Excel</a>
+      </div>
+      {% if data.get('transfers') %}
+      <div class="sd-tbl-wrap"><table class="sd-tbl">
+        <thead><tr><th>Είδος</th><th>Από κατάστημα</th><th>Προς κατάστημα</th><th class="n">Ποσότητα</th><th class="n">Αξία μεταφοράς</th><th class="n">Χαμ. τζίρος περ.</th></tr></thead>
+        <tbody>{% for r in data.transfers %}
+          <tr><td>{{ r.name }}<div class="sd-mono">{{ r.barcode }}</div></td>
+              <td><strong>{{ r.from_branch }}</strong></td>
+              <td>{{ branch_label }}</td>
+              <td class="n">{{ num0(r.qty) }} τεμ.<br><span class="sd-act">Μεταφορά</span></td>
+              <td class="n">{{ money0(r.value) }}</td>
+              <td class="n">{{ money0(r.lost_value) }}</td></tr>
+        {% endfor %}</tbody>
+      </table></div>
+      {% else %}<div class="sd-empty">Καμία πρόταση μεταφοράς — δεν λείπει κάτι που να περισσεύει αλλού. 👍</div>{% endif %}
     </div>
   </section>
 </div>

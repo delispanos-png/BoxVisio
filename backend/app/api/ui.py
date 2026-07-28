@@ -15967,9 +15967,10 @@ async def tenant_store_dashboard_download(
 
     _period_gr = f"{dfrom[8:10]}/{dfrom[5:7]}/{dfrom[0:4]} έως {dto[8:10]}/{dto[5:7]}/{dto[0:4]}"
     if card == 'transfer':
-        headers = ['Είδος', 'Barcode', 'Από κατάστημα', 'Ποσότητα', 'Αξία']
-        widths = [46, 16, 22, 12, 14]
-        data_rows = [[r['name'], r['barcode'], r['from_branch'], round(float(r['qty'] or 0), 0), round(float(r['value'] or 0), 2)]
+        headers = ['Είδος', 'Barcode', 'Από κατάστημα', 'Προς κατάστημα', 'Ποσότητα', 'Αξία μεταφοράς', 'Χαμ. τζίρος περιόδου']
+        widths = [46, 16, 22, 22, 12, 16, 18]
+        data_rows = [[r['name'], r['barcode'], r['from_branch'], branch_label,
+                      round(float(r['qty'] or 0), 0), round(float(r['value'] or 0), 2), round(float(r.get('lost_value') or 0), 2)]
                      for r in data.get('transfers', [])]
         base, sheet = 'metafores', 'Προτεινόμενες μεταφορές'
     elif card == 'lost':

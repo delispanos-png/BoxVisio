@@ -13243,20 +13243,28 @@ async def store_transfer_suggestions(
     for iid, br, q in stk_rows:
         stock.setdefault(iid, {})[str(br)] = float(q or 0)
 
+    # Only real operating stores (with sales) can be donors — excludes junk/logistics
+    # branches that hold inventory but never sell.
+    valid_stores = {
+        str(r[0]) for r in (await db.execute(
+            select(func.distinct(FactSales.branch_ext_id)).where(FactSales.branch_ext_id.is_not(None))
+        )).all()
+    }
+
     transfers: list[dict] = []
     to_order: list[dict] = []
     for iid, hv in here.items():
         vel_here = hv['sq'] / days
-        if vel_here <= 0:
-            continue
         stock_here = stock.get(iid, {}).get(branch_ext, 0.0)
-        need = vel_here * target_days - stock_here
-        if need < 1:
+        # Only reinforce what is MISSING and still selling — i.e. the lost-sales
+        # items (out of stock at this store but with demand), not a generic top-up.
+        if vel_here <= 0 or stock_here >= 1:
             continue
+        need = vel_here * target_days
         price = (hv['sv'] / hv['sq']) if hv['sq'] else 0.0
         donors = []
         for br, st in stock.get(iid, {}).items():
-            if br == branch_ext:
+            if br == branch_ext or br not in valid_stores:
                 continue
             surplus = st - (vel.get(iid, {}).get(br, 0.0) / days) * target_days
             if surplus >= 1:
@@ -13267,7 +13275,7 @@ async def store_transfer_suggestions(
             take = min(remaining, surplus)
             if take < 1:
                 continue
-            transfers.append({'item_id': iid, 'from_branch': br, 'qty': take, 'value': take * price})
+            transfers.append({'item_id': iid, 'from_branch': br, 'qty': take, 'value': take * price, 'lost_value': hv['sv']})
             remaining -= take
             if remaining < 1:
                 break
@@ -13286,14 +13294,14 @@ async def store_transfer_suggestions(
         n = names.get(t['item_id'], {})
         return {'name': n.get('name', ''), 'barcode': n.get('barcode', ''),
                 'from_branch': branch_names.get(t['from_branch'], t['from_branch']),
-                'qty': round(t['qty']), 'value': t['value']}
+                'qty': round(t['qty']), 'value': t['value'], 'lost_value': t.get('lost_value', 0.0)}
 
     def _pack_o(o):
         n = names.get(o['item_id'], {})
         return {'name': n.get('name', ''), 'barcode': n.get('barcode', ''),
                 'qty': round(o['qty']), 'value': o['value']}
 
-    transfers.sort(key=lambda x: x['value'], reverse=True)
+    transfers.sort(key=lambda x: x.get('lost_value', 0.0), reverse=True)
     to_order.sort(key=lambda x: x['value'], reverse=True)
     return {
         'transfers': [_pack_t(t) for t in transfers[:top_n]],
