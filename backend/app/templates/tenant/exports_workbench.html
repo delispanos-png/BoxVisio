@@ -45,7 +45,15 @@
     border: 1px solid var(--border-color, #dfe4ee); border-radius: 10px; padding: 6px;
     box-shadow: 0 12px 28px rgba(20, 28, 48, .16);
   }
-  .exp-menu-search { width: 100%; padding: 7px 10px; margin-bottom: 6px; border: 1px solid var(--border-color, #dfe4ee); border-radius: 8px; font-size: 13px; background: var(--input-bg, #fff); color: var(--text); }
+  .exp-menu-search {
+    position: sticky; top: 0; z-index: 3;
+    width: calc(100% + 12px); margin: -6px -6px 6px; box-sizing: border-box;
+    padding: 9px 12px; border: 0; border-bottom: 1px solid var(--border-color, #e5e9f2);
+    border-radius: 10px 10px 0 0; font-size: 13.5px;
+    background: var(--card-bg, #fff); color: var(--text, #1b2130);
+  }
+  .exp-menu-search:focus { outline: none; box-shadow: inset 0 -2px 0 var(--primary, #4c63d2); }
+  .exp-menu-search::placeholder { color: var(--text-muted, #626d84); }
   .exp-opt { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 7px; font-size: 13px; cursor: pointer; color: var(--text); }
   .exp-opt:hover { background: color-mix(in srgb, var(--primary, #4c63d2) 9%, transparent); }
   .exp-opt input { flex: 0 0 auto; }
@@ -337,13 +345,16 @@
     });
     var search = dd.querySelector('[data-exp-search]');
     if (search) {
-      search.addEventListener('click', function (e) { e.preventDefault(); });
       search.addEventListener('input', function () {
         var q = search.value.trim().toLowerCase();
         dd.querySelectorAll('.exp-opt').forEach(function (opt) {
           var txt = (opt.textContent || '').trim().toLowerCase();
           opt.classList.toggle('is-hidden', q && txt.indexOf(q) === -1);
         });
+      });
+      // Focus the search box as soon as the dropdown opens, so you can type at once.
+      dd.addEventListener('toggle', function () {
+        if (dd.open) setTimeout(function () { search.focus(); }, 0);
       });
     }
     refresh(dd);
