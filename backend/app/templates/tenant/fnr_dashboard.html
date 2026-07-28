@@ -336,11 +336,11 @@
   </section>
 
   <section class="fnr-summary">
-    <div class="fnr-kpi"><span>Γραμμές worksheet</span><strong>{{ summary.rows_count or 0 }}</strong></div>
-    <div class="fnr-kpi"><span>Γραμμές παραγγελίας</span><strong>{{ summary.order_rows_count or 0 }}</strong></div>
-    <div class="fnr-kpi"><span>Ποσότητα παραγγελίας</span><strong>{{ "%.0f"|format(summary.total_supplier_order_qty or 0) }}</strong></div>
-    <div class="fnr-kpi"><span>Αξία παραγγελίας</span><strong>{{ "%.2f"|format(summary.total_supplier_order_value or 0) }} €</strong></div>
-    <div class="fnr-kpi"><span>Είδη με ανάγκη</span><strong>{{ summary.products_with_need or 0 }}</strong></div>
+    <div class="fnr-kpi" data-kpi-id="fnr_worksheet_rows"><span>Γραμμές worksheet</span><strong>{{ summary.rows_count or 0 }}</strong></div>
+    <div class="fnr-kpi" data-kpi-id="fnr_order_rows"><span>Γραμμές παραγγελίας</span><strong>{{ summary.order_rows_count or 0 }}</strong></div>
+    <div class="fnr-kpi" data-kpi-id="fnr_order_qty"><span>Ποσότητα παραγγελίας</span><strong>{{ "%.0f"|format(summary.total_supplier_order_qty or 0) }}</strong></div>
+    <div class="fnr-kpi" data-kpi-id="fnr_order_value"><span>Αξία παραγγελίας</span><strong>{{ "%.2f"|format(summary.total_supplier_order_value or 0) }} €</strong></div>
+    <div class="fnr-kpi" data-kpi-id="fnr_items_in_need"><span>Είδη με ανάγκη</span><strong>{{ summary.products_with_need or 0 }}</strong></div>
   </section>
 
   {% if fnr_view == 'expected' %}

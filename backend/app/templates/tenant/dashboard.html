@@ -2180,6 +2180,10 @@ function bindExecutiveKpiCards(){
         event.stopPropagation();
         return;
       }
+      // The icon is the KPI-help affordance everywhere else in the portal. Let it
+      // bubble up to the shared help handler instead of swallowing the click here,
+      // otherwise these cards' data-kpi-* text is unreachable.
+      if(event.target && event.target.closest && event.target.closest('.mc-icon')) return;
       const key = card.dataset.executiveCard;
       if(!key) return;
       event.preventDefault();
@@ -2468,9 +2472,12 @@ document.getElementById('centralFilters').addEventListener('submit', reloadCentr
 document.addEventListener('click', (event) => {
   const card = event.target.closest('.bv-metric-card[data-executive-card]');
   if(!card) return;
-  if(card.querySelector('.mc-icon') && event.target.closest('.mc-icon')) {
-    event.preventDefault();
-    event.stopImmediatePropagation();
+  // The card body opens the KPI breakdown; the small icon is the KPI-help
+  // affordance, as everywhere else in the portal. This runs in the capture
+  // phase, so swallowing the icon click here made the help unreachable and left
+  // every executive card's data-kpi-* text dead. Let it through instead.
+  if(!card.classList.contains('bv-feature-locked') && event.target.closest('.mc-icon')) {
+    return;
   }
   if(card.classList.contains('bv-feature-locked')){
     event.preventDefault();

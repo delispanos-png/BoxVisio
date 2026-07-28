@@ -502,6 +502,22 @@ body.tenant-shell .bv-kpi-help-block p {
   font-weight: 600;
 }
 
+/* "Watch out" block: the one part of the KPI popup that must not be skimmed. */
+body.tenant-shell .bv-kpi-help-block--warn {
+  border-color: var(--bv-warning, #f59e0b);
+  background: var(--bv-warning-soft, #fff7e6);
+}
+
+body.tenant-shell .bv-kpi-help-block--warn h6 {
+  color: #b45309;
+}
+
+/* Non-metric-card tiles that now open KPI help need the affordance too. */
+body.tenant-shell .pc-metric-card:not([role="button"]),
+body.tenant-shell .fnr-kpi {
+  cursor: pointer;
+}
+
 body.tenant-shell .insight-chip {
   border-radius: 999px;
   background: #eef4ff;
@@ -826,6 +842,15 @@ body.tenant-shell[data-theme='dark'] .topbar .sync-chip-value,
 body.tenant-shell[data-theme='dark'] .bv-kpi-help-title,
 body.tenant-shell[data-theme='dark'] .bv-kpi-help-block p {
   color: #e5e7eb;
+}
+
+body.tenant-shell[data-theme='dark'] .bv-kpi-help-block--warn {
+  background: rgba(245, 158, 11, .12);
+  border-color: rgba(245, 158, 11, .5);
+}
+
+body.tenant-shell[data-theme='dark'] .bv-kpi-help-block--warn h6 {
+  color: #fbbf24;
 }
 
 body.tenant-shell[data-theme='dark'] .bottom-meta {

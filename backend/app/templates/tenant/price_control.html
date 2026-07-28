@@ -331,7 +331,7 @@
 
 <div class="pc-workspace">
   <section class="pc-summary-grid" aria-label="Σύνοψη ελέγχου τιμών">
-    <div class="pc-metric-card" style="--pc-color:#3b82f6" data-kpi-what="Πόσοι κωδικοί ειδών συμμετέχουν στον έλεγχο τιμών με τα τρέχοντα φίλτρα." data-kpi-formula="Item Codes = count(item_code) όλων των ειδών που πέρασαν τα φίλτρα.">
+    <div class="pc-metric-card" style="--pc-color:#3b82f6" data-kpi-id="pc_items_scope" data-kpi-what="Πόσοι κωδικοί ειδών συμμετέχουν στον έλεγχο τιμών με τα τρέχοντα φίλτρα." data-kpi-formula="Item Codes = count(item_code) όλων των ειδών που πέρασαν τα φίλτρα.">
       <div class="pc-metric-icon"><i class="fe fe-package"></i></div>
       <div class="pc-metric-body">
         <div class="pc-metric-label">{{ tt(request, 'item_codes') }}</div>
@@ -340,7 +340,7 @@
       </div>
     </div>
 
-    <div class="pc-metric-card" style="--pc-color:#22c55e" data-kpi-what="Το μέσο πραγματικό περιθώριο των ειδών με βάση την καθαρή λιανική. Η λιανική SoftOne περιλαμβάνει ΦΠΑ, άρα πρώτα αφαιρείται ο ΦΠΑ του είδους." data-kpi-formula="Καθαρή Λιανική = Λιανική με ΦΠΑ / (1 + ΦΠΑ%). Περιθώριο Λιανικής % = ((Καθαρή Λιανική - Τιμή Κτήσης) / Καθαρή Λιανική) * 100. Παράδειγμα: 32,86 με ΦΠΑ 24% = 26,50 καθαρά, άρα με κόστος 13,48 το margin είναι 49,13%.">
+    <div class="pc-metric-card" style="--pc-color:#22c55e" data-kpi-id="pc_retail_margin" data-kpi-what="Το μέσο πραγματικό περιθώριο των ειδών με βάση την καθαρή λιανική. Η λιανική SoftOne περιλαμβάνει ΦΠΑ, άρα πρώτα αφαιρείται ο ΦΠΑ του είδους." data-kpi-formula="Καθαρή Λιανική = Λιανική με ΦΠΑ / (1 + ΦΠΑ%). Περιθώριο Λιανικής % = ((Καθαρή Λιανική - Τιμή Κτήσης) / Καθαρή Λιανική) * 100. Παράδειγμα: 32,86 με ΦΠΑ 24% = 26,50 καθαρά, άρα με κόστος 13,48 το margin είναι 49,13%.">
       <div class="pc-metric-icon"><i class="fe fe-trending-up"></i></div>
       <div class="pc-metric-body">
         <div class="pc-metric-label">Μέσο Περιθώριο Λιανικής</div>
@@ -349,7 +349,7 @@
       </div>
     </div>
 
-    <div class="pc-metric-card" style="--pc-color:#f97316" data-kpi-what="Η μέση πραγματική έκπτωση που εφαρμόζεται στα είδη που βλέπεις." data-kpi-formula="Μέση Έκπτωση % = μέσος όρος του ((τιμή καταλόγου - τελική τιμή) / τιμή καταλόγου) * 100 για όλα τα items του result set.">
+    <div class="pc-metric-card" style="--pc-color:#f97316" data-kpi-id="purchase_discount_pct" data-kpi-what="Η μέση πραγματική έκπτωση που εφαρμόζεται στα είδη που βλέπεις." data-kpi-formula="Μέση Έκπτωση % = μέσος όρος του ((τιμή καταλόγου - τελική τιμή) / τιμή καταλόγου) * 100 για όλα τα items του result set.">
       <div class="pc-metric-icon"><i class="fe fe-percent"></i></div>
       <div class="pc-metric-body">
         <div class="pc-metric-label">{{ tt(request, 'discount_pct') }}</div>
@@ -358,7 +358,7 @@
       </div>
     </div>
 
-    <div class="pc-metric-card" style="--pc-color:#06b6d4" role="button" tabindex="0" id="pcAbovePredictedCard" data-price-category="above" data-kpi-what="Πόσα προϊόντα έχουν λιανική με ΦΠΑ πάνω από την τιμή στόχου με ΦΠΑ." data-kpi-formula="Καθαρή Τιμή Στόχου = Τιμή Κτήσης / (1 - Στόχος Περιθωρίου%). Τιμή Στόχου με ΦΠΑ = Καθαρή Τιμή Στόχου * (1 + ΦΠΑ%). Για κόστος 13,48, στόχο 25% και ΦΠΑ 24%: 13,48 / 0,75 * 1,24 = 22,29.">
+    <div class="pc-metric-card" style="--pc-color:#06b6d4" data-kpi-id="pc_above_below" role="button" tabindex="0" id="pcAbovePredictedCard" data-price-category="above" data-kpi-what="Πόσα προϊόντα έχουν λιανική με ΦΠΑ πάνω από την τιμή στόχου με ΦΠΑ." data-kpi-formula="Καθαρή Τιμή Στόχου = Τιμή Κτήσης / (1 - Στόχος Περιθωρίου%). Τιμή Στόχου με ΦΠΑ = Καθαρή Τιμή Στόχου * (1 + ΦΠΑ%). Για κόστος 13,48, στόχο 25% και ΦΠΑ 24%: 13,48 / 0,75 * 1,24 = 22,29.">
       <div class="pc-metric-icon" title="Ανάλυση ειδών πάνω από την προβλεπόμενη τιμή"><i class="fe fe-arrow-up-circle"></i></div>
       <div class="pc-metric-body">
         <div class="pc-metric-label">Πάνω από Προβλ.</div>
@@ -367,7 +367,7 @@
       </div>
     </div>
 
-    <div class="pc-metric-card" style="--pc-color:#ef4444" role="button" tabindex="0" id="pcBelowPredictedCard" data-price-category="below" data-kpi-what="Πόσα προϊόντα έχουν λιανική με ΦΠΑ κάτω από την τιμή στόχου με ΦΠΑ." data-kpi-formula="Καθαρή Τιμή Στόχου = Τιμή Κτήσης / (1 - Στόχος Περιθωρίου%). Τιμή Στόχου με ΦΠΑ = Καθαρή Τιμή Στόχου * (1 + ΦΠΑ%). Για κόστος 13,48, στόχο 25% και ΦΠΑ 24%: 13,48 / 0,75 * 1,24 = 22,29.">
+    <div class="pc-metric-card" style="--pc-color:#ef4444" data-kpi-id="pc_above_below" role="button" tabindex="0" id="pcBelowPredictedCard" data-price-category="below" data-kpi-what="Πόσα προϊόντα έχουν λιανική με ΦΠΑ κάτω από την τιμή στόχου με ΦΠΑ." data-kpi-formula="Καθαρή Τιμή Στόχου = Τιμή Κτήσης / (1 - Στόχος Περιθωρίου%). Τιμή Στόχου με ΦΠΑ = Καθαρή Τιμή Στόχου * (1 + ΦΠΑ%). Για κόστος 13,48, στόχο 25% και ΦΠΑ 24%: 13,48 / 0,75 * 1,24 = 22,29.">
       <div class="pc-metric-icon" title="Ανάλυση ειδών κάτω από την προβλεπόμενη τιμή"><i class="fe fe-arrow-down-circle"></i></div>
       <div class="pc-metric-body">
         <div class="pc-metric-label">Κάτω από Προβλ.</div>
