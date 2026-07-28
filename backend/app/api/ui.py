@@ -175,6 +175,7 @@ from app.services.kpi_queries import (
     export_filter_options,
     export_item_rows,
     export_item_totals,
+    sales_by_channel,
     normalize_document_series_labels_config,
     normalize_eshop_fulfillment_config,
     normalize_price_margin_targets_config,
@@ -15321,6 +15322,7 @@ async def _export_query(
     *,
     limit: int,
     compute: bool,
+    report_kind: str = 'items',
 ) -> tuple[dict, dict, dict, list[dict], dict]:
     """Shared data path for the Εξαγωγές pages and downloads: open the tenant DB,
     load filter options, parse the request filters, and (when compute) run the
@@ -15368,8 +15370,11 @@ async def _export_query(
                 )
             scope_token = set_current_sales_kpi_participation_config(sales_kpi_config)
             try:
-                rows = await export_item_rows(tenant_db, limit=limit, **filter_kwargs)
-                totals = await export_item_totals(tenant_db, **filter_kwargs)
+                if report_kind == 'channels':
+                    rows, totals = await sales_by_channel(tenant_db, **filter_kwargs)
+                else:
+                    rows = await export_item_rows(tenant_db, limit=limit, **filter_kwargs)
+                    totals = await export_item_totals(tenant_db, **filter_kwargs)
             finally:
                 reset_current_sales_kpi_participation_config(scope_token)
         return options, selected, period, rows, totals
@@ -15393,6 +15398,7 @@ async def _render_exports_workbench(
             'heading': 'Αναφορές',
             'description': 'Κεντρική λίστα αναφορών με φίλτρα ανά υποκατάστημα, αποθηκευτικό χώρο, brand και τις τρεις κατηγορίες είδους.',
             'title': 'Αναφορές',
+            'report_kind': 'items',
         },
         'csv_excel': {
             'active_page': 'exports_csv_excel',
@@ -15400,9 +15406,19 @@ async def _render_exports_workbench(
             'heading': 'Εξαγωγές - CSV / Excel',
             'description': 'Εξαγωγές CSV/Excel με φίλτρα ανά υποκατάστημα, αποθηκευτικό χώρο, brand και τις τρεις κατηγορίες είδους.',
             'title': 'Εξαγωγές - CSV / Excel',
+            'report_kind': 'items',
+        },
+        'channels': {
+            'active_page': 'exports_channels',
+            'form_action': '/tenant/exports/channels',
+            'heading': 'Συνεισφορά ανά Κανάλι Πώλησης',
+            'description': 'Καθαρή αξία, συνεισφορά % και margin % ανά κανάλι πώλησης, με τα ίδια φίλτρα (περίοδος/κατάστημα/κατηγορία).',
+            'title': 'Ανά Κανάλι Πώλησης',
+            'report_kind': 'channels',
         },
     }
     cfg = variants[variant]
+    report_kind = cfg['report_kind']
 
     # The report is computed on demand: entering the page shows an empty result
     # and only pressing "Υπολογισμός" (which submits calc=1) runs the aggregation,
@@ -15411,7 +15427,7 @@ async def _render_exports_workbench(
 
     _ROW_LIMIT = 1000
     options, selected, period, rows, totals = await _export_query(
-        request, tenant, limit=_ROW_LIMIT, compute=calculated
+        request, tenant, limit=_ROW_LIMIT, compute=calculated, report_kind=report_kind
     )
 
     label_maps: dict[str, dict[str, str]] = {}
@@ -15440,6 +15456,7 @@ async def _render_exports_workbench(
             'row_limit': _ROW_LIMIT,
             'calculated': calculated,
             'totals': totals,
+            'report_kind': report_kind,
         },
     )
 
@@ -15497,23 +15514,45 @@ async def _render_exports_download(
     if fmt not in {'csv', 'xlsx'}:
         return Response('Μη έγκυρη μορφή εξαγωγής.', status_code=400, media_type='text/plain; charset=utf-8')
 
+    report_kind = 'channels' if variant == 'channels' else 'items'
     _options, _selected, period, rows, totals = await _export_query(
-        request, tenant, limit=_EXPORT_DOWNLOAD_LIMIT, compute=True
+        request, tenant, limit=_EXPORT_DOWNLOAD_LIMIT, compute=True, report_kind=report_kind
     )
-    data_rows = [
-        [
-            r['name'], r['barcode'], r['brand'],
-            r['category_1'], r['category_2'], r['category_3'],
-            round(float(r['sold_qty'] or 0), 3), round(float(r['sold_value'] or 0), 2),
+
+    if report_kind == 'channels':
+        headers = ['Κανάλι', 'Καθαρή Αξία', 'Contribution %', 'Margin %']
+        widths = [32, 16, 16, 14]
+        data_rows = [
+            [
+                r['channel'], round(float(r['net_value'] or 0), 2),
+                round(float(r['contribution_pct'] or 0), 2), round(float(r['margin_pct'] or 0), 2),
+            ]
+            for r in rows
         ]
-        for r in rows
-    ]
-    if data_rows:
-        data_rows.append([
-            'ΣΥΝΟΛΟ', '', '', '', '', '',
-            round(float(totals.get('qty') or 0), 3), round(float(totals.get('value') or 0), 2),
-        ])
-    base = 'anafores' if variant == 'reports' else 'export'
+        if data_rows:
+            data_rows.append([
+                'ΣΥΝΟΛΟ', round(float(totals.get('net_value') or 0), 2),
+                round(float(totals.get('contribution_pct') or 0), 2), round(float(totals.get('margin_pct') or 0), 2),
+            ])
+        base = 'kanali_polisis'
+    else:
+        headers = _EXPORT_DOWNLOAD_HEADERS
+        widths = [38, 16, 20, 22, 22, 22, 15, 15]
+        data_rows = [
+            [
+                r['name'], r['barcode'], r['brand'],
+                r['category_1'], r['category_2'], r['category_3'],
+                round(float(r['sold_qty'] or 0), 3), round(float(r['sold_value'] or 0), 2),
+            ]
+            for r in rows
+        ]
+        if data_rows:
+            data_rows.append([
+                'ΣΥΝΟΛΟ', '', '', '', '', '',
+                round(float(totals.get('qty') or 0), 3), round(float(totals.get('value') or 0), 2),
+            ])
+        base = 'anafores' if variant == 'reports' else 'export'
+
     span = ''
     if period.get('from') or period.get('to'):
         span = f"_{period.get('from') or 'start'}_{period.get('to') or 'today'}"
@@ -15524,7 +15563,7 @@ async def _render_exports_download(
         buffer = io.StringIO()
         buffer.write('﻿')  # UTF-8 BOM so Excel renders Greek correctly
         writer = csv.writer(buffer, delimiter=';')
-        writer.writerow(_EXPORT_DOWNLOAD_HEADERS)
+        writer.writerow(headers)
         writer.writerows(data_rows)
         content = buffer.getvalue().encode('utf-8')
         return Response(
@@ -15535,9 +15574,9 @@ async def _render_exports_download(
 
     content = _build_xlsx_bytes(
         sheet_name='Εξαγωγή',
-        headers=_EXPORT_DOWNLOAD_HEADERS,
+        headers=headers,
         rows=data_rows,
-        column_widths=[38, 16, 20, 22, 22, 22, 15, 15],
+        column_widths=widths,
     )
     return Response(
         content=content,
@@ -15564,3 +15603,22 @@ async def tenant_exports_csv_excel_download(
     _user=Depends(get_current_user),
 ):
     return await _render_exports_download(request=request, tenant=tenant, variant='csv_excel', fmt=fmt)
+
+
+@router.get('/tenant/exports/channels', response_class=HTMLResponse)
+async def tenant_exports_channels(
+    request: Request,
+    tenant: Tenant = Depends(get_request_tenant),
+    _user=Depends(get_current_user),
+):
+    return await _render_exports_workbench(request=request, tenant=tenant, variant='channels')
+
+
+@router.get('/tenant/exports/channels/download/{fmt}')
+async def tenant_exports_channels_download(
+    fmt: str,
+    request: Request,
+    tenant: Tenant = Depends(get_request_tenant),
+    _user=Depends(get_current_user),
+):
+    return await _render_exports_download(request=request, tenant=tenant, variant='channels', fmt=fmt)

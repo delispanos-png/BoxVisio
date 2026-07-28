@@ -153,7 +153,33 @@
     </div>
     {% endif %}
 
-    {% if rows %}
+    {% if rows and report_kind == 'channels' %}
+    <div class="exp-table-wrap">
+      <table class="exp-table">
+        <thead>
+          <tr><th>Κανάλι</th><th class="exp-num">Καθαρή Αξία</th><th class="exp-num">Contribution %</th><th class="exp-num">Margin %</th></tr>
+        </thead>
+        <tbody>
+          {% for r in rows %}
+          <tr>
+            <td>{{ r.channel }}</td>
+            <td class="exp-num">{{ '{:,.2f}'.format(r.net_value).replace(',', 'X').replace('.', ',').replace('X', '.') }} €</td>
+            <td class="exp-num">{{ '{:,.2f}'.format(r.contribution_pct).replace('.', ',') }}%</td>
+            <td class="exp-num">{{ '{:,.2f}'.format(r.margin_pct).replace('.', ',') }}%</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr class="exp-total-row">
+            <td>ΣΥΝΟΛΟ{% if totals.count %} ({{ totals.count }} κανάλια){% endif %}</td>
+            <td class="exp-num">{{ '{:,.2f}'.format(totals.net_value or 0).replace(',', 'X').replace('.', ',').replace('X', '.') }} €</td>
+            <td class="exp-num">100,00%</td>
+            <td class="exp-num">{{ '{:,.2f}'.format(totals.margin_pct or 0).replace('.', ',') }}%</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+    {% elif rows %}
     <div class="exp-table-wrap">
       <table class="exp-table">
         <thead>
@@ -190,7 +216,7 @@
     <p class="exp-empty-note" style="margin-top:10px">Εμφανίζονται τα πρώτα {{ row_limit }} είδη στην οθόνη. Πάτησε «Λήψη Excel» ή «Λήψη CSV» για ολόκληρη τη λίστα σε αρχείο.</p>
     {% endif %}
     {% else %}
-    <p class="exp-empty-note">Δεν βρέθηκαν είδη για τα επιλεγμένα φίλτρα. Άλλαξε τα φίλτρα και πάτησε «Υπολογισμός».</p>
+    <p class="exp-empty-note">Δεν βρέθηκαν αποτελέσματα για τα επιλεγμένα φίλτρα. Άλλαξε τα φίλτρα και πάτησε «Υπολογισμός».</p>
     {% endif %}
     {% endif %}
   </section>

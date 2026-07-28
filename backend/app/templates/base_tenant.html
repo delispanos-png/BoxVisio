@@ -488,6 +488,9 @@
               <li class="{% if active_page == 'exports_csv_excel' %}is-active{% endif %}">
                 <a class="bv-submenu-link" href="/tenant/exports/csv-excel"><i class="fe fe-download"></i><span>{{ tt(request, 'csv_excel_short') }}</span></a>
               </li>
+              <li class="{% if active_page == 'exports_channels' %}is-active{% endif %}">
+                <a class="bv-submenu-link" href="/tenant/exports/channels"><i class="fe fe-share-2"></i><span>Ανά Κανάλι</span></a>
+              </li>
             </ul>
           </li>
           {% endif %}

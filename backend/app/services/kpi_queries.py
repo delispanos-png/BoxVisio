@@ -12613,6 +12613,76 @@ async def export_item_totals(
     }
 
 
+async def sales_by_channel(
+    db: AsyncSession,
+    *,
+    brands: list[str] | None = None,
+    category_1: list[str] | None = None,
+    category_2: list[str] | None = None,
+    category_3: list[str] | None = None,
+    branches: list[str] | None = None,
+    warehouses: list[str] | None = None,
+    period_from: date | None = None,
+    period_to: date | None = None,
+) -> tuple[list[dict], dict]:
+    """Sales contribution per sales channel (channel_name), with returns signed
+    like the dashboard. Blank channel = 'Φυσικό κατάστημα'. Returns (rows, totals)
+    where each row has channel, net_value, contribution_pct and margin_pct."""
+    net_expr = _fact_sales_signed_net_expr()
+    cost_expr = _fact_sales_signed_cost_expr()
+    channel_label = func.coalesce(
+        func.nullif(func.trim(func.coalesce(FactSales.channel_name, '')), ''),
+        literal('Φυσικό κατάστημα'),
+    )
+    stmt = select(
+        channel_label.label('channel'),
+        func.coalesce(func.sum(net_expr), 0).label('net_value'),
+        func.coalesce(func.sum(cost_expr), 0).label('cost_amount'),
+    ).select_from(FactSales)
+    if brands or category_1 or category_2 or category_3:
+        stmt = stmt.join(DimItem, FactSales.item_id == DimItem.id)
+        if brands:
+            stmt = stmt.join(DimBrand, DimItem.brand_id == DimBrand.id, isouter=True).where(
+                DimBrand.external_id.in_(brands)
+            )
+        if category_1:
+            stmt = stmt.where(DimItem.category_1.in_(category_1))
+        if category_2:
+            stmt = stmt.where(DimItem.category_2.in_(category_2))
+        if category_3:
+            stmt = stmt.where(DimItem.category_3.in_(category_3))
+    if period_from:
+        stmt = stmt.where(FactSales.doc_date >= period_from)
+    if period_to:
+        stmt = stmt.where(FactSales.doc_date <= period_to)
+    if branches:
+        stmt = stmt.where(FactSales.branch_ext_id.in_(branches))
+    if warehouses:
+        stmt = stmt.where(FactSales.warehouse_ext_id.in_(warehouses))
+    stmt = stmt.group_by(channel_label).order_by(func.sum(net_expr).desc())
+    raw = (await db.execute(stmt)).all()
+
+    total_net = sum(float(r[1] or 0) for r in raw)
+    total_cost = sum(float(r[2] or 0) for r in raw)
+    rows = []
+    for channel, net_raw, cost_raw in raw:
+        net = float(net_raw or 0)
+        cost = float(cost_raw or 0)
+        rows.append({
+            'channel': str(channel or 'Φυσικό κατάστημα'),
+            'net_value': net,
+            'contribution_pct': (net / total_net * 100.0) if total_net else 0.0,
+            'margin_pct': ((net - cost) / net * 100.0) if net else 0.0,
+        })
+    totals = {
+        'count': len(rows),
+        'net_value': total_net,
+        'contribution_pct': 100.0 if total_net else 0.0,
+        'margin_pct': ((total_net - total_cost) / total_net * 100.0) if total_net else 0.0,
+    }
+    return rows, totals
+
+
 async def inventory_filter_options(
     db: AsyncSession,
     as_of: date,
