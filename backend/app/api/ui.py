@@ -15854,7 +15854,7 @@ async def tenant_store_dashboard(
     tenant: Tenant = Depends(get_request_tenant),
     _user=Depends(get_current_user),
 ):
-    from app.services.kpi_queries import store_dashboard
+    from app.services.kpi_queries import store_dashboard, store_transfer_suggestions
     today = datetime.utcnow().date()
     period = {
         'from': _export_clean_date(request.query_params.get('period_from')) or today.replace(day=1).isoformat(),
@@ -15890,6 +15890,10 @@ async def tenant_store_dashboard(
             scope_token = set_current_sales_kpi_participation_config(sales_kpi_config)
             try:
                 data = await store_dashboard(tenant_db, branch_ext=branch_ext, date_from=date_from, date_to=date_to)
+                transfers = await store_transfer_suggestions(tenant_db, branch_ext=branch_ext, date_from=date_from, date_to=date_to)
+                data['transfers'] = transfers.get('transfers', [])
+                data['transfer_value'] = transfers.get('transfer_value', 0.0)
+                data['target_days'] = transfers.get('target_days', 14)
             finally:
                 reset_current_sales_kpi_participation_config(scope_token)
         break
@@ -15921,10 +15925,10 @@ async def tenant_store_dashboard_download(
     tenant: Tenant = Depends(get_request_tenant),
     _user=Depends(get_current_user),
 ):
-    from app.services.kpi_queries import store_dashboard
+    from app.services.kpi_queries import store_dashboard, store_transfer_suggestions
     fmt = (fmt or '').strip().lower()
     card = (card or '').strip().lower()
-    if fmt not in {'csv', 'xlsx'} or card not in {'lost', 'dead'}:
+    if fmt not in {'csv', 'xlsx'} or card not in {'lost', 'dead', 'transfer'}:
         return Response('Μη έγκυρη εξαγωγή.', status_code=400, media_type='text/plain; charset=utf-8')
 
     today = datetime.utcnow().date()
@@ -15953,13 +15957,22 @@ async def tenant_store_dashboard_download(
         )).scalar() or branch_ext
         scope_token = set_current_sales_kpi_participation_config(sales_kpi_config)
         try:
-            data = await store_dashboard(tenant_db, branch_ext=branch_ext, date_from=date_from, date_to=date_to, top_n=100000)
+            if card == 'transfer':
+                data = await store_transfer_suggestions(tenant_db, branch_ext=branch_ext, date_from=date_from, date_to=date_to, top_n=100000)
+            else:
+                data = await store_dashboard(tenant_db, branch_ext=branch_ext, date_from=date_from, date_to=date_to, top_n=100000)
         finally:
             reset_current_sales_kpi_participation_config(scope_token)
         break
 
     _period_gr = f"{dfrom[8:10]}/{dfrom[5:7]}/{dfrom[0:4]} έως {dto[8:10]}/{dto[5:7]}/{dto[0:4]}"
-    if card == 'lost':
+    if card == 'transfer':
+        headers = ['Είδος', 'Barcode', 'Από κατάστημα', 'Ποσότητα', 'Αξία']
+        widths = [46, 16, 22, 12, 14]
+        data_rows = [[r['name'], r['barcode'], r['from_branch'], round(float(r['qty'] or 0), 0), round(float(r['value'] or 0), 2)]
+                     for r in data.get('transfers', [])]
+        base, sheet = 'metafores', 'Προτεινόμενες μεταφορές'
+    elif card == 'lost':
         headers = ['Είδος', 'Barcode', 'Πωλήσεις περιόδου', 'Τεμάχια', 'Ημερήσιο (~)']
         widths = [46, 16, 18, 12, 14]
         data_rows = [[r['name'], r['barcode'], round(float(r['sold_value'] or 0), 2),

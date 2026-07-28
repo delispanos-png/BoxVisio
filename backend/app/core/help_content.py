@@ -1570,11 +1570,11 @@ CIRCUITS: tuple[dict[str, Any], ...] = (
         'steps': _tl(
             [
                 'Διάλεξε κατάστημα και περίοδο.',
-                'Δες τα KPIs + Store Health, μετά τις κάρτες δράσης: Χαμένες πωλήσεις (ταχυκίνητα εκτός αποθέματος → παραγγελία), Βαλτωμένο απόθεμα (δεσμευμένο κεφάλαιο → μεταφορά/έκπτωση), Κατηγορίες σε πτώση vs πέρσι.',
+                'Δες τα KPIs + Store Health, μετά τις κάρτες δράσης: Χαμένες πωλήσεις (ταχυκίνητα εκτός αποθέματος → παραγγελία), Βαλτωμένο απόθεμα (δεσμευμένο κεφάλαιο → μεταφορά/έκπτωση), Προτεινόμενες μεταφορές από άλλα καταστήματα (βάσει ταχύτητας κίνησης· η παραγγελία γίνεται από το FnR)· Κατηγορίες σε πτώση vs πέρσι.',
             ],
             [
                 'Pick a store and period.',
-                'Read the KPIs + Store Health, then the action cards: Lost sales (best-sellers out of stock → order), Dead stock (tied capital → move/discount), Declining categories vs last year.',
+                'Read the KPIs + Store Health, then the action cards: Lost sales (best-sellers out of stock → order), Dead stock (tied capital → move/discount), Suggested transfers from other stores (velocity-based; ordering stays in FnR); Declining categories vs last year.',
             ],
         ),
         'columns': _tl(['Λίστες ειδών ανά κάρτα, ταξινομημένες κατά € αξία.'], ['Item lists per card, ranked by € value.']),

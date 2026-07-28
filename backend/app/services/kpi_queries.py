@@ -13178,6 +13178,132 @@ async def store_dashboard(
     }
 
 
+async def store_transfer_suggestions(
+    db: AsyncSession,
+    *,
+    branch_ext: str,
+    date_from: date,
+    date_to: date,
+    target_days: int = 14,
+    top_n: int = 30,
+) -> dict:
+    """For the given store, propose stock TRANSFERS from other stores and an ORDER
+    list for what no store can cover.
+
+    Need at a store ≈ velocity(store) × target_days − current stock. A store with a
+    positive need that is short receives; stores whose stock exceeds their own
+    velocity-based need are the donors (their slow-moving surplus feeds where it
+    sells). Quantities scale with each store's movement speed of the item.
+    """
+    days = max(1, (date_to - date_from).days + 1)
+    snapshot = await _latest_inventory_snapshot_date(db, date_to)
+    if snapshot is None:
+        return {'transfers': [], 'to_order': [], 'target_days': target_days}
+
+    qty = func.coalesce(FactSales.qty, 0) * _fact_sales_behavior_sign_expr(quantity=True)
+    net = _fact_sales_signed_net_expr()
+
+    _real = func.coalesce(func.trim(DimItem.barcode), '') != ''  # real stockable products only
+
+    # Items this store actually sells in the period (bounds everything).
+    items_here_sub = (
+        select(func.distinct(FactSales.item_id))
+        .select_from(FactSales).join(DimItem, FactSales.item_id == DimItem.id)
+        .where(FactSales.branch_ext_id == branch_ext, FactSales.doc_date >= date_from,
+               FactSales.doc_date <= date_to, FactSales.item_id.is_not(None), _real)
+    ).scalar_subquery()
+
+    # This store's velocity + value per item.
+    here_rows = (await db.execute(
+        select(FactSales.item_id, func.coalesce(func.sum(qty), 0), func.coalesce(func.sum(net), 0))
+        .select_from(FactSales).join(DimItem, FactSales.item_id == DimItem.id)
+        .where(FactSales.branch_ext_id == branch_ext, FactSales.doc_date >= date_from,
+               FactSales.doc_date <= date_to, FactSales.item_id.is_not(None), _real)
+        .group_by(FactSales.item_id)
+    )).all()
+    here = {r[0]: {'sq': float(r[1] or 0), 'sv': float(r[2] or 0)} for r in here_rows}
+
+    # Velocity per item per branch (period) and stock per item per branch (snapshot).
+    vel_rows = (await db.execute(
+        select(FactSales.item_id, FactSales.branch_ext_id, func.coalesce(func.sum(qty), 0))
+        .where(FactSales.doc_date >= date_from, FactSales.doc_date <= date_to,
+               FactSales.item_id.in_(items_here_sub))
+        .group_by(FactSales.item_id, FactSales.branch_ext_id)
+    )).all()
+    stk_rows = (await db.execute(
+        select(FactInventory.item_id, FactInventory.branch_ext_id, func.coalesce(func.sum(FactInventory.qty_on_hand), 0))
+        .where(FactInventory.doc_date == snapshot, FactInventory.movement_type == 'snapshot',
+               FactInventory.item_id.in_(items_here_sub))
+        .group_by(FactInventory.item_id, FactInventory.branch_ext_id)
+    )).all()
+    vel: dict = {}
+    for iid, br, q in vel_rows:
+        vel.setdefault(iid, {})[str(br)] = float(q or 0)
+    stock: dict = {}
+    for iid, br, q in stk_rows:
+        stock.setdefault(iid, {})[str(br)] = float(q or 0)
+
+    transfers: list[dict] = []
+    to_order: list[dict] = []
+    for iid, hv in here.items():
+        vel_here = hv['sq'] / days
+        if vel_here <= 0:
+            continue
+        stock_here = stock.get(iid, {}).get(branch_ext, 0.0)
+        need = vel_here * target_days - stock_here
+        if need < 1:
+            continue
+        price = (hv['sv'] / hv['sq']) if hv['sq'] else 0.0
+        donors = []
+        for br, st in stock.get(iid, {}).items():
+            if br == branch_ext:
+                continue
+            surplus = st - (vel.get(iid, {}).get(br, 0.0) / days) * target_days
+            if surplus >= 1:
+                donors.append((br, surplus))
+        donors.sort(key=lambda x: x[1], reverse=True)
+        remaining = need
+        for br, surplus in donors:
+            take = min(remaining, surplus)
+            if take < 1:
+                continue
+            transfers.append({'item_id': iid, 'from_branch': br, 'qty': take, 'value': take * price})
+            remaining -= take
+            if remaining < 1:
+                break
+        if remaining >= 1:
+            to_order.append({'item_id': iid, 'qty': remaining, 'value': remaining * price})
+
+    # Resolve item + branch labels.
+    ids = {t['item_id'] for t in transfers} | {o['item_id'] for o in to_order}
+    names = {}
+    if ids:
+        for r in (await db.execute(select(DimItem.id, DimItem.name, DimItem.barcode).where(DimItem.id.in_(ids)))).all():
+            names[r[0]] = {'name': str(r[1] or ''), 'barcode': str(r[2] or '')}
+    branch_names = {str(r[0]): str(r[1] or r[0]) for r in (await db.execute(select(DimBranch.external_id, DimBranch.name))).all()}
+
+    def _pack_t(t):
+        n = names.get(t['item_id'], {})
+        return {'name': n.get('name', ''), 'barcode': n.get('barcode', ''),
+                'from_branch': branch_names.get(t['from_branch'], t['from_branch']),
+                'qty': round(t['qty']), 'value': t['value']}
+
+    def _pack_o(o):
+        n = names.get(o['item_id'], {})
+        return {'name': n.get('name', ''), 'barcode': n.get('barcode', ''),
+                'qty': round(o['qty']), 'value': o['value']}
+
+    transfers.sort(key=lambda x: x['value'], reverse=True)
+    to_order.sort(key=lambda x: x['value'], reverse=True)
+    return {
+        'transfers': [_pack_t(t) for t in transfers[:top_n]],
+        'to_order': [_pack_o(o) for o in to_order[:top_n]],
+        'transfer_value': sum(t['value'] for t in transfers),
+        'order_value': sum(o['value'] for o in to_order),
+        'target_days': target_days,
+    }
+
+
 async def inventory_filter_options(
     db: AsyncSession,
     as_of: date,
