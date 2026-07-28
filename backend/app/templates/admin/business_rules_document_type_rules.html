@@ -58,7 +58,7 @@
             <input type="hidden" name="rule_key" id="ruleKeyInput" value="">
 
             <div class="col-md-4">
-              <label class="form-label">
+              <label class="form-label" for="scopeSelect">
                 Επίπεδο Κανόνα
                 <i class="fe fe-help-circle text-muted ms-1" data-bs-toggle="tooltip" title="Καθολικός κανόνας για όλους ή ειδικός κανόνας μόνο για συγκεκριμένο tenant."></i>
               </label>
@@ -68,7 +68,7 @@
               </select>
             </div>
             <div class="col-md-4">
-              <label class="form-label">
+              <label class="form-label" for="tenantSelect">
                 Tenant
                 <i class="fe fe-help-circle text-muted ms-1" data-bs-toggle="tooltip" title="Απαραίτητο μόνο όταν επιλέγεις Tenant Override."></i>
               </label>
@@ -80,7 +80,7 @@
               </select>
             </div>
             <div class="col-md-4">
-              <label class="form-label">
+              <label class="form-label" for="rulesetCodeInput">
                 Σύνολο Κανόνων (Ruleset)
                 <i class="fe fe-help-circle text-muted ms-1" data-bs-toggle="tooltip" title="Χρησιμοποιείται για ομαδοποίηση των καθολικών κανόνων."></i>
               </label>
@@ -88,21 +88,21 @@
             </div>
 
             <div class="col-md-3">
-              <label class="form-label">
+              <label class="form-label" for="behaviorCodeInput">
                 Κωδικός Συμπεριφοράς
                 <i class="fe fe-help-circle text-muted ms-1" data-bs-toggle="tooltip" title="SoftOne κωδικός συμπεριφοράς (π.χ. 131). Υποχρεωτικό για Πωλήσεις/Αγορές/Αποθήκη για ακριβές matching KPI."></i>
               </label>
               <input class="form-control" name="behavior_code" id="behaviorCodeInput" placeholder="π.χ. 131" value="{{ default_form_values.behavior_code }}">
             </div>
             <div class="col-md-3">
-              <label class="form-label">
+              <label class="form-label" for="behaviorLabelInput">
                 Περιγραφή Συμπεριφοράς
                 <i class="fe fe-help-circle text-muted ms-1" data-bs-toggle="tooltip" title="Περιγραφή συμπεριφοράς SoftOne (προαιρετικό)."></i>
               </label>
               <input class="form-control" name="behavior_label" id="behaviorLabelInput" placeholder="π.χ. Απόδειξη λιανικής" value="{{ default_form_values.behavior_label }}">
             </div>
             <div class="col-md-3">
-              <label class="form-label">
+              <label class="form-label" for="documentTypeInput">
                 Ονομασία Παραστατικού SoftOne
                 <i class="fe fe-help-circle text-muted ms-1" data-bs-toggle="tooltip" title="Χρησιμοποίησε την επίσημη ονομασία SoftOne για αποφυγή παρερμηνειών στα KPI."></i>
               </label>
@@ -122,7 +122,7 @@
               <div class="form-text">Με επιλογή από λίστα, συμπληρώνονται αυτόματα κωδικός/περιγραφή συμπεριφοράς και κύκλωμα.</div>
             </div>
             <div class="col-md-3">
-              <label class="form-label">
+              <label class="form-label" for="streamInput">
                 Κύκλωμα
                 <i class="fe fe-help-circle text-muted ms-1" data-bs-toggle="tooltip" title="Σε ποιο επιχειρησιακό κύκλωμα θα ανήκει ο τύπος παραστατικού."></i>
               </label>
@@ -134,7 +134,7 @@
             </div>
 
             <div class="col-md-4">
-              <label class="form-label">
+              <label class="form-label" for="includeRevenueInput">
                 Συμμετοχή σε Έσοδα
                 <i class="fe fe-help-circle text-muted ms-1" data-bs-toggle="tooltip" title="Αν ο τύπος συμμετέχει στον τζίρο."></i>
               </label>
@@ -144,7 +144,7 @@
               </select>
             </div>
             <div class="col-md-4">
-              <label class="form-label">
+              <label class="form-label" for="includeQuantityInput">
                 Συμμετοχή σε Ποσότητες
                 <i class="fe fe-help-circle text-muted ms-1" data-bs-toggle="tooltip" title="Αν οι ποσότητες του τύπου μετράνε στα KPI ποσοτήτων."></i>
               </label>
@@ -154,7 +154,7 @@
               </select>
             </div>
             <div class="col-md-4">
-              <label class="form-label">
+              <label class="form-label" for="includeCostInput">
                 Συμμετοχή σε Κόστος
                 <i class="fe fe-help-circle text-muted ms-1" data-bs-toggle="tooltip" title="Αν ο τύπος συμμετέχει σε cost / margin KPI."></i>
               </label>

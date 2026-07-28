@@ -67,27 +67,27 @@
   <div class="bv-admin-panel-body">
     <form method="post" action="/admin/plans/custom-features" class="row g-3 align-items-end">
       <div class="col-md-3">
-        <label class="form-label">Όνομα</label>
-        <input class="form-control" name="label" required placeholder="π.χ. IQVIA Advanced Benchmarking">
+        <label for="label" class="form-label">Όνομα</label>
+        <input id="label" class="form-control" name="label" required placeholder="π.χ. IQVIA Advanced Benchmarking">
       </div>
       <div class="col-md-2">
-        <label class="form-label">Key</label>
-        <input class="form-control" name="feature_key" placeholder="auto">
+        <label for="feature_key" class="form-label">Key</label>
+        <input id="feature_key" class="form-control" name="feature_key" placeholder="auto">
       </div>
       <div class="col-md-2">
-        <label class="form-label">Ομάδα</label>
-        <input class="form-control" name="group" value="Custom">
+        <label for="group" class="form-label">Ομάδα</label>
+        <input id="group" class="form-control" name="group" value="Custom">
       </div>
       <div class="col-md-2">
-        <label class="form-label">Τύπος</label>
-        <select class="form-select" name="feature_type">
+        <label for="feature_type" class="form-label">Τύπος</label>
+        <select id="feature_type" class="form-select" name="feature_type">
           <option value="feature">Δυνατότητα</option>
           <option value="module">Κύκλωμα</option>
         </select>
       </div>
       <div class="col-md-3">
-        <label class="form-label">Συγκεκριμένος πελάτης</label>
-        <select class="form-select" name="tenant_id">
+        <label for="tenant_id" class="form-label">Συγκεκριμένος πελάτης</label>
+        <select id="tenant_id" class="form-select" name="tenant_id">
           <option value="">Όχι, γενικό feature</option>
           {% for tenant in tenants %}
           <option value="{{ tenant.id }}">{{ tenant.name }} ({{ tenant.slug }})</option>
@@ -96,8 +96,8 @@
       </div>
       {% for plan_value, plan_label in [('standard', 'Standard'), ('pro', 'Pro'), ('enterprise', 'Enterprise'), ('custom', 'Custom')] %}
       <div class="col-md-3">
-        <label class="form-label">{{ plan_label }}</label>
-        <select class="form-select" name="status_{{ plan_value }}">
+        <label for="status_{{ plan_value }}" class="form-label">{{ plan_label }}</label>
+        <select id="status_{{ plan_value }}" class="form-select" name="status_{{ plan_value }}">
           {% for choice in plan_status_choices %}
           <option value="{{ choice.value }}" {% if (plan_value == 'custom' and choice.value == 'custom') or (plan_value != 'custom' and choice.value == 'none') %}selected{% endif %}>{{ choice.label }}</option>
           {% endfor %}
@@ -105,8 +105,8 @@
       </div>
       {% endfor %}
       <div class="col-md-9">
-        <label class="form-label">Περιγραφή</label>
-        <input class="form-control" name="description" placeholder="Εσωτερική σημείωση για εμπορική χρήση ή υλοποίηση">
+        <label for="description" class="form-label">Περιγραφή</label>
+        <input id="description" class="form-control" name="description" placeholder="Εσωτερική σημείωση για εμπορική χρήση ή υλοποίηση">
       </div>
       <div class="col-md-3">
         <button class="btn btn-primary w-100" type="submit"><i class="fe fe-plus"></i> Προσθήκη</button>

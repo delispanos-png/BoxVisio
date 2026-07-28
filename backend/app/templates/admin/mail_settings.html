@@ -42,33 +42,33 @@
     <div class="bv-mail-card-body">
       <div class="row g-3">
         <div class="col-md-8">
-          <label class="form-label small text-uppercase text-muted fw-semibold">SMTP Host</label>
-          <input class="form-control" name="smtp_host" value="{{ mail_settings.smtp_host }}" placeholder="smtp.yourdomain.gr" autocomplete="off">
+          <label for="smtp_host" class="form-label small text-uppercase text-muted fw-semibold">SMTP Host</label>
+          <input id="smtp_host" class="form-control" name="smtp_host" value="{{ mail_settings.smtp_host }}" placeholder="smtp.yourdomain.gr" autocomplete="off">
         </div>
         <div class="col-md-4">
-          <label class="form-label small text-uppercase text-muted fw-semibold">Port</label>
-          <input class="form-control" name="smtp_port" type="number" min="1" max="65535" value="{{ mail_settings.smtp_port or 587 }}">
+          <label for="smtp_port" class="form-label small text-uppercase text-muted fw-semibold">Port</label>
+          <input id="smtp_port" class="form-control" name="smtp_port" type="number" min="1" max="65535" value="{{ mail_settings.smtp_port or 587 }}">
         </div>
         <div class="col-md-6">
-          <label class="form-label small text-uppercase text-muted fw-semibold">Username</label>
-          <input class="form-control" name="smtp_username" value="{{ mail_settings.smtp_username }}" placeholder="admin@yourdomain.gr" autocomplete="off">
+          <label for="smtp_username" class="form-label small text-uppercase text-muted fw-semibold">Username</label>
+          <input id="smtp_username" class="form-control" name="smtp_username" value="{{ mail_settings.smtp_username }}" placeholder="admin@yourdomain.gr" autocomplete="off">
         </div>
         <div class="col-md-6">
-          <label class="form-label small text-uppercase text-muted fw-semibold">Password</label>
-          <input class="form-control" name="smtp_password" type="password" placeholder="{% if mail_settings.has_password %}Αποθηκευμένο - άστο κενό για να μείνει ίδιο{% else %}SMTP password{% endif %}" autocomplete="new-password">
+          <label for="smtp_password" class="form-label small text-uppercase text-muted fw-semibold">Password</label>
+          <input id="smtp_password" class="form-control" name="smtp_password" type="password" placeholder="{% if mail_settings.has_password %}Αποθηκευμένο - άστο κενό για να μείνει ίδιο{% else %}SMTP password{% endif %}" autocomplete="new-password">
           <div class="form-text">Δεν εμφανίζεται ο αποθηκευμένος κωδικός. Κενό σημαίνει “κράτα τον υπάρχοντα”.</div>
         </div>
         <div class="col-md-6">
-          <label class="form-label small text-uppercase text-muted fw-semibold">From Email</label>
-          <input class="form-control" name="smtp_from_email" value="{{ mail_settings.smtp_from_email }}" placeholder="noreply@boxvisio.com" autocomplete="off">
+          <label for="smtp_from_email" class="form-label small text-uppercase text-muted fw-semibold">From Email</label>
+          <input id="smtp_from_email" class="form-control" name="smtp_from_email" value="{{ mail_settings.smtp_from_email }}" placeholder="noreply@boxvisio.com" autocomplete="off">
         </div>
         <div class="col-md-6">
-          <label class="form-label small text-uppercase text-muted fw-semibold">From Name</label>
-          <input class="form-control" name="smtp_from_name" value="{{ mail_settings.smtp_from_name or 'CloudOn BI' }}" placeholder="BoxVisio BI" autocomplete="off">
+          <label for="smtp_from_name" class="form-label small text-uppercase text-muted fw-semibold">From Name</label>
+          <input id="smtp_from_name" class="form-control" name="smtp_from_name" value="{{ mail_settings.smtp_from_name or 'CloudOn BI' }}" placeholder="BoxVisio BI" autocomplete="off">
         </div>
         <div class="col-md-8">
-          <label class="form-label small text-uppercase text-muted fw-semibold">Public Base URL</label>
-          <input class="form-control" name="app_public_base_url" value="{{ mail_settings.app_public_base_url }}" placeholder="https://bi.boxvisio.com" autocomplete="off">
+          <label for="app_public_base_url" class="form-label small text-uppercase text-muted fw-semibold">Public Base URL</label>
+          <input id="app_public_base_url" class="form-control" name="app_public_base_url" value="{{ mail_settings.app_public_base_url }}" placeholder="https://bi.boxvisio.com" autocomplete="off">
           <div class="form-text">Χρησιμοποιείται σε links προσκλήσεων και reset password.</div>
         </div>
         <div class="col-md-4 d-flex align-items-end">
@@ -109,8 +109,8 @@
 
       <form method="post" action="/admin/settings/mail-server/test" class="mb-4">
         <input type="hidden" name="csrf_token" value="{{ request.cookies.get('csrf_token', '') }}">
-        <label class="form-label small text-uppercase text-muted fw-semibold">Test Email</label>
-        <input class="form-control mb-2" name="test_email" value="{{ user.email }}" autocomplete="off">
+        <label for="test_email" class="form-label small text-uppercase text-muted fw-semibold">Test Email</label>
+        <input id="test_email" class="form-control mb-2" name="test_email" value="{{ user.email }}" autocomplete="off">
         <button type="submit" class="btn btn-outline-primary w-100">
           <i class="fe fe-send me-1"></i>Αποστολή Test
         </button>
