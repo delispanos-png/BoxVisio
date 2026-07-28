@@ -12471,6 +12471,7 @@ async def export_filter_options(db: AsyncSession) -> dict[str, list[dict[str, st
         'branches': await _dim_options(DimBranch),
         'warehouses': await _dim_options(DimWarehouse),
         'brands': await _dim_options(DimBrand),
+        'group': await _dim_options(DimGroup),
         'category_1': await _item_category_options(DimItem.category_1),
         'category_2': await _item_category_options(DimItem.category_2),
         'category_3': await _item_category_options(DimItem.category_3),
@@ -12485,6 +12486,7 @@ async def export_item_rows(
     category_1: list[str] | None = None,
     category_2: list[str] | None = None,
     category_3: list[str] | None = None,
+    groups: list[str] | None = None,
     branches: list[str] | None = None,
     warehouses: list[str] | None = None,
     period_from: date | None = None,
@@ -12533,6 +12535,10 @@ async def export_item_rows(
     )
     if brands:
         stmt = stmt.where(DimBrand.external_id.in_(brands))
+    if groups:
+        stmt = stmt.join(DimGroup, DimItem.group_id == DimGroup.id, isouter=True).where(
+            DimGroup.external_id.in_(groups)
+        )
     if category_1:
         stmt = stmt.where(DimItem.category_1.in_(category_1))
     if category_2:
@@ -12563,6 +12569,7 @@ async def export_item_totals(
     category_1: list[str] | None = None,
     category_2: list[str] | None = None,
     category_3: list[str] | None = None,
+    groups: list[str] | None = None,
     branches: list[str] | None = None,
     warehouses: list[str] | None = None,
     period_from: date | None = None,
@@ -12599,6 +12606,10 @@ async def export_item_totals(
     )
     if brands:
         stmt = stmt.where(DimBrand.external_id.in_(brands))
+    if groups:
+        stmt = stmt.join(DimGroup, DimItem.group_id == DimGroup.id, isouter=True).where(
+            DimGroup.external_id.in_(groups)
+        )
     if category_1:
         stmt = stmt.where(DimItem.category_1.in_(category_1))
     if category_2:
@@ -12620,6 +12631,7 @@ async def sales_by_channel(
     category_1: list[str] | None = None,
     category_2: list[str] | None = None,
     category_3: list[str] | None = None,
+    groups: list[str] | None = None,
     branches: list[str] | None = None,
     warehouses: list[str] | None = None,
     period_from: date | None = None,
@@ -12627,9 +12639,13 @@ async def sales_by_channel(
 ) -> tuple[list[dict], dict]:
     """Sales contribution per sales channel (channel_name), with returns signed
     like the dashboard. Blank channel = 'Φυσικό κατάστημα'. Returns (rows, totals)
-    where each row has channel, net_value, contribution_pct and margin_pct."""
+    where each row has channel, net_value, contribution_pct and margin_pct.
+
+    Margin uses profit_amount (gross profit), because the cost_amount column mirrors
+    net_value in this dataset and would yield a zero margin.
+    """
     net_expr = _fact_sales_signed_net_expr()
-    cost_expr = _fact_sales_signed_cost_expr()
+    profit_expr = func.coalesce(FactSales.profit_amount, 0) * _fact_sales_behavior_sign_expr(quantity=False)
     channel_label = func.coalesce(
         func.nullif(func.trim(func.coalesce(FactSales.channel_name, '')), ''),
         literal('Φυσικό κατάστημα'),
@@ -12637,13 +12653,17 @@ async def sales_by_channel(
     stmt = select(
         channel_label.label('channel'),
         func.coalesce(func.sum(net_expr), 0).label('net_value'),
-        func.coalesce(func.sum(cost_expr), 0).label('cost_amount'),
+        func.coalesce(func.sum(profit_expr), 0).label('profit_amount'),
     ).select_from(FactSales)
-    if brands or category_1 or category_2 or category_3:
+    if brands or category_1 or category_2 or category_3 or groups:
         stmt = stmt.join(DimItem, FactSales.item_id == DimItem.id)
         if brands:
             stmt = stmt.join(DimBrand, DimItem.brand_id == DimBrand.id, isouter=True).where(
                 DimBrand.external_id.in_(brands)
+            )
+        if groups:
+            stmt = stmt.join(DimGroup, DimItem.group_id == DimGroup.id, isouter=True).where(
+                DimGroup.external_id.in_(groups)
             )
         if category_1:
             stmt = stmt.where(DimItem.category_1.in_(category_1))
@@ -12663,22 +12683,22 @@ async def sales_by_channel(
     raw = (await db.execute(stmt)).all()
 
     total_net = sum(float(r[1] or 0) for r in raw)
-    total_cost = sum(float(r[2] or 0) for r in raw)
+    total_profit = sum(float(r[2] or 0) for r in raw)
     rows = []
-    for channel, net_raw, cost_raw in raw:
+    for channel, net_raw, profit_raw in raw:
         net = float(net_raw or 0)
-        cost = float(cost_raw or 0)
+        profit = float(profit_raw or 0)
         rows.append({
             'channel': str(channel or 'Φυσικό κατάστημα'),
             'net_value': net,
             'contribution_pct': (net / total_net * 100.0) if total_net else 0.0,
-            'margin_pct': ((net - cost) / net * 100.0) if net else 0.0,
+            'margin_pct': (profit / net * 100.0) if net else 0.0,
         })
     totals = {
         'count': len(rows),
         'net_value': total_net,
         'contribution_pct': 100.0 if total_net else 0.0,
-        'margin_pct': ((total_net - total_cost) / total_net * 100.0) if total_net else 0.0,
+        'margin_pct': (total_profit / total_net * 100.0) if total_net else 0.0,
     }
     return rows, totals
 
