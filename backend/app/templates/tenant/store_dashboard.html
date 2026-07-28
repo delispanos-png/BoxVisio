@@ -10,8 +10,16 @@
   .sd { --sd-good:#16a34a; --sd-warn:#d97706; --sd-bad:#dc2626; display:flex; flex-direction:column; gap:16px; margin-top:8px; }
   .sd-head { display:flex; align-items:flex-end; justify-content:space-between; gap:16px; flex-wrap:wrap; }
   .sd-head-main { flex:1 1 auto; min-width:0; }
-  .sd-summary { margin:10px 0 0; font-size:14px; line-height:1.5; color:var(--text,#1b2130); background:color-mix(in srgb, var(--primary,#4c63d2) 8%, transparent); border-left:3px solid var(--primary,#4c63d2); padding:9px 13px; border-radius:8px; max-width:1000px; }
-  .sd-summary .fe { color:var(--primary,#4c63d2); margin-right:5px; }
+  .sd-summary { display:flex; align-items:center; justify-content:center; gap:11px; text-align:center;
+    margin:0; padding:15px 24px; border-radius:14px;
+    font-size:15.5px; font-weight:600; line-height:1.55; color:var(--text,#1b2130);
+    background:linear-gradient(90deg, color-mix(in srgb, var(--primary,#4c63d2) 16%, transparent), color-mix(in srgb, var(--primary,#4c63d2) 7%, transparent));
+    border:1px solid color-mix(in srgb, var(--primary,#4c63d2) 32%, transparent);
+    box-shadow:0 2px 14px color-mix(in srgb, var(--primary,#4c63d2) 12%, transparent); }
+  .sd-summary .fe { color:var(--primary,#4c63d2); font-size:19px; flex:none; animation:sd-zap 2.4s ease-in-out infinite; }
+  .sd-summary .sd-summary-txt { max-width:1150px; }
+  @keyframes sd-zap { 0%,100%{ opacity:1; transform:scale(1);} 50%{ opacity:.55; transform:scale(1.12);} }
+  @media (max-width:640px){ .sd-summary{ font-size:14px; padding:12px 15px; text-align:left; justify-content:flex-start; align-items:flex-start; } }
   .sd-head h1 { font-size:22px; margin:0 0 4px; }
   .sd-head p { color:var(--text-muted); margin:0; font-size:13px; }
   .sd-controls { display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap; }
@@ -60,13 +68,14 @@
     <div class="sd-head-main">
       <h1>Κατάστημα — {{ branch_label }}</h1>
       <p>Τι συμβαίνει και τι να κάνεις — προτεραιοποιημένο κατά € αξία.{% if data.get('snapshot') %} Απόθεμα: {{ data.snapshot[8:10] }}/{{ data.snapshot[5:7] }}/{{ data.snapshot[0:4] }}.{% endif %}</p>
-      {% if data.get('summary') %}<p class="sd-summary"><i class="fe fe-zap"></i> {{ data.summary }}</p>{% endif %}
     </div>
     <div class="sd-health">
       <div class="sd-score" style="--h:{{ health }}; --hc:{{ hcolor }}"><span>{{ health }}</span></div>
       <div><div class="sd-health-label">Store Health</div></div>
     </div>
   </section>
+
+  {% if data.get('summary') %}<p class="sd-summary"><i class="fe fe-zap"></i> <span class="sd-summary-txt">{{ data.summary }}</span></p>{% endif %}
 
   <form method="get" action="/tenant/store-dashboard" class="sd-controls">
     <div class="sd-field">

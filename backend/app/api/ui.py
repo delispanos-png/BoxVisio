@@ -15920,7 +15920,8 @@ async def tenant_store_dashboard(
         _trn = len(data.get('transfers', []))
         if _trn:
             _seg.append(f"{_trn} προτεινόμενες μεταφορές για κάλυψη κενών")
-        _decl = data.get('category_decline', [])
+        _decl = [d for d in data.get('category_decline', [])
+                 if str(d.get('category') or '').strip() and str(d.get('category')).strip() != '(κενό)']
         if _decl:
             _seg.append(f"μεγαλύτερη πτώση: {_decl[0]['category']} ({_pct(_decl[0]['delta_pct'])})")
         data['summary'] = ' · '.join(_seg) + '.'
