@@ -172,6 +172,7 @@ from app.services.subscription_features import (
 )
 from app.services.kpi_queries import (
     export_filter_options,
+    export_item_rows,
     normalize_document_series_labels_config,
     normalize_eshop_fulfillment_config,
     normalize_price_margin_targets_config,
@@ -15317,25 +15318,6 @@ async def _render_exports_workbench(
         },
     }
     cfg = variants[variant]
-    async for tenant_db in get_tenant_db_session(
-        tenant_key=str(tenant.id),
-        db_name=tenant.db_name,
-        db_user=tenant.db_user,
-        db_password=tenant.db_password,
-    ):
-        options = await export_filter_options(tenant_db)
-        break
-    else:
-        options = {key: [] for key, _label, _ph in _EXPORT_FILTER_FIELDS}
-
-    selected: dict[str, list[str]] = {}
-    label_maps: dict[str, dict[str, str]] = {}
-    for key, _label, _ph in _EXPORT_FILTER_FIELDS:
-        raw = str(request.query_params.get(key) or '').strip()
-        valid = {opt['value'] for opt in options.get(key, [])}
-        selected[key] = [v for v in (p.strip() for p in raw.split(',')) if v and v in valid]
-        label_maps[key] = {opt['value']: opt['label'] for opt in options.get(key, [])}
-
     def _clean_date(value: str) -> str:
         value = str(value or '').strip()
         try:
@@ -15347,6 +15329,43 @@ async def _render_exports_workbench(
         'from': _clean_date(request.query_params.get('period_from')),
         'to': _clean_date(request.query_params.get('period_to')),
     }
+
+    _ROW_LIMIT = 1000
+    async for tenant_db in get_tenant_db_session(
+        tenant_key=str(tenant.id),
+        db_name=tenant.db_name,
+        db_user=tenant.db_user,
+        db_password=tenant.db_password,
+    ):
+        options = await export_filter_options(tenant_db)
+
+        selected: dict[str, list[str]] = {}
+        for key, _label, _ph in _EXPORT_FILTER_FIELDS:
+            raw = str(request.query_params.get(key) or '').strip()
+            valid = {opt['value'] for opt in options.get(key, [])}
+            selected[key] = [v for v in (p.strip() for p in raw.split(',')) if v and v in valid]
+
+        rows = await export_item_rows(
+            tenant_db,
+            brands=selected.get('brands'),
+            category_1=selected.get('category_1'),
+            category_2=selected.get('category_2'),
+            category_3=selected.get('category_3'),
+            branches=selected.get('branches'),
+            warehouses=selected.get('warehouses'),
+            period_from=(datetime.strptime(period['from'], '%Y-%m-%d').date() if period['from'] else None),
+            period_to=(datetime.strptime(period['to'], '%Y-%m-%d').date() if period['to'] else None),
+            limit=_ROW_LIMIT,
+        )
+        break
+    else:
+        options = {key: [] for key, _label, _ph in _EXPORT_FILTER_FIELDS}
+        selected = {key: [] for key, _label, _ph in _EXPORT_FILTER_FIELDS}
+        rows = []
+
+    label_maps: dict[str, dict[str, str]] = {}
+    for key, _label, _ph in _EXPORT_FILTER_FIELDS:
+        label_maps[key] = {opt['value']: opt['label'] for opt in options.get(key, [])}
 
     return templates.TemplateResponse(
         'tenant/exports_workbench.html',
@@ -15365,6 +15384,9 @@ async def _render_exports_workbench(
             'selected': selected,
             'label_maps': label_maps,
             'period': period,
+            'category_hierarchy': options.get('category_hierarchy', []),
+            'rows': rows,
+            'row_limit': _ROW_LIMIT,
         },
     )
 

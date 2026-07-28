@@ -1582,8 +1582,14 @@ CIRCUITS: tuple[dict[str, Any], ...] = (
             ],
         ),
         'columns': _tl(
-            ['Κοινά φίλτρα (Υποκατάστημα, Αποθηκευτικός χώρος, Brands, Κατηγορία 1/2/3) για Αναφορές και CSV/Excel.'],
-            ['Shared filters (Branch, Warehouse, Brands, Category 1/2/3) for Reports and CSV/Excel.'],
+            [
+                'Αποτέλεσμα ανά είδος: Όνομα, Barcode, Brand, Κατηγορία 1, 2, 3.',
+                'Οι κατηγορίες είναι αλληλεξαρτώμενες: επιλέγοντας Κατηγορία 1 περιορίζονται οι επιλογές της Κατηγορίας 2, και η Κατηγορία 2 περιορίζει την Κατηγορία 3.',
+            ],
+            [
+                'Result per item: Name, Barcode, Brand, Category 1, 2, 3.',
+                'The categories cascade: picking Category 1 narrows Category 2, and Category 2 narrows Category 3.',
+            ],
         ),
         'popups': _tl(
             ['Επιλογές μορφής και εύρους πριν την εξαγωγή.'],

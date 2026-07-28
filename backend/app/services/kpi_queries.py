@@ -12453,6 +12453,20 @@ async def export_filter_options(db: AsyncSession) -> dict[str, list[dict[str, st
         ).scalars().all()
         return [{'value': str(v), 'label': str(v)} for v in rows if str(v or '').strip()]
 
+    # The three item category levels are interdependent: a category_2 belongs to
+    # a category_1, and a category_3 to a category_2. Ship the distinct
+    # (c1, c2, c3) combinations so the UI can cascade the dropdowns client-side.
+    c1 = _softone_clean_dimension_text(DimItem.category_1)
+    c2 = _softone_clean_dimension_text(DimItem.category_2)
+    c3 = _softone_clean_dimension_text(DimItem.category_3)
+    hier_rows = (
+        await db.execute(select(c1, c2, c3).distinct().order_by(c1, c2, c3))
+    ).all()
+    category_hierarchy = [
+        {'c1': str(a or ''), 'c2': str(b or ''), 'c3': str(c or '')}
+        for a, b, c in hier_rows
+    ]
+
     return {
         'branches': await _dim_options(DimBranch),
         'warehouses': await _dim_options(DimWarehouse),
@@ -12460,7 +12474,74 @@ async def export_filter_options(db: AsyncSession) -> dict[str, list[dict[str, st
         'category_1': await _item_category_options(DimItem.category_1),
         'category_2': await _item_category_options(DimItem.category_2),
         'category_3': await _item_category_options(DimItem.category_3),
+        'category_hierarchy': category_hierarchy,
     }
+
+
+async def export_item_rows(
+    db: AsyncSession,
+    *,
+    brands: list[str] | None = None,
+    category_1: list[str] | None = None,
+    category_2: list[str] | None = None,
+    category_3: list[str] | None = None,
+    branches: list[str] | None = None,
+    warehouses: list[str] | None = None,
+    period_from: date | None = None,
+    period_to: date | None = None,
+    limit: int = 1000,
+) -> list[dict[str, str]]:
+    """Item rows for the Εξαγωγές report: name, barcode, brand, category 1/2/3.
+
+    Brand/category filters apply directly to the item master. When a branch,
+    warehouse or period is set, the list is restricted to items that actually
+    sold within that scope (presence in fact_sales), so the report reflects the
+    selected period and stores.
+    """
+    stmt = (
+        select(
+            DimItem.name,
+            DimItem.barcode,
+            DimBrand.name.label('brand'),
+            DimItem.category_1,
+            DimItem.category_2,
+            DimItem.category_3,
+        )
+        .select_from(DimItem)
+        .join(DimBrand, DimItem.brand_id == DimBrand.id, isouter=True)
+    )
+    if brands:
+        stmt = stmt.where(DimBrand.external_id.in_(brands))
+    if category_1:
+        stmt = stmt.where(DimItem.category_1.in_(category_1))
+    if category_2:
+        stmt = stmt.where(DimItem.category_2.in_(category_2))
+    if category_3:
+        stmt = stmt.where(DimItem.category_3.in_(category_3))
+    if branches or warehouses or period_from or period_to:
+        sub = select(FactSales.item_id).where(FactSales.item_id.is_not(None))
+        if period_from:
+            sub = sub.where(FactSales.doc_date >= period_from)
+        if period_to:
+            sub = sub.where(FactSales.doc_date <= period_to)
+        if branches:
+            sub = sub.where(FactSales.branch_ext_id.in_(branches))
+        if warehouses:
+            sub = sub.where(FactSales.warehouse_ext_id.in_(warehouses))
+        stmt = stmt.where(DimItem.id.in_(sub))
+    stmt = stmt.order_by(func.lower(func.coalesce(DimItem.name, DimItem.external_id))).limit(limit)
+    rows = (await db.execute(stmt)).all()
+    return [
+        {
+            'name': str(r[0] or ''),
+            'barcode': str(r[1] or ''),
+            'brand': str(r[2] or ''),
+            'category_1': str(r[3] or ''),
+            'category_2': str(r[4] or ''),
+            'category_3': str(r[5] or ''),
+        }
+        for r in rows
+    ]
 
 
 async def inventory_filter_options(

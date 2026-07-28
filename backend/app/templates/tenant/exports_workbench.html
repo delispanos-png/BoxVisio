@@ -48,13 +48,24 @@
   .exp-opt { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 7px; font-size: 13px; cursor: pointer; color: var(--text); }
   .exp-opt:hover { background: color-mix(in srgb, var(--primary, #4c63d2) 9%, transparent); }
   .exp-opt input { flex: 0 0 auto; }
-  .exp-opt.is-hidden { display: none; }
+  .exp-opt.is-hidden, .exp-opt.is-cascade-hidden { display: none; }
   .exp-menu-empty { color: var(--text-muted); font-size: 12.5px; padding: 8px; }
   .exp-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px; }
   .exp-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
   .exp-chip { font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 999px;
     background: color-mix(in srgb, var(--primary, #4c63d2) 12%, transparent); color: var(--primary, #4c63d2); }
   .exp-empty-note { color: var(--text-muted); font-size: 13.5px; }
+  .exp-table-wrap { overflow-x: auto; margin-top: 12px; border: 1px solid var(--border-color, #e5e9f2); border-radius: 10px; }
+  .exp-table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 720px; }
+  .exp-table thead th {
+    text-align: left; padding: 10px 12px; background: var(--surface-2, #f7f8fb);
+    color: var(--text-muted); font-weight: 800; font-size: 11.5px; letter-spacing: .03em;
+    text-transform: uppercase; border-bottom: 1px solid var(--border-color, #e5e9f2); white-space: nowrap;
+  }
+  .exp-table tbody td { padding: 9px 12px; border-bottom: 1px solid var(--border-color, #eef1f6); color: var(--text, #1b2130); }
+  .exp-table tbody tr:last-child td { border-bottom: 0; }
+  .exp-table tbody tr:hover { background: color-mix(in srgb, var(--primary, #4c63d2) 6%, transparent); }
+  .exp-mono { font-family: var(--mono, ui-monospace, monospace); font-size: 12.5px; color: var(--text-muted); }
 </style>
 
 <div class="exp-shell">
@@ -111,11 +122,11 @@
   <section class="exp-panel">
     <div class="exp-panel-head">
       <h2>{{ page_heading }}</h2>
+      <span class="exp-count">{{ rows|length }} είδη{% if rows|length >= row_limit %} (πρώτα {{ row_limit }}){% endif %}</span>
     </div>
     {% set filters_selected = (selected.values()|map('length')|sum) if selected else 0 %}
     {% set has_period = period and (period.from or period.to) %}
     {% if filters_selected or has_period %}
-    <p class="exp-empty-note">Ενεργά φίλτρα:</p>
     <div class="exp-chips">
       {% if has_period %}
       <span class="exp-chip">Περίοδος: {{ period.from or '…' }} → {{ period.to or '…' }}</span>
@@ -126,14 +137,51 @@
         {% endfor %}
       {% endfor %}
     </div>
+    {% endif %}
+
+    {% if rows %}
+    <div class="exp-table-wrap">
+      <table class="exp-table">
+        <thead>
+          <tr>
+            <th>Όνομα είδους</th><th>Barcode</th><th>Brand</th>
+            <th>Κατηγορία 1</th><th>Κατηγορία 2</th><th>Κατηγορία 3</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in rows %}
+          <tr>
+            <td>{{ r.name }}</td>
+            <td class="exp-mono">{{ r.barcode }}</td>
+            <td>{{ r.brand }}</td>
+            <td>{{ r.category_1 }}</td>
+            <td>{{ r.category_2 }}</td>
+            <td>{{ r.category_3 }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if rows|length >= row_limit %}
+    <p class="exp-empty-note" style="margin-top:10px">Εμφανίζονται τα πρώτα {{ row_limit }} είδη. Η πλήρης εξαγωγή σε αρχείο (CSV/Excel) θα προστεθεί στο επόμενο βήμα.</p>
+    {% endif %}
     {% else %}
-    <p class="exp-empty-note">Όρισε περίοδο και φίλτρα και πάτησε «Εφαρμογή». Η δημιουργία του αρχείου εξαγωγής θα προστεθεί στο επόμενο βήμα.</p>
+    <p class="exp-empty-note">Δεν βρέθηκαν είδη για τα επιλεγμένα φίλτρα. Άλλαξε τα φίλτρα και πάτησε «Εφαρμογή».</p>
     {% endif %}
   </section>
 </div>
 
+<script id="exp-hierarchy" type="application/json">{{ category_hierarchy|tojson }}</script>
 <script>
 (function () {
+  var HIER = [];
+  try { HIER = JSON.parse(document.getElementById('exp-hierarchy').textContent || '[]'); } catch (e) { HIER = []; }
+
+  function ddFor(key) { return document.querySelector('[data-exp-dd="' + key + '"]'); }
+  function selectedOf(key) {
+    var dd = ddFor(key); if (!dd) return [];
+    return Array.prototype.slice.call(dd.querySelectorAll('input[type=checkbox]:checked')).map(function (c) { return c.value; });
+  }
   function refresh(dd) {
     var key = dd.getAttribute('data-exp-dd');
     var hidden = document.querySelector('[data-exp-value="' + key + '"]');
@@ -157,9 +205,40 @@
     var el = document.querySelector('[data-exp-total]');
     if (el) el.textContent = total ? (total + ' επιλεγμένα φίλτρα') : 'Κανένα φίλτρο';
   }
+
+  // Cascade: category_2 options are limited to those under the selected category_1;
+  // category_3 to those under the selected category_2 (and category_1).
+  function applyCascade() {
+    var sel1 = selectedOf('category_1');
+    var sel2 = selectedOf('category_2');
+    var allowedC2 = {}, allowedC3 = {};
+    HIER.forEach(function (row) {
+      var okC1 = !sel1.length || sel1.indexOf(row.c1) !== -1;
+      if (okC1 && row.c2) allowedC2[row.c2] = true;
+      var okC2 = !sel2.length || sel2.indexOf(row.c2) !== -1;
+      if (okC1 && okC2 && row.c3) allowedC3[row.c3] = true;
+    });
+    [['category_2', allowedC2, sel1.length], ['category_3', allowedC3, sel1.length || sel2.length]].forEach(function (spec) {
+      var key = spec[0], allowed = spec[1], constrained = spec[2];
+      var dd = ddFor(key); if (!dd) return;
+      var changed = false;
+      dd.querySelectorAll('.exp-opt').forEach(function (opt) {
+        var cb = opt.querySelector('input[type=checkbox]');
+        var hide = constrained && !allowed[cb.value];
+        opt.classList.toggle('is-cascade-hidden', !!hide);
+        if (hide && cb.checked) { cb.checked = false; changed = true; }
+      });
+      if (changed) refresh(dd);
+    });
+  }
+
   document.querySelectorAll('[data-exp-dd]').forEach(function (dd) {
+    var key = dd.getAttribute('data-exp-dd');
     dd.addEventListener('change', function (e) {
-      if (e.target && e.target.type === 'checkbox') refresh(dd);
+      if (e.target && e.target.type === 'checkbox') {
+        refresh(dd);
+        if (key === 'category_1' || key === 'category_2') applyCascade();
+      }
     });
     var search = dd.querySelector('[data-exp-search]');
     if (search) {
@@ -174,6 +253,8 @@
     }
     refresh(dd);
   });
+  applyCascade();
+
   // close dropdowns on outside click
   document.addEventListener('click', function (e) {
     document.querySelectorAll('details[data-exp-dd][open]').forEach(function (dd) {
