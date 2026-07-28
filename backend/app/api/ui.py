@@ -176,6 +176,7 @@ from app.services.kpi_queries import (
     export_item_rows,
     export_item_totals,
     sales_by_channel,
+    sales_comparison_by_group,
     normalize_document_series_labels_config,
     normalize_eshop_fulfillment_config,
     normalize_price_margin_targets_config,
@@ -15331,6 +15332,8 @@ async def _export_query(
     period = {
         'from': _export_clean_date(request.query_params.get('period_from')),
         'to': _export_clean_date(request.query_params.get('period_to')),
+        'b_from': _export_clean_date(request.query_params.get('period_b_from')),
+        'b_to': _export_clean_date(request.query_params.get('period_b_to')),
     }
     async for tenant_db in get_tenant_db_session(
         tenant_key=str(tenant.id),
@@ -15374,6 +15377,16 @@ async def _export_query(
             try:
                 if report_kind == 'channels':
                     rows, totals = await sales_by_channel(tenant_db, **filter_kwargs)
+                elif report_kind == 'group_comparison':
+                    dim_kwargs = {k: v for k, v in filter_kwargs.items() if k not in {'period_from', 'period_to'}}
+                    rows, totals = await sales_comparison_by_group(
+                        tenant_db,
+                        period_a_from=(datetime.strptime(period['from'], '%Y-%m-%d').date() if period['from'] else None),
+                        period_a_to=(datetime.strptime(period['to'], '%Y-%m-%d').date() if period['to'] else None),
+                        period_b_from=(datetime.strptime(period['b_from'], '%Y-%m-%d').date() if period['b_from'] else None),
+                        period_b_to=(datetime.strptime(period['b_to'], '%Y-%m-%d').date() if period['b_to'] else None),
+                        **dim_kwargs,
+                    )
                 else:
                     rows = await export_item_rows(tenant_db, limit=limit, **filter_kwargs)
                     totals = await export_item_totals(tenant_db, **filter_kwargs)
@@ -15418,6 +15431,14 @@ async def _render_exports_workbench(
             'title': 'Ανά Κανάλι Πώλησης',
             'report_kind': 'channels',
         },
+        'group_comparison': {
+            'active_page': 'exports_group_comparison',
+            'form_action': '/tenant/exports/group-comparison',
+            'heading': 'Σύγκριση Πωλήσεων ανά Ομάδα',
+            'description': 'Τζίρος, κόστος και κέρδος ανά ομάδα ειδών, για δύο περιόδους (Α = τρέχων μήνας, Β = περσινός αντίστοιχος μήνας — ή ελεύθερη περίοδος).',
+            'title': 'Σύγκριση Ομάδων',
+            'report_kind': 'group_comparison',
+        },
     }
     cfg = variants[variant]
     report_kind = cfg['report_kind']
@@ -15431,6 +15452,26 @@ async def _render_exports_workbench(
     options, selected, period, rows, totals = await _export_query(
         request, tenant, limit=_ROW_LIMIT, compute=calculated, report_kind=report_kind
     )
+
+    # For the comparison report, pre-fill sensible defaults so the user can hit
+    # "Υπολογισμός" immediately: A = current month to date, B = same month last year.
+    if report_kind == 'group_comparison':
+        def _shift_year(d, years):
+            try:
+                return d.replace(year=d.year - years)
+            except ValueError:  # 29 Feb -> 28 Feb on a non-leap year
+                return d.replace(year=d.year - years, day=28)
+        today = datetime.utcnow().date()
+        a_from = today.replace(day=1)
+        defaults = {
+            'from': a_from.isoformat(),
+            'to': today.isoformat(),
+            'b_from': _shift_year(a_from, 1).isoformat(),
+            'b_to': _shift_year(today, 1).isoformat(),
+        }
+        for key, value in defaults.items():
+            if not period.get(key):
+                period[key] = value
 
     label_maps: dict[str, dict[str, str]] = {}
     for key, _label, _ph in _EXPORT_FILTER_FIELDS:
@@ -15516,12 +15557,30 @@ async def _render_exports_download(
     if fmt not in {'csv', 'xlsx'}:
         return Response('Μη έγκυρη μορφή εξαγωγής.', status_code=400, media_type='text/plain; charset=utf-8')
 
-    report_kind = 'channels' if variant == 'channels' else 'items'
+    report_kind = {'channels': 'channels', 'group_comparison': 'group_comparison'}.get(variant, 'items')
     _options, _selected, period, rows, totals = await _export_query(
         request, tenant, limit=_EXPORT_DOWNLOAD_LIMIT, compute=True, report_kind=report_kind
     )
 
-    if report_kind == 'channels':
+    if report_kind == 'group_comparison':
+        headers = ['Ομάδα', 'Τζίρος Α', 'Κόστος Α', 'Κέρδος Α', 'Τζίρος Β', 'Κόστος Β', 'Κέρδος Β']
+        widths = [26, 15, 15, 15, 15, 15, 15]
+        data_rows = [
+            [
+                r['group'],
+                round(float(r['turnover_a'] or 0), 2), round(float(r['cost_a'] or 0), 2), round(float(r['profit_a'] or 0), 2),
+                round(float(r['turnover_b'] or 0), 2), round(float(r['cost_b'] or 0), 2), round(float(r['profit_b'] or 0), 2),
+            ]
+            for r in rows
+        ]
+        if data_rows:
+            data_rows.append([
+                'ΣΥΝΟΛΟ',
+                round(float(totals.get('turnover_a') or 0), 2), round(float(totals.get('cost_a') or 0), 2), round(float(totals.get('profit_a') or 0), 2),
+                round(float(totals.get('turnover_b') or 0), 2), round(float(totals.get('cost_b') or 0), 2), round(float(totals.get('profit_b') or 0), 2),
+            ])
+        base = 'sygrisi_omadon'
+    elif report_kind == 'channels':
         headers = ['Κανάλι', 'Καθαρή Αξία', 'Contribution %', 'Margin %']
         widths = [32, 16, 16, 14]
         data_rows = [
@@ -15624,3 +15683,22 @@ async def tenant_exports_channels_download(
     _user=Depends(get_current_user),
 ):
     return await _render_exports_download(request=request, tenant=tenant, variant='channels', fmt=fmt)
+
+
+@router.get('/tenant/exports/group-comparison', response_class=HTMLResponse)
+async def tenant_exports_group_comparison(
+    request: Request,
+    tenant: Tenant = Depends(get_request_tenant),
+    _user=Depends(get_current_user),
+):
+    return await _render_exports_workbench(request=request, tenant=tenant, variant='group_comparison')
+
+
+@router.get('/tenant/exports/group-comparison/download/{fmt}')
+async def tenant_exports_group_comparison_download(
+    fmt: str,
+    request: Request,
+    tenant: Tenant = Depends(get_request_tenant),
+    _user=Depends(get_current_user),
+):
+    return await _render_exports_download(request=request, tenant=tenant, variant='group_comparison', fmt=fmt)

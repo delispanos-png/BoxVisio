@@ -1,5 +1,6 @@
 {% extends "base_tenant.html" %}
 {% block content %}
+{% macro money(x) %}{{ '{:,.2f}'.format(x or 0).replace(',', 'X').replace('.', ',').replace('X', '.') }} €{% endmacro %}
 <style>
   .exp-shell { display: flex; flex-direction: column; gap: 16px; margin-top: 8px; }
   .exp-head h1 { font-size: 22px; margin: 0 0 4px; }
@@ -90,6 +91,12 @@
         <span class="exp-count" data-exp-total>—</span>
       </div>
       <div class="exp-period">
+        {% if report_kind == 'group_comparison' %}
+        <div class="exp-field"><label>Περίοδος Α — από</label><input type="date" class="exp-date" name="period_from" value="{{ period.from }}"></div>
+        <div class="exp-field"><label>Περίοδος Α — έως</label><input type="date" class="exp-date" name="period_to" value="{{ period.to }}"></div>
+        <div class="exp-field"><label>Περίοδος Β — από</label><input type="date" class="exp-date" name="period_b_from" value="{{ period.b_from }}"></div>
+        <div class="exp-field"><label>Περίοδος Β — έως</label><input type="date" class="exp-date" name="period_b_to" value="{{ period.b_to }}"></div>
+        {% else %}
         <div class="exp-field">
           <label>Περίοδος από</label>
           <input type="date" class="exp-date" name="period_from" value="{{ period.from if period else '' }}">
@@ -98,6 +105,7 @@
           <label>Περίοδος έως</label>
           <input type="date" class="exp-date" name="period_to" value="{{ period.to if period else '' }}">
         </div>
+        {% endif %}
       </div>
       <div class="exp-filter-grid">
         {% for key, label, placeholder in filter_fields %}
@@ -153,7 +161,43 @@
     </div>
     {% endif %}
 
-    {% if rows and report_kind == 'channels' %}
+    {% if rows and report_kind == 'group_comparison' %}
+    <div class="exp-table-wrap">
+      <table class="exp-table">
+        <thead>
+          <tr>
+            <th>Ομάδα</th>
+            <th class="exp-num">Τζίρος Α</th><th class="exp-num">Κόστος Α</th><th class="exp-num">Κέρδος Α</th>
+            <th class="exp-num">Τζίρος Β</th><th class="exp-num">Κόστος Β</th><th class="exp-num">Κέρδος Β</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in rows %}
+          <tr>
+            <td>{{ r.group }}</td>
+            <td class="exp-num">{{ money(r.turnover_a) }}</td>
+            <td class="exp-num">{{ money(r.cost_a) }}</td>
+            <td class="exp-num">{{ money(r.profit_a) }}</td>
+            <td class="exp-num">{{ money(r.turnover_b) }}</td>
+            <td class="exp-num">{{ money(r.cost_b) }}</td>
+            <td class="exp-num">{{ money(r.profit_b) }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr class="exp-total-row">
+            <td>ΣΥΝΟΛΟ{% if totals.count %} ({{ totals.count }} ομάδες){% endif %}</td>
+            <td class="exp-num">{{ money(totals.turnover_a) }}</td>
+            <td class="exp-num">{{ money(totals.cost_a) }}</td>
+            <td class="exp-num">{{ money(totals.profit_a) }}</td>
+            <td class="exp-num">{{ money(totals.turnover_b) }}</td>
+            <td class="exp-num">{{ money(totals.cost_b) }}</td>
+            <td class="exp-num">{{ money(totals.profit_b) }}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+    {% elif rows and report_kind == 'channels' %}
     <div class="exp-table-wrap">
       <table class="exp-table">
         <thead>

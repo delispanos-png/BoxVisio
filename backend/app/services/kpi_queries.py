@@ -12703,6 +12703,102 @@ async def sales_by_channel(
     return rows, totals
 
 
+async def sales_comparison_by_group(
+    db: AsyncSession,
+    *,
+    period_a_from: date | None = None,
+    period_a_to: date | None = None,
+    period_b_from: date | None = None,
+    period_b_to: date | None = None,
+    brands: list[str] | None = None,
+    category_1: list[str] | None = None,
+    category_2: list[str] | None = None,
+    category_3: list[str] | None = None,
+    groups: list[str] | None = None,
+    branches: list[str] | None = None,
+    warehouses: list[str] | None = None,
+) -> tuple[list[dict], dict]:
+    """Sales comparison per item group across two periods (A vs B): Turnover, Cost
+    and Profit for each. Turnover = signed net_value, Profit = signed profit_amount,
+    Cost = Turnover - Profit (cost_amount mirrors net in this dataset). Items with
+    no group fall under 'Χωρίς ομάδα'. Returns (rows, totals)."""
+    net = _fact_sales_signed_net_expr()
+    profit = func.coalesce(FactSales.profit_amount, 0) * _fact_sales_behavior_sign_expr(quantity=False)
+    group_label = func.coalesce(
+        func.nullif(func.trim(func.coalesce(DimGroup.name, '')), ''),
+        literal('Χωρίς ομάδα'),
+    )
+
+    def _window(dfrom, dto):
+        if dfrom and dto:
+            return (FactSales.doc_date >= dfrom) & (FactSales.doc_date <= dto)
+        return None
+
+    in_a = _window(period_a_from, period_a_to)
+    in_b = _window(period_b_from, period_b_to)
+    zero = literal(0.0)
+    net_a = func.sum(case((in_a, net), else_=zero)) if in_a is not None else zero
+    profit_a = func.sum(case((in_a, profit), else_=zero)) if in_a is not None else zero
+    net_b = func.sum(case((in_b, net), else_=zero)) if in_b is not None else zero
+    profit_b = func.sum(case((in_b, profit), else_=zero)) if in_b is not None else zero
+
+    stmt = (
+        select(
+            group_label.label('grp'),
+            func.coalesce(net_a, 0).label('turnover_a'),
+            func.coalesce(profit_a, 0).label('profit_a'),
+            func.coalesce(net_b, 0).label('turnover_b'),
+            func.coalesce(profit_b, 0).label('profit_b'),
+        )
+        .select_from(FactSales)
+        .join(DimItem, FactSales.item_id == DimItem.id, isouter=True)
+        .join(DimGroup, DimItem.group_id == DimGroup.id, isouter=True)
+    )
+    if brands:
+        stmt = stmt.join(DimBrand, DimItem.brand_id == DimBrand.id, isouter=True).where(
+            DimBrand.external_id.in_(brands)
+        )
+    if groups:
+        stmt = stmt.where(DimGroup.external_id.in_(groups))
+    if category_1:
+        stmt = stmt.where(DimItem.category_1.in_(category_1))
+    if category_2:
+        stmt = stmt.where(DimItem.category_2.in_(category_2))
+    if category_3:
+        stmt = stmt.where(DimItem.category_3.in_(category_3))
+    # Restrict the scan to rows inside either comparison window.
+    windows = [w for w in (in_a, in_b) if w is not None]
+    if windows:
+        scope = windows[0]
+        for w in windows[1:]:
+            scope = scope | w
+        stmt = stmt.where(scope)
+    if branches:
+        stmt = stmt.where(FactSales.branch_ext_id.in_(branches))
+    if warehouses:
+        stmt = stmt.where(FactSales.warehouse_ext_id.in_(warehouses))
+    stmt = stmt.group_by(group_label).order_by(func.coalesce(net_a, 0).desc())
+    raw = (await db.execute(stmt)).all()
+
+    rows = []
+    tot = {'turnover_a': 0.0, 'cost_a': 0.0, 'profit_a': 0.0, 'turnover_b': 0.0, 'cost_b': 0.0, 'profit_b': 0.0}
+    for grp, ta_raw, pa_raw, tb_raw, pb_raw in raw:
+        ta = float(ta_raw or 0)
+        pa = float(pa_raw or 0)
+        tb = float(tb_raw or 0)
+        pb = float(pb_raw or 0)
+        row = {
+            'group': str(grp or 'Χωρίς ομάδα'),
+            'turnover_a': ta, 'cost_a': ta - pa, 'profit_a': pa,
+            'turnover_b': tb, 'cost_b': tb - pb, 'profit_b': pb,
+        }
+        rows.append(row)
+        for k in tot:
+            tot[k] += row[k]
+    tot['count'] = len(rows)
+    return rows, tot
+
+
 async def inventory_filter_options(
     db: AsyncSession,
     as_of: date,
