@@ -412,7 +412,7 @@
         </ul>
       </div>
       <div class="sidebar-version-footer" aria-label="Application version">
-        <div class="app-version-badge">Version {{ app_version }}</div>
+        <div class="app-version-badge" title="+dev = running code has uncommitted changes">Version {{ app_version_detailed() }}</div>
         <div class="powered-by-cloudon">{{ tt(request, 'powered_by') }}</div>
       </div>
     </aside>
