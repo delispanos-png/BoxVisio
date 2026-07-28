@@ -15902,6 +15902,29 @@ async def tenant_store_dashboard(
         break
 
     branch_label = next((b['label'] for b in branches if b['value'] == branch_ext), branch_ext)
+
+    # One-line natural-language summary of the store's picture for the header.
+    if data:
+        def _eur(x):
+            return '{:,.0f}'.format(x or 0).replace(',', '.') + ' €'
+
+        def _pct(x):
+            return '{:.1f}'.format(x or 0).replace('.', ',') + '%'
+        _k = data.get('kpis', {})
+        _seg = [f"Τζίρος {_eur(_k.get('net'))} με μεικτό περιθώριο {_pct(_k.get('margin_pct'))}"]
+        _lost_n = len(data.get('lost_sales', []))
+        if _lost_n:
+            _seg.append(f"{_lost_n} ταχυκίνητα εκτός αποθέματος (χαμένος τζίρος {_eur(_k.get('lost_value'))})")
+        if (_k.get('dead_value') or 0) >= 1:
+            _seg.append(f"{_eur(_k.get('dead_value'))} δεσμευμένα σε βαλτωμένο απόθεμα")
+        _trn = len(data.get('transfers', []))
+        if _trn:
+            _seg.append(f"{_trn} προτεινόμενες μεταφορές για κάλυψη κενών")
+        _decl = data.get('category_decline', [])
+        if _decl:
+            _seg.append(f"μεγαλύτερη πτώση: {_decl[0]['category']} ({_pct(_decl[0]['delta_pct'])})")
+        data['summary'] = ' · '.join(_seg) + '.'
+
     return templates.TemplateResponse(
         'tenant/store_dashboard.html',
         {
