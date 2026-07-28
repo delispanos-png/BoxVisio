@@ -844,31 +844,38 @@ def _build_xlsx_bytes(
 ) -> bytes:
     safe_sheet_name = str(sheet_name or 'Sheet1')[:31] or 'Sheet1'
     sheet_rows: list[str] = []
+    offset = 1 if title else 0
+    if title:
+        sheet_rows.append(f'<row r="1">{_xlsx_cell_xml(1, 1, title, style_id=1)}</row>')
     all_rows = [headers] + rows
-    for row_index, row_values in enumerate(all_rows, start=1):
+    for i, row_values in enumerate(all_rows):
+        row_index = i + 1 + offset
+        is_header = i == 0
         cells = ''.join(
             _xlsx_cell_xml(
                 row_index,
                 col_index,
                 value,
-                style_id=1 if row_index == 1 else (2 if isinstance(value, (int, float)) and not isinstance(value, bool) else 3),
+                style_id=1 if is_header else (2 if isinstance(value, (int, float)) and not isinstance(value, bool) else 3),
             )
             for col_index, value in enumerate(row_values, start=1)
         )
         sheet_rows.append(f'<row r="{row_index}">{cells}</row>')
-    dimension = f'A1:{_xlsx_col_name(max(1, len(headers)))}{max(1, len(all_rows))}'
+    header_row = 1 + offset
+    total_rows = len(all_rows) + offset
+    dimension = f'A1:{_xlsx_col_name(max(1, len(headers)))}{max(1, total_rows)}'
     widths = column_widths or []
     cols_xml = ''.join(
         f'<col min="{idx}" max="{idx}" width="{max(8.0, float(width)):.1f}" customWidth="1"/>'
         for idx, width in enumerate(widths[: len(headers)], start=1)
     )
-    auto_filter_ref = f'A1:{_xlsx_col_name(max(1, len(headers)))}1'
+    auto_filter_ref = f'A{header_row}:{_xlsx_col_name(max(1, len(headers)))}{header_row}'
     sheet_xml = (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
         '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
         'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
         f'<dimension ref="{dimension}"/>'
-        '<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>'
+        f'<sheetViews><sheetView workbookViewId="0"><pane ySplit="{header_row}" topLeftCell="A{header_row + 1}" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>'
         '<sheetFormatPr defaultRowHeight="18"/>'
         f'<cols>{cols_xml}</cols>'
         f'<sheetData>{"".join(sheet_rows)}</sheetData>'
@@ -15936,10 +15943,14 @@ async def tenant_store_dashboard_download(
             rule_key='sales_kpi_config', fallback_payload={},
         )
     data: dict = {}
+    branch_label = branch_ext
     async for tenant_db in get_tenant_db_session(
         tenant_key=str(tenant.id), db_name=tenant.db_name,
         db_user=tenant.db_user, db_password=tenant.db_password,
     ):
+        branch_label = (await tenant_db.execute(
+            text("SELECT name FROM dim_branches WHERE external_id = :e"), {'e': branch_ext}
+        )).scalar() or branch_ext
         scope_token = set_current_sales_kpi_participation_config(sales_kpi_config)
         try:
             data = await store_dashboard(tenant_db, branch_ext=branch_ext, date_from=date_from, date_to=date_to, top_n=100000)
@@ -15947,6 +15958,7 @@ async def tenant_store_dashboard_download(
             reset_current_sales_kpi_participation_config(scope_token)
         break
 
+    _period_gr = f"{dfrom[8:10]}/{dfrom[5:7]}/{dfrom[0:4]} έως {dto[8:10]}/{dto[5:7]}/{dto[0:4]}"
     if card == 'lost':
         headers = ['Είδος', 'Barcode', 'Πωλήσεις περιόδου', 'Τεμάχια', 'Ημερήσιο (~)']
         widths = [46, 16, 18, 12, 14]
@@ -15961,12 +15973,15 @@ async def tenant_store_dashboard_download(
                      for r in data.get('dead_stock', [])]
         base, sheet = 'valtomeno_apothema', 'Βαλτωμένο απόθεμα'
 
+    title = f'{sheet} — {branch_label} — {_period_gr}'
     stamp = datetime.utcnow().strftime('%Y%m%d')
     filename = f'{base}_{branch_ext.replace(":", "-")}_{dfrom}_{dto}_{stamp}.{fmt}'
     if fmt == 'csv':
         buffer = io.StringIO()
         buffer.write('﻿')
         writer = csv.writer(buffer, delimiter=';')
+        writer.writerow([title])
+        writer.writerow([])
         writer.writerow(headers)
         writer.writerows(data_rows)
         return Response(
@@ -15974,7 +15989,7 @@ async def tenant_store_dashboard_download(
             media_type='text/csv; charset=utf-8',
             headers={'Content-Disposition': f'attachment; filename="{filename}"'},
         )
-    content = _build_xlsx_bytes(sheet_name=sheet, headers=headers, rows=data_rows, column_widths=widths)
+    content = _build_xlsx_bytes(sheet_name=sheet, headers=headers, rows=data_rows, column_widths=widths, title=title)
     return Response(
         content=content,
         media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
