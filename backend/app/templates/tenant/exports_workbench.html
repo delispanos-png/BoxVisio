@@ -1,7 +1,7 @@
 {% extends "base_tenant.html" %}
 {% block content %}
 {% macro money(x) %}{{ '{:,.2f}'.format(x or 0).replace(',', 'X').replace('.', ',').replace('X', '.') }} €{% endmacro %}
-{% macro fmt(value, kind) %}{% if kind == 'money' %}{{ money(value) }}{% elif kind == 'pct' %}{{ '{:,.2f}'.format(value or 0).replace('.', ',') }}%{% else %}{{ '{:,.0f}'.format(value or 0).replace(',', '.') }}{% endif %}{% endmacro %}
+{% macro fmt(value, kind) %}{% if kind == 'money' %}{{ money(value) }}{% elif kind == 'pct' %}{{ '{:,.2f}'.format(value or 0).replace('.', ',') }}%{% elif kind == 'text' %}{{ value or '' }}{% else %}{{ '{:,.0f}'.format(value or 0).replace(',', '.') }}{% endif %}{% endmacro %}
 {# Date field forced to dd/mm/yyyy display (native type=date follows the browser locale, not ours). #}
 {% macro dateinput(name, iso) %}<span class="exp-datewrap"><input type="text" class="exp-date exp-datetext" inputmode="numeric" autocomplete="off" placeholder="ηη/μμ/εεεε" maxlength="10" data-exp-date value="{% if iso and iso|length == 10 %}{{ iso[8:10] }}/{{ iso[5:7] }}/{{ iso[0:4] }}{% endif %}"><button type="button" class="exp-datebtn" data-exp-datebtn tabindex="-1" title="Άνοιγμα ημερολογίου"><i class="fe fe-calendar"></i></button><input type="date" class="exp-datepick" data-exp-datepick value="{{ iso or '' }}" tabindex="-1" aria-hidden="true"><input type="hidden" name="{{ name }}" value="{{ iso or '' }}" data-exp-date-iso></span>{% endmacro %}
 <style>
@@ -153,6 +153,9 @@
               {% for key, label, kind in pivot_metrics_catalog %}
               <label class="exp-opt"><input type="checkbox" data-exp-col value="{{ key }}" {% if key in pivot_metrics_selected %}checked{% endif %}> <span>{{ label }}</span></label>
               {% endfor %}
+              {% for key, label, kind in pivot_item_attrs %}
+              <label class="exp-opt exp-col-attr" {% if pivot_group_by != 'item' %}style="display:none"{% endif %}><input type="checkbox" data-exp-col value="{{ key }}" {% if key in pivot_metrics_selected %}checked{% endif %}> <span>{{ label }} (είδους)</span></label>
+              {% endfor %}
             </div>
           </details>
         </div>
@@ -266,21 +269,21 @@
         <thead>
           <tr>
             <th>{{ pivot_group_label }}</th>
-            {% for m in pivot_metrics_selected %}<th class="exp-num">{{ pivot_metric_map[m].label }}</th>{% endfor %}
+            {% for m in pivot_metrics_selected %}<th class="{% if pivot_metric_map[m].kind != 'text' %}exp-num{% endif %}">{{ pivot_metric_map[m].label }}</th>{% endfor %}
           </tr>
         </thead>
         <tbody>
           {% for r in rows %}
           <tr>
             <td>{{ r.label }}</td>
-            {% for m in pivot_metrics_selected %}<td class="exp-num">{{ fmt(r[m], pivot_metric_map[m].kind) }}</td>{% endfor %}
+            {% for m in pivot_metrics_selected %}<td class="{% if pivot_metric_map[m].kind != 'text' %}exp-num{% endif %}{% if pivot_metric_map[m].kind == 'text' %} exp-mono{% endif %}">{{ fmt(r[m], pivot_metric_map[m].kind) }}</td>{% endfor %}
           </tr>
           {% endfor %}
         </tbody>
         <tfoot>
           <tr class="exp-total-row">
             <td>ΣΥΝΟΛΟ{% if totals.count %} ({{ totals.count }}){% endif %}</td>
-            {% for m in pivot_metrics_selected %}<td class="exp-num">{{ fmt(totals[m], pivot_metric_map[m].kind) }}</td>{% endfor %}
+            {% for m in pivot_metrics_selected %}<td class="{% if pivot_metric_map[m].kind != 'text' %}exp-num{% endif %}">{{ fmt(totals[m], pivot_metric_map[m].kind) }}</td>{% endfor %}
           </tr>
         </tfoot>
         {% endif %}
@@ -536,6 +539,19 @@
       document.querySelectorAll('.exp-period-b').forEach(function (el) { el.style.display = comparison ? '' : 'none'; });
       var metrics = document.querySelector('[data-exp-metrics]');
       if (metrics) metrics.style.display = comparison ? 'none' : '';
+    });
+  }
+
+  // Item-attribute columns (barcode/brand/…) only apply when grouping by Είδος.
+  var groupBySel = document.querySelector('[data-exp-groupby]');
+  if (groupBySel) {
+    groupBySel.addEventListener('change', function () {
+      var isItem = groupBySel.value === 'item';
+      document.querySelectorAll('.exp-col-attr').forEach(function (opt) {
+        opt.style.display = isItem ? '' : 'none';
+        var cb = opt.querySelector('input[type=checkbox]');
+        if (!isItem && cb && cb.checked) { cb.checked = false; cb.dispatchEvent(new Event('change')); }
+      });
     });
   }
 

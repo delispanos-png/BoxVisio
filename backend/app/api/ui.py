@@ -15305,6 +15305,7 @@ _EXPORT_FILTER_FIELDS = [
 
 # Dimensions the flexible "Ανάλυση" report can group by, and the two modes.
 _EXPORT_PIVOT_DIMENSIONS = [
+    ('item', 'Είδος'),
     ('channel', 'Κανάλι πώλησης'),
     ('group', 'Ομάδα Ειδών'),
     ('brand', 'Brand'),
@@ -15316,6 +15317,17 @@ _EXPORT_PIVOT_DIMENSIONS = [
 ]
 _EXPORT_PIVOT_DIM_LABELS = dict(_EXPORT_PIVOT_DIMENSIONS)
 _EXPORT_PIVOT_MODES = [('analysis', 'Ανάλυση περιόδου'), ('comparison', 'Σύγκριση Α / Β')]
+
+# Item-attribute columns — only meaningful when grouping by Είδος (item).
+_EXPORT_PIVOT_ITEM_ATTRS = [
+    ('a_barcode', 'Barcode', 'text'),
+    ('a_brand', 'Brand', 'text'),
+    ('a_group', 'Ομάδα', 'text'),
+    ('a_cat1', 'Κατηγορία 1', 'text'),
+    ('a_cat2', 'Κατηγορία 2', 'text'),
+    ('a_cat3', 'Κατηγορία 3', 'text'),
+]
+_EXPORT_PIVOT_ATTR_KEYS = {key for key, _l, _k in _EXPORT_PIVOT_ITEM_ATTRS}
 
 # Metrics the user can add as columns to the flexible "Ανάλυση" report (analysis mode).
 _EXPORT_PIVOT_METRICS = [
@@ -15333,17 +15345,23 @@ _EXPORT_PIVOT_METRICS = [
     ('vat', 'ΦΠΑ', 'money'),
     ('discount', 'Έκπτωση', 'money'),
 ]
-_EXPORT_PIVOT_METRIC_MAP = {key: {'label': label, 'kind': kind} for key, label, kind in _EXPORT_PIVOT_METRICS}
+_EXPORT_PIVOT_METRIC_MAP = {
+    key: {'label': label, 'kind': kind}
+    for key, label, kind in (_EXPORT_PIVOT_METRICS + _EXPORT_PIVOT_ITEM_ATTRS)
+}
 _EXPORT_PIVOT_DEFAULT_METRICS = ['net_value', 'qty', 'contribution_pct', 'margin_pct']
 
 
-def _export_selected_metrics(request: Request) -> list[str]:
-    """Metrics chosen for the analysis report, in the exact order the user arranged
-    them (the query submits `metric` params in column order), validated + defaulted."""
+def _export_selected_metrics(request: Request, group_by: str = 'channel') -> list[str]:
+    """Metrics/columns chosen for the report, in the exact order the user arranged
+    them (the query submits `metric` params in column order), validated + defaulted.
+    Item-attribute columns are only kept when grouping by Είδος."""
     ordered: list[str] = []
     for m in request.query_params.getlist('metric'):
         if m in _EXPORT_PIVOT_METRIC_MAP and m not in ordered:
             ordered.append(m)
+    if group_by != 'item':
+        ordered = [m for m in ordered if m not in _EXPORT_PIVOT_ATTR_KEYS]
     return ordered or list(_EXPORT_PIVOT_DEFAULT_METRICS)
 
 
@@ -15500,9 +15518,9 @@ async def _render_exports_workbench(
         'analysis': {
             'active_page': 'exports_analysis',
             'form_action': '/tenant/exports/analysis',
-            'heading': 'Ανάλυση Πωλήσεων',
-            'description': 'Ένα ευέλικτο report: ομαδοποίησε κατά κανάλι, ομάδα, brand, κατηγορία, κατάστημα ή αποθήκη — σε ανάλυση περιόδου ή σύγκριση Α/Β.',
-            'title': 'Ανάλυση',
+            'heading': 'Report Builder',
+            'description': 'Φτιάξε το δικό σου report: ομαδοποίησε κατά είδος, κανάλι, ομάδα, brand, κατηγορία, κατάστημα ή αποθήκη — διάλεξε στήλες και σειρά — σε ανάλυση περιόδου ή σύγκριση Α/Β.',
+            'title': 'Report Builder',
             'report_kind': 'analysis',
         },
     }
@@ -15582,7 +15600,8 @@ async def _render_exports_workbench(
             'pivot_mode': pivot_mode,
             'pivot_group_label': _EXPORT_PIVOT_DIM_LABELS.get(pivot_group_by, 'Ομάδα'),
             'pivot_metrics_catalog': _EXPORT_PIVOT_METRICS,
-            'pivot_metrics_selected': _export_selected_metrics(request),
+            'pivot_item_attrs': _EXPORT_PIVOT_ITEM_ATTRS,
+            'pivot_metrics_selected': _export_selected_metrics(request, pivot_group_by),
             'pivot_metric_map': _EXPORT_PIVOT_METRIC_MAP,
         },
     )
@@ -15658,12 +15677,14 @@ async def _render_exports_download(
             if data_rows:
                 data_rows.append(['ΣΥΝΟΛΟ'] + [round(float(totals.get(k) or 0), 2) for k in keys])
         else:
-            metrics = _export_selected_metrics(request)
+            metrics = _export_selected_metrics(request, a_group_by)
             headers = [dim_label] + [_EXPORT_PIVOT_METRIC_MAP[m]['label'] for m in metrics]
             widths = [26] + [15] * len(metrics)
 
             def _mval(src, m):
                 kind = _EXPORT_PIVOT_METRIC_MAP[m]['kind']
+                if kind == 'text':
+                    return str(src.get(m) or '')
                 return round(float(src.get(m) or 0), 0 if kind == 'int' else 2)
             data_rows = [[r['label']] + [_mval(r, m) for m in metrics] for r in rows]
             if data_rows:

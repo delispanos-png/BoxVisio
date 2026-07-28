@@ -1559,7 +1559,7 @@ CIRCUITS: tuple[dict[str, Any], ...] = (
     },
     {
         'id': 'exports',
-        'title': _t('Εξαγωγές και Reports', 'Exports and Reports'),
+        'title': _t('Report Builder', 'Report Builder'),
         'route': '/tenant/exports/reports',
         'group': _t('Εξαγωγές', 'Exports'),
         'shot': 'exports',

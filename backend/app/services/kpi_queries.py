@@ -12709,6 +12709,7 @@ async def sales_by_channel(
 
 
 _PIVOT_DIMENSIONS = {
+    'item': 'Είδος',
     'channel': 'Κανάλι',
     'group': 'Ομάδα Ειδών',
     'brand': 'Brand',
@@ -12724,6 +12725,8 @@ def _pivot_label_expr(group_by: str):
     """SQL label expression for a pivot dimension (with a sensible fallback)."""
     def _clean(col, fallback):
         return func.coalesce(func.nullif(func.trim(func.coalesce(col, '')), ''), literal(fallback))
+    if group_by == 'item':
+        return func.coalesce(func.nullif(func.trim(func.coalesce(DimItem.name, '')), ''), DimItem.external_id, literal('—'))
     if group_by == 'group':
         return _clean(DimGroup.name, 'Χωρίς ομάδα')
     if group_by == 'brand':
@@ -12776,11 +12779,11 @@ async def sales_pivot(
     discount = func.coalesce(FactSales.discount_amount, 0) * _amt_sign
     doc_key = _fact_sales_document_key_expr()
 
-    need_item = group_by in {'group', 'brand', 'category_1', 'category_2', 'category_3'} or bool(
+    need_item = group_by in {'item', 'group', 'brand', 'category_1', 'category_2', 'category_3'} or bool(
         brands or groups or category_1 or category_2 or category_3
     )
-    need_brand = group_by == 'brand' or bool(brands)
-    need_group = group_by == 'group' or bool(groups)
+    need_brand = group_by in {'brand', 'item'} or bool(brands)
+    need_group = group_by in {'group', 'item'} or bool(groups)
 
     def _windowed(expr, window):
         return func.coalesce(func.sum(case((window, expr), else_=literal(0.0))), 0) if window is not None else literal(0.0)
@@ -12807,6 +12810,16 @@ async def sales_pivot(
             func.count(func.distinct(doc_key)).label('doc_count'),
             func.count(func.distinct(FactSales.item_id)).label('item_count'),
         ).select_from(FactSales)
+        if group_by == 'item':
+            # Item attributes as available columns (constant per grouped item).
+            stmt = stmt.add_columns(
+                func.max(DimItem.barcode).label('a_barcode'),
+                func.max(DimBrand.name).label('a_brand'),
+                func.max(DimItem.category_1).label('a_cat1'),
+                func.max(DimItem.category_2).label('a_cat2'),
+                func.max(DimItem.category_3).label('a_cat3'),
+                func.max(DimGroup.name).label('a_group'),
+            )
 
     if need_item:
         stmt = stmt.join(DimItem, FactSales.item_id == DimItem.id, isouter=True)
@@ -12848,7 +12861,11 @@ async def sales_pivot(
             stmt = stmt.where(FactSales.doc_date <= period_to)
 
     # ORDER BY the 2nd select column (the primary value metric) descending.
-    stmt = stmt.group_by(label_expr).order_by(literal_column('2').desc())
+    # Group items by id (so equally-named items stay distinct); everything else by label.
+    group_col = DimItem.id if group_by == 'item' else label_expr
+    stmt = stmt.group_by(group_col).order_by(literal_column('2').desc())
+    if group_by == 'item':
+        stmt = stmt.limit(5000)
     raw = (await db.execute(stmt)).mappings().all()
 
     rows: list[dict] = []
@@ -12892,6 +12909,13 @@ async def sales_pivot(
                 float(r['gross_value'] or 0), float(r['vat'] or 0), float(r['discount'] or 0),
                 int(r['doc_count'] or 0), int(r['item_count'] or 0),
             )
+            if group_by == 'item':
+                row['a_barcode'] = str(r.get('a_barcode') or '')
+                row['a_brand'] = str(r.get('a_brand') or '')
+                row['a_cat1'] = str(r.get('a_cat1') or '')
+                row['a_cat2'] = str(r.get('a_cat2') or '')
+                row['a_cat3'] = str(r.get('a_cat3') or '')
+                row['a_group'] = str(r.get('a_group') or '')
             rows.append(row)
             for k in agg:
                 agg[k] += row[k]
