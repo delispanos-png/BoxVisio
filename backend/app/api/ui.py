@@ -15338,12 +15338,13 @@ _EXPORT_PIVOT_DEFAULT_METRICS = ['net_value', 'qty', 'contribution_pct', 'margin
 
 
 def _export_selected_metrics(request: Request) -> list[str]:
-    """Metrics chosen for the analysis report, validated + defaulted, in catalog order."""
-    raw = request.query_params.getlist('metric')
-    chosen = {m for m in raw if m in _EXPORT_PIVOT_METRIC_MAP}
-    if not chosen:
-        chosen = set(_EXPORT_PIVOT_DEFAULT_METRICS)
-    return [key for key, _l, _k in _EXPORT_PIVOT_METRICS if key in chosen]
+    """Metrics chosen for the analysis report, in the exact order the user arranged
+    them (the query submits `metric` params in column order), validated + defaulted."""
+    ordered: list[str] = []
+    for m in request.query_params.getlist('metric'):
+        if m in _EXPORT_PIVOT_METRIC_MAP and m not in ordered:
+            ordered.append(m)
+    return ordered or list(_EXPORT_PIVOT_DEFAULT_METRICS)
 
 
 _EXPORT_DOWNLOAD_HEADERS = [

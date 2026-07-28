@@ -44,9 +44,12 @@
   .exp-col-row { display: flex; align-items: flex-start; gap: 10px; flex-wrap: wrap; }
   .exp-col-chips { display: flex; flex-wrap: wrap; gap: 8px; flex: 1 1 auto; min-width: 0; }
   .exp-col-chips:empty::before { content: "Καμία στήλη επιλεγμένη — πάτησε «Προσθήκη στήλης»."; color: var(--text-muted, #626d84); font-size: 13px; font-style: italic; }
-  .exp-col-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; font-weight: 700; padding: 5px 6px 5px 12px; border-radius: 999px; background: color-mix(in srgb, var(--primary, #4c63d2) 12%, transparent); color: var(--primary, #4c63d2); }
+  .exp-col-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; font-weight: 700; padding: 5px 6px; border-radius: 999px; background: color-mix(in srgb, var(--primary, #4c63d2) 12%, transparent); color: var(--primary, #4c63d2); cursor: grab; user-select: none; }
+  .exp-col-chip.dragging { opacity: .45; cursor: grabbing; }
+  .exp-col-drag { font-size: 13px; opacity: .5; cursor: grab; margin-right: 1px; }
   .exp-col-chip button { border: 0; background: transparent; color: inherit; cursor: pointer; font-size: 16px; line-height: 1; padding: 0 4px; opacity: .65; }
   .exp-col-chip button:hover { opacity: 1; }
+  .exp-col-hint { font-size: 11.5px; color: var(--text-muted, #626d84); margin-top: 8px; font-style: italic; }
   .exp-col-dd { position: relative; flex: 0 0 auto; }
   .exp-col-dd > summary { list-style: none; }
   .exp-col-dd > summary::-webkit-details-marker { display: none; }
@@ -142,17 +145,18 @@
       <div class="exp-metrics" data-exp-metrics {% if pivot_mode == 'comparison' %}style="display:none"{% endif %}>
         <div class="exp-metrics-title">Στήλες αναφοράς</div>
         <div class="exp-col-row">
-          <div class="exp-col-chips" data-exp-col-chips></div>
+          <div class="exp-col-chips" data-exp-col-chips data-initial="{{ pivot_metrics_selected|join(',') }}"></div>
           <details class="exp-col-dd" data-exp-coldd>
             <summary class="exp-addcol"><i class="fe fe-plus"></i> Προσθήκη στήλης</summary>
             <div class="exp-menu">
               <input type="text" class="exp-menu-search" placeholder="Αναζήτηση πεδίου…" autocomplete="off" data-exp-colsearch>
               {% for key, label, kind in pivot_metrics_catalog %}
-              <label class="exp-opt"><input type="checkbox" name="metric" value="{{ key }}" data-exp-col {% if key in pivot_metrics_selected %}checked{% endif %}> <span>{{ label }}</span></label>
+              <label class="exp-opt"><input type="checkbox" data-exp-col value="{{ key }}" {% if key in pivot_metrics_selected %}checked{% endif %}> <span>{{ label }}</span></label>
               {% endfor %}
             </div>
           </details>
         </div>
+        <div class="exp-col-hint">Σύρε τα πλακίδια για να αλλάξεις τη σειρά των στηλών — ο πίνακας και το export ακολουθούν.</div>
       </div>
       {% endif %}
       <div class="exp-period">
@@ -540,19 +544,50 @@
   var chipBox = document.querySelector('[data-exp-col-chips]');
   if (chipBox) {
     var colBoxes = Array.prototype.slice.call(document.querySelectorAll('[data-exp-col]'));
-    var labelOf = function (cb) { var s = cb.parentNode.querySelector('span'); return s ? s.textContent.trim() : cb.value; };
-    var renderChips = function () {
-      chipBox.innerHTML = '';
-      colBoxes.filter(function (cb) { return cb.checked; }).forEach(function (cb) {
-        var chip = document.createElement('span'); chip.className = 'exp-col-chip';
-        var txt = document.createElement('span'); txt.textContent = labelOf(cb);
-        var btn = document.createElement('button'); btn.type = 'button'; btn.innerHTML = '&times;'; btn.title = 'Αφαίρεση στήλης';
-        btn.addEventListener('click', function () { cb.checked = false; renderChips(); });
-        chip.appendChild(txt); chip.appendChild(btn); chipBox.appendChild(chip);
-      });
-    };
-    colBoxes.forEach(function (cb) { cb.addEventListener('change', renderChips); });
-    renderChips();
+    var boxByKey = {}, labelByKey = {};
+    colBoxes.forEach(function (cb) {
+      boxByKey[cb.value] = cb;
+      var s = cb.parentNode.querySelector('span'); labelByKey[cb.value] = s ? s.textContent.trim() : cb.value;
+    });
+    function makeChip(key) {
+      var chip = document.createElement('span');
+      chip.className = 'exp-col-chip'; chip.setAttribute('draggable', 'true'); chip.dataset.key = key;
+      var handle = document.createElement('i'); handle.className = 'fe fe-menu exp-col-drag';
+      var hidden = document.createElement('input'); hidden.type = 'hidden'; hidden.name = 'metric'; hidden.value = key;
+      var txt = document.createElement('span'); txt.textContent = labelByKey[key] || key;
+      var btn = document.createElement('button'); btn.type = 'button'; btn.innerHTML = '&times;'; btn.title = 'Αφαίρεση στήλης';
+      btn.addEventListener('click', function () { removeKey(key); });
+      chip.appendChild(handle); chip.appendChild(hidden); chip.appendChild(txt); chip.appendChild(btn);
+      chip.addEventListener('dragstart', function () { setTimeout(function () { chip.classList.add('dragging'); }, 0); });
+      chip.addEventListener('dragend', function () { chip.classList.remove('dragging'); });
+      return chip;
+    }
+    function removeKey(key) {
+      if (boxByKey[key]) boxByKey[key].checked = false;
+      var c = chipBox.querySelector('.exp-col-chip[data-key="' + key + '"]');
+      if (c) c.remove();
+    }
+    function addKey(key) {
+      if (!boxByKey[key] || chipBox.querySelector('.exp-col-chip[data-key="' + key + '"]')) return;
+      chipBox.appendChild(makeChip(key));
+    }
+    (chipBox.dataset.initial || '').split(',').filter(Boolean).forEach(addKey);
+    colBoxes.forEach(function (cb) {
+      cb.addEventListener('change', function () { cb.checked ? addKey(cb.value) : removeKey(cb.value); });
+    });
+    // Drag to reorder: hidden inputs live inside chips, so submission order = DOM order.
+    function afterEl(x) {
+      return Array.prototype.slice.call(chipBox.querySelectorAll('.exp-col-chip:not(.dragging)')).reduce(function (closest, el) {
+        var box = el.getBoundingClientRect(); var offset = x - box.left - box.width / 2;
+        return (offset < 0 && offset > closest.offset) ? { offset: offset, element: el } : closest;
+      }, { offset: -Infinity, element: null }).element;
+    }
+    chipBox.addEventListener('dragover', function (e) {
+      e.preventDefault();
+      var dragging = chipBox.querySelector('.dragging'); if (!dragging) return;
+      var after = afterEl(e.clientX);
+      if (after == null) chipBox.appendChild(dragging); else chipBox.insertBefore(dragging, after);
+    });
     var colSearch = document.querySelector('[data-exp-colsearch]');
     if (colSearch) {
       colSearch.addEventListener('input', function () {
