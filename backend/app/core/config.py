@@ -1,43 +1,103 @@
 from functools import lru_cache
 import base64
-import subprocess
+import time
 from pathlib import Path
 
 from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+_BUILD_INFO_PATH = Path(__file__).resolve().parents[1] / 'build_info.json'
+_VERSION_PATH = _REPO_ROOT / 'VERSION'
+
+#  Directories whose contents make up the deployed application. Used only to
+#  answer "is the running code newer than the last commit?".
+_SOURCE_DIRS = ('backend/app', 'scripts', 'worker')
+_SOURCE_SUFFIXES = ('.py', '.html', '.css', '.js', '.json', '.sql')
+
+
+@lru_cache(maxsize=1)
+def _build_info() -> dict[str, str | int]:
+    """Version identity, written at commit time by scripts/bump_build.py.
+
+    Read from a file rather than asked of git: the API container mounts the repo
+    but has no `git` binary, so anything git-derived would silently degrade to
+    'dev' in production.
+    """
+    try:
+        import json
+
+        data = json.loads(_BUILD_INFO_PATH.read_text(encoding='utf-8'))
+        if data.get('version'):
+            return data
+    except Exception:
+        pass
+    #  No stamp yet — fall back to the series alone so the app still reports
+    #  something meaningful instead of a bare hash.
+    try:
+        series = _VERSION_PATH.read_text(encoding='utf-8').strip()
+    except Exception:
+        series = ''
+    return {'series': series or '0.0', 'build': 0, 'version': f'{series or "0.0"}.0', 'commit': '', 'branch': ''}
+
+
 def _detect_app_version() -> str:
-    repo_root = Path(__file__).resolve().parents[3]
-    git_dir = repo_root / '.git'
+    return str(_build_info().get('version') or '0.0.0')
+
+
+def _working_tree_is_dirty() -> bool:
+    """True when application files are newer than the last staged git state.
+
+    `.git/index` is rewritten by commit and by `git add`, so anything modified
+    afterwards is work that is running but not recorded. This is a heuristic —
+    it cannot see reverted edits — but it answers the question that matters:
+    "is what I am looking at the same as what was committed?"
+
+    Deliberately mtime-based: computing a real dirty state needs the git binary,
+    which the container does not have.
+    """
     try:
-        head_raw = (git_dir / 'HEAD').read_text(encoding='utf-8').strip()
-        if head_raw.startswith('ref:'):
-            ref_path = head_raw.split(':', 1)[1].strip()
-            ref_file = git_dir / ref_path
-            if ref_file.exists():
-                commit_sha = ref_file.read_text(encoding='utf-8').strip()
-                if commit_sha:
-                    return commit_sha[:7]
-        elif head_raw:
-            return head_raw[:7]
-    except Exception:
-        pass
-    try:
-        result = subprocess.run(
-            ['git', 'rev-parse', '--short', 'HEAD'],
-            cwd=str(repo_root),
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=2,
-        )
-        short_sha = str(result.stdout or '').strip()
-        if short_sha:
-            return short_sha
-    except Exception:
-        pass
-    return 'dev'
+        index_mtime = (_REPO_ROOT / '.git' / 'index').stat().st_mtime
+    except OSError:
+        return False
+    for rel in _SOURCE_DIRS:
+        base = _REPO_ROOT / rel
+        if not base.is_dir():
+            continue
+        for path in base.rglob('*'):
+            if path.suffix not in _SOURCE_SUFFIXES:
+                continue
+            try:
+                if path.stat().st_mtime > index_mtime:
+                    return True
+            except OSError:
+                continue
+    return False
+
+
+_DIRTY_TTL_SECONDS = 30
+_dirty_cache: dict[str, float | bool] = {'checked_at': 0.0, 'dirty': False}
+
+
+def app_version_detailed() -> str:
+    """Version plus build provenance, for operators — never shown to tenants.
+
+    Adds `+dev` when the running code has uncommitted changes, which is the
+    usual reason a version looks stuck.
+    """
+    info = _build_info()
+    parts = [str(info.get('version') or '0.0.0')]
+    now = time.time()
+    if now - float(_dirty_cache['checked_at']) > _DIRTY_TTL_SECONDS:
+        _dirty_cache['dirty'] = _working_tree_is_dirty()
+        _dirty_cache['checked_at'] = now
+    if _dirty_cache['dirty']:
+        parts.append('+dev')
+    commit = str(info.get('commit') or '')
+    if commit:
+        parts.append(f' · {commit}')
+    return ''.join(parts)
 
 
 class Settings(BaseSettings):

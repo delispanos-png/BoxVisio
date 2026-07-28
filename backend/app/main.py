@@ -8,7 +8,7 @@ from redis import Redis
 from sqlalchemy import select, text
 
 from app.api import admin, auth, ingest, kpi, ui, whmcs
-from app.core.config import settings
+from app.core.config import app_version_detailed, settings
 from app.core.logging import configure_logging
 from app.db.control_session import ControlSessionLocal
 from app.models.control import Tenant
@@ -125,7 +125,15 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 @app.api_route('/health', methods=['GET', 'HEAD'])
 async def health():
-    return {'status': 'ok', 'service': settings.project_name}
+    #  Version is here so "what is actually deployed?" can be answered without
+    #  opening the UI. `build` carries the +dev marker when the running code has
+    #  uncommitted changes.
+    return {
+        'status': 'ok',
+        'service': settings.project_name,
+        'version': settings.app_version,
+        'build': app_version_detailed(),
+    }
 
 
 @app.api_route('/ready', methods=['GET', 'HEAD'])
