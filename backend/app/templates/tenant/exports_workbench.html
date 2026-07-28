@@ -118,6 +118,8 @@
       <div class="exp-actions">
         <a class="btn btn-light" href="{{ form_action }}"><i class="fe fe-x"></i> Καθαρισμός</a>
         <button class="btn btn-primary" type="submit"><i class="fe fe-play"></i> Υπολογισμός</button>
+        <button class="btn btn-success" type="submit" formaction="{{ form_action }}/download/xlsx" title="Λήψη σε Excel με τα τρέχοντα φίλτρα"><i class="fe fe-download"></i> Λήψη Excel</button>
+        <button class="btn btn-outline-secondary" type="submit" formaction="{{ form_action }}/download/csv" title="Λήψη σε CSV με τα τρέχοντα φίλτρα"><i class="fe fe-download"></i> Λήψη CSV</button>
       </div>
     </section>
   </form>
@@ -172,7 +174,7 @@
       </table>
     </div>
     {% if rows|length >= row_limit %}
-    <p class="exp-empty-note" style="margin-top:10px">Εμφανίζονται τα πρώτα {{ row_limit }} είδη. Η πλήρης εξαγωγή σε αρχείο (CSV/Excel) θα προστεθεί στο επόμενο βήμα.</p>
+    <p class="exp-empty-note" style="margin-top:10px">Εμφανίζονται τα πρώτα {{ row_limit }} είδη στην οθόνη. Πάτησε «Λήψη Excel» ή «Λήψη CSV» για ολόκληρη τη λίστα σε αρχείο.</p>
     {% endif %}
     {% else %}
     <p class="exp-empty-note">Δεν βρέθηκαν είδη για τα επιλεγμένα φίλτρα. Άλλαξε τα φίλτρα και πάτησε «Υπολογισμός».</p>

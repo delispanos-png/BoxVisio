@@ -1,5 +1,6 @@
 import secrets
 import asyncio
+import csv
 import hashlib
 import io
 import json
@@ -15298,6 +15299,83 @@ _EXPORT_FILTER_FIELDS = [
 ]
 
 
+_EXPORT_DOWNLOAD_HEADERS = [
+    'Όνομα είδους', 'Barcode', 'Brand', 'Κατηγορία 1', 'Κατηγορία 2', 'Κατηγορία 3',
+    'Ποσότητα (τεμ.)', 'Αξία',
+]
+
+
+def _export_clean_date(value: object) -> str:
+    text = str(value or '').strip()
+    try:
+        datetime.strptime(text, '%Y-%m-%d')
+        return text
+    except ValueError:
+        return ''
+
+
+async def _export_query(
+    request: Request,
+    tenant: Tenant,
+    *,
+    limit: int,
+    compute: bool,
+) -> tuple[dict, dict, dict, list[dict]]:
+    """Shared data path for the Εξαγωγές pages and downloads: open the tenant DB,
+    load filter options, parse the request filters, and (when compute) run the
+    per-item sales aggregation. Returns (options, selected, period, rows)."""
+    period = {
+        'from': _export_clean_date(request.query_params.get('period_from')),
+        'to': _export_clean_date(request.query_params.get('period_to')),
+    }
+    async for tenant_db in get_tenant_db_session(
+        tenant_key=str(tenant.id),
+        db_name=tenant.db_name,
+        db_user=tenant.db_user,
+        db_password=tenant.db_password,
+    ):
+        options = await export_filter_options(tenant_db)
+        selected: dict[str, list[str]] = {}
+        for key, _label, _ph in _EXPORT_FILTER_FIELDS:
+            raw = str(request.query_params.get(key) or '').strip()
+            valid = {opt['value'] for opt in options.get(key, [])}
+            selected[key] = [v for v in (p.strip() for p in raw.split(',')) if v and v in valid]
+
+        rows: list[dict] = []
+        if compute:
+            # Sold quantity/value must sign returns exactly like the dashboard,
+            # which depends on the tenant's KPI-participation config in context.
+            async with ControlSessionLocal() as control_db:
+                sales_kpi_config = await _resolve_rule_payload(
+                    control_db,
+                    tenant_id=int(tenant.id),
+                    domain=RuleDomain.kpi_participation_rules,
+                    stream=OperationalStream.sales_documents,
+                    rule_key='sales_kpi_config',
+                    fallback_payload={},
+                )
+            scope_token = set_current_sales_kpi_participation_config(sales_kpi_config)
+            try:
+                rows = await export_item_rows(
+                    tenant_db,
+                    brands=selected.get('brands'),
+                    category_1=selected.get('category_1'),
+                    category_2=selected.get('category_2'),
+                    category_3=selected.get('category_3'),
+                    branches=selected.get('branches'),
+                    warehouses=selected.get('warehouses'),
+                    period_from=(datetime.strptime(period['from'], '%Y-%m-%d').date() if period['from'] else None),
+                    period_to=(datetime.strptime(period['to'], '%Y-%m-%d').date() if period['to'] else None),
+                    limit=limit,
+                )
+            finally:
+                reset_current_sales_kpi_participation_config(scope_token)
+        return options, selected, period, rows
+
+    empty = {key: [] for key, _label, _ph in _EXPORT_FILTER_FIELDS}
+    return empty, {key: [] for key, _label, _ph in _EXPORT_FILTER_FIELDS}, period, []
+
+
 async def _render_exports_workbench(
     *,
     request: Request,
@@ -15323,17 +15401,6 @@ async def _render_exports_workbench(
         },
     }
     cfg = variants[variant]
-    def _clean_date(value: str) -> str:
-        value = str(value or '').strip()
-        try:
-            datetime.strptime(value, '%Y-%m-%d')
-            return value
-        except ValueError:
-            return ''
-    period = {
-        'from': _clean_date(request.query_params.get('period_from')),
-        'to': _clean_date(request.query_params.get('period_to')),
-    }
 
     # The report is computed on demand: entering the page shows an empty result
     # and only pressing "Υπολογισμός" (which submits calc=1) runs the aggregation,
@@ -15341,54 +15408,9 @@ async def _render_exports_workbench(
     calculated = str(request.query_params.get('calc') or '').strip() in {'1', 'true', 'yes'}
 
     _ROW_LIMIT = 1000
-    async for tenant_db in get_tenant_db_session(
-        tenant_key=str(tenant.id),
-        db_name=tenant.db_name,
-        db_user=tenant.db_user,
-        db_password=tenant.db_password,
-    ):
-        options = await export_filter_options(tenant_db)
-
-        selected: dict[str, list[str]] = {}
-        for key, _label, _ph in _EXPORT_FILTER_FIELDS:
-            raw = str(request.query_params.get(key) or '').strip()
-            valid = {opt['value'] for opt in options.get(key, [])}
-            selected[key] = [v for v in (p.strip() for p in raw.split(',')) if v and v in valid]
-
-        rows = []
-        if calculated:
-            # Sold quantity/value must sign returns exactly like the dashboard,
-            # which depends on the tenant's KPI-participation config in context.
-            async with ControlSessionLocal() as control_db:
-                sales_kpi_config = await _resolve_rule_payload(
-                    control_db,
-                    tenant_id=int(tenant.id),
-                    domain=RuleDomain.kpi_participation_rules,
-                    stream=OperationalStream.sales_documents,
-                    rule_key='sales_kpi_config',
-                    fallback_payload={},
-                )
-            scope_token = set_current_sales_kpi_participation_config(sales_kpi_config)
-            try:
-                rows = await export_item_rows(
-                    tenant_db,
-                    brands=selected.get('brands'),
-                    category_1=selected.get('category_1'),
-                    category_2=selected.get('category_2'),
-                    category_3=selected.get('category_3'),
-                    branches=selected.get('branches'),
-                    warehouses=selected.get('warehouses'),
-                    period_from=(datetime.strptime(period['from'], '%Y-%m-%d').date() if period['from'] else None),
-                    period_to=(datetime.strptime(period['to'], '%Y-%m-%d').date() if period['to'] else None),
-                    limit=_ROW_LIMIT,
-                )
-            finally:
-                reset_current_sales_kpi_participation_config(scope_token)
-        break
-    else:
-        options = {key: [] for key, _label, _ph in _EXPORT_FILTER_FIELDS}
-        selected = {key: [] for key, _label, _ph in _EXPORT_FILTER_FIELDS}
-        rows = []
+    options, selected, period, rows = await _export_query(
+        request, tenant, limit=_ROW_LIMIT, compute=calculated
+    )
 
     label_maps: dict[str, dict[str, str]] = {}
     for key, _label, _ph in _EXPORT_FILTER_FIELDS:
@@ -15454,3 +15476,83 @@ async def tenant_exports_csv_excel(
     _user=Depends(get_current_user),
 ):
     return await _render_exports_workbench(request=request, tenant=tenant, variant='csv_excel')
+
+
+_EXPORT_DOWNLOAD_LIMIT = 100000
+
+
+async def _render_exports_download(
+    *,
+    request: Request,
+    tenant: Tenant,
+    variant: str,
+    fmt: str,
+) -> Response:
+    """Produce the actual CSV or Excel file for the current filter selection.
+    Shares the exact query/aggregation with the on-screen report (parity)."""
+    fmt = (fmt or '').strip().lower()
+    if fmt not in {'csv', 'xlsx'}:
+        return Response('Μη έγκυρη μορφή εξαγωγής.', status_code=400, media_type='text/plain; charset=utf-8')
+
+    _options, _selected, period, rows = await _export_query(
+        request, tenant, limit=_EXPORT_DOWNLOAD_LIMIT, compute=True
+    )
+    data_rows = [
+        [
+            r['name'], r['barcode'], r['brand'],
+            r['category_1'], r['category_2'], r['category_3'],
+            round(float(r['sold_qty'] or 0), 3), round(float(r['sold_value'] or 0), 2),
+        ]
+        for r in rows
+    ]
+    base = 'anafores' if variant == 'reports' else 'export'
+    span = ''
+    if period.get('from') or period.get('to'):
+        span = f"_{period.get('from') or 'start'}_{period.get('to') or 'today'}"
+    stamp = datetime.utcnow().strftime('%Y%m%d')
+    filename = f'{base}{span}_{stamp}.{fmt}'
+
+    if fmt == 'csv':
+        buffer = io.StringIO()
+        buffer.write('﻿')  # UTF-8 BOM so Excel renders Greek correctly
+        writer = csv.writer(buffer, delimiter=';')
+        writer.writerow(_EXPORT_DOWNLOAD_HEADERS)
+        writer.writerows(data_rows)
+        content = buffer.getvalue().encode('utf-8')
+        return Response(
+            content=content,
+            media_type='text/csv; charset=utf-8',
+            headers={'Content-Disposition': f'attachment; filename="{filename}"'},
+        )
+
+    content = _build_xlsx_bytes(
+        sheet_name='Εξαγωγή',
+        headers=_EXPORT_DOWNLOAD_HEADERS,
+        rows=data_rows,
+        column_widths=[38, 16, 20, 22, 22, 22, 15, 15],
+    )
+    return Response(
+        content=content,
+        media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        headers={'Content-Disposition': f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get('/tenant/exports/reports/download/{fmt}')
+async def tenant_exports_reports_download(
+    fmt: str,
+    request: Request,
+    tenant: Tenant = Depends(get_request_tenant),
+    _user=Depends(get_current_user),
+):
+    return await _render_exports_download(request=request, tenant=tenant, variant='reports', fmt=fmt)
+
+
+@router.get('/tenant/exports/csv-excel/download/{fmt}')
+async def tenant_exports_csv_excel_download(
+    fmt: str,
+    request: Request,
+    tenant: Tenant = Depends(get_request_tenant),
+    _user=Depends(get_current_user),
+):
+    return await _render_exports_download(request=request, tenant=tenant, variant='csv_excel', fmt=fmt)
