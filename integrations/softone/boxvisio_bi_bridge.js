@@ -1,6 +1,6 @@
 /*
   BoxVisio BI Bridge for SoftOne Advanced JavaScript
-  Version: 2026-05-25_connector-parity
+  Version: 2026-07-29_sales-cogs-purmtk-primary
 
   Purpose
   - Extract Sales, Purchases, Inventory, Cash, Balances, Expenses data directly from SoftOne tables.
@@ -24,7 +24,7 @@
       /s1services/JS/myWS/GetAllForBI
 */
 
-var BVBI_VERSION = "2026-07-24_sql-js-parity-full";
+var BVBI_VERSION = "2026-07-29_sales-cogs-purmtk-primary";
 var _BVBI_COL_CACHE = {};
 
 function _bv_is_array(v) {
@@ -676,7 +676,26 @@ function _bv_sales_sql(cfg) {
   var lLineValue = _bv_col_expr("L", "MTRLINES", ["LINEVAL", "NETLINEVAL", "NETVAL", "NETAMNT"], "0");
   var lVat = _bv_col_expr("L", "MTRLINES", ["VATAMNT", "TAXAMNT", "FPAAMNT", "LINEVAT", "LINETAX", "LINEVATAMNT", "LINETAXAMNT"], "NULL");
   var lGross = _bv_col_expr("L", "MTRLINES", ["GROSSVAL", "SUMAMNT", "TOTVAL", "LINEGROSS"], "NULL");
-  var lCost = _bv_col_expr("L", "MTRLINES", ["COSTVAL", "COSTVALUE", "LCOST", "COST", "LINEVAL"], lNet);
+  // Cost of goods sold = the item's AVERAGE ACQUISITION COST (Μέση Τιμή Κτήσης), which
+  // SoftOne maintains per item in FMATTOTALS.PURMTK (wholesale net of all purchase
+  // discounts / payment terms). NOT the wholesale list price (PRICEW) — that is only the
+  // pre-discount starting price and is NOT the acquisition cost.
+  // Priority (mirrors the SQL querypack sales cost exactly — parity):
+  //   1) a real line cost if SoftOne stored one (SALESCVAL — itself the PURMTK-based COGS
+  //      booked at sale time), else
+  //   2) FMATTOTALS.PURMTK x qty (the per-item weighted-average acquisition cost), else
+  //   3) a *plausible* MTRBALSHEET moving-average (<= unit sell price; corrupt rows out), else
+  //   4) GROSS (see lCost after grossExpr) so an unknown-cost line yields ~0 profit.
+  var lRealCost = _bv_col_expr("L", "MTRLINES", ["SALESCVAL", "COSTVAL", "COSTVALUE", "LCOST"], "NULL");
+  var fmtTable = _bv_table_exists("FMATTOTALS5") ? "FMATTOTALS5" : (_bv_table_exists("FMATTOTALS") ? "FMATTOTALS" : "");
+  var bvHasFmt = fmtTable !== "";
+  var fmtPurmtk = bvHasFmt ? "ISNULL(FMT.PURMTK,0)" : "0";
+  var bvHasMac = _bv_table_exists("MTRBALSHEET");
+  var macUnitCost = bvHasMac ? "ISNULL(MAC.UNIT_COST,0)" : "0";
+  var absLineQty = "ABS(ISNULL(" + lQty + ",0))";
+  var absLineNet = "ABS(ISNULL(" + lNet + ",0))";
+  var unitNetPrice = "(CASE WHEN " + absLineQty + " > 0 THEN " + absLineNet + " / " + absLineQty + " ELSE " + absLineNet + " END)";
+  var cogsUnit = "COALESCE(NULLIF(" + fmtPurmtk + ",0), CASE WHEN " + macUnitCost + " > 0 AND " + macUnitCost + " <= " + unitNetPrice + " THEN " + macUnitCost + " ELSE NULL END)";
   var docNetAbsTotal = "NULLIF(SUM(ABS(ISNULL(" + lNet + ",0))) OVER (PARTITION BY " + c.findoc + "),0)";
   var lineTaxAbs = "ABS(ISNULL(" + lVat + ",0))";
   var lineTaxDocAbsTotal = "SUM(" + lineTaxAbs + ") OVER (PARTITION BY " + c.findoc + ")";
@@ -696,6 +715,16 @@ function _bv_sales_sql(cfg) {
     docNetAbsTotal +
     ") ELSE 0 END)";
   var grossExpr = "ABS(ISNULL(" + lNet + ",0)) + " + vatExpr;
+  // Unsigned line COGS (output applies the sales sign). Priority:
+  //   1) qty x PURMTK / plausible moving-average (cogsUnit) — the authoritative avg
+  //      acquisition cost; then
+  //   2) a real line cost ONLY when it is plausible (0 < cost <= net). Older documents in
+  //      some SoftOne installs store the GROSS line value in SALESCVAL/COSTVAL, so a line
+  //      cost above the net selling price is rejected as unreliable; then
+  //   3) NET so an unknown-cost line yields profit = net - net = 0 ("unknown margin").
+  // NET (not gross) because BI computes gross profit as net - cost.
+  var plausibleLineCost = "CASE WHEN ABS(" + lRealCost + ") > 0 AND ABS(" + lRealCost + ") <= " + absLineNet + " THEN ABS(" + lRealCost + ") ELSE NULL END";
+  var lCost = "COALESCE(NULLIF(" + absLineQty + " * (" + cogsUnit + "),0), " + plausibleLineCost + ", (" + absLineNet + "))";
 
   if (_bv_table_exists("EXPANAL")) {
     var expFindoc = _bv_col_expr("EA", "EXPANAL", ["FINDOC"], c.findoc);
@@ -1114,6 +1143,12 @@ function _bv_sales_sql(cfg) {
     lMtrl +
     " AND I.COMPANY=F.COMPANY " +
     itemExtraJoinSql +
+    // Per-item average acquisition cost (Μέση Τιμή Κτήσης) that SoftOne maintains in
+    // FMATTOTALS.PURMTK — the primary COGS source used in lCost above.
+    (bvHasFmt ? ("LEFT JOIN (SELECT COMPANY, MTRL, MAX(NULLIF(ISNULL(PURMTK,0),0)) AS PURMTK FROM " + fmtTable + " WHERE COMPANY=" + cfg.company + " GROUP BY COMPANY, MTRL) FMT ON FMT.COMPANY=L.COMPANY AND FMT.MTRL=L.MTRL ") : "") +
+    // Moving-average unit cost per item (weighted purchase cost from MTRBALSHEET),
+    // used as COGS fallback in lCost above when PURMTK is unavailable.
+    (bvHasMac ? ("LEFT JOIN (SELECT COMPANY, MTRL, CASE WHEN SUM(ISNULL(PURQTY,0))>0 THEN SUM(ISNULL(PURVAL,0))/SUM(ISNULL(PURQTY,0)) ELSE 0 END AS UNIT_COST FROM MTRBALSHEET WHERE COMPANY=" + cfg.company + " GROUP BY COMPANY, MTRL) MAC ON MAC.COMPANY=L.COMPANY AND MAC.MTRL=L.MTRL ") : "") +
     "LEFT JOIN MTRMARK MK ON MK.MTRMARK=I.MTRMARK AND MK.COMPANY=I.COMPANY " +
     "LEFT JOIN MTRGROUP MG ON MG.MTRGROUP=I.MTRGROUP AND MG.COMPANY=I.COMPANY " +
     (_bv_table_exists("SALDOC") ? ("LEFT JOIN SALDOC SD ON SD.FINDOC=" + c.findoc + " AND SD.COMPANY=F.COMPANY ") : "") +
