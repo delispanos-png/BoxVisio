@@ -34,7 +34,7 @@ SELECT
         ELSE 1
       END
     )
-    * COALESCE(TRY_CAST(ISNULL(L.SALESCVAL, ISNULL(L.NETLINEVAL, ISNULL(L.LINEVAL, 0))) AS decimal(28,8)), 0)
+    * COALESCE(TRY_CAST(ISNULL(NULLIF(L.SALESCVAL,0), ISNULL(L.NETLINEVAL, ISNULL(L.LINEVAL, 0))) AS decimal(28,8)), 0)
     AS decimal(28,8)
   ) AS cost_amount,
   CAST('S|' + CAST(F.FINDOC AS nvarchar(40)) + '|' + CAST(ISNULL(L.MTRLINES, ISNULL(L.LINENUM, 0)) AS nvarchar(40)) AS nvarchar(128)) AS external_id,
