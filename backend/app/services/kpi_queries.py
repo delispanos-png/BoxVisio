@@ -4,7 +4,7 @@ import re
 import unicodedata
 from uuid import UUID
 
-from sqlalchemy import Date, Integer, Numeric, String, and_, case, cast, func, literal, literal_column, not_, or_, select, true
+from sqlalchemy import Date, Integer, Numeric, String, and_, case, cast, exists, func, literal, literal_column, not_, or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 from sqlalchemy.sql import over
@@ -13029,6 +13029,29 @@ async def sales_comparison_by_group(
     return rows, tot
 
 
+def _non_pharmacy_warehouse():
+    """EXISTS condition that is true when a fact_inventory row sits in a NON-sellable
+    warehouse of the store — the e-shop / Click&Collect space, the damaged/expired
+    ('ακατάλληλα') space, an in-transit / reconciliation space — as opposed to the actual
+    pharmacy shelf. Every store stock metric (value, dead stock, availability, transfers)
+    must count ONLY the pharmacy warehouse, so these are excluded via not_(...).
+    Identified by the store's warehouse naming convention; rows with no matching
+    dim_warehouses entry are treated as pharmacy stock (kept)."""
+    excl = or_(
+        DimWarehouse.name.ilike('%eshop%'),
+        DimWarehouse.name.ilike('%e-shop%'),
+        DimWarehouse.name.ilike('%e shop%'),
+        DimWarehouse.name.ilike('%ακαταλλ%'),      # ακατάλληλα (unfit)
+        DimWarehouse.name.ilike('%ακατάλληλ%'),
+        DimWarehouse.name.ilike('%κατεστραμμ%'),   # Κατεστραμμένα (destroyed)
+        DimWarehouse.name.ilike('%ληγμέν%'),       # ληγμένα (expired)
+        DimWarehouse.name.ilike('%transit%'),
+        DimWarehouse.name.ilike('%ενδιάμεσ%'),     # ενδιάμεσος (in transit)
+        DimWarehouse.name.ilike('%διαφορ%'),       # Διαφορές (reconciliation)
+    )
+    return exists().where(and_(DimWarehouse.external_id == FactInventory.warehouse_ext_id, excl))
+
+
 async def store_dashboard(
     db: AsyncSession,
     *,
@@ -13062,7 +13085,7 @@ async def store_dashboard(
     if snapshot:
         strow = (await db.execute(
             select(func.coalesce(func.sum(FactInventory.value_amount), 0), func.coalesce(func.sum(FactInventory.cost_amount), 0))
-            .where(FactInventory.branch_ext_id == branch_ext, FactInventory.doc_date == snapshot, FactInventory.movement_type == 'snapshot')
+            .where(FactInventory.branch_ext_id == branch_ext, FactInventory.doc_date == snapshot, FactInventory.movement_type == 'snapshot', not_(_non_pharmacy_warehouse()))
         )).first()
         stock_val, stock_cost = float(strow[0] or 0), float(strow[1] or 0)
 
@@ -13091,7 +13114,7 @@ async def store_dashboard(
             func.coalesce(func.sum(FactInventory.qty_on_hand), 0).label('soh'),
         ).where(
             FactInventory.branch_ext_id == branch_ext, FactInventory.doc_date == snapshot,
-            FactInventory.movement_type == 'snapshot',
+            FactInventory.movement_type == 'snapshot', not_(_non_pharmacy_warehouse()),
         ).group_by(FactInventory.item_id).subquery()
         lstmt = (
             select(DimItem.name, DimItem.barcode, sold.c.sv, sold.c.sq, func.coalesce(stock_sub.c.soh, 0).label('soh'))
@@ -13121,7 +13144,7 @@ async def store_dashboard(
             func.coalesce(func.sum(FactInventory.value_amount), 0).label('sv'),
         ).where(
             FactInventory.branch_ext_id == branch_ext, FactInventory.doc_date == snapshot,
-            FactInventory.movement_type == 'snapshot',
+            FactInventory.movement_type == 'snapshot', not_(_non_pharmacy_warehouse()),
         ).group_by(FactInventory.item_id).having(func.sum(FactInventory.qty_on_hand) > 0).subquery()
         dstmt = (
             select(DimItem.name, DimItem.barcode, dstock.c.soh, dstock.c.sv)
@@ -13259,7 +13282,7 @@ async def store_transfer_suggestions(
     stk_rows = (await db.execute(
         select(FactInventory.item_id, FactInventory.branch_ext_id, func.coalesce(func.sum(FactInventory.qty_on_hand), 0))
         .where(FactInventory.doc_date == snapshot, FactInventory.movement_type == 'snapshot',
-               FactInventory.item_id.in_(items_here_sub))
+               not_(_non_pharmacy_warehouse()), FactInventory.item_id.in_(items_here_sub))
         .group_by(FactInventory.item_id, FactInventory.branch_ext_id)
     )).all()
     vel: dict = {}
