@@ -2513,7 +2513,9 @@ def _build_fact(
                 }
             )
             base['gross_value'] = gross
-            base['profit_amount'] = gross - cost
+            # Gross profit = NET selling price - acquisition cost (both VAT-exclusive).
+            # (Previously gross - cost, which over-stated margin by the VAT amount.)
+            base['profit_amount'] = net - cost
         else:
             purchase_document_id = _as_optional_text(
                 get(
