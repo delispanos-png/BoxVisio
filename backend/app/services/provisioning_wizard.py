@@ -324,6 +324,16 @@ async def run_tenant_provisioning_wizard(
             db_password=db_password,
             feature_flags={
                 **features,
+                # Standard onboarding baseline: every new tenant auto-syncs every 5' across
+                # all streams from day one (was previously unset -> silently never synced).
+                'auto_sync': {
+                    'enabled': True,
+                    'profile': 'live',
+                    'interval_minutes': 5,
+                    'overlap_minutes': 5,
+                    'recovery_days': 1,
+                    'business_hours': {'mode': 'always', 'start': '08:00', 'end': '22:00', 'timezone': 'Europe/Athens'},
+                },
                 'contact': {
                     'contact_person': '',
                     'contact_email': str(admin_email or '').strip(),
