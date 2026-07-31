@@ -1912,6 +1912,44 @@ body.bv-admin-shell .bv-stat-strip.bv-kpi-style.bv-tone-red {
   margin-top: 0;
 }
 
+/* --- Collapsible tenant cards: one row per client, expand on demand --- */
+.subs-card-head {
+  cursor: pointer;
+}
+
+.subs-card-body {
+  display: none;
+}
+
+.subs-tenant-card.is-open .subs-card-body {
+  display: block;
+}
+
+.subs-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 800;
+}
+
+.subs-toggle .fe {
+  transition: transform .15s ease;
+}
+
+.subs-tenant-card.is-open .subs-toggle .fe {
+  transform: rotate(180deg);
+}
+
+.subs-toggle-label {
+  font-size: .78rem;
+}
+
+@media (max-width: 640px) {
+  .subs-toggle-label {
+    display: none;
+  }
+}
+
 .subs-card-body {
   padding: 16px 18px 18px;
 }

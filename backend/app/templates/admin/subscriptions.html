@@ -99,7 +99,10 @@
           </div>
         </div>
         <div class="subs-card-actions">
-          <a class="btn btn-sm bv-action-btn bv-action-edit" href="/admin/tenants/{{ t.id }}/edit?next=/admin/subscriptions" title="Επεξεργασία" aria-label="Επεξεργασία {{ t.name }}">
+          <button type="button" class="btn btn-sm bv-action-btn subs-toggle" data-subs-toggle aria-expanded="false" title="Άνοιγμα/κλείσιμο καρτέλας συνδρομής">
+            <i class="fe fe-chevron-down"></i><span class="subs-toggle-label">Άνοιγμα</span>
+          </button>
+          <a class="btn btn-sm bv-action-btn bv-action-edit" href="/admin/tenants/{{ t.id }}/edit?next=/admin/subscriptions" title="Επεξεργασία στοιχείων πελάτη" aria-label="Επεξεργασία {{ t.name }}">
             <i class="fe fe-edit-2"></i>
           </a>
           <form method="post" action="/admin/tenants/{{ t.id }}/delete" data-bv-confirm="Οριστική διαγραφή πελάτη {{ t.name }}; Θα διαγραφούν οι χρήστες, οι συνδέσεις και η βάση δεδομένων του tenant. Δεν αναιρείται.">
@@ -294,6 +297,27 @@
       apply();
     }));
     apply();
+  })();
+
+  // --- Collapse/expand each tenant card (collapsed by default to save space) ---
+  (function () {
+    document.querySelectorAll('.subs-tenant-card').forEach((card) => {
+      const head = card.querySelector('.subs-card-head');
+      const btn = card.querySelector('[data-subs-toggle]');
+      const label = card.querySelector('.subs-toggle-label');
+      const setState = (open) => {
+        card.classList.toggle('is-open', open);
+        if (btn) btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+        if (label) label.textContent = open ? 'Κλείσιμο' : 'Άνοιγμα';
+      };
+      const toggle = () => setState(!card.classList.contains('is-open'));
+      if (btn) btn.addEventListener('click', (e) => { e.stopPropagation(); toggle(); });
+      if (head) head.addEventListener('click', (e) => {
+        // Leave the real action controls (tenant edit link, delete form) alone.
+        if (e.target.closest('a, form')) return;
+        toggle();
+      });
+    });
   })();
 </script>
 {% endblock %}
