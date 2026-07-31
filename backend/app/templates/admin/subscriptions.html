@@ -93,6 +93,9 @@
             <span class="subs-expiry is-none"><i class="fe fe-infinity"></i>Χωρίς λήξη</span>
             {% endif %}
             <span class="subs-chip"><i class="fe fe-users"></i>{{ limit_values.active_users or 0 }} / {{ limit_values.max_users or 1 }} χρήστες</span>
+            <span class="subs-chip {% if (limit_values.active_sessions or 0) > 0 %}is-active{% endif %}" title="Συνδεδεμένοι αυτή τη στιγμή / άδεια ταυτόχρονων συνδέσεων">
+              <i class="fe fe-wifi"></i>{{ limit_values.active_sessions or 0 }} / {{ limit_values.max_concurrent_sessions or 1 }} συνδεδεμένοι
+            </span>
             {% if temporary_upgrade and temporary_upgrade.get('active') %}
             <span class="subs-chip is-warning"><i class="fe fe-unlock"></i>Trial upgrade έως {{ temporary_upgrade.get('expires_at') }}</span>
             {% endif %}
