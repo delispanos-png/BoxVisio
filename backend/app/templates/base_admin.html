@@ -9,37 +9,51 @@
   <link href="/static/css/boxvisio-unified.css?v=20260603uinext6" rel="stylesheet">
   <style>
     :root {
-      --shell-bg: #f3f5fb;
+      --shell-bg: #f5f6fc;
       --panel-bg: #ffffff;
-      --panel-border: #e9edf5;
-      --menu-text: #4b5563;
-      --menu-active-bg: #f1efff;
-      --menu-active-text: #6f42c1;
+      --panel-border: #e6e8f4;
+      --menu-text: #cdd2ee;
+      --menu-active-bg: rgba(255,255,255,.06);
+      --menu-active-text: #ffffff;
       --topbar-bg: #ffffff;
-      --topbar-border: #eceff5;
+      --topbar-border: #e6e8f4;
+      /* ===== Command rail (deep indigo, both themes) ===== */
+      --rail-1: #16182e;
+      --rail-2: #1e2140;
+      --rail-ink: #cdd2ee;
+      --rail-muted: #7b82ad;
+      --rail-active: #2a2f57;
+      --bv-accent-grad: linear-gradient(120deg, #6554f2, #5b5fc7 55%, #06a6d9);
+      --bv-violet: #5b5fc7;
+      --bv-mono: ui-monospace, "SFMono-Regular", "Menlo", "Consolas", monospace;
     }
     body {
       background: var(--shell-bg);
-      color: #111827;
+      color: #171a30;
     }
+    /* Logo asset kept unchanged — its baked-in white plaque reads cleanly on the dark rail. */
     .sidebar .admin-image .brand-logo {
-      width: 156px;
-      max-width: 156px;
+      width: 150px;
+      max-width: 150px;
       border-radius: 0 !important;
       float: none !important;
       display: block;
-      margin: 4px auto;
+      margin: 2px auto;
     }
     .left-sidebar {
-      background: var(--panel-bg) !important;
-      border-right: 1px solid var(--panel-border);
+      background: linear-gradient(180deg, var(--rail-1), var(--rail-2)) !important;
+      border-right: 1px solid rgba(255,255,255,.06);
       display: flex;
       flex-direction: column;
       height: 100vh;
       overflow: hidden;
     }
+    /* White brand band at the top of the dark rail (per request). */
     .left-sidebar .admin-image {
       flex: 0 0 auto;
+      background: #ffffff;
+      padding: 12px 14px;
+      border-bottom: 1px solid rgba(255,255,255,.08);
     }
     .left-sidebar .menu.main-sidebar {
       flex: 1 1 auto;
@@ -53,15 +67,30 @@
       padding-bottom: 72px;
     }
     .main-sidebar .list .nav-item .nav-link {
-      border-radius: 8px;
+      border-radius: 9px;
       margin: 2px 10px;
-      color: var(--menu-text);
-      font-weight: 600;
+      color: var(--rail-ink);
+      font-weight: 550;
+      position: relative;
     }
-    .main-sidebar .list .nav-item.active .nav-link,
     .main-sidebar .list .nav-item .nav-link:hover {
-      background: var(--menu-active-bg);
-      color: var(--menu-active-text);
+      background: rgba(255,255,255,.055);
+      color: #ffffff;
+    }
+    .main-sidebar .list .nav-item.active .nav-link {
+      background: var(--rail-active);
+      color: #ffffff;
+    }
+    .main-sidebar .list .nav-item.active .nav-link::before {
+      content: "";
+      position: absolute;
+      left: -10px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 3px;
+      height: 20px;
+      border-radius: 0 3px 3px 0;
+      background: var(--bv-accent-grad);
     }
     .main-sidebar .list .bv-menu-group .bv-group-toggle {
       display: flex;
@@ -72,49 +101,79 @@
       border: 0;
       background: transparent;
       cursor: pointer;
+      color: var(--rail-muted);
+    }
+    /* Group headers become mono uppercase eyebrows. */
+    .main-sidebar .list .bv-menu-group .bv-group-toggle .sidemenu-label {
+      font-family: var(--bv-mono);
+      font-size: 10px;
+      letter-spacing: .13em;
+      text-transform: uppercase;
+      color: var(--rail-muted);
+      font-weight: 600;
+    }
+    .main-sidebar .list .bv-menu-group .bv-group-toggle .sidemenu-icon {
+      color: var(--rail-muted);
     }
     .main-sidebar .list .bv-menu-group .bv-group-arrow {
       margin-left: auto;
       font-size: 13px;
       transition: transform .2s ease;
+      color: var(--rail-muted);
     }
     .main-sidebar .list .bv-menu-group.open .bv-group-arrow {
       transform: rotate(180deg);
     }
     .main-sidebar .list .bv-submenu {
       list-style: none;
-      margin: 4px 8px 8px 26px;
-      padding: 4px 0 4px 10px;
-      border-left: 1px solid #d5ddec;
+      margin: 2px 8px 8px 26px;
+      padding: 2px 0 2px 10px;
+      border-left: 1px solid rgba(255,255,255,.1);
     }
     .main-sidebar .list .bv-submenu li {
-      margin: 2px 0;
+      margin: 1px 0;
     }
     .main-sidebar .list .bv-submenu-link {
       display: flex;
       align-items: center;
       gap: 8px;
-      min-height: 34px;
+      min-height: 32px;
       border-radius: 8px;
       padding: 6px 10px;
       text-decoration: none;
-      color: var(--menu-text) !important;
-      font-weight: 600;
-      font-size: 14px;
+      color: var(--rail-ink) !important;
+      font-weight: 500;
+      font-size: 13.5px;
       margin-right: 2px;
+      position: relative;
     }
     .main-sidebar .list .bv-submenu-link i {
       font-size: 12px;
-      color: #64748b;
+      color: var(--rail-muted);
       line-height: 1;
     }
-    .main-sidebar .list .bv-submenu-link:hover,
-    .main-sidebar .list .bv-submenu li.is-active .bv-submenu-link {
-      background: var(--menu-active-bg) !important;
-      color: var(--menu-active-text) !important;
+    .main-sidebar .list .bv-submenu-link:hover {
+      background: rgba(255,255,255,.07) !important;
+      color: #ffffff !important;
     }
+    .main-sidebar .list .bv-submenu li.is-active .bv-submenu-link {
+      background: rgba(101,84,242,.18) !important;
+      color: #ffffff !important;
+    }
+    .main-sidebar .list .bv-submenu li.is-active .bv-submenu-link::before {
+      content: "";
+      position: absolute;
+      left: -11px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 3px;
+      height: 16px;
+      border-radius: 0 3px 3px 0;
+      background: var(--bv-accent-grad);
+    }
+    .main-sidebar .list .bv-submenu-link:hover i,
     .main-sidebar .list .bv-submenu li.is-active .bv-submenu-link i {
-      color: var(--menu-active-text);
+      color: #ffffff;
     }
     .admin-sidebar-collapsed .main-sidebar .list .bv-menu-group .bv-group-arrow,
     .admin-sidebar-collapsed .main-sidebar .list .bv-menu-group .bv-submenu {
@@ -122,10 +181,12 @@
     }
     .menu-head {
       padding: 14px 18px 6px;
-      font-size: 11px;
-      letter-spacing: .8px;
-      color: #98a1b2;
+      font-size: 10px;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+      color: var(--rail-muted);
       font-weight: 700;
+      font-family: var(--bv-mono);
     }
     .content.home {
       padding-top: 0;
@@ -133,10 +194,14 @@
       min-height: 100vh;
     }
     .topbar {
-      background: var(--topbar-bg);
+      background: color-mix(in srgb, var(--topbar-bg) 82%, transparent);
       border: 1px solid var(--topbar-border);
       border-radius: 0;
-      min-height: 70px;
+      min-height: 66px;
+      backdrop-filter: blur(8px);
+      position: sticky;
+      top: 0;
+      z-index: 4;
     }
     .topbar .search-wrap {
       max-width: 420px;
@@ -152,22 +217,22 @@
     }
     .topbar .search-wrap input {
       width: 100%;
-      border: 1px solid #e5e7eb;
-      border-radius: 8px;
+      border: 1px solid var(--topbar-border);
+      border-radius: 999px;
       height: 40px;
-      padding: 0 12px 0 36px;
-      background: #f8fafc;
+      padding: 0 14px 0 38px;
+      background: var(--shell-bg);
     }
     .topbar .icon-btn {
       width: 38px;
       height: 38px;
-      border: 1px solid #e5e7eb;
-      border-radius: 8px;
+      border: 1px solid var(--topbar-border);
+      border-radius: 9px;
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      color: #475569;
-      background: #fff;
+      color: #676f92;
+      background: var(--panel-bg);
     }
     .dashboard-shell {
       padding: 22px;
@@ -177,80 +242,50 @@
       display: grid;
       gap: 6px;
       padding: 10px 12px 12px;
-      border-top: 1px solid var(--panel-border);
-      background: var(--panel-bg);
+      border-top: 1px solid rgba(255,255,255,.07);
+      background: transparent;
     }
-    .powered-by-cloudon {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 11px;
-      font-weight: 700;
-      letter-spacing: .6px;
-      color: #4b5563;
-      background: rgba(255, 255, 255, 0.92);
-      padding: 4px 8px;
-      border-radius: 8px;
-      border: 1px solid #e5e7eb;
-      line-height: 1.2;
-      text-align: center;
-    }
+    .powered-by-cloudon,
     .app-version-badge {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      font-size: 11px;
+      font-size: 10px;
       font-weight: 700;
-      letter-spacing: .6px;
-      color: #4b5563;
-      background: rgba(255, 255, 255, 0.92);
+      letter-spacing: .08em;
+      color: var(--rail-muted);
+      background: rgba(255, 255, 255, 0.05);
       padding: 4px 8px;
       border-radius: 8px;
-      border: 1px solid #e5e7eb;
+      border: 1px solid rgba(255,255,255,.08);
       line-height: 1.2;
       text-align: center;
+      font-family: var(--bv-mono);
     }
+    /* ===== Dark theme — CONTENT ONLY. The command rail is always dark (see above),
+       so the previous per-theme sidebar overrides are intentionally removed. ===== */
     body[data-theme='dark'] {
-      --shell-bg: #0b1220;
-      --panel-bg: #111827;
-      --panel-border: #334155;
-      --menu-text: #cbd5e1;
-      --menu-active-bg: #1f2937;
-      --menu-active-text: #c4b5fd;
-      --topbar-bg: #0f172a;
-      --topbar-border: #334155;
-      background: #0b1220 !important;
-      color: #e5e7eb !important;
-    }
-    body[data-theme='dark'] .left-sidebar,
-    body[data-theme='dark'] .sidebar,
-    body[data-theme='dark'] .main-sidebar {
-      background: #0f172a !important;
-      border-color: #334155 !important;
-    }
-    body[data-theme='dark'] .menu-head {
-      color: #94a3b8 !important;
-    }
-    body[data-theme='dark'] .main-sidebar .list .nav-item .nav-link,
-    body[data-theme='dark'] .main-sidebar .list .nav-item .nav-link .sidemenu-label,
-    body[data-theme='dark'] .main-sidebar .list .nav-item .nav-link .sidemenu-icon {
-      color: #e2e8f0 !important;
-    }
-    body[data-theme='dark'] .main-sidebar .list .nav-item.active .nav-link {
-      background: #1e293b !important;
-      color: #ffffff !important;
+      --shell-bg: #0c0e1c;
+      --panel-bg: #14162a;
+      --panel-border: #272c49;
+      --menu-active-bg: rgba(255,255,255,.06);
+      --menu-active-text: #ffffff;
+      --topbar-bg: #14162a;
+      --topbar-border: #272c49;
+      background: #0c0e1c !important;
+      color: #e9ebfa !important;
     }
     body[data-theme='dark'] .topbar .search-wrap input {
-      background: #0b1220;
-      border-color: #334155;
-      color: #e5e7eb;
+      background: #0c0e1c;
+      border-color: #272c49;
+      color: #e9ebfa;
     }
     body[data-theme='dark'] .topbar .icon-btn,
     body[data-theme='dark'] .btn-outline-secondary,
     body[data-theme='dark'] .btn-outline-danger {
-      border-color: #334155 !important;
-      color: #cbd5e1 !important;
-      background: #111827 !important;
+      border-color: #272c49 !important;
+      color: #c7cdf0 !important;
+      background: #14162a !important;
     }
     body[data-theme='dark'] .card,
     body[data-theme='dark'] .card-body,
@@ -259,52 +294,16 @@
     body[data-theme='dark'] .table th,
     body[data-theme='dark'] .table td,
     body[data-theme='dark'] .text-muted {
-      color: #cbd5e1 !important;
-      background: #111827 !important;
-      border-color: #334155 !important;
+      color: #c7cdf0 !important;
+      background: #14162a !important;
+      border-color: #272c49 !important;
     }
     body[data-theme='dark'] .form-control,
     body[data-theme='dark'] .form-select,
     body[data-theme='dark'] textarea {
-      background: #0f172a !important;
-      color: #e5e7eb !important;
-      border-color: #334155 !important;
-    }
-    body[data-theme='dark'] .powered-by-cloudon {
-      background: rgba(15, 23, 42, 0.92);
-      border-color: #334155;
-      color: #cbd5e1;
-    }
-    body[data-theme='dark'] .app-version-badge {
-      background: rgba(15, 23, 42, 0.92);
-      border-color: #334155;
-      color: #cbd5e1;
-    }
-    .bv-shell .left-sidebar,
-    .bv-shell #leftsidebar.sidebar,
-    .bv-shell .main-sidebar {
-      background: var(--panel-bg) !important;
-    }
-    .bv-shell .main-sidebar .list .nav-item .nav-link,
-    .bv-shell .main-sidebar .list .nav-item .nav-link .sidemenu-label,
-    .bv-shell .main-sidebar .list .nav-item .nav-link .sidemenu-icon {
-      color: var(--menu-text) !important;
-    }
-    body[data-theme='dark'].bv-shell .left-sidebar,
-    body[data-theme='dark'].bv-shell #leftsidebar.sidebar,
-    body[data-theme='dark'].bv-shell .main-sidebar {
-      background: #0f172a !important;
-      border-color: #334155 !important;
-    }
-    body[data-theme='dark'].bv-shell .main-sidebar .list .nav-item .nav-link,
-    body[data-theme='dark'].bv-shell .main-sidebar .list .nav-item .nav-link .sidemenu-label,
-    body[data-theme='dark'].bv-shell .main-sidebar .list .nav-item .nav-link .sidemenu-icon {
-      color: #e2e8f0 !important;
-    }
-    body[data-theme='dark'].bv-shell .main-sidebar .list .nav-item.active .nav-link,
-    body[data-theme='dark'].bv-shell .main-sidebar .list .nav-item .nav-link:hover {
-      background: #1e293b !important;
-      color: #ffffff !important;
+      background: #0f1120 !important;
+      color: #e9ebfa !important;
+      border-color: #272c49 !important;
     }
     .main-sidebar .list .nav-item.bv-subnav .nav-link {
       padding-left: 2.35rem;
@@ -325,6 +324,62 @@
       .app-version-badge,
       .powered-by-cloudon { font-size: 10px; }
     }
+
+    /* ===================================================================
+       Cascade guard — win over boxvisio-ui.css `body.bv-shell …` sidebar
+       rules (which carry #leftsidebar / !important). Same specificity via
+       `body.bv-admin-shell`, but this inline block loads later, so it wins.
+       Keeps the command rail dark in BOTH themes.
+       =================================================================== */
+    body.bv-admin-shell #leftsidebar.sidebar,
+    body.bv-admin-shell .left-sidebar {
+      background: linear-gradient(180deg, var(--rail-1), var(--rail-2)) !important;
+      border-right: 1px solid rgba(255,255,255,.06) !important;
+    }
+    body.bv-admin-shell .main-sidebar {
+      background: transparent !important;
+      border-right: 0 !important;
+    }
+    body.bv-admin-shell .left-sidebar .admin-image {
+      background: #ffffff !important;
+    }
+    body.bv-admin-shell .menu-head {
+      color: var(--rail-muted) !important;
+    }
+    body.bv-admin-shell .main-sidebar .list .nav-item .nav-link,
+    body.bv-admin-shell .main-sidebar .list .nav-item .nav-link .sidemenu-label,
+    body.bv-admin-shell .main-sidebar .list .nav-item .nav-link .sidemenu-icon {
+      color: var(--rail-ink) !important;
+    }
+    body.bv-admin-shell .main-sidebar .list .bv-menu-group .bv-group-toggle .sidemenu-label,
+    body.bv-admin-shell .main-sidebar .list .bv-menu-group .bv-group-toggle .sidemenu-icon {
+      color: var(--rail-muted) !important;
+    }
+    body.bv-admin-shell .main-sidebar .list .nav-item .nav-link:hover {
+      background: rgba(255,255,255,.055) !important;
+      color: #ffffff !important;
+    }
+    body.bv-admin-shell .main-sidebar .list .nav-item.active .nav-link {
+      background: var(--rail-active) !important;
+      color: #ffffff !important;
+    }
+    body.bv-admin-shell .main-sidebar .list .nav-item.active .nav-link .sidemenu-label,
+    body.bv-admin-shell .main-sidebar .list .nav-item.active .nav-link .sidemenu-icon,
+    body.bv-admin-shell .main-sidebar .list .nav-item .nav-link:hover .sidemenu-label,
+    body.bv-admin-shell .main-sidebar .list .nav-item .nav-link:hover .sidemenu-icon {
+      color: #ffffff !important;
+    }
+    body.bv-admin-shell .main-sidebar .list .bv-submenu-link {
+      color: var(--rail-ink) !important;
+    }
+    body.bv-admin-shell .main-sidebar .list .bv-submenu-link:hover,
+    body.bv-admin-shell .main-sidebar .list .bv-submenu li.is-active .bv-submenu-link {
+      color: #ffffff !important;
+    }
+    /* Product label sits on the always-white brand band — keep it dark in both themes. */
+    body.bv-admin-shell .bv-admin-product { border-top-color: #e6e8f4 !important; }
+    body.bv-admin-shell .bv-admin-product span { color: #676f92 !important; }
+    body.bv-admin-shell .bv-admin-product strong { color: #171a30 !important; }
   </style>
 </head>
 {% set _theme = request.cookies.get('theme', 'light') %}
