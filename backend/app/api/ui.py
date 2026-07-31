@@ -5627,6 +5627,23 @@ async def login_submit(
             if _max_concurrent > 0:
                 _active_users = await _tenant_active_session_user_ids(db, user.tenant_id)
                 if user.id not in _active_users and len(_active_users) >= _max_concurrent:
+                    # Log the over-licence attempt so admins can see daily demand above the
+                    # purchased concurrent-session limit (upsell signal).
+                    db.add(
+                        AuditLog(
+                            tenant_id=user.tenant_id,
+                            actor_user_id=user.id,
+                            action='concurrent_session_blocked',
+                            entity_type='subscription',
+                            entity_id=str(user.tenant_id),
+                            payload={
+                                'email': user.email,
+                                'limit': int(_max_concurrent),
+                                'active': int(len(_active_users)),
+                                'ip': _request_client_ip(request),
+                            },
+                        )
+                    )
                     await db.commit()
                     return templates.TemplateResponse(
                         'auth/login.html',
@@ -7067,6 +7084,23 @@ async def admin_subscriptions(
         subscription_limits_by_tenant[int(t.id)] = limit_context
         subscription_feature_allowed_by_tenant[int(t.id)] = allowed_values
         subscription_customer_feature_keys_by_tenant[int(t.id)] = {row.feature_key for row in catalog_rows if row.tenant_id == t.id}
+    # Over-licence connection attempts (blocked by the concurrent-session limit) in the last 7 days,
+    # per tenant — surfaced as a chip so admins spot demand above the purchased seats.
+    _blocked_since = datetime.utcnow() - timedelta(days=7)
+    blocked_recent_by_tenant = {
+        int(tid): int(cnt)
+        for tid, cnt in (
+            await db.execute(
+                select(AuditLog.tenant_id, func.count(AuditLog.id))
+                .where(
+                    AuditLog.action == 'concurrent_session_blocked',
+                    AuditLog.created_at >= _blocked_since,
+                    AuditLog.tenant_id.isnot(None),
+                )
+                .group_by(AuditLog.tenant_id)
+            )
+        ).all()
+    }
     await db.commit()
     plan_choices = [
         {'value': PlanName.standard.value, 'label': 'Standard'},
@@ -7094,6 +7128,7 @@ async def admin_subscriptions(
             'subscription_customer_feature_keys_by_tenant': subscription_customer_feature_keys_by_tenant,
             'subscription_limits_by_tenant': subscription_limits_by_tenant,
             'subscription_state_by_tenant': subscription_state_by_tenant,
+            'blocked_recent_by_tenant': blocked_recent_by_tenant,
             'subscription_features': all_subscription_features,
             'plan_choices': plan_choices,
             'addon_feature_keys': addon_feature_keys,
@@ -7102,6 +7137,93 @@ async def admin_subscriptions(
             'title': 'title_subscriptions',
         },
     )
+
+
+@router.get('/admin/subscriptions/{tenant_id}/sessions')
+async def admin_subscription_sessions(
+    tenant_id: int,
+    _: object = Depends(require_roles(RoleName.cloudon_admin)),
+    db: AsyncSession = Depends(get_control_db),
+):
+    """Who is connected right now (distinct tenant users within the idle window) and since when."""
+    tenant = (await db.execute(select(Tenant).where(Tenant.id == tenant_id))).scalar_one_or_none()
+    if not tenant:
+        return JSONResponse(status_code=404, content={'detail': 'Tenant not found'})
+    now = datetime.utcnow()
+    cutoff = now - timedelta(minutes=_CONCURRENT_SESSION_IDLE_MINUTES)
+    rows = (
+        await db.execute(
+            select(
+                User.full_name,
+                User.email,
+                RefreshToken.created_at,
+                RefreshToken.last_seen_at,
+                RefreshToken.last_seen_ip,
+            )
+            .join(User, User.id == RefreshToken.user_id)
+            .where(
+                User.tenant_id == tenant_id,
+                User.role.in_([RoleName.tenant_admin, RoleName.tenant_user]),
+                RefreshToken.revoked_at.is_(None),
+                RefreshToken.expires_at > now,
+                func.coalesce(RefreshToken.last_seen_at, RefreshToken.created_at) >= cutoff,
+            )
+            .order_by(RefreshToken.created_at.asc())
+        )
+    ).all()
+    by_user: dict[str, dict] = {}
+    for full_name, email, created, seen, ip in rows:
+        entry = by_user.get(email)
+        if entry is None:
+            by_user[email] = {'name': full_name or email, 'email': email, 'since': created, 'last_seen': seen or created, 'ip': ip}
+        else:
+            if created and (entry['since'] is None or created < entry['since']):
+                entry['since'] = created
+            if seen and (entry['last_seen'] is None or seen > entry['last_seen']):
+                entry['last_seen'] = seen
+            if ip and not entry['ip']:
+                entry['ip'] = ip
+
+    def _fmt(dt):
+        return dt.strftime('%d/%m/%Y %H:%M') if dt else '—'
+
+    sessions = [
+        {'name': v['name'], 'email': v['email'], 'since': _fmt(v['since']), 'last_seen': _fmt(v['last_seen']), 'ip': v['ip'] or '—'}
+        for v in sorted(by_user.values(), key=lambda x: x['since'] or now)
+    ]
+    limit = await _tenant_max_concurrent_sessions(db, await get_or_create_subscription(db, tenant))
+    await db.commit()
+    return JSONResponse({'tenant': tenant.name, 'count': len(sessions), 'limit': int(limit), 'sessions': sessions})
+
+
+@router.get('/admin/subscriptions/{tenant_id}/blocked-attempts')
+async def admin_subscription_blocked_attempts(
+    tenant_id: int,
+    _: object = Depends(require_roles(RoleName.cloudon_admin)),
+    db: AsyncSession = Depends(get_control_db),
+):
+    """Per-day count of connection attempts rejected by the concurrent-session limit (last 14 days)."""
+    tenant = (await db.execute(select(Tenant).where(Tenant.id == tenant_id))).scalar_one_or_none()
+    if not tenant:
+        return JSONResponse(status_code=404, content={'detail': 'Tenant not found'})
+    since = datetime.utcnow() - timedelta(days=14)
+    rows = (
+        await db.execute(
+            select(func.date(AuditLog.created_at).label('d'), func.count(AuditLog.id))
+            .where(
+                AuditLog.tenant_id == tenant_id,
+                AuditLog.action == 'concurrent_session_blocked',
+                AuditLog.created_at >= since,
+            )
+            .group_by(func.date(AuditLog.created_at))
+            .order_by(func.date(AuditLog.created_at).desc())
+        )
+    ).all()
+    days = []
+    for d, cnt in rows:
+        label = d.strftime('%d/%m/%Y') if hasattr(d, 'strftime') else str(d)
+        days.append({'date': label, 'count': int(cnt)})
+    return JSONResponse({'tenant': tenant.name, 'total': sum(x['count'] for x in days), 'days': days})
 
 
 @router.get('/admin/subscriptions/{tenant_id}/update')

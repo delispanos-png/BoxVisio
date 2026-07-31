@@ -93,9 +93,17 @@
             <span class="subs-expiry is-none"><i class="fe fe-infinity"></i>Χωρίς λήξη</span>
             {% endif %}
             <span class="subs-chip"><i class="fe fe-users"></i>{{ limit_values.active_users or 0 }} / {{ limit_values.max_users or 1 }} χρήστες</span>
-            <span class="subs-chip {% if (limit_values.active_sessions or 0) > 0 %}is-active{% endif %}" title="Συνδεδεμένοι αυτή τη στιγμή / άδεια ταυτόχρονων συνδέσεων">
+            <button type="button" class="subs-chip subs-chip-btn {% if (limit_values.active_sessions or 0) > 0 %}is-active{% endif %}"
+                    data-sessions-url="/admin/subscriptions/{{ t.id }}/sessions" data-tenant-name="{{ t.name }}"
+                    title="Δείτε ποιοι είναι συνδεδεμένοι και από πότε">
               <i class="fe fe-wifi"></i>{{ limit_values.active_sessions or 0 }} / {{ limit_values.max_concurrent_sessions or 1 }} συνδεδεμένοι
-            </span>
+            </button>
+            {% set _blocked = blocked_recent_by_tenant.get(t.id, 0) %}
+            <button type="button" class="subs-chip subs-chip-btn {% if _blocked > 0 %}is-danger{% endif %}"
+                    data-blocked-url="/admin/subscriptions/{{ t.id }}/blocked-attempts" data-tenant-name="{{ t.name }}"
+                    title="Προσπάθειες σύνδεσης πάνω από την άδεια ταυτόχρονων (τελευταίες 7 ημέρες) — κλικ για ανάλυση ανά ημέρα">
+              <i class="fe fe-slash"></i>{{ _blocked }} πάνω από άδεια
+            </button>
             {% if temporary_upgrade and temporary_upgrade.get('active') %}
             <span class="subs-chip is-warning"><i class="fe fe-unlock"></i>Trial upgrade έως {{ temporary_upgrade.get('expires_at') }}</span>
             {% endif %}
@@ -248,6 +256,20 @@
     {% endfor %}
   </div>
 </div>
+
+<div class="subs-modal" id="subsModal" hidden>
+  <div class="subs-modal-backdrop" data-subs-close></div>
+  <div class="subs-modal-box" role="dialog" aria-modal="true" aria-labelledby="subsModalTitle">
+    <div class="subs-modal-head">
+      <div>
+        <div class="subs-modal-eyebrow" id="subsModalEyebrow"></div>
+        <h3 id="subsModalTitle"></h3>
+      </div>
+      <button type="button" class="subs-modal-x" data-subs-close aria-label="Κλείσιμο"><i class="fe fe-x"></i></button>
+    </div>
+    <div class="subs-modal-body" id="subsModalBody"></div>
+  </div>
+</div>
 <script>
   window.BV_ADDON_ALLOWED_BY_PLAN = {{ addon_allowed_by_plan|tojson }};
   document.querySelectorAll('form[action^="/admin/subscriptions/"][action$="/update"]').forEach((form) => {
@@ -316,9 +338,70 @@
       const toggle = () => setState(!card.classList.contains('is-open'));
       if (btn) btn.addEventListener('click', (e) => { e.stopPropagation(); toggle(); });
       if (head) head.addEventListener('click', (e) => {
-        // Leave the real action controls (tenant edit link, delete form) alone.
-        if (e.target.closest('a, form')) return;
+        // Leave the real interactive controls (edit link, delete form, chip buttons) alone.
+        if (e.target.closest('a, form, button')) return;
         toggle();
+      });
+    });
+  })();
+
+  // --- Popups: who's connected (sessions) + over-licence attempts per day ---
+  (function () {
+    const modal = document.getElementById('subsModal');
+    if (!modal) return;
+    const titleEl = document.getElementById('subsModalTitle');
+    const eyebrowEl = document.getElementById('subsModalEyebrow');
+    const bodyEl = document.getElementById('subsModalBody');
+    const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    const open = () => { modal.hidden = false; document.body.style.overflow = 'hidden'; };
+    const close = () => { modal.hidden = true; document.body.style.overflow = ''; };
+    modal.querySelectorAll('[data-subs-close]').forEach((el) => el.addEventListener('click', close));
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !modal.hidden) close(); });
+
+    const show = (eyebrow, title, html) => { eyebrowEl.textContent = eyebrow; titleEl.textContent = title; bodyEl.innerHTML = html; open(); };
+    const loading = '<div class="subs-modal-loading">Φόρτωση…</div>';
+
+    async function fetchJson(url) {
+      const r = await fetch(url, { headers: { 'Accept': 'application/json' } });
+      if (!r.ok) throw new Error('http ' + r.status);
+      return r.json();
+    }
+
+    document.querySelectorAll('[data-sessions-url]').forEach((btn) => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const name = btn.dataset.tenantName || '';
+        show('Συνδεδεμένοι τώρα', name, loading);
+        try {
+          const d = await fetchJson(btn.dataset.sessionsUrl);
+          eyebrowEl.textContent = `Συνδεδεμένοι τώρα · ${d.count} / ${d.limit}`;
+          if (!d.sessions.length) { bodyEl.innerHTML = '<div class="subs-modal-empty">Κανείς συνδεδεμένος αυτή τη στιγμή.</div>'; return; }
+          const rows = d.sessions.map((s) => `<tr>
+            <td><div class="subs-u-name">${esc(s.name)}</div><div class="subs-u-mail">${esc(s.email)}</div></td>
+            <td class="mono">${esc(s.since)}</td>
+            <td class="mono">${esc(s.last_seen)}</td>
+            <td class="mono">${esc(s.ip)}</td></tr>`).join('');
+          bodyEl.innerHTML = `<table class="subs-modal-table"><thead><tr><th>Χρήστης</th><th>Συνδέθηκε</th><th>Τελ. δραστηριότητα</th><th>IP</th></tr></thead><tbody>${rows}</tbody></table>`;
+        } catch (_e) { bodyEl.innerHTML = '<div class="subs-modal-empty">Σφάλμα φόρτωσης.</div>'; }
+      });
+    });
+
+    document.querySelectorAll('[data-blocked-url]').forEach((btn) => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const name = btn.dataset.tenantName || '';
+        show('Πάνω από την άδεια', name, loading);
+        try {
+          const d = await fetchJson(btn.dataset.blockedUrl);
+          eyebrowEl.textContent = `Μπλοκαρισμένες προσπάθειες (14 ημέρες) · σύνολο ${d.total}`;
+          if (!d.days.length) { bodyEl.innerHTML = '<div class="subs-modal-empty">Καμία προσπάθεια πάνω από την άδεια τις τελευταίες 14 ημέρες.</div>'; return; }
+          const max = Math.max(...d.days.map((x) => x.count), 1);
+          const rows = d.days.map((x) => `<tr>
+            <td class="mono">${esc(x.date)}</td>
+            <td class="subs-bar-cell"><span class="subs-bar" style="width:${Math.round((x.count / max) * 100)}%"></span></td>
+            <td class="mono subs-bar-n">${x.count}</td></tr>`).join('');
+          bodyEl.innerHTML = `<table class="subs-modal-table"><thead><tr><th>Ημέρα</th><th>Προσπάθειες</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
+        } catch (_e) { bodyEl.innerHTML = '<div class="subs-modal-empty">Σφάλμα φόρτωσης.</div>'; }
       });
     });
   })();
