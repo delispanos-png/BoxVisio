@@ -111,6 +111,39 @@ async def _relink_fact_dimensions_after_bulk_ingest(tenant_db: AsyncSession, ent
     result = await tenant_db.execute(text(sql))
     return {f'{entity}_item_id_relinked': int(result.rowcount or 0)}
 
+
+async def _backfill_sales_cost_from_purchases(tenant_db: AsyncSession, *, recent_days: int = 3) -> int:
+    """Fill sales COGS from the item's weighted-average acquisition cost (SUM purchase
+    net / SUM purchase qty over purchase invoices) wherever the source gave no usable
+    cost (cost >= net, i.e. the net fallback -> 0 margin). This is the SQL-connector
+    counterpart of the SoftOne bridge's PURMTK cost: tenants whose SoftOne exposes no
+    per-line cost (empty SALESCVAL) and no FMATTOTALS still get a real margin from their
+    own purchase history. Scoped to recently-updated rows for efficiency; a plausibility
+    guard keeps the derived cost below the selling price (never a negative margin)."""
+    sql = text(
+        """
+        WITH wac AS (
+            SELECT item_id, SUM(net_value) / NULLIF(SUM(qty), 0) AS unit_cost
+            FROM fact_purchases
+            WHERE qty > 0 AND net_value > 0 AND item_id IS NOT NULL
+            GROUP BY item_id
+        )
+        UPDATE fact_sales fs
+        SET cost_amount = round((wac.unit_cost * fs.qty)::numeric, 4),
+            profit_amount = fs.net_value - round((wac.unit_cost * fs.qty)::numeric, 4),
+            updated_at = NOW()
+        FROM wac
+        WHERE fs.item_id = wac.item_id
+          AND fs.net_value > 0 AND fs.qty > 0
+          AND fs.cost_amount >= fs.net_value
+          AND wac.unit_cost > 0
+          AND wac.unit_cost * fs.qty < fs.net_value
+          AND fs.updated_at >= NOW() - make_interval(days => :d)
+        """
+    )
+    result = await tenant_db.execute(sql, {'d': max(1, int(recent_days))})
+    return int(result.rowcount or 0)
+
 CONNECTORS = {
     'sql_connector': GenericSqlConnector(),
     'pharmacyone_sql': PharmacyOneSqlConnector(),
@@ -3361,6 +3394,9 @@ async def _process_job_once(job: dict[str, Any]) -> dict[str, Any]:
         # NULL item_id rows (idempotent, cheap), so it is safe to run here for them too.
         should_relink_facts = bulk_fact_mode or connector_type not in SQL_CONNECTOR_ALIASES
         relink_counts = await _relink_fact_dimensions_after_bulk_ingest(tenant_db, entity) if should_relink_facts else {}
+        if entity == 'sales':
+            # Fill missing COGS from the weighted-average purchase cost (net fallback -> real margin).
+            relink_counts['sales_cost_from_purchases'] = await _backfill_sales_cost_from_purchases(tenant_db)
         if not ignore_sync_state:
             sync_state.last_sync_timestamp = last_ts
             sync_state.last_sync_id = last_id
