@@ -15308,6 +15308,9 @@ _EXPORT_FILTER_FIELDS = [
     ('category_1', 'Κατηγορία 1', 'Όλες οι κατηγορίες 1'),
     ('category_2', 'Κατηγορία 2', 'Όλες οι κατηγορίες 2'),
     ('category_3', 'Κατηγορία 3', 'Όλες οι κατηγορίες 3'),
+    ('supplier', 'Προμηθευτής', 'Όλοι οι προμηθευτές'),
+    ('payment', 'Τρόπος πληρωμής', 'Όλοι οι τρόποι πληρωμής'),
+    ('channel', 'Κανάλι πώλησης', 'Όλα τα κανάλια'),
 ]
 
 # Dimensions the flexible "Ανάλυση" report can group by, and the two modes.
@@ -15430,6 +15433,9 @@ async def _export_query(
                 groups=selected.get('group'),
                 branches=selected.get('branches'),
                 warehouses=selected.get('warehouses'),
+                suppliers=selected.get('supplier'),
+                payments=selected.get('payment'),
+                channels=selected.get('channel'),
                 period_from=(datetime.strptime(period['from'], '%Y-%m-%d').date() if period['from'] else None),
                 period_to=(datetime.strptime(period['to'], '%Y-%m-%d').date() if period['to'] else None),
             )

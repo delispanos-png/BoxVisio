@@ -12467,6 +12467,31 @@ async def export_filter_options(db: AsyncSession) -> dict[str, list[dict[str, st
         for a, b, c in hier_rows
     ]
 
+    supplier_rows = (await db.execute(
+        select(DimItem.preferred_supplier_ext_id, func.max(DimItem.preferred_supplier_name))
+        .where(func.coalesce(func.trim(DimItem.preferred_supplier_ext_id), '') != '')
+        .group_by(DimItem.preferred_supplier_ext_id)
+    )).all()
+    suppliers = sorted(
+        ({'value': str(r[0]), 'label': str(r[1] or r[0])} for r in supplier_rows if str(r[0] or '').strip()),
+        key=lambda o: o['label'].lower(),
+    )
+    payment_rows = (await db.execute(
+        select(FactSales.payment_method).distinct().where(func.coalesce(func.trim(FactSales.payment_method), '') != '')
+    )).all()
+    payments = sorted(
+        ({'value': str(r[0]), 'label': str(r[0])} for r in payment_rows if str(r[0] or '').strip()),
+        key=lambda o: o['label'].lower(),
+    )
+    channel_rows = (await db.execute(
+        select(FactSales.channel_name).distinct().where(func.coalesce(func.trim(FactSales.channel_name), '') != '')
+    )).all()
+    # Empty channel = physical store; expose it as a selectable value alongside real channels.
+    channels = [{'value': '__physical__', 'label': 'Φυσικό κατάστημα'}] + sorted(
+        ({'value': str(r[0]), 'label': str(r[0])} for r in channel_rows if str(r[0] or '').strip()),
+        key=lambda o: o['label'].lower(),
+    )
+
     return {
         'branches': await _dim_options(DimBranch),
         'warehouses': await _dim_options(DimWarehouse),
@@ -12476,6 +12501,9 @@ async def export_filter_options(db: AsyncSession) -> dict[str, list[dict[str, st
         'category_2': await _item_category_options(DimItem.category_2),
         'category_3': await _item_category_options(DimItem.category_3),
         'category_hierarchy': category_hierarchy,
+        'supplier': suppliers,
+        'payment': payments,
+        'channel': channels,
     }
 
 
@@ -12762,6 +12790,9 @@ async def sales_pivot(
     groups: list[str] | None = None,
     branches: list[str] | None = None,
     warehouses: list[str] | None = None,
+    suppliers: list[str] | None = None,
+    payments: list[str] | None = None,
+    channels: list[str] | None = None,
 ) -> tuple[list[dict], dict]:
     """One flexible sales report: group by ANY dimension (channel/group/brand/
     category 1-3/branch/warehouse) in one of two modes.
@@ -12786,7 +12817,7 @@ async def sales_pivot(
     doc_key = _fact_sales_document_key_expr()
 
     need_item = group_by in {'item', 'group', 'brand', 'category_1', 'category_2', 'category_3', 'supplier'} or bool(
-        brands or groups or category_1 or category_2 or category_3
+        brands or groups or category_1 or category_2 or category_3 or suppliers
     )
     need_brand = group_by in {'brand', 'item'} or bool(brands)
     need_group = group_by in {'group', 'item'} or bool(groups)
@@ -12852,6 +12883,19 @@ async def sales_pivot(
         stmt = stmt.where(FactSales.branch_ext_id.in_(branches))
     if warehouses:
         stmt = stmt.where(FactSales.warehouse_ext_id.in_(warehouses))
+    if suppliers:
+        stmt = stmt.where(DimItem.preferred_supplier_ext_id.in_(suppliers))
+    if payments:
+        stmt = stmt.where(FactSales.payment_method.in_(payments))
+    if channels:
+        _real_ch = [c for c in channels if c != '__physical__']
+        _ch_conds = []
+        if _real_ch:
+            _ch_conds.append(FactSales.channel_name.in_(_real_ch))
+        if '__physical__' in channels:
+            _ch_conds.append(func.coalesce(func.trim(func.coalesce(FactSales.channel_name, '')), '') == '')
+        if _ch_conds:
+            stmt = stmt.where(or_(*_ch_conds))
 
     if mode == 'comparison':
         windows = [w for w in (in_a, in_b) if w is not None]
