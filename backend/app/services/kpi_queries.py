@@ -12921,19 +12921,30 @@ async def sales_pivot(
     rows: list[dict] = []
     if mode == 'comparison':
         tot = {'turnover_a': 0.0, 'cost_a': 0.0, 'profit_a': 0.0, 'turnover_b': 0.0, 'cost_b': 0.0, 'profit_b': 0.0}
+        def _pct(cur, base):
+            return ((cur - base) / abs(base) * 100.0) if base else (100.0 if cur else 0.0)
         for r in raw:
             ta, pa = float(r['turnover_a'] or 0), float(r['profit_a'] or 0)
             tb, pb = float(r['turnover_b'] or 0), float(r['profit_b'] or 0)
+            ca, cb = ta - pa, tb - pb
             row = {'label': str(r['label'] or '—'),
-                   'turnover_a': ta, 'cost_a': ta - pa, 'profit_a': pa,
-                   'turnover_b': tb, 'cost_b': tb - pb, 'profit_b': pb,
-                   # Δ% = turnover change of period A vs period B.
-                   'delta_pct': ((ta - tb) / abs(tb) * 100.0) if tb else (100.0 if ta else 0.0)}
+                   'turnover_a': ta, 'cost_a': ca, 'profit_a': pa,
+                   'turnover_b': tb, 'cost_b': cb, 'profit_b': pb,
+                   # Per-metric Δ%: each A metric vs its B counterpart, and each B metric vs A.
+                   'delta_pct': _pct(ta, tb),
+                   'd_turnover_a': _pct(ta, tb), 'd_cost_a': _pct(ca, cb), 'd_profit_a': _pct(pa, pb),
+                   'd_turnover_b': _pct(tb, ta), 'd_cost_b': _pct(cb, ca), 'd_profit_b': _pct(pb, pa)}
             rows.append(row)
             for k in ('turnover_a', 'cost_a', 'profit_a', 'turnover_b', 'cost_b', 'profit_b'):
                 tot[k] += row[k]
         tot['count'] = len(rows)
-        tot['delta_pct'] = ((tot['turnover_a'] - tot['turnover_b']) / abs(tot['turnover_b']) * 100.0) if tot['turnover_b'] else (100.0 if tot['turnover_a'] else 0.0)
+        tot['delta_pct'] = _pct(tot['turnover_a'], tot['turnover_b'])
+        tot['d_turnover_a'] = _pct(tot['turnover_a'], tot['turnover_b'])
+        tot['d_cost_a'] = _pct(tot['cost_a'], tot['cost_b'])
+        tot['d_profit_a'] = _pct(tot['profit_a'], tot['profit_b'])
+        tot['d_turnover_b'] = _pct(tot['turnover_b'], tot['turnover_a'])
+        tot['d_cost_b'] = _pct(tot['cost_b'], tot['cost_a'])
+        tot['d_profit_b'] = _pct(tot['profit_b'], tot['profit_a'])
         totals = tot
     else:
         total_net = sum(float(r['net_value'] or 0) for r in raw)
