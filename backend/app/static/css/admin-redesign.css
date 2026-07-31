@@ -3452,17 +3452,32 @@ body.bv-admin-shell textarea {
     grid-template-columns: 1fr;
   }
 
-  body.bv-admin-shell .subs-card-actions,
   body.bv-admin-shell .tenant-sticky-actions,
   body.bv-admin-shell .bv-admin-actions {
     width: 100%;
     align-items: stretch;
   }
 
-  body.bv-admin-shell .subs-card-actions .btn,
   body.bv-admin-shell .tenant-sticky-actions .btn,
   body.bv-admin-shell .bv-admin-actions .btn {
     width: 100%;
+  }
+
+  /* Card actions are compact icon controls (toggle / edit / delete) — keep them a
+     tidy row on mobile instead of full-width stacked buttons. */
+  body.bv-admin-shell .subs-card-actions {
+    width: 100%;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+  body.bv-admin-shell .subs-card-actions .btn {
+    width: auto;
+  }
+  body.bv-admin-shell .subs-card-actions .subs-toggle {
+    margin-right: auto;
   }
 
   .tenant-health-kpis {
