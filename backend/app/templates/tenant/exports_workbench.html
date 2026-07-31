@@ -149,6 +149,34 @@
     color: #fff; font-weight: 700; font-size: 12.5px; cursor: pointer; white-space: nowrap;
   }
   .exp-saved-btn:hover { filter: brightness(1.05); }
+
+  /* Save-report modal */
+  .exp-modal { position: fixed; inset: 0; z-index: 1090; display: flex; align-items: center; justify-content: center; padding: 20px; }
+  .exp-modal[hidden] { display: none; }
+  .exp-modal-backdrop { position: absolute; inset: 0; background: rgba(15,18,40,.55); backdrop-filter: blur(2px); }
+  .exp-modal-box {
+    position: relative; width: min(460px, 100%); background: var(--bv-surface, #fff);
+    border: 1px solid var(--bv-border, #e2e8f2); border-radius: 16px; box-shadow: 0 24px 70px rgba(16,24,40,.35);
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  .exp-modal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 15px 18px; border-bottom: 1px solid var(--bv-border, #e2e8f2); }
+  .exp-modal-head h3 { margin: 0; font-size: 1.02rem; font-weight: 800; color: var(--bv-heading, #111827); display: inline-flex; align-items: center; gap: 8px; }
+  .exp-modal-head h3 i { color: var(--bv-brand-primary, #2563eb); }
+  .exp-modal-x { width: 34px; height: 34px; border-radius: 9px; border: 1px solid var(--bv-border, #e2e8f2); background: var(--bv-surface, #fff); color: var(--bv-muted, #64748b); cursor: pointer; display: grid; place-items: center; }
+  .exp-modal-x:hover { color: var(--bv-heading, #111827); }
+  .exp-modal-body { padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; }
+  .exp-modal-warn { display: flex; align-items: center; gap: 8px; padding: 9px 11px; border-radius: 9px; background: #fffbeb; border: 1px solid #fcd34d; color: #92400e; font-size: 12.5px; font-weight: 600; }
+  .exp-modal-label { font-size: 12.5px; font-weight: 700; color: var(--bv-text, #1f2a44); }
+  .exp-modal-input { width: 100%; height: 40px; border-radius: 9px; border: 1px solid var(--bv-border-strong, #cfdae9); background: var(--bv-surface, #fff); color: var(--bv-text, #1f2a44); padding: 0 12px; font: inherit; font-size: 14px; }
+  .exp-modal-input:focus { outline: none; border-color: var(--bv-brand-primary, #2563eb); box-shadow: 0 0 0 3px color-mix(in srgb, var(--bv-brand-primary, #2563eb) 16%, transparent); }
+  .exp-modal-check { display: flex; align-items: flex-start; gap: 8px; font-size: 12.5px; color: var(--bv-muted, #64748b); cursor: pointer; line-height: 1.35; }
+  .exp-modal-check input { margin-top: 2px; flex: none; }
+  .exp-modal-foot { display: flex; justify-content: flex-end; gap: 10px; padding: 14px 18px; border-top: 1px solid var(--bv-border, #e2e8f2); }
+  .exp-modal-cancel { padding: 9px 16px; border-radius: 9px; border: 1px solid var(--bv-border-strong, #cfdae9); background: var(--bv-surface, #fff); color: var(--bv-text, #1f2a44); font: inherit; font-weight: 700; font-size: 12.5px; cursor: pointer; }
+  .exp-modal-cancel:hover { border-color: var(--bv-muted, #64748b); }
+  .exp-modal-save { display: inline-flex; align-items: center; gap: 7px; padding: 9px 18px; border-radius: 9px; border: 1px solid var(--bv-brand-primary, #2563eb); background: var(--bv-brand-primary, #2563eb); color: #fff; font: inherit; font-weight: 700; font-size: 12.5px; cursor: pointer; }
+  .exp-modal-save:hover { filter: brightness(1.05); }
+  .exp-modal-save:disabled { opacity: .5; cursor: not-allowed; }
 </style>
 
 <div class="exp-shell">
@@ -176,13 +204,33 @@
       <span class="exp-saved-empty">Καμία ακόμη — φτιάξε ένα report, πάτα «Υπολογισμός» και μετά «Αποθήκευση τρέχοντος».</span>
       {% endif %}
     </div>
-    <button type="button" class="exp-saved-btn" data-exp-save><i class="fe fe-save"></i> Αποθήκευση τρέχοντος</button>
+    <button type="button" class="exp-saved-btn" data-exp-save><i class="fe fe-save"></i> Αποθήκευση ρεπόρτ</button>
   </section>
   <form method="post" action="/tenant/exports/reports/save" id="expSaveForm" hidden>
     <input type="hidden" name="name" id="expSaveName">
     <input type="hidden" name="params" id="expSaveParams">
     <input type="hidden" name="make_default" id="expSaveDefault" value="">
   </form>
+
+  <div class="exp-modal" id="expSaveModal" hidden>
+    <div class="exp-modal-backdrop" data-exp-close></div>
+    <div class="exp-modal-box" role="dialog" aria-modal="true" aria-labelledby="expModalTitle">
+      <div class="exp-modal-head">
+        <h3 id="expModalTitle"><i class="fe fe-save"></i> Αποθήκευση ρεπόρτ</h3>
+        <button type="button" class="exp-modal-x" data-exp-close aria-label="Κλείσιμο"><i class="fe fe-x"></i></button>
+      </div>
+      <div class="exp-modal-body">
+        <div class="exp-modal-warn" id="expModalWarn" hidden><i class="fe fe-alert-triangle"></i> Πρώτα διάλεξε στήλες/φίλτρα και πάτησε «Υπολογισμός», μετά αποθήκευσε το ρεπόρτ.</div>
+        <label class="exp-modal-label" for="expModalNameInput">Όνομα ρεπόρτ</label>
+        <input type="text" id="expModalNameInput" class="exp-modal-input" maxlength="120" placeholder="π.χ. Μηνιαία ανά κανάλι" autocomplete="off">
+        <label class="exp-modal-check"><input type="checkbox" id="expModalDefaultInput"> <span>Ορισμός ως προεπιλογή — φορτώνει αυτόματα όταν ανοίγεις το Report Builder</span></label>
+      </div>
+      <div class="exp-modal-foot">
+        <button type="button" class="exp-modal-cancel" data-exp-close>Άκυρο</button>
+        <button type="button" class="exp-modal-save" id="expModalSaveBtn"><i class="fe fe-save"></i> Αποθήκευση</button>
+      </div>
+    </div>
+  </div>
   {% endif %}
 
   <form method="get" action="{{ form_action }}">
@@ -690,24 +738,44 @@
   });
 })();
 
-// Save the current Report Builder configuration (current URL query = full config after Υπολογισμός).
+// Save the current Report Builder configuration via an in-app modal (current URL
+// query = full config after Υπολογισμός).
 (function () {
   var btn = document.querySelector('[data-exp-save]');
-  if (!btn) return;
-  btn.addEventListener('click', function () {
-    var params = window.location.search.replace(/^\?/, '');
-    if (!params) {
-      alert('Πρώτα διάλεξε στήλες/φίλτρα και πάτησε «Υπολογισμός», μετά αποθήκευσε την αναφορά.');
-      return;
-    }
-    var name = window.prompt('Όνομα αναφοράς:');
-    if (!name || !name.trim()) return;
-    var makeDefault = window.confirm('Να οριστεί ως προεπιλογή; Θα φορτώνει αυτόματα κάθε φορά που ανοίγεις το Report Builder.');
-    document.getElementById('expSaveName').value = name.trim();
+  var modal = document.getElementById('expSaveModal');
+  if (!btn || !modal) return;
+  var nameInput = document.getElementById('expModalNameInput');
+  var defaultInput = document.getElementById('expModalDefaultInput');
+  var warn = document.getElementById('expModalWarn');
+  var saveBtn = document.getElementById('expModalSaveBtn');
+  var curParams = function () { return window.location.search.replace(/^\?/, ''); };
+
+  function openModal() {
+    var hasParams = !!curParams();
+    warn.hidden = hasParams;
+    saveBtn.disabled = !hasParams;
+    nameInput.value = '';
+    defaultInput.checked = false;
+    modal.hidden = false;
+    document.body.style.overflow = 'hidden';
+    if (hasParams) { setTimeout(function () { nameInput.focus(); }, 40); }
+  }
+  function closeModal() { modal.hidden = true; document.body.style.overflow = ''; }
+  function submitSave() {
+    var params = curParams();
+    var name = (nameInput.value || '').trim();
+    if (!params || !name) { nameInput.focus(); return; }
+    document.getElementById('expSaveName').value = name;
     document.getElementById('expSaveParams').value = params;
-    document.getElementById('expSaveDefault').value = makeDefault ? '1' : '';
+    document.getElementById('expSaveDefault').value = defaultInput.checked ? '1' : '';
     document.getElementById('expSaveForm').submit();
-  });
+  }
+
+  btn.addEventListener('click', openModal);
+  modal.querySelectorAll('[data-exp-close]').forEach(function (el) { el.addEventListener('click', closeModal); });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !modal.hidden) closeModal(); });
+  nameInput.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); submitSave(); } });
+  saveBtn.addEventListener('click', submitSave);
 })();
 </script>
 {% endblock %}
