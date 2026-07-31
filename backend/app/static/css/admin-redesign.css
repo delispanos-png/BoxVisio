@@ -1756,6 +1756,162 @@ body.bv-admin-shell .bv-stat-strip.bv-kpi-style.bv-tone-red {
   color: var(--bv-admin-muted);
 }
 
+/* --- Toolbar: search + status filter --- */
+.subs-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--bv-admin-border);
+  border-radius: var(--bv-admin-radius);
+  background: var(--bv-admin-surface);
+  box-shadow: var(--bv-admin-shadow);
+}
+
+.subs-search {
+  position: relative;
+  flex: 1 1 260px;
+  min-width: 200px;
+}
+
+.subs-search i {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--bv-admin-muted);
+  font-size: .95rem;
+}
+
+.subs-search input {
+  width: 100%;
+  height: 38px;
+  padding: 0 12px 0 34px;
+  border: 1px solid var(--bv-admin-border);
+  border-radius: 999px;
+  background: var(--bv-admin-surface-soft);
+  color: var(--bv-admin-text);
+  font-size: .85rem;
+}
+
+.subs-search input:focus {
+  outline: none;
+  border-color: #93c5fd;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, .15);
+}
+
+.subs-filter-group {
+  display: inline-flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.subs-filter-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border: 1px solid var(--bv-admin-border);
+  border-radius: 999px;
+  background: var(--bv-admin-surface-soft);
+  color: #475569;
+  font-size: .78rem;
+  font-weight: 800;
+  cursor: pointer;
+  transition: background .12s, border-color .12s, color .12s;
+}
+
+.subs-filter-btn:hover {
+  border-color: #cbd5e1;
+}
+
+.subs-filter-btn.is-on {
+  background: #eef2ff;
+  border-color: #c7d2fe;
+  color: #4338ca;
+}
+
+.subs-filter-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, .08);
+  font-size: .7rem;
+  font-weight: 900;
+}
+
+.subs-filter-btn.is-on .subs-filter-count {
+  background: rgba(67, 56, 202, .16);
+  color: #4338ca;
+}
+
+.subs-empty {
+  margin: 4px 2px;
+  color: var(--bv-admin-muted);
+  font-size: .85rem;
+}
+
+/* --- Prominent expiry badge --- */
+.subs-expiry {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 5px 11px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-size: .75rem;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.subs-expiry.is-ok {
+  color: #047857;
+  border-color: #a7f3d0;
+  background: #ecfdf5;
+}
+
+.subs-expiry.is-soon {
+  color: #92400e;
+  border-color: #fcd34d;
+  background: #fffbeb;
+}
+
+.subs-expiry.is-expired {
+  color: #b91c1c;
+  border-color: #fecaca;
+  background: #fef2f2;
+}
+
+.subs-expiry.is-none {
+  color: var(--bv-admin-muted);
+  border-color: var(--bv-admin-border);
+  background: var(--bv-admin-surface-soft);
+}
+
+/* --- Sub-group dividers inside the subscription panel --- */
+.subs-subgroup {
+  grid-column: 1 / -1;
+  margin-top: 4px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--bv-admin-border);
+  color: var(--bv-admin-muted);
+  font-size: .7rem;
+  font-weight: 900;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.subs-subgroup:first-child {
+  margin-top: 0;
+}
+
 .subs-card-body {
   padding: 16px 18px 18px;
 }

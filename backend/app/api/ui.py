@@ -7049,9 +7049,11 @@ async def admin_subscriptions(
     subscription_limits_by_tenant: dict[int, dict[str, object]] = {}
     subscription_feature_allowed_by_tenant: dict[int, dict[str, bool]] = {}
     subscription_customer_feature_keys_by_tenant: dict[int, set[str]] = {}
+    subscription_state_by_tenant: dict[int, dict] = {}
     for t in tenants:
         sub = await get_or_create_subscription(db, t)
         await sync_tenant_from_subscription(db, t, sub)
+        subscription_state_by_tenant[int(t.id)] = subscription_access_state(sub)
         limit_context = await _tenant_user_license_context(db, t)
         feature_values = normalize_subscription_feature_flags(sub.plan, sub.feature_flags)
         allowed_values: dict[str, bool] = {}
@@ -7091,6 +7093,7 @@ async def admin_subscriptions(
             'subscription_feature_allowed_by_tenant': subscription_feature_allowed_by_tenant,
             'subscription_customer_feature_keys_by_tenant': subscription_customer_feature_keys_by_tenant,
             'subscription_limits_by_tenant': subscription_limits_by_tenant,
+            'subscription_state_by_tenant': subscription_state_by_tenant,
             'subscription_features': all_subscription_features,
             'plan_choices': plan_choices,
             'addon_feature_keys': addon_feature_keys,
