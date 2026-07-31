@@ -380,6 +380,65 @@
     body.bv-admin-shell .bv-admin-product { border-top-color: #e6e8f4 !important; }
     body.bv-admin-shell .bv-admin-product span { color: #676f92 !important; }
     body.bv-admin-shell .bv-admin-product strong { color: #171a30 !important; }
+
+    /* ===================================================================
+       Collapsed = ICON RAIL (desktop ≥992px), not a vanishing sidebar.
+       Overrides boxvisio-ui.css translateX(-100%). Mobile (≤991px) keeps
+       the off-canvas drawer behaviour untouched.
+       =================================================================== */
+    @media (min-width: 992px) {
+      body.bv-admin-shell.admin-sidebar-collapsed #leftsidebar.sidebar,
+      body.bv-admin-shell.admin-sidebar-collapsed .left-sidebar {
+        transform: none !important;
+        width: 76px !important;
+        min-width: 76px !important;
+      }
+      body.bv-admin-shell.admin-sidebar-collapsed .content.home {
+        margin-left: 76px !important;
+      }
+      /* Hide every textual bit — icons only. */
+      body.bv-admin-shell.admin-sidebar-collapsed .menu-head,
+      body.bv-admin-shell.admin-sidebar-collapsed .bv-admin-product,
+      body.bv-admin-shell.admin-sidebar-collapsed .sidebar-version-footer,
+      body.bv-admin-shell.admin-sidebar-collapsed .bv-menu-group .bv-group-toggle,
+      body.bv-admin-shell.admin-sidebar-collapsed .sidemenu-label,
+      body.bv-admin-shell.admin-sidebar-collapsed .bv-group-arrow {
+        display: none !important;
+      }
+      /* Logo band → show the compact brand mark, centered. */
+      body.bv-admin-shell.admin-sidebar-collapsed .left-sidebar .admin-image {
+        padding: 12px 8px !important;
+        min-height: 60px;
+        background-image: url('/static/brand/boxvisio-mark.svg?v=20260528logo1') !important;
+        background-repeat: no-repeat !important;
+        background-position: center !important;
+        background-size: 38px 38px !important;
+      }
+      body.bv-admin-shell.admin-sidebar-collapsed .sidebar .admin-image .brand-logo {
+        display: none !important;
+      }
+      /* Force all page groups open, rendered as a centered icon strip. */
+      body.bv-admin-shell.admin-sidebar-collapsed .main-sidebar .list .bv-submenu {
+        display: block !important;
+        margin: 2px 8px !important;
+        padding: 0 !important;
+        border-left: 0 !important;
+      }
+      body.bv-admin-shell.admin-sidebar-collapsed .main-sidebar .list .bv-submenu-link,
+      body.bv-admin-shell.admin-sidebar-collapsed .main-sidebar .list .nav-item .nav-link {
+        justify-content: center !important;
+        padding: 9px 0 !important;
+        margin: 2px 6px !important;
+      }
+      body.bv-admin-shell.admin-sidebar-collapsed .main-sidebar .list .bv-submenu-link i {
+        font-size: 17px !important;
+      }
+      /* Submenu links label with a plain <span> (not .sidemenu-label) — hide it too. */
+      body.bv-admin-shell.admin-sidebar-collapsed .main-sidebar .list .bv-submenu-link span,
+      body.bv-admin-shell.admin-sidebar-collapsed .main-sidebar .list .nav-item .nav-link > span {
+        display: none !important;
+      }
+    }
   </style>
 </head>
 {% set _theme = request.cookies.get('theme', 'light') %}
