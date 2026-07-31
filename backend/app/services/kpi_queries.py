@@ -12922,7 +12922,9 @@ async def sales_pivot(
     if mode == 'comparison':
         tot = {'turnover_a': 0.0, 'cost_a': 0.0, 'profit_a': 0.0, 'turnover_b': 0.0, 'cost_b': 0.0, 'profit_b': 0.0}
         def _pct(cur, base):
-            return ((cur - base) / abs(base) * 100.0) if base else (100.0 if cur else 0.0)
+            # No % change is definable from a zero baseline (item had no sales in period B);
+            # return None so the UI shows nothing instead of a misleading +100%.
+            return ((cur - base) / abs(base) * 100.0) if base else None
         for r in raw:
             ta, pa = float(r['turnover_a'] or 0), float(r['profit_a'] or 0)
             tb, pb = float(r['turnover_b'] or 0), float(r['profit_b'] or 0)

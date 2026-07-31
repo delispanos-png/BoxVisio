@@ -15688,9 +15688,16 @@ async def _render_exports_download(
             headers = [dim_label, 'Τζίρος Α', 'Κόστος Α', 'Κέρδος Α', 'Τζίρος Β', 'Κόστος Β', 'Κέρδος Β', 'Δ% Τζίρου', 'Δ% Κόστους', 'Δ% Κέρδους']
             widths = [26, 15, 15, 15, 15, 15, 15, 12, 12, 12]
             keys = ['turnover_a', 'cost_a', 'profit_a', 'turnover_b', 'cost_b', 'profit_b', 'd_turnover_a', 'd_cost_a', 'd_profit_a']
-            data_rows = [[r['label']] + [round(float(r.get(k) or 0), 2) for k in keys] for r in rows]
+            _delta_keys = {'d_turnover_a', 'd_cost_a', 'd_profit_a'}
+
+            def _cmp_cell(src, k):
+                v = src.get(k)
+                if k in _delta_keys:  # blank instead of a misleading 0 when there is no period-B baseline
+                    return '' if v is None else round(float(v), 1)
+                return round(float(v or 0), 2)
+            data_rows = [[r['label']] + [_cmp_cell(r, k) for k in keys] for r in rows]
             if data_rows:
-                data_rows.append(['ΣΥΝΟΛΟ'] + [round(float(totals.get(k) or 0), 2) for k in keys])
+                data_rows.append(['ΣΥΝΟΛΟ'] + [_cmp_cell(totals, k) for k in keys])
         else:
             metrics = _export_selected_metrics(request, a_group_by)
             headers = [dim_label] + [_EXPORT_PIVOT_METRIC_MAP[m]['label'] for m in metrics]
