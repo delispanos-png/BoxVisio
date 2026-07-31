@@ -7115,6 +7115,7 @@ async def admin_subscription_update(
     tenant_id: int,
     plan: str = Form(default=''),
     subscription_status: str = Form(default=''),
+    current_period_end: str = Form(default=''),
     max_users: str = Form(default=''),
     max_concurrent_sessions: str = Form(default=''),
     max_branches: str = Form(default=''),
@@ -7205,6 +7206,22 @@ async def admin_subscription_update(
         sub.canceled_at = datetime.utcnow()
     if sub.status == SubscriptionStatus.suspended:
         sub.suspended_at = datetime.utcnow()
+    # Subscription expiry (tenant-wide, applies to every user). dd/mm/yyyy or yyyy-mm-dd; blank clears.
+    _period_raw = (current_period_end or '').strip()
+    if _period_raw:
+        _parsed_end = None
+        for _fmt in ('%d/%m/%Y', '%Y-%m-%d'):
+            try:
+                _parsed_end = datetime.strptime(_period_raw, _fmt)
+                break
+            except ValueError:
+                continue
+        if _parsed_end is None:
+            return RedirectResponse(url=f'{redirect_target}?saved=0&reason=bad_period_end', status_code=303)
+        # End of the selected day, so the whole day counts as active.
+        sub.current_period_end = _parsed_end.replace(hour=23, minute=59, second=59)
+    else:
+        sub.current_period_end = None
     selected_features = {str(item) for item in (enabled_features or [])}
     catalog_rows = (
         await db.execute(select(PlanFeatureCatalog).where(PlanFeatureCatalog.is_active == True).order_by(PlanFeatureCatalog.group, PlanFeatureCatalog.label))

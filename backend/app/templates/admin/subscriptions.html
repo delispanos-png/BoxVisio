@@ -88,6 +88,12 @@
                   </select>
                 </div>
                 <div>
+                  <label class="form-label">Ημερομηνία λήξης συνδρομής</label>
+                  <input class="form-control form-control-sm" type="date" name="current_period_end"
+                         value="{{ t.current_period_end.strftime('%Y-%m-%d') if t.current_period_end else '' }}"
+                         title="Λήξη συνδρομής — ισχύει για ΟΛΟΥΣ τους χρήστες του πελάτη. Κενό = χωρίς λήξη.">
+                </div>
+                <div>
                   <label class="form-label">Πλάνο</label>
                   <select class="form-select form-select-sm subs-plan-select" name="plan" data-plan-select>
                     {% for plan_choice in plan_choices %}
