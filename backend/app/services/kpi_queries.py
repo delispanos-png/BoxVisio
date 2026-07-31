@@ -12718,6 +12718,8 @@ _PIVOT_DIMENSIONS = {
     'category_3': 'Κατηγορία 3',
     'branch': 'Υποκατάστημα',
     'warehouse': 'Αποθηκευτικός χώρος',
+    'supplier': 'Προμηθευτής',
+    'payment': 'Τρόπος πληρωμής',
 }
 
 
@@ -12737,6 +12739,10 @@ def _pivot_label_expr(group_by: str):
         return func.coalesce(func.nullif(func.trim(func.coalesce(DimBranch.name, '')), ''), FactSales.branch_ext_id, literal('N/A'))
     if group_by == 'warehouse':
         return func.coalesce(func.nullif(func.trim(func.coalesce(DimWarehouse.name, '')), ''), FactSales.warehouse_ext_id, literal('N/A'))
+    if group_by == 'supplier':
+        return _clean(DimItem.preferred_supplier_name, 'Χωρίς προμηθευτή')
+    if group_by == 'payment':
+        return _clean(FactSales.payment_method, 'Χωρίς τρόπο πληρωμής')
     return _clean(FactSales.channel_name, 'Φυσικό κατάστημα')  # default: channel
 
 
@@ -12779,7 +12785,7 @@ async def sales_pivot(
     discount = func.coalesce(FactSales.discount_amount, 0) * _amt_sign
     doc_key = _fact_sales_document_key_expr()
 
-    need_item = group_by in {'item', 'group', 'brand', 'category_1', 'category_2', 'category_3'} or bool(
+    need_item = group_by in {'item', 'group', 'brand', 'category_1', 'category_2', 'category_3', 'supplier'} or bool(
         brands or groups or category_1 or category_2 or category_3
     )
     need_brand = group_by in {'brand', 'item'} or bool(brands)

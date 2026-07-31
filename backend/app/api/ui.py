@@ -15321,6 +15321,8 @@ _EXPORT_PIVOT_DIMENSIONS = [
     ('category_3', 'Κατηγορία 3'),
     ('branch', 'Υποκατάστημα'),
     ('warehouse', 'Αποθηκευτικός χώρος'),
+    ('supplier', 'Προμηθευτής'),
+    ('payment', 'Τρόπος πληρωμής'),
 ]
 _EXPORT_PIVOT_DIM_LABELS = dict(_EXPORT_PIVOT_DIMENSIONS)
 _EXPORT_PIVOT_MODES = [('analysis', 'Ανάλυση περιόδου'), ('comparison', 'Σύγκριση Α / Β')]
