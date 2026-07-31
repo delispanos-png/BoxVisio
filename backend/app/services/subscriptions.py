@@ -65,8 +65,11 @@ def subscription_access_state(sub: Subscription | None, now: datetime | None = N
         base['reason'] = sub.status.value
         return base
     # past_due = the period has ended but the tenant is still inside the grace window: keep access,
-    # but surface an urgent "expired — renew now" banner.
-    if sub.status == SubscriptionStatus.past_due:
+    # but surface an urgent "expired — renew now" banner. Guard on the DATE, not just the status:
+    # if the period_end has been pushed into the future (e.g. a renewal) while the status is still a
+    # stale past_due, do NOT claim "expired" — fall through to the normal notice logic below so we
+    # never show "έληξε στις <future date>". (apply_subscription_time_transitions recovers the status.)
+    if sub.status == SubscriptionStatus.past_due and (days_left is None or days_left < 0):
         base['grace'] = True
         base['reason'] = 'expired'
         return base
@@ -190,6 +193,10 @@ async def apply_subscription_time_transitions(db: AsyncSession, tenant: Tenant, 
         sub.suspended_at = now
     elif sub.status == SubscriptionStatus.active and sub.current_period_end and sub.current_period_end < now:
         sub.status = SubscriptionStatus.past_due
+    elif sub.status == SubscriptionStatus.past_due and sub.current_period_end and sub.current_period_end >= now:
+        # The period was extended back into the future (renewal / admin edit): recover to active
+        # instead of leaving a stale past_due that would falsely read as "expired".
+        sub.status = SubscriptionStatus.active
     elif (
         sub.status == SubscriptionStatus.past_due
         and sub.current_period_end
