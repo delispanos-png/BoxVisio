@@ -82,6 +82,7 @@ from app.models.control import (
     Invoice,
     Payment,
     RefreshToken,
+    SavedReport,
     SubscriptionLimit,
     WhmcsService,
 )
@@ -15762,6 +15763,13 @@ async def _render_exports_workbench(
     for key, _label, _ph in _EXPORT_FILTER_FIELDS:
         label_maps[key] = {opt['value']: opt['label'] for opt in options.get(key, [])}
 
+    # Saved Report Builder configurations for the current user (analysis page only).
+    saved_reports: list[dict] = []
+    if report_kind == 'analysis':
+        _cur_user = getattr(request.state, 'current_user', None)
+        if _cur_user is not None:
+            saved_reports = await _load_saved_reports(int(tenant.id), int(_cur_user.id), 'analysis')
+
     return templates.TemplateResponse(
         'tenant/exports_workbench.html',
         {
@@ -15794,6 +15802,7 @@ async def _render_exports_workbench(
             'pivot_item_attrs': _EXPORT_PIVOT_ITEM_ATTRS,
             'pivot_metrics_selected': _export_selected_metrics(request, pivot_group_by),
             'pivot_metric_map': _EXPORT_PIVOT_METRIC_MAP,
+            'saved_reports': saved_reports,
         },
     )
 
@@ -16030,13 +16039,108 @@ async def tenant_exports_group_comparison_download(
     return await _render_exports_download(request=request, tenant=tenant, variant='group_comparison', fmt=fmt)
 
 
+async def _load_saved_reports(tenant_id: int, user_id: int, kind: str = 'analysis') -> list[dict]:
+    async with ControlSessionLocal() as cdb:
+        rows = (
+            await cdb.execute(
+                select(SavedReport)
+                .where(SavedReport.tenant_id == tenant_id, SavedReport.user_id == user_id, SavedReport.kind == kind)
+                .order_by(SavedReport.is_default.desc(), SavedReport.name.asc())
+            )
+        ).scalars().all()
+        return [{'id': r.id, 'name': r.name, 'params': r.params, 'is_default': bool(r.is_default)} for r in rows]
+
+
 @router.get('/tenant/exports/analysis', response_class=HTMLResponse)
 async def tenant_exports_analysis(
     request: Request,
     tenant: Tenant = Depends(get_request_tenant),
-    _user=Depends(get_current_user),
+    user=Depends(get_current_user),
 ):
+    # Fresh open with no configuration → auto-load the user's default saved report, if any.
+    if not request.query_params:
+        async with ControlSessionLocal() as cdb:
+            default = (
+                await cdb.execute(
+                    select(SavedReport).where(
+                        SavedReport.tenant_id == int(tenant.id),
+                        SavedReport.user_id == int(user.id),
+                        SavedReport.kind == 'analysis',
+                        SavedReport.is_default.is_(True),
+                    ).limit(1)
+                )
+            ).scalar_one_or_none()
+        if default and default.params:
+            return RedirectResponse(url=f'/tenant/exports/analysis?{default.params}', status_code=303)
     return await _render_exports_workbench(request=request, tenant=tenant, variant='analysis')
+
+
+@router.post('/tenant/exports/reports/save')
+async def tenant_saved_report_save(
+    request: Request,
+    name: str = Form(default=''),
+    params: str = Form(default=''),
+    make_default: str = Form(default=''),
+    tenant: Tenant = Depends(get_request_tenant),
+    user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_control_db),
+):
+    nm = (name or '').strip()[:120]
+    prm = (params or '').strip().lstrip('?')[:4000]
+    if not nm:
+        return RedirectResponse(url='/tenant/exports/analysis', status_code=303)
+    is_default = str(make_default).strip().lower() in {'1', 'true', 'on', 'yes'}
+    existing = (
+        await db.execute(
+            select(SavedReport).where(
+                SavedReport.tenant_id == int(tenant.id),
+                SavedReport.user_id == int(user.id),
+                SavedReport.kind == 'analysis',
+                SavedReport.name == nm,
+            )
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        existing.params = prm
+        existing.is_default = is_default
+        target = existing
+    else:
+        target = SavedReport(tenant_id=int(tenant.id), user_id=int(user.id), kind='analysis', name=nm, params=prm, is_default=is_default)
+        db.add(target)
+    await db.flush()
+    if is_default:
+        await db.execute(
+            update(SavedReport)
+            .where(
+                SavedReport.tenant_id == int(tenant.id),
+                SavedReport.user_id == int(user.id),
+                SavedReport.kind == 'analysis',
+                SavedReport.id != target.id,
+            )
+            .values(is_default=False)
+        )
+    await db.commit()
+    return RedirectResponse(url=(f'/tenant/exports/analysis?{prm}' if prm else '/tenant/exports/analysis'), status_code=303)
+
+
+@router.post('/tenant/exports/reports/{report_id}/delete')
+async def tenant_saved_report_delete(
+    report_id: int,
+    request: Request,
+    tenant: Tenant = Depends(get_request_tenant),
+    user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_control_db),
+):
+    await db.execute(
+        delete(SavedReport).where(
+            SavedReport.id == report_id,
+            SavedReport.tenant_id == int(tenant.id),
+            SavedReport.user_id == int(user.id),
+        )
+    )
+    await db.commit()
+    ref = request.headers.get('referer') or '/tenant/exports/analysis'
+    return RedirectResponse(url=ref, status_code=303)
 
 
 @router.get('/tenant/store-dashboard', response_class=HTMLResponse)

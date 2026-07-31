@@ -114,6 +114,41 @@
     color: var(--text, #1b2130); padding: 11px 12px;
   }
   .exp-table tfoot .exp-total-row td:first-child { text-transform: uppercase; letter-spacing: .03em; font-size: 12px; }
+
+  /* Saved reports bar */
+  .exp-saved {
+    display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap;
+    padding: 12px 14px; border: 1px solid var(--bv-border, #e2e8f2); border-radius: 12px;
+    background: var(--bv-surface, #fff);
+  }
+  .exp-saved-left { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; min-width: 0; }
+  .exp-saved-label { font-weight: 800; font-size: 13px; color: var(--bv-heading, #111827); display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
+  .exp-saved-label i { color: var(--bv-brand-primary, #2563eb); }
+  .exp-saved-list { display: flex; flex-wrap: wrap; gap: 8px; }
+  .exp-saved-item {
+    display: inline-flex; align-items: center; gap: 2px; border: 1px solid var(--bv-border, #e2e8f2);
+    border-radius: 999px; background: var(--bv-surface-3, #f3f6fb); overflow: hidden;
+  }
+  .exp-saved-item.is-default { border-color: #fcd34d; background: #fffbeb; }
+  .exp-saved-item > a {
+    display: inline-flex; align-items: center; gap: 6px; padding: 6px 4px 6px 12px; font-size: 12.5px;
+    font-weight: 700; color: var(--bv-text, #1f2a44); text-decoration: none; white-space: nowrap;
+  }
+  .exp-saved-item.is-default > a i { color: #d97706; }
+  .exp-saved-item > a:hover { color: var(--bv-brand-primary, #2563eb); }
+  .exp-saved-item > form { margin: 0; display: inline-flex; }
+  .exp-saved-item > form button {
+    border: 0; background: transparent; color: var(--bv-muted, #64748b); cursor: pointer;
+    padding: 6px 9px 6px 4px; display: inline-flex; align-items: center; line-height: 1;
+  }
+  .exp-saved-item > form button:hover { color: #ef4444; }
+  .exp-saved-empty { font-size: 12.5px; color: var(--bv-muted, #64748b); }
+  .exp-saved-btn {
+    display: inline-flex; align-items: center; gap: 7px; padding: 8px 14px; border-radius: 9px;
+    border: 1px solid var(--bv-brand-primary, #2563eb); background: var(--bv-brand-primary, #2563eb);
+    color: #fff; font-weight: 700; font-size: 12.5px; cursor: pointer; white-space: nowrap;
+  }
+  .exp-saved-btn:hover { filter: brightness(1.05); }
 </style>
 
 <div class="exp-shell">
@@ -121,6 +156,34 @@
     <h1>{{ page_heading }}</h1>
     <p>{{ page_description }}</p>
   </section>
+
+  {% if report_kind == 'analysis' %}
+  <section class="exp-saved">
+    <div class="exp-saved-left">
+      <span class="exp-saved-label"><i class="fe fe-bookmark"></i> Αποθηκευμένες αναφορές</span>
+      {% if saved_reports %}
+      <div class="exp-saved-list">
+        {% for r in saved_reports %}
+        <span class="exp-saved-item {% if r.is_default %}is-default{% endif %}">
+          <a href="{{ form_action }}?{{ r.params }}" title="Φόρτωση αναφοράς">{% if r.is_default %}<i class="fe fe-star"></i>{% endif %}{{ r.name }}</a>
+          <form method="post" action="/tenant/exports/reports/{{ r.id }}/delete" onsubmit="return confirm('Διαγραφή της αποθηκευμένης αναφοράς «{{ r.name }}»;');">
+            <button type="submit" title="Διαγραφή"><i class="fe fe-x"></i></button>
+          </form>
+        </span>
+        {% endfor %}
+      </div>
+      {% else %}
+      <span class="exp-saved-empty">Καμία ακόμη — φτιάξε ένα report, πάτα «Υπολογισμός» και μετά «Αποθήκευση τρέχοντος».</span>
+      {% endif %}
+    </div>
+    <button type="button" class="exp-saved-btn" data-exp-save><i class="fe fe-save"></i> Αποθήκευση τρέχοντος</button>
+  </section>
+  <form method="post" action="/tenant/exports/reports/save" id="expSaveForm" hidden>
+    <input type="hidden" name="name" id="expSaveName">
+    <input type="hidden" name="params" id="expSaveParams">
+    <input type="hidden" name="make_default" id="expSaveDefault" value="">
+  </form>
+  {% endif %}
 
   <form method="get" action="{{ form_action }}">
     <input type="hidden" name="calc" value="1">
@@ -624,6 +687,26 @@
     document.querySelectorAll('details[data-exp-coldd][open]').forEach(function (dd) {
       if (!dd.contains(e.target)) dd.removeAttribute('open');
     });
+  });
+})();
+
+// Save the current Report Builder configuration (current URL query = full config after Υπολογισμός).
+(function () {
+  var btn = document.querySelector('[data-exp-save]');
+  if (!btn) return;
+  btn.addEventListener('click', function () {
+    var params = window.location.search.replace(/^\?/, '');
+    if (!params) {
+      alert('Πρώτα διάλεξε στήλες/φίλτρα και πάτησε «Υπολογισμός», μετά αποθήκευσε την αναφορά.');
+      return;
+    }
+    var name = window.prompt('Όνομα αναφοράς:');
+    if (!name || !name.trim()) return;
+    var makeDefault = window.confirm('Να οριστεί ως προεπιλογή; Θα φορτώνει αυτόματα κάθε φορά που ανοίγεις το Report Builder.');
+    document.getElementById('expSaveName').value = name.trim();
+    document.getElementById('expSaveParams').value = params;
+    document.getElementById('expSaveDefault').value = makeDefault ? '1' : '';
+    document.getElementById('expSaveForm').submit();
   });
 })();
 </script>
