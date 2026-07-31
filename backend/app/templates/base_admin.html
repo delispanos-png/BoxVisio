@@ -372,8 +372,24 @@
     body.bv-admin-shell .main-sidebar .list .bv-submenu-link {
       color: var(--rail-ink) !important;
     }
-    body.bv-admin-shell .main-sidebar .list .bv-submenu-link:hover,
+    /* Active/hover submenu: dark violet fill (NOT the light --menu-active-bg from
+       admin-redesign.css, which left white text on a white box). */
+    body.bv-admin-shell .main-sidebar .list .bv-submenu-link:hover {
+      background: rgba(255,255,255,.07) !important;
+      color: #ffffff !important;
+    }
     body.bv-admin-shell .main-sidebar .list .bv-submenu li.is-active .bv-submenu-link {
+      background: rgba(101,84,242,.28) !important;
+      color: #ffffff !important;
+    }
+    /* Active group toggle (contains the active page) must stay dark, not light. */
+    body.bv-admin-shell .main-sidebar .list .nav-item.active > .nav-link,
+    body.bv-admin-shell .main-sidebar .list .nav-item .nav-link:hover {
+      background: var(--rail-active) !important;
+      color: #ffffff !important;
+    }
+    body.bv-admin-shell .main-sidebar .list .nav-item.active > .nav-link .sidemenu-label,
+    body.bv-admin-shell .main-sidebar .list .nav-item.active > .nav-link .sidemenu-icon {
       color: #ffffff !important;
     }
     /* Product label sits on the always-white brand band — keep it dark in both themes. */
