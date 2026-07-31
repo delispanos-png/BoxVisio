@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="{{ request.cookies.get('lang', 'el') }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Η συνδρομή έληξε — BoxVisio</title>
+  <link rel="icon" href="/static/brand/boxvisio-mark.svg?v=20260528logo1" type="image/svg+xml">
+  <style>
+    :root { --bg-1:#0ea5b7; --bg-2:#1597c8; --panel:#fff; --text:#0f172a; --muted:#5b6777; --danger:#dc2626; --primary:#0d6efd; }
+    * { box-sizing:border-box; }
+    body { min-height:100vh; margin:0; display:grid; place-items:center; padding:24px;
+      background: radial-gradient(circle at 20% 15%, rgba(255,255,255,.26) 0, rgba(255,255,255,0) 34%), linear-gradient(135deg, var(--bg-1), var(--bg-2));
+      font-family:"Segoe UI","Noto Sans",sans-serif; color:var(--text); }
+    .card { background:var(--panel); width:100%; max-width:480px; border-radius:18px; padding:36px 34px;
+      box-shadow:0 24px 60px rgba(2,20,40,.28); text-align:center; }
+    .mark { width:56px; height:56px; margin:0 auto 14px; }
+    .icon { width:64px; height:64px; margin:6px auto 18px; border-radius:50%; display:grid; place-items:center;
+      background:#fdeaea; color:var(--danger); font-size:32px; }
+    h1 { font-size:22px; margin:0 0 8px; }
+    p { color:var(--muted); font-size:14.5px; line-height:1.6; margin:0 0 14px; }
+    .date { display:inline-block; background:#f4f7fb; border:1px solid #e6ecf4; border-radius:10px;
+      padding:8px 14px; font-weight:800; color:var(--text); margin:4px 0 18px; }
+    .actions { display:flex; gap:10px; justify-content:center; flex-wrap:wrap; margin-top:8px; }
+    .btn { display:inline-block; padding:11px 18px; border-radius:10px; font-weight:700; font-size:14px;
+      text-decoration:none; cursor:pointer; border:1px solid transparent; }
+    .btn-primary { background:var(--primary); color:#fff; }
+    .btn-ghost { background:#fff; color:var(--text); border-color:#dfe4ee; }
+    .contact { margin-top:16px; font-size:13px; color:var(--muted); }
+    .contact a { color:var(--primary); text-decoration:none; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <img class="mark" src="/static/brand/boxvisio-mark.svg?v=20260528logo1" alt="BoxVisio">
+    <div class="icon"><i>⏳</i></div>
+    {% if reason == 'suspended' %}
+      <h1>Η συνδρομή σας έχει ανασταλεί</h1>
+      <p>Η πρόσβαση στο BoxVisio για τον οργανισμό σας είναι προσωρινά σε αναστολή.</p>
+    {% elif reason == 'canceled' %}
+      <h1>Η συνδρομή σας ακυρώθηκε</h1>
+      <p>Η συνδρομή του οργανισμού σας έχει ακυρωθεί και η πρόσβαση δεν είναι διαθέσιμη.</p>
+    {% else %}
+      <h1>Η συνδρομή σας έληξε</h1>
+      <p>Η συνδρομή του οργανισμού σας έληξε, οπότε η πρόσβαση στο BoxVisio δεν είναι πλέον διαθέσιμη — για όλους τους χρήστες του οργανισμού.</p>
+    {% endif %}
+    {% if expires_at %}
+      <div class="date">Ημερομηνία λήξης: {{ '%02d/%02d/%04d'|format(expires_at.day, expires_at.month, expires_at.year) }}</div>
+    {% endif %}
+    <p>Για να συνεχίσετε να χρησιμοποιείτε την πλατφόρμα, επικοινωνήστε μαζί μας για ανανέωση της συνδρομής.</p>
+    <div class="actions">
+      <a class="btn btn-primary" href="mailto:hello@boxvisio.com?subject=Ανανέωση%20συνδρομής%20BoxVisio">Ανανέωση συνδρομής</a>
+      <form method="post" action="/logout" style="margin:0"><button class="btn btn-ghost" type="submit">Αποσύνδεση</button></form>
+    </div>
+    <div class="contact">Ερωτήσεις; <a href="mailto:hello@boxvisio.com">hello@boxvisio.com</a></div>
+  </div>
+</body>
+</html>

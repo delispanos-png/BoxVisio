@@ -38,6 +38,44 @@ async def get_or_create_subscription(db: AsyncSession, tenant: Tenant) -> Subscr
     return sub
 
 
+SUBSCRIPTION_NOTICE_DAYS = 20
+
+
+def subscription_access_state(sub: Subscription | None, now: datetime | None = None) -> dict:
+    """Tenant-wide subscription gate — the single source of truth for whether a tenant's
+    users may use the app and how many days remain. Applies to EVERY user of the tenant
+    (there is no per-user expiry). Returns:
+      blocked    -> access must be denied now
+      expires_at -> effective expiry datetime (current_period_end, else trial_ends_at)
+      days_left  -> whole days until expiry (negative if past), or None
+      notice     -> days_left when within SUBSCRIPTION_NOTICE_DAYS of a real upcoming expiry
+      reason     -> 'expired' | 'suspended' | 'canceled' | None
+    """
+    now = now or datetime.utcnow()
+    base = {'blocked': False, 'expires_at': None, 'days_left': None, 'notice': None, 'grace': False, 'reason': None}
+    if sub is None:
+        return base
+    expires_at = sub.current_period_end or sub.trial_ends_at
+    days_left = (expires_at - now).days if expires_at is not None else None
+    base['expires_at'] = expires_at
+    base['days_left'] = days_left
+    # Access is cut once suspended/canceled (after the past_due grace window, or a manual stop).
+    if sub.status in (SubscriptionStatus.suspended, SubscriptionStatus.canceled):
+        base['blocked'] = True
+        base['reason'] = sub.status.value
+        return base
+    # past_due = the period has ended but the tenant is still inside the grace window: keep access,
+    # but surface an urgent "expired — renew now" banner.
+    if sub.status == SubscriptionStatus.past_due:
+        base['grace'] = True
+        base['reason'] = 'expired'
+        return base
+    # Otherwise (trial/active): warn when expiry is within the notice window.
+    if days_left is not None and 0 <= days_left <= SUBSCRIPTION_NOTICE_DAYS:
+        base['notice'] = days_left
+    return base
+
+
 async def sync_tenant_from_subscription(db: AsyncSession, tenant: Tenant, sub: Subscription) -> None:
     tenant.plan = sub.plan
     tenant.subscription_status = sub.status

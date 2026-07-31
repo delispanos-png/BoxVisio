@@ -246,6 +246,7 @@ async def get_current_user(
         row = result.first()
         subscription_features: dict[str, bool] = {}
         is_impersonation_session = False
+        sub = None
         if row:
             user_for_sub = row[0]
             effective_tenant_id = user_for_sub.tenant_id
@@ -272,8 +273,11 @@ async def get_current_user(
     now = datetime.utcnow()
     if user.access_starts_at is not None and user.access_starts_at > now:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='Access not started')
-    if user.access_expires_at is not None and user.access_expires_at < now:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='Access expired')
+    # Subscription access (tenant-wide, applies to every user) is enforced in
+    # subscription_guard_middleware; expose the state here too for the pre-expiry banner.
+    from app.services.subscriptions import subscription_access_state
+
+    request.state.subscription_state = subscription_access_state(sub, now)
     resolved_profile_code = (str(profile_code or '').strip().upper()) or resolve_default_professional_profile_code(user)
     resolved_profile_name = (str(profile_name or '').strip()) or resolved_profile_code.title()
     request.state.current_user = user

@@ -616,6 +616,27 @@
       </div>
 
       <div class="dashboard-shell">
+        {% set _sub_state = request.state.subscription_state if request.state.subscription_state is defined else none %}
+        {% if _sub_state and _sub_state.grace %}
+        <div style="margin:0 0 14px;padding:12px 16px;border-radius:12px;display:flex;align-items:center;gap:10px;
+                    background:#fef2f2;border:1px solid #fecaca;color:#991b1b;font-size:14px;font-weight:700">
+          <i class="fe fe-alert-triangle"></i>
+          <span>
+            Η συνδρομή σας <b>έληξε</b>{% if _sub_state.expires_at %} στις {{ '%02d/%02d/%04d'|format(_sub_state.expires_at.day, _sub_state.expires_at.month, _sub_state.expires_at.year) }}{% endif %}. Ανανεώστε την άμεσα για να μη διακοπεί η πρόσβαση —
+            <a href="mailto:hello@boxvisio.com?subject=Ανανέωση%20συνδρομής%20BoxVisio" style="color:#991b1b;text-decoration:underline">hello@boxvisio.com</a>
+          </span>
+        </div>
+        {% elif _sub_state and _sub_state.notice is not none %}
+        <div style="margin:0 0 14px;padding:12px 16px;border-radius:12px;display:flex;align-items:center;gap:10px;
+                    background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;font-size:14px;font-weight:600">
+          <i class="fe fe-clock"></i>
+          <span>
+            {% if _sub_state.notice == 0 %}Η συνδρομή σας λήγει <b>σήμερα</b>.{% elif _sub_state.notice == 1 %}Η συνδρομή σας λήγει <b>αύριο</b>.{% else %}Η συνδρομή σας λήγει σε <b>{{ _sub_state.notice }} ημέρες</b>{% endif %}
+            {% if _sub_state.expires_at %} (στις {{ '%02d/%02d/%04d'|format(_sub_state.expires_at.day, _sub_state.expires_at.month, _sub_state.expires_at.year) }}){% endif %} —
+            επικοινωνήστε για ανανέωση: <a href="mailto:hello@boxvisio.com?subject=Ανανέωση%20συνδρομής%20BoxVisio" style="color:#9a3412;text-decoration:underline">hello@boxvisio.com</a>
+          </span>
+        </div>
+        {% endif %}
         <div class="bv-page-head">
           {% set _manual_help_anchor_map = {
             'dashboard': 'dashboard',

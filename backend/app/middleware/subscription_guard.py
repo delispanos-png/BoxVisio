@@ -1,11 +1,16 @@
 from fastapi import Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import expected_audience_for_host, safe_decode
 from app.models.control import SubscriptionStatus, Tenant
-from app.services.subscriptions import apply_subscription_time_transitions, get_or_create_subscription, sync_tenant_from_subscription
+from app.services.subscriptions import (
+    apply_subscription_time_transitions,
+    get_or_create_subscription,
+    subscription_access_state,
+    sync_tenant_from_subscription,
+)
 
 
 ENFORCED_PREFIXES = (
@@ -61,7 +66,14 @@ async def subscription_guard_middleware(request: Request, call_next):
             await db.commit()
 
         status = subscription.status
-        if status in {SubscriptionStatus.suspended, SubscriptionStatus.canceled}:
+        state = subscription_access_state(subscription)
+        if state['blocked']:
+            # Browser navigation -> friendly "subscription expired" page (tenant-wide, every user);
+            # API / ingest callers -> 403 JSON.
+            accept = (request.headers.get('accept') or '').lower()
+            wants_html = 'text/html' in accept or path.startswith('/tenant/')
+            if wants_html:
+                return RedirectResponse(url='/subscription-expired', status_code=303)
             return JSONResponse(status_code=403, content={'detail': 'Subscription blocked'})
 
         if status == SubscriptionStatus.past_due and _ingest_path(path):

@@ -161,7 +161,7 @@ from app.services.ingestion.queueing import (
 from app.services.ingestion.sync_planner import plan_tenant_sync_jobs
 from app.services.kpi_cache import invalidate_tenant_cache
 from app.services.querypacks import apply_querypack_to_connection, load_querypack
-from app.services.subscriptions import apply_subscription_time_transitions, get_or_create_subscription, sync_tenant_from_subscription
+from app.services.subscriptions import apply_subscription_time_transitions, get_or_create_subscription, subscription_access_state, sync_tenant_from_subscription
 from app.services.provisioning_wizard import _drop_db_and_role
 from app.services.subscription_features import (
     ADD_ON_FEATURE_KEYS,
@@ -5501,6 +5501,31 @@ async def login_page(request: Request, error: str | None = None):
     return resp
 
 
+@router.api_route('/subscription-expired', methods=['GET', 'HEAD'], response_class=HTMLResponse)
+async def subscription_expired_page(request: Request, db: AsyncSession = Depends(get_control_db)):
+    # Standalone (NOT subscription-gated, so no redirect loop). Reads the still-valid token, if
+    # any, only to display the tenant's own expiry date and contact — never to grant access.
+    expires_at = None
+    reason = 'expired'
+    token = request.cookies.get('access_token')
+    if token:
+        payload = safe_decode(token, audience=expected_audience_for_host(request.headers.get('host')), token_type='access')
+        if payload and payload.get('tenant_id'):
+            try:
+                sub = (await db.execute(select(Subscription).where(Subscription.tenant_id == int(payload['tenant_id'])))).scalar_one_or_none()
+                state = subscription_access_state(sub)
+                expires_at = state['expires_at']
+                reason = state['reason'] or 'expired'
+            except (TypeError, ValueError):
+                pass
+    resp = templates.TemplateResponse(
+        'auth/subscription_expired.html',
+        {'request': request, 'expires_at': expires_at, 'reason': reason},
+    )
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
+
 @router.get('/invite', response_class=HTMLResponse)
 async def invite_password_page(request: Request, token: str = Query(default='')):
     return templates.TemplateResponse('auth/invite.html', {'request': request, 'token': token, 'error': None})
@@ -5587,9 +5612,18 @@ async def login_submit(
             await db.execute(select(Tenant).where(Tenant.id == user.tenant_id))
         ).scalar_one_or_none()
         if _login_tenant is not None:
-            _max_concurrent = await _tenant_max_concurrent_sessions(
-                db, await get_or_create_subscription(db, _login_tenant)
-            )
+            _login_sub = await get_or_create_subscription(db, _login_tenant)
+            # Subscription gate (tenant-wide): a user of a tenant whose subscription has expired /
+            # been suspended is shown the "subscription expired" page instead of being logged in.
+            _login_sub_state = subscription_access_state(_login_sub)
+            if _login_sub_state['blocked']:
+                await db.commit()
+                return templates.TemplateResponse(
+                    'auth/subscription_expired.html',
+                    {'request': request, 'expires_at': _login_sub_state['expires_at'], 'reason': _login_sub_state['reason']},
+                    status_code=402,
+                )
+            _max_concurrent = await _tenant_max_concurrent_sessions(db, _login_sub)
             if _max_concurrent > 0:
                 _active_users = await _tenant_active_session_user_ids(db, user.tenant_id)
                 if user.id not in _active_users and len(_active_users) >= _max_concurrent:
