@@ -12926,11 +12926,14 @@ async def sales_pivot(
             tb, pb = float(r['turnover_b'] or 0), float(r['profit_b'] or 0)
             row = {'label': str(r['label'] or '—'),
                    'turnover_a': ta, 'cost_a': ta - pa, 'profit_a': pa,
-                   'turnover_b': tb, 'cost_b': tb - pb, 'profit_b': pb}
+                   'turnover_b': tb, 'cost_b': tb - pb, 'profit_b': pb,
+                   # Δ% = turnover change of period A vs period B.
+                   'delta_pct': ((ta - tb) / abs(tb) * 100.0) if tb else (100.0 if ta else 0.0)}
             rows.append(row)
-            for k in tot:
+            for k in ('turnover_a', 'cost_a', 'profit_a', 'turnover_b', 'cost_b', 'profit_b'):
                 tot[k] += row[k]
         tot['count'] = len(rows)
+        tot['delta_pct'] = ((tot['turnover_a'] - tot['turnover_b']) / abs(tot['turnover_b']) * 100.0) if tot['turnover_b'] else (100.0 if tot['turnover_a'] else 0.0)
         totals = tot
     else:
         total_net = sum(float(r['net_value'] or 0) for r in raw)

@@ -247,6 +247,7 @@
             <th>{{ pivot_group_label }}</th>
             <th class="exp-num">Τζίρος Α</th><th class="exp-num">Κόστος Α</th><th class="exp-num">Κέρδος Α</th>
             <th class="exp-num">Τζίρος Β</th><th class="exp-num">Κόστος Β</th><th class="exp-num">Κέρδος Β</th>
+            <th class="exp-num">Δ% Τζίρου</th>
           </tr>
         </thead>
         <tbody>
@@ -255,6 +256,7 @@
             <td>{{ r.label }}</td>
             <td class="exp-num">{{ money(r.turnover_a) }}</td><td class="exp-num">{{ money(r.cost_a) }}</td><td class="exp-num">{{ money(r.profit_a) }}</td>
             <td class="exp-num">{{ money(r.turnover_b) }}</td><td class="exp-num">{{ money(r.cost_b) }}</td><td class="exp-num">{{ money(r.profit_b) }}</td>
+            <td class="exp-num" style="color:{% if (r.delta_pct or 0) >= 0 %}#16a34a{% else %}#dc2626{% endif %};font-weight:700;white-space:nowrap">{% if (r.delta_pct or 0) >= 0 %}▲{% else %}▼{% endif %} {{ '{:+,.1f}'.format(r.delta_pct or 0).replace('.', ',') }}%</td>
           </tr>
           {% endfor %}
         </tbody>
@@ -263,6 +265,7 @@
             <td>ΣΥΝΟΛΟ{% if totals.count %} ({{ totals.count }}){% endif %}</td>
             <td class="exp-num">{{ money(totals.turnover_a) }}</td><td class="exp-num">{{ money(totals.cost_a) }}</td><td class="exp-num">{{ money(totals.profit_a) }}</td>
             <td class="exp-num">{{ money(totals.turnover_b) }}</td><td class="exp-num">{{ money(totals.cost_b) }}</td><td class="exp-num">{{ money(totals.profit_b) }}</td>
+            <td class="exp-num" style="color:{% if (totals.delta_pct or 0) >= 0 %}#16a34a{% else %}#dc2626{% endif %};font-weight:700;white-space:nowrap">{% if (totals.delta_pct or 0) >= 0 %}▲{% else %}▼{% endif %} {{ '{:+,.1f}'.format(totals.delta_pct or 0).replace('.', ',') }}%</td>
           </tr>
         </tfoot>
         {% else %}

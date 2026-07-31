@@ -15685,9 +15685,9 @@ async def _render_exports_download(
         dim_label = _EXPORT_PIVOT_DIM_LABELS.get(a_group_by, 'Ομάδα')
         a_mode = str(request.query_params.get('mode') or 'analysis').strip()
         if a_mode == 'comparison':
-            headers = [dim_label, 'Τζίρος Α', 'Κόστος Α', 'Κέρδος Α', 'Τζίρος Β', 'Κόστος Β', 'Κέρδος Β']
-            widths = [26, 15, 15, 15, 15, 15, 15]
-            keys = ['turnover_a', 'cost_a', 'profit_a', 'turnover_b', 'cost_b', 'profit_b']
+            headers = [dim_label, 'Τζίρος Α', 'Κόστος Α', 'Κέρδος Α', 'Τζίρος Β', 'Κόστος Β', 'Κέρδος Β', 'Δ% Τζίρου']
+            widths = [26, 15, 15, 15, 15, 15, 15, 12]
+            keys = ['turnover_a', 'cost_a', 'profit_a', 'turnover_b', 'cost_b', 'profit_b', 'delta_pct']
             data_rows = [[r['label']] + [round(float(r.get(k) or 0), 2) for k in keys] for r in rows]
             if data_rows:
                 data_rows.append(['ΣΥΝΟΛΟ'] + [round(float(totals.get(k) or 0), 2) for k in keys])
