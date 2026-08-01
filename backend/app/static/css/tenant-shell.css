@@ -7,6 +7,12 @@ body.tenant-shell {
   --shell-bg: #f5f7fb;
   --panel-bg: #ffffff;
   --panel-border: #dfe6f2;
+  --surface-2: #f7f9fc;
+  --card-bg: var(--panel-bg);
+  --border-color: var(--panel-border);
+  --input-bg: #ffffff;
+  --text: #111827;
+  --text-muted: #64748b;
   --menu-text: #48566d;
   --menu-muted: #7c8aa1;
   --menu-active-bg: #f0edff;
@@ -29,6 +35,12 @@ body.tenant-shell[data-theme='dark'] {
   --shell-bg: #0b1220;
   --panel-bg: #111827;
   --panel-border: #334155;
+  --surface-2: #0f172a;
+  --card-bg: #111827;
+  --border-color: #334155;
+  --input-bg: #0f172a;
+  --text: #e5e7eb;
+  --text-muted: #94a3b8;
   --menu-text: #dbe4f0;
   --menu-muted: #94a3b8;
   --menu-active-bg: #202a3d;
@@ -1187,6 +1199,43 @@ body.tenant-shell[data-theme='dark'] .bv-unified-table tbody tr.is-active th,
 body.tenant-shell[data-theme='dark'] .table tbody tr.is-active td,
 body.tenant-shell[data-theme='dark'] .table tbody tr.is-active th {
   color: #dbe4f0 !important;
+  --bs-table-bg: transparent;
+  --bs-table-color: #dbe4f0;
+  --bs-table-striped-bg: rgba(148, 163, 184, .08);
+  --bs-table-striped-color: #e5e7eb;
+  --bs-table-active-bg: rgba(99, 102, 241, .18);
+  --bs-table-active-color: #f8fafc;
+  --bs-table-hover-bg: rgba(99, 102, 241, .12);
+  --bs-table-hover-color: #f8fafc;
+  --bs-table-border-color: #334155;
+}
+
+body.tenant-shell[data-theme='dark'] .content.home .dashboard-shell :is(
+  .table tbody tr,
+  .bv-unified-table tbody tr
+) {
+  background-color: transparent !important;
+  color: var(--text) !important;
+}
+
+body.tenant-shell[data-theme='dark'] .content.home .dashboard-shell :is(
+  .table tbody td,
+  .table tbody th,
+  .bv-unified-table tbody td,
+  .bv-unified-table tbody th
+) {
+  background-color: transparent !important;
+  color: var(--text) !important;
+  border-color: var(--panel-border) !important;
+}
+
+body.tenant-shell[data-theme='dark'] .content.home .dashboard-shell :is(
+  .table-striped tbody tr:nth-of-type(odd) td,
+  .table-striped tbody tr:nth-of-type(odd) th,
+  .bv-unified-table tbody tr:nth-of-type(odd) td,
+  .bv-unified-table tbody tr:nth-of-type(odd) th
+) {
+  background-color: rgba(148, 163, 184, .06) !important;
 }
 
 body.tenant-shell .bv-table-footer {
@@ -1212,6 +1261,216 @@ body.tenant-shell .bv-summary-pill__value {
 
 body.tenant-shell[data-theme='dark'] .bv-summary-pill__value {
   color: #f8fafc;
+}
+
+body.tenant-shell[data-theme='dark'] .content.home .dashboard-shell :is(
+  .card,
+  .card-body,
+  .content-card,
+  .filter-card,
+  [class*="-control-center"],
+  [class*="-business-panel"],
+  [class*="-panel"],
+  [class*="-card"],
+  [class*="-stat"],
+  [class*="-tile"],
+  [class*="-sheet-intro"],
+  [class*="-exec-story"],
+  [class*="-exec-health"],
+  .sd-card,
+  .sd-kpi,
+  .supplier-orders-card,
+  .insight-card,
+  .inventory-card,
+  .inventory-panel,
+  .purchase-card,
+  .purchase-panel,
+  .sales-card,
+  .sales-panel,
+  .eshop-panel,
+  .replenishment-card,
+  .cc-kpi,
+  .cc-panel,
+  .cc-agent-card,
+  .cc-journey-card,
+  .cc-report-card,
+  .cc-exec-story,
+  .cc-exec-health,
+  .cc-exec-tile
+) {
+  background: var(--panel-bg) !important;
+  border-color: var(--panel-border) !important;
+  color: var(--text) !important;
+}
+
+body.tenant-shell[data-theme='dark'] .content.home .dashboard-shell :is(
+  .card-header,
+  .card-footer,
+  .table-responsive,
+  .table-light,
+  .bv-table-footer,
+  [class*="-control-head"],
+  [class*="-business-head"],
+  [class*="-action-row"],
+  [class*="-action-list"],
+  [class*="-next-step"],
+  [class*="-signal"],
+  [class*="-summary"],
+  [class*="-strip"],
+  [class*="-toolbar"],
+  [class*="-pager"],
+  [class*="-detail"],
+  [class*="-body"],
+  [class*="-fact"],
+  [class*="-metric"]:not(.is-main),
+  .sd-tbl th,
+  .cc-journey-toolbar,
+  .cc-journey-pager,
+  .cc-pagination-bar,
+  .cc-source-detail,
+  .cc-journey-body,
+  .cc-journey-head,
+  .cc-ring-section,
+  .cc-agent-detail-stat,
+  .cc-modal-stat,
+  .cc-journey-fact,
+  .cc-exec-metric:not(.is-main),
+  .fnr-sync-progress,
+  .fnr-id,
+  .fnr-name,
+  .fnr-cat1
+) {
+  background: var(--surface-2) !important;
+  border-color: var(--panel-border) !important;
+  color: var(--text) !important;
+  --bs-table-bg: var(--surface-2);
+  --bs-table-color: var(--text);
+  --bs-table-border-color: var(--panel-border);
+}
+
+body.tenant-shell[data-theme='dark'] .content.home .dashboard-shell :is(
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6,
+  strong,
+  b,
+  [class*="-title"],
+  [class*="-value"],
+  [class*="-name"],
+  [class*="-metric"],
+  [class*="-num"],
+  [class*="-amount"],
+  [class*="-total"],
+  .sd-card h3,
+  .sd-kpi .v,
+  .sd-tbl td,
+  .inventory-title,
+  .purchase-title,
+  .sales-title,
+  .insight-title,
+  .cc-scope strong,
+  .cc-split-chip strong,
+  .cc-agent-detail-stat strong,
+  .cc-source-title,
+  .cc-source-metric,
+  .cc-journey-title,
+  .cc-journey-metric,
+  .cc-journey-fact strong,
+  .cc-hop-route,
+  .cc-sheet-intro h2,
+  .cc-report-card h4,
+  .cc-report-value,
+  .cc-exec-story h2,
+  .cc-exec-health h3,
+  .cc-health-value,
+  .cc-exec-tile strong,
+  .cc-exec-queue-name,
+  .cc-exec-num,
+  .cc-exec-agent strong,
+  .cc-exec-agent b,
+  .cc-exec-source-row strong,
+  .cc-rule strong,
+  .cc-model-item strong
+) {
+  color: var(--text) !important;
+}
+
+body.tenant-shell[data-theme='dark'] .content.home .dashboard-shell :is(
+  p,
+  small,
+  [class*="-subtitle"],
+  [class*="-text"],
+  [class*="-meta"],
+  [class*="-label"],
+  [class*="-muted"],
+  [class*="-description"]
+) {
+  color: var(--text-muted) !important;
+}
+
+body.tenant-shell[data-theme='dark'] .content.home .dashboard-shell :is(
+  [class*="-chip"],
+  [class*="-pill"],
+  [class*="-badge"],
+  [class*="-status"],
+  [class*="-rank"],
+  .badge
+):not(.btn):not(.bv-profile-badge) {
+  background: color-mix(in srgb, var(--surface-2) 78%, var(--menu-active-bg)) !important;
+  border-color: var(--panel-border) !important;
+  color: var(--text) !important;
+}
+
+body.tenant-shell[data-theme='dark'] .content.home .dashboard-shell :is(
+  [class*="warning"],
+  [class*="watch"],
+  [class*="opportunity"]
+):not(.btn) {
+  background: rgba(245, 158, 11, .12) !important;
+  border-color: rgba(245, 158, 11, .42) !important;
+  color: #fde68a !important;
+}
+
+body.tenant-shell[data-theme='dark'] .content.home .dashboard-shell :is(
+  [class*="danger"],
+  [class*="risk"],
+  [class*="critical"]
+):not(.btn) {
+  background: rgba(239, 68, 68, .12) !important;
+  border-color: rgba(239, 68, 68, .45) !important;
+  color: #fecaca !important;
+}
+
+body.tenant-shell[data-theme='dark'] .content.home .dashboard-shell :is(
+  [class*="success"],
+  [class*="good"],
+  [class*="ok"]
+):not(.btn) {
+  background: rgba(34, 197, 94, .12) !important;
+  border-color: rgba(34, 197, 94, .42) !important;
+  color: #bbf7d0 !important;
+}
+
+body.tenant-shell[data-theme='dark'] .content.home .dashboard-shell :is(
+  .sd-input,
+  .fnr-cell input,
+  .av-cell select,
+  .av-dropdown summary,
+  .av-dropdown-menu,
+  .dst-cell input,
+  .dst-cell select,
+  .dst-dropdown summary,
+  .dst-menu,
+  .cc-journey-search,
+  .cc-page-size,
+  .cc-page-btn
+) {
+  background: var(--input-bg) !important;
+  border-color: var(--panel-border) !important;
+  color: var(--text) !important;
 }
 
 body.tenant-shell .bv-summary-pill--total {
@@ -1851,3 +2110,32 @@ body.tenant-shell.sidebar-icon-only .bv-sidebar-search {
     align-items: center;
   }
 }
+
+/* --- Residual dark-mode contrast fixes (2026-08-01, dark2) --- */
+body.tenant-shell[data-theme='dark'] .iv-formula { color: #94a3b8 !important; }
+body.tenant-shell[data-theme='dark'] .ba-brief-list li span,
+body.tenant-shell[data-theme='dark'] .ba-brief-list li strong { color: #cbd5e1 !important; }
+/* Dashboard section labels hardcode dark inline colours (one per circuit) — lift each to its
+   light-300 variant so they read on the dark ground while keeping the colour identity. */
+body.tenant-shell[data-theme='dark'] [style*="3730a3"] { color: #a5b4fc !important; } /* Πωλήσεις  indigo */
+body.tenant-shell[data-theme='dark'] [style*="92400e"] { color: #fcd34d !important; } /* Αγορές    amber  */
+body.tenant-shell[data-theme='dark'] [style*="166534"] { color: #86efac !important; } /* Απόθεμα   green  */
+body.tenant-shell[data-theme='dark'] [style*="1e40af"] { color: #93c5fd !important; } /* Cashflow  blue   */
+body.tenant-shell[data-theme='dark'] [style*="7e22ce"] { color: #d8b4fe !important; } /* Πελάτες   purple */
+body.tenant-shell[data-theme='dark'] [style*="9f1239"] { color: #fda4af !important; } /* Insights  rose   */
+body.tenant-shell[data-theme='dark'] [style*="155e75"] { color: #67e8f9 !important; } /* E-Shop    cyan   */
+
+/* --- Call Center: bespoke light-styled circuit, add dark treatment (dark2) --- */
+body.tenant-shell[data-theme='dark'] :is(.cc-shell, .cc-table td, .cc-table th, .cc-modal-table td, .cc-agent-recent-row strong, .cc-agent-name) { color: #dbe4f0 !important; }
+body.tenant-shell[data-theme='dark'] :is(.cc-table td, .cc-table th) { border-bottom-color: #334155 !important; }
+body.tenant-shell[data-theme='dark'] .cc-outcome-missed { color: #f87171 !important; }
+body.tenant-shell[data-theme='dark'] :is(.cc-model-item, .cc-data-gap, .cc-exec-agent, .cc-stack, .cc-rule) { background: #0f172a !important; border-color: #334155 !important; }
+body.tenant-shell[data-theme='dark'] .cc-progress { background: #1e293b !important; }
+
+/* --- FnR: bespoke light-blue label/header cells --- */
+body.tenant-shell[data-theme='dark'] :is(.fnr-input-head, .fnr-cell.label, .fnr-sync-note) { background: #172033 !important; color: #93c5fd !important; border-color: #334155 !important; }
+
+/* --- E-Shop pagination --- */
+body.tenant-shell[data-theme='dark'] .eshop-pagination-page { color: #dbe4f0 !important; }
+body.tenant-shell[data-theme='dark'] :is(.fnr-input-head, .fnr-cell.label, .fnr-sync-note) * { color: inherit !important; }
+body.tenant-shell[data-theme='dark'] [data-fnr-sync-label] { color: #93c5fd !important; }
