@@ -87,6 +87,13 @@ app.middleware('http')(kpi_performance_middleware)
 app.middleware('http')(error_handler_middleware)
 
 STATIC_DIR = Path(__file__).resolve().parent / 'static'
+# Ensure web fonts are served with a proper font/* MIME (the default DB often maps
+# .woff/.woff2 to text/plain, which makes some setups skip/deprioritise the icon font).
+import mimetypes as _mimetypes
+_mimetypes.add_type('font/woff', '.woff')
+_mimetypes.add_type('font/woff2', '.woff2')
+_mimetypes.add_type('font/ttf', '.ttf')
+_mimetypes.add_type('application/vnd.ms-fontobject', '.eot')
 app.mount('/static', StaticFiles(directory=str(STATIC_DIR)), name='static')
 
 app.include_router(auth.router)

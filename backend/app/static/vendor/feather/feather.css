@@ -1,7 +1,10 @@
 @font-face {
 	font-family: feather;
-	src: url(fonts/feather/feather-webfont.eot?t=1501841394106);
-	src: url(fonts/feather/feather-webfont.eot?t=1501841394106#iefix) format("embedded-opentype"), url(fonts/feather/feather-webfont.woff?t=1501841394106) format("woff"), url(fonts/feather/feather-webfont.ttf?t=1501841394106) format("truetype"), url(fonts/feather/feather-webfont.svg?t=1501841394106#feather) format("svg")
+	/* font-display:block → during a slow/late load the glyph slot stays blank
+	   (not a tofu box) and renders the real icon as soon as the font arrives,
+	   instead of leaving permanent squares. */
+	font-display: block;
+	src: url(fonts/feather/feather-webfont.woff?t=1501841394106) format("woff"), url(fonts/feather/feather-webfont.ttf?t=1501841394106) format("truetype"), url(fonts/feather/feather-webfont.eot?t=1501841394106#iefix) format("embedded-opentype"), url(fonts/feather/feather-webfont.svg?t=1501841394106#feather) format("svg")
 }
 .fe {
 	font-family: feather!important;

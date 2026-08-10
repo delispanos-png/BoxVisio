@@ -6,6 +6,10 @@
   <title>{{ tt(request, title) if title else tt(request, 'app_admin_title') }}</title>
   <link rel="icon" href="/static/brand/boxvisio-mark.svg?v=20260528logo1" type="image/svg+xml">
   <link href="/static/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
+  <!-- Icon font loaded early & directly (not behind the unified.css @import waterfall) so the
+       Feather glyphs never render as empty squares when a load is slow or a worker restarts. -->
+  <link rel="preload" href="/static/vendor/feather/fonts/feather/feather-webfont.woff?t=1501841394106" as="font" type="font/woff" crossorigin>
+  <link href="/static/vendor/feather/feather.css?v=20260810font1" rel="stylesheet">
   <link href="/static/css/boxvisio-unified.css?v=20260731uinext8" rel="stylesheet">
   <style>
     :root {
