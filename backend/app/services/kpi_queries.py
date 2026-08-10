@@ -4323,6 +4323,16 @@ async def sales_filter_options(
         options['categories'] = merged_categories
         labels['categories'].update(item_category_labels)
 
+    # Drop category keys that no longer resolve to a readable name — stale
+    # ITEMCAT:<hash> values left in the aggregates from a previous category
+    # mapping. Filtering still matches current items via dim_items, so these
+    # only pollute the dropdown. Keep only options with a real label.
+    _cat_labels = labels.get('categories') or {}
+    options['categories'] = [
+        v for v in (options.get('categories') or [])
+        if _cat_labels.get(v) and str(_cat_labels.get(v)) != str(v) and not str(_cat_labels.get(v)).startswith('ITEMCAT:')
+    ]
+
     if not any(options[key] for key in ('branches', 'warehouses', 'brands', 'categories', 'groups')):
         bounds = (
             await db.execute(
