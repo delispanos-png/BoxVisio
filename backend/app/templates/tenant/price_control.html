@@ -33,9 +33,18 @@
   </div>
 
   <div class="col-xl-4 col-md-6">
-    <label class="form-label">{{ tt(request, 'categories') }}</label>
-    {{ multiselect('pcCategories') }}
+    <label class="form-label">Κατηγορία 1</label>
+    {{ multiselect('pcCategoryL1') }}
   </div>
+  <div class="col-xl-4 col-md-6">
+    <label class="form-label">Κατηγορία 2</label>
+    {{ multiselect('pcCategoryL2') }}
+  </div>
+  <div class="col-xl-4 col-md-6">
+    <label class="form-label">Κατηγορία 3</label>
+    {{ multiselect('pcCategoryL3') }}
+  </div>
+  <select id="pcCategories" multiple hidden></select>
   <div class="col-xl-4 col-md-6">
     <label class="form-label">{{ tt(request, 'groups') }}</label>
     {{ multiselect('pcGroups') }}
@@ -466,10 +475,45 @@
   const groupsEl = document.getElementById('pcGroups');
   const itemsEl = document.getElementById('pcItems');
   const multiDefs = [
-    { id: 'pcCategories', label: '{{ tt(request, 'categories') }}' },
+    { id: 'pcCategoryL1', label: 'Κατηγορία 1' },
+    { id: 'pcCategoryL2', label: 'Κατηγορία 2' },
+    { id: 'pcCategoryL3', label: 'Κατηγορία 3' },
     { id: 'pcGroups', label: '{{ tt(request, 'groups') }}' },
     { id: 'pcItems', label: '{{ tt(request, 'item_codes') }}' },
   ];
+  let pcCategoryHierarchy = [];
+  function pcSelVals(id){ const s=document.getElementById(id); return new Set(Array.from(s?.selectedOptions||[]).map(o=>o.value)); }
+  function pcPopulate(id, label, values){
+    if(window.BvMultiSelect) window.BvMultiSelect.populate(id, values, Object.fromEntries(values.map(v=>[v,v])), { label });
+  }
+  function pcSetSelected(id, values){
+    const s=document.getElementById(id); if(!s) return;
+    const vs=new Set(values||[]); Array.from(s.options||[]).forEach(o=>{ o.selected=vs.has(o.value); });
+    if(window.BvMultiSelect) window.BvMultiSelect.sync(id, { label: (multiDefs.find(d=>d.id===id)||{}).label || 'Επιλογή' });
+  }
+  function rebuildPcHiddenCategories(){
+    const l1=pcSelVals('pcCategoryL1'), l2=pcSelVals('pcCategoryL2'), l3=pcSelVals('pcCategoryL3');
+    const hidden=document.getElementById('pcCategories'); if(!hidden) return; hidden.innerHTML='';
+    if(!l1.size && !l2.size && !l3.size) return;
+    pcCategoryHierarchy
+      .filter(c=>!l1.size||l1.has(c.l1)).filter(c=>!l2.size||l2.has(c.l2)).filter(c=>!l3.size||l3.has(c.l3))
+      .forEach(c=>{ const o=document.createElement('option'); o.value=c.id; o.textContent=c.path; o.selected=true; hidden.appendChild(o); });
+  }
+  function syncPcCategoryHierarchy(){
+    const l1=pcSelVals('pcCategoryL1');
+    const l2before=pcSelVals('pcCategoryL2'), l3before=pcSelVals('pcCategoryL3');
+    const l2pool=new Set(); pcCategoryHierarchy.forEach(c=>{ if(!l1.size||l1.has(c.l1)) l2pool.add(c.l2); });
+    pcPopulate('pcCategoryL2','Κατηγορία 2',[...l2pool]); pcSetSelected('pcCategoryL2',[...l2before].filter(v=>l2pool.has(v)));
+    const l2=pcSelVals('pcCategoryL2'); const l3pool=new Set();
+    pcCategoryHierarchy.forEach(c=>{ if((!l1.size||l1.has(c.l1)) && (!l2.size||l2.has(c.l2))) l3pool.add(c.l3); });
+    pcPopulate('pcCategoryL3','Κατηγορία 3',[...l3pool]); pcSetSelected('pcCategoryL3',[...l3before].filter(v=>l3pool.has(v)));
+    rebuildPcHiddenCategories();
+  }
+  function buildPcCategoryHierarchy(categories){
+    pcCategoryHierarchy=(categories||[]).map(c=>{ const raw=String(c.label||c.value); const parts=raw.split('>').map(x=>x.trim()).filter(Boolean); return { id:String(c.value), path:raw, l1:parts[0]||raw, l2:parts[1]||parts[0]||raw, l3:parts[2]||parts[1]||parts[0]||raw }; });
+    pcPopulate('pcCategoryL1','Κατηγορία 1',[...new Set(pcCategoryHierarchy.map(c=>c.l1))]);
+    syncPcCategoryHierarchy();
+  }
 
   const summaryItemsEl = document.getElementById('pcItemsCount');
   const summaryAvgEl = document.getElementById('pcAvgMargin');
@@ -557,7 +601,7 @@
     });
     if(targetPrev) targetEl.value = targetPrev;
 
-    clearAndFillSelect(categoriesEl, data.categories || []);
+    buildPcCategoryHierarchy(data.categories || []);
     clearAndFillSelect(groupsEl, data.groups || []);
     clearAndFillSelect(itemsEl, data.items || []);
 
@@ -578,7 +622,8 @@
     if(toIso) qs.set('to', toIso);
     if(supplierEl.value) qs.set('supplier_ext_id', supplierEl.value);
     if(targetEl.value) qs.set('target_id', targetEl.value);
-    selectedValues(categoriesEl).forEach(v=>qs.append('categories', v));
+    rebuildPcHiddenCategories();
+    Array.from(document.getElementById('pcCategories')?.selectedOptions || []).map(o=>o.value).forEach(v=>qs.append('categories', v));
     selectedValues(groupsEl).forEach(v=>qs.append('groups', v));
     selectedValues(itemsEl).forEach(v=>qs.append('item_codes', v));
     qs.set('target_margin_pct', String(targetMarginEl.value || 35));
@@ -714,6 +759,11 @@
     window.BvMultiSelect?.bind(def.id, { label: def.label });
   });
 
+  // Cascading category filters: Κατ.2 shows only children of the selected Κατ.1, Κατ.3 of Κατ.2.
+  let _pcCatGuard = false;
+  function _pcCatOnChange(){ if(_pcCatGuard) return; _pcCatGuard = true; try { syncPcCategoryHierarchy(); } finally { _pcCatGuard = false; } }
+  ['pcCategoryL1','pcCategoryL2'].forEach((id)=>{ const el=document.getElementById(id); if(el) el.addEventListener('change', _pcCatOnChange); });
+
   document.querySelectorAll('[data-price-category]').forEach((card)=>{
     const handler = (event)=>{
       event?.preventDefault?.();
@@ -749,7 +799,8 @@
     if(initialQuery.get('supplier_ext_id')) supplierEl.value = initialQuery.get('supplier_ext_id');
     if(initialQuery.get('target_id')) targetEl.value = initialQuery.get('target_id');
     multiDefs.forEach((def)=>{
-      const paramName = def.id === 'pcItems' ? 'item_codes' : (def.id === 'pcCategories' ? 'categories' : 'groups');
+      if(def.id.startsWith('pcCategoryL')) return; // categories are driven by the Κατ.1/2/3 hierarchy
+      const paramName = def.id === 'pcItems' ? 'item_codes' : 'groups';
       const selected = initialQuery.getAll(paramName);
       if(!selected.length) return;
       if(window.BvMultiSelect?.setSelected){
