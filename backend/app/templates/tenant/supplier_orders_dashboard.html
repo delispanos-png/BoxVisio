@@ -23,6 +23,13 @@
   .supplier-orders-status.closed{background:#edf2f7;color:#475569}
   @media (max-width: 1199px){.supplier-orders-grid,.supplier-orders-layout{grid-template-columns:1fr 1fr}}
   @media (max-width: 767px){.supplier-orders-grid,.supplier-orders-layout{grid-template-columns:1fr}}
+  .so-clickable{cursor:pointer}
+  .so-clickable:hover td{background:rgba(37,99,235,.06)}
+  .so-clickable:focus{outline:2px solid rgba(37,99,235,.35);outline-offset:-2px}
+  .so-crumbs{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-weight:800;font-size:14px}
+  .so-crumbs a{color:#2563eb;text-decoration:none}
+  .so-crumbs a.is-active,.so-crumbs a:hover{text-decoration:underline}
+  .so-crumbs .so-sep{color:#94a3b8;font-weight:700}
 </style>
 
 {% if feature_locked %}
@@ -96,9 +103,15 @@
   </div>
 </div>
 
-<div class="supplier-orders-layout mb-3">
-  <div class="card content-card">
-    <div class="card-header"><h5 class="mb-0">Προμηθευτές με ανοιχτές παραγγελίες</h5></div>
+<nav class="so-crumbs mb-2" id="soCrumbs" aria-label="Πλοήγηση">
+  <a href="#" data-so-nav="suppliers" class="is-active">Προμηθευτές</a>
+  <span id="soCrumbSupWrap" hidden> <span class="so-sep">›</span> <a href="#" data-so-nav="orders" id="soCrumbSup"></a></span>
+  <span id="soCrumbOrdWrap" hidden> <span class="so-sep">›</span> <span id="soCrumbOrd"></span></span>
+</nav>
+
+<div class="mb-3">
+  <div class="card content-card" id="soSuppliers">
+    <div class="card-header"><h5 class="mb-0">Προμηθευτές με ανοιχτές παραγγελίες <small class="text-muted fw-normal">— διπλό κλικ σε προμηθευτή για τις παραγγελίες του</small></h5></div>
     <div class="table-responsive">
       <table class="table table-sm table-hover mb-0 supplier-orders-table">
         <thead>
@@ -111,7 +124,7 @@
         </thead>
         <tbody>
           {% for row in dashboard.supplier_rows %}
-          <tr>
+          <tr class="so-clickable" data-so-supplier="{{ row.supplier_name }}" tabindex="0" title="Διπλό κλικ για τις παραγγελίες">
             <td>
               <strong>{{ row.supplier_name }}</strong>
               <div class="supplier-orders-muted">{{ row.supplier_code }}</div>
@@ -128,8 +141,11 @@
     </div>
   </div>
 
-  <div class="card content-card">
-    <div class="card-header"><h5 class="mb-0">Παραγγελίες</h5></div>
+  <div class="card content-card" id="soOrders" hidden>
+    <div class="card-header d-flex align-items-center gap-2">
+      <button type="button" class="btn btn-sm btn-outline-secondary" data-so-nav="suppliers"><i class="fe fe-arrow-left"></i></button>
+      <h5 class="mb-0">Ανοιχτές παραγγελίες <small class="text-muted fw-normal" id="soOrdersFor"></small> <small class="text-muted fw-normal">— διπλό κλικ σε παραγγελία για τα είδη</small></h5>
+    </div>
     <div class="table-responsive">
       <table class="table table-sm table-hover mb-0 supplier-orders-table">
         <thead>
@@ -145,7 +161,7 @@
         </thead>
         <tbody>
           {% for row in dashboard.document_rows %}
-          <tr>
+          <tr class="so-clickable" data-so-supplier="{{ row.supplier_name }}" data-so-doc="{{ row.document_no }}" tabindex="0" title="Διπλό κλικ για τα είδη">
             <td>{{ row.doc_date }}</td>
             <td>
               <strong>{{ row.document_no }}</strong>
@@ -166,8 +182,11 @@
   </div>
 </div>
 
-<div class="card content-card">
-  <div class="card-header"><h5 class="mb-0">Γραμμές ειδών</h5></div>
+<div class="card content-card" id="soItems" hidden>
+  <div class="card-header d-flex align-items-center gap-2">
+    <button type="button" class="btn btn-sm btn-outline-secondary" data-so-nav="orders" title="Πίσω στις παραγγελίες"><i class="fe fe-arrow-left"></i></button>
+    <h5 class="mb-0">Είδη παραγγελίας <small class="text-muted fw-normal" id="soItemsFor"></small></h5>
+  </div>
   <div class="table-responsive">
     <table class="table table-sm table-hover mb-0 supplier-orders-table">
       <thead>
@@ -185,7 +204,7 @@
       </thead>
       <tbody>
         {% for row in dashboard.line_rows %}
-        <tr>
+        <tr data-so-doc="{{ row.document_no }}">
           <td>{{ row.doc_date }}</td>
           <td>{{ row.document_no }}</td>
           <td>{{ row.supplier_name }}</td>
@@ -219,6 +238,58 @@
       if (current.length) window.BvMultiSelect.setSelected('supplierPick', current, { label: 'Όλοι οι προμηθευτές' });
     }
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
+  })();
+
+  // Drill-down: Προμηθευτές → (διπλό κλικ) Παραγγελίες → (διπλό κλικ) Είδη.
+  (function () {
+    var suppliers = document.getElementById('soSuppliers');
+    var orders = document.getElementById('soOrders');
+    var items = document.getElementById('soItems');
+    if (!suppliers || !orders || !items) return;
+    var crumbSupWrap = document.getElementById('soCrumbSupWrap'), crumbSup = document.getElementById('soCrumbSup');
+    var crumbOrdWrap = document.getElementById('soCrumbOrdWrap'), crumbOrd = document.getElementById('soCrumbOrd');
+    var ordersFor = document.getElementById('soOrdersFor'), itemsFor = document.getElementById('soItemsFor');
+
+    function showLevel(level) {
+      suppliers.hidden = level !== 'suppliers';
+      orders.hidden = level !== 'orders';
+      items.hidden = level !== 'items';
+      crumbSupWrap.hidden = (level === 'suppliers');
+      crumbOrdWrap.hidden = (level !== 'items');
+      document.querySelectorAll('.so-crumbs a[data-so-nav]').forEach(function (a) {
+        a.classList.toggle('is-active', a.getAttribute('data-so-nav') === (level === 'items' ? 'orders' : level));
+      });
+    }
+    function openSupplier(name) {
+      orders.querySelectorAll('tbody tr[data-so-supplier]').forEach(function (tr) {
+        tr.style.display = (tr.getAttribute('data-so-supplier') === name) ? '' : 'none';
+      });
+      ordersFor.textContent = '— ' + name;
+      crumbSup.textContent = name;
+      showLevel('orders');
+      orders.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    function openOrder(doc) {
+      items.querySelectorAll('tbody tr[data-so-doc]').forEach(function (tr) {
+        tr.style.display = (tr.getAttribute('data-so-doc') === doc) ? '' : 'none';
+      });
+      itemsFor.textContent = '— ' + doc;
+      crumbOrd.textContent = doc;
+      showLevel('items');
+      items.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    suppliers.querySelectorAll('tr[data-so-supplier]').forEach(function (tr) {
+      tr.addEventListener('dblclick', function () { openSupplier(tr.getAttribute('data-so-supplier')); });
+      tr.addEventListener('keydown', function (e) { if (e.key === 'Enter') openSupplier(tr.getAttribute('data-so-supplier')); });
+    });
+    orders.querySelectorAll('tr[data-so-doc]').forEach(function (tr) {
+      tr.addEventListener('dblclick', function () { openOrder(tr.getAttribute('data-so-doc')); });
+      tr.addEventListener('keydown', function (e) { if (e.key === 'Enter') openOrder(tr.getAttribute('data-so-doc')); });
+    });
+    document.querySelectorAll('[data-so-nav]').forEach(function (el) {
+      el.addEventListener('click', function (e) { e.preventDefault(); showLevel(el.getAttribute('data-so-nav')); });
+    });
+    showLevel('suppliers');
   })();
 </script>
 {% endblock %}

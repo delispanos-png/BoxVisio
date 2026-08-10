@@ -236,7 +236,8 @@ def _build_payload_from_rows(raw_rows: list[dict[str, Any]], filters: SupplierOr
     document_rows.sort(key=lambda row: (row['doc_date'], row['document_id']), reverse=True)
     supplier_rows = [row for row in suppliers.values() if row['open_documents'] > 0 or not filters.only_open]
     supplier_rows.sort(key=lambda row: row['open_value'], reverse=True)
-    line_rows = line_rows[: max(1, min(filters.limit, 2000))]
+    # Keep all (open) lines so the drill-down (supplier → order → items) has every order's items.
+    line_rows = line_rows[:40000]
     summary = {
         'documents': len(documents),
         'open_documents': sum(1 for doc in documents.values() if doc['is_open']),
@@ -249,8 +250,8 @@ def _build_payload_from_rows(raw_rows: list[dict[str, Any]], filters: SupplierOr
     return {
         'filters': filters,
         'summary': summary,
-        'supplier_rows': supplier_rows[:50],
-        'document_rows': document_rows[:1000],
+        'supplier_rows': supplier_rows[:1000],
+        'document_rows': document_rows[:2000],
         'line_rows': line_rows,
         'all_supplier_names': [],
         'error': None,
