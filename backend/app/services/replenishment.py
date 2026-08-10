@@ -971,6 +971,7 @@ async def build_fnr_excel_from_facts(
         'category_1': set(),
         'category_2': set(),
         'category_3': set(),
+        'category_hierarchy': set(),
         'suppliers': set(),
     }
     for detail in period_1.get('detail_rows') or []:
@@ -995,6 +996,9 @@ async def build_fnr_excel_from_facts(
             options['category_2'].add(c2)
         if c3:
             options['category_3'].add(c3)
+        # Distinct (c1, c2, c3) combos → lets the UI cascade Κατ.1 → Κατ.2 → Κατ.3.
+        if c1:
+            options['category_hierarchy'].add((c1, c2, c3))
         if supplier:
             options['suppliers'].add(supplier)
         if group_filter and not _fnr_allowed(grp, group_filter):
@@ -1483,7 +1487,7 @@ async def build_availability_brief_from_facts(
     groups: dict[tuple[str, str], dict[str, object]] = {}
     vendor_location: dict[tuple[str, str, str, str], dict[str, object]] = {}
     selected_item_codes: list[str] = []
-    options = {'pharmacies': [STORE_NAMES[code] for code in STORE_CODES], 'category_1': set(), 'category_2': set(), 'category_3': set(), 'suppliers': set(), 'group': set(), 'status_abcd': set(), 'commercial_status': set()}
+    options = {'pharmacies': [STORE_NAMES[code] for code in STORE_CODES], 'category_1': set(), 'category_2': set(), 'category_3': set(), 'category_hierarchy': set(), 'suppliers': set(), 'group': set(), 'status_abcd': set(), 'commercial_status': set()}
     total_sku = 0
     for row in rows:
         status_code = _fnr_status_code(row.get('raw_status'))
@@ -1498,6 +1502,7 @@ async def build_availability_brief_from_facts(
             options['category_2'].add(c2)
         if c3:
             options['category_3'].add(c3)
+        options['category_hierarchy'].add((c1, c2, c3))
         options['suppliers'].add(supplier)
         options['group'].add(grp)
         if status_code:
@@ -1873,7 +1878,7 @@ async def build_destocking_brief_from_facts(
         'commercial_status': commercial_status or [],
     }
     groups: dict[tuple[str, str], dict[str, object]] = {}
-    options = {'pharmacies': [STORE_NAMES[code] for code in STORE_CODES], 'category_1': set(), 'category_2': set(), 'category_3': set(), 'suppliers': set(), 'group': set(), 'status_abcd': set(), 'commercial_status': set()}
+    options = {'pharmacies': [STORE_NAMES[code] for code in STORE_CODES], 'category_1': set(), 'category_2': set(), 'category_3': set(), 'category_hierarchy': set(), 'suppliers': set(), 'group': set(), 'status_abcd': set(), 'commercial_status': set()}
     recommendations_by_key: dict[tuple[str, str, str, str], dict[str, object]] = {}
     selected_item_codes: list[str] = []
     destocking_buckets = ('A over', 'B over', 'C', 'D', 'D3')
@@ -1898,6 +1903,7 @@ async def build_destocking_brief_from_facts(
             options['category_2'].add(c2)
         if c3:
             options['category_3'].add(c3)
+        options['category_hierarchy'].add((c1, c2, c3))
         options['suppliers'].add(supplier)
         options['group'].add(grp)
         options['status_abcd'].add(status_code)
