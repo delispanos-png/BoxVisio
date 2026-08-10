@@ -104,7 +104,9 @@ async def _query_supplier_orders_from_facts(tenant_db: AsyncSession, filters: Su
         .outerjoin(DimBranch, DimBranch.id == FactSupplierOrder.branch_id)
         .where(FactSupplierOrder.doc_date >= filters.from_date, FactSupplierOrder.doc_date <= filters.to_date)
         .order_by(FactSupplierOrder.doc_date.desc(), FactSupplierOrder.document_id.desc(), FactSupplierOrder.external_id.asc())
-        .limit(5000)
+        # High cap so whole orders are never silently dropped from the unfiltered view
+        # (the previous 5000-line cap hid older orders once a period had more lines than that).
+        .limit(50000)
     )
     if term:
         like = f'%{term}%'
@@ -229,7 +231,7 @@ def _build_payload_from_rows(raw_rows: list[dict[str, Any]], filters: SupplierOr
         'filters': filters,
         'summary': summary,
         'supplier_rows': supplier_rows[:50],
-        'document_rows': document_rows[:200],
+        'document_rows': document_rows[:1000],
         'line_rows': line_rows,
         'error': None,
     }
