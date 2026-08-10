@@ -1,4 +1,5 @@
 {% extends "base_tenant.html" %}
+{% from "tenant/_components.html" import multiselect %}
 
 {% block content %}
 {% set summary = dashboard.summary or {} %}
@@ -51,11 +52,8 @@
         <input class="form-control" type="text" name="to" value="{{ filters.to_date.strftime('%d/%m/%Y') }}" data-date-format="dmy" placeholder="ηη/μμ/εεεε" inputmode="numeric">
       </div>
       <div class="col-md-4">
-        <label class="form-label">Προμηθευτής / Παραστατικό</label>
-        <input class="form-control" type="text" name="supplier" value="{{ filters.supplier }}" placeholder="Αναζήτηση προμηθευτή ή αριθμού" list="supplierNames" autocomplete="off">
-        <datalist id="supplierNames">
-          {% for name in dashboard.all_supplier_names or [] %}<option value="{{ name }}"></option>{% endfor %}
-        </datalist>
+        <label class="form-label">Προμηθευτής</label>
+        {{ multiselect('supplierPick', select_name='supplier', placeholder='Όλοι οι προμηθευτές', search_placeholder='Αναζήτηση προμηθευτή…') }}
       </div>
       <div class="col-md-2">
         <label class="form-label">Κατάσταση</label>
@@ -208,4 +206,19 @@
     </table>
   </div>
 </div>
+<script>
+  // Populate the supplier picker (unified BvMultiSelect dropdown) + keep current selection on reload.
+  (function () {
+    var names = {{ (dashboard.all_supplier_names or [])|tojson }};
+    var current = {{ (filters.supplier_names|list if filters.supplier_names else [])|tojson }};
+    function init() {
+      if (!window.BvMultiSelect) { setTimeout(init, 60); return; }
+      var labels = {}; names.forEach(function (n) { labels[n] = n; });
+      window.BvMultiSelect.bind('supplierPick', { label: 'Όλοι οι προμηθευτές' });
+      window.BvMultiSelect.populate('supplierPick', names, labels, { label: 'Όλοι οι προμηθευτές' });
+      if (current.length) window.BvMultiSelect.setSelected('supplierPick', current, { label: 'Όλοι οι προμηθευτές' });
+    }
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
+  })();
+</script>
 {% endblock %}

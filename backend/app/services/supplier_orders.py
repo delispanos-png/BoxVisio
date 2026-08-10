@@ -21,6 +21,7 @@ class SupplierOrdersFilters:
     from_date: date
     to_date: date
     supplier: str = ''
+    supplier_names: tuple = ()
     only_open: bool = True
     limit: int = 500
 
@@ -109,7 +110,12 @@ async def _query_supplier_orders_from_facts(tenant_db: AsyncSession, filters: Su
         # (the previous 5000-line cap hid older orders once a period had more lines than that).
         .limit(50000)
     )
-    if term:
+    if filters.supplier_names:
+        # Exact supplier picks from the multiselect (unified dropdown).
+        names = [str(n) for n in filters.supplier_names if str(n or '').strip()]
+        if names:
+            stmt = stmt.where(FactSupplierOrder.supplier_name.in_(names))
+    elif term:
         like = f'%{term}%'
         stmt = stmt.where(
             or_(

@@ -14827,11 +14827,13 @@ async def tenant_supplier_orders_dashboard(
     if from_date > to_date:
         from_date, to_date = to_date, from_date
     only_open = str(request.query_params.get('only_open', '1')).strip().lower() not in {'0', 'false', 'no'}
-    supplier = str(request.query_params.get('supplier') or '').strip()
+    supplier_values = [s.strip() for s in request.query_params.getlist('supplier') if s.strip()]
+    supplier = supplier_values[0] if len(supplier_values) == 1 else ''
     filters = SupplierOrdersFilters(
         from_date=from_date,
         to_date=to_date,
         supplier=supplier,
+        supplier_names=tuple(supplier_values),
         only_open=only_open,
         limit=500,
     )
