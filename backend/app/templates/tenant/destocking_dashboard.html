@@ -1,4 +1,5 @@
 {% extends "base_tenant.html" %}
+{% from "tenant/_components.html" import multiselect %}
 
 {% block content %}
 {% set summary = destocking.summary if destocking.summary is defined else {} %}
@@ -88,9 +89,7 @@
         <div class="dst-cell label">{{ label }}</div>
         <div class="dst-cell">
           <input type="hidden" name="{{ key }}" value="{{ query_values[key] }}" data-dst-value="{{ key }}">
-          <details class="dst-dropdown" data-dst-multi="{{ key }}" data-placeholder="{{ placeholder }}"><summary data-dst-label>{{ placeholder }}</summary><div class="dst-menu">
-            {% for option in opts %}<label class="dst-option"><input type="checkbox" value="{{ option }}"> {{ option }}</label>{% else %}<div class="dst-muted p-2">Δεν υπάρχουν επιλογές.</div>{% endfor %}
-          </div></details>
+          {{ multiselect('dst_' ~ key, placeholder=placeholder, search_placeholder='Αναζήτηση…') }}
         </div>
         {% if loop.index == 1 %}<div class="dst-cell label">Period από</div><div class="dst-cell"><input name="period_from" type="date" value="{{ query_values.period_from }}"></div>
         {% elif loop.index == 2 %}<div class="dst-cell label">Period έως</div><div class="dst-cell"><input name="period_to" type="date" value="{{ query_values.period_to }}"></div>
@@ -117,19 +116,86 @@
   </section>
   {% endif %}
 </div>
+<script type="application/json" id="bvCatHierarchy">{{ (options.category_hierarchy or [])|tojson }}</script>
+<script type="application/json" id="dstFilterOptions">{{ {
+  'pharmacies': options.pharmacies or [],
+  'group': options.group or [],
+  'category_1': options.category_1 or [],
+  'category_2': options.category_2 or [],
+  'category_3': options.category_3 or [],
+  'suppliers': options.suppliers or [],
+  'status_abcd': options.status_abcd or [],
+  'commercial_status': options.commercial_status or [],
+}|tojson }}</script>
 <script>
 (() => {
+  // --- Unified BvMultiSelect filters (replaces the bespoke dst-dropdown checkbox widgets) ---
   const splitValues = (v) => String(v || '').split(',').map(p => p.trim()).filter(Boolean);
-  document.querySelectorAll('[data-dst-multi]').forEach((dropdown) => {
-    const key = dropdown.getAttribute('data-dst-multi'); const hidden = document.querySelector(`[data-dst-value="${key}"]`); const label = dropdown.querySelector('[data-dst-label]'); const boxes = Array.from(dropdown.querySelectorAll('input[type="checkbox"]')); const placeholder = dropdown.getAttribute('data-placeholder') || 'Όλα';
-    const refresh = () => { const selected = boxes.filter(b => b.checked).map(b => b.value); if (hidden) hidden.value = selected.join(', '); if (label) label.textContent = selected.length ? (selected.length <= 2 ? selected.join(', ') : `${selected.length} επιλεγμένα`) : placeholder; };
-    const initial = new Set(splitValues(hidden?.value)); boxes.forEach(b => { b.checked = initial.has(b.value); b.addEventListener('change', refresh); }); refresh();
-  });
+  const FIELDS = [
+    { key: 'pharmacies', label: 'Φαρμακεία', empty: 'Όλα τα φαρμακεία' },
+    { key: 'group', label: 'Ομάδες', empty: 'Όλες οι ομάδες' },
+    { key: 'category_1', label: 'Κατηγορίες 1', empty: 'Όλες οι κατηγορίες 1' },
+    { key: 'category_2', label: 'Κατηγορίες 2', empty: 'Όλες οι κατηγορίες 2' },
+    { key: 'category_3', label: 'Κατηγορίες 3', empty: 'Όλες οι κατηγορίες 3' },
+    { key: 'suppliers', label: 'Προμηθευτές', empty: 'Όλοι οι προμηθευτές' },
+    { key: 'status_abcd', label: 'Status ABCD', empty: 'Όλα τα ABCD' },
+    { key: 'commercial_status', label: 'Εμπορικό status', empty: 'Όλα τα εμπορικά status' },
+  ].map((f) => ({ ...f, prefix: 'dst_' + f.key }));
+  let OPTS = {}; let HIER = [];
+  try { OPTS = JSON.parse(document.getElementById('dstFilterOptions')?.textContent || '{}') || {}; } catch (e) { OPTS = {}; }
+  try { HIER = JSON.parse(document.getElementById('bvCatHierarchy')?.textContent || '[]') || []; } catch (e) { HIER = []; }
+  if (window.BvMultiSelect) {
+    const hiddenFor = {};
+    FIELDS.forEach((f) => { hiddenFor[f.prefix] = document.querySelector(`[data-dst-value="${f.key}"]`); });
+    const mirror = (prefix) => {
+      const hidden = hiddenFor[prefix];
+      if (hidden) hidden.value = (BvMultiSelect.selectedValues(prefix) || []).join(', ');
+    };
+    FIELDS.forEach((f) => {
+      BvMultiSelect.bind(f.prefix, { label: f.label, selectText: f.empty });
+      const values = (OPTS[f.key] || []).map(String);
+      const labels = {}; values.forEach((v) => { labels[v] = v; });
+      BvMultiSelect.populate(f.prefix, values, labels, { label: f.label, selectText: f.empty });
+      BvMultiSelect.setSelected(f.prefix, splitValues(hiddenFor[f.prefix]?.value), { label: f.label, selectText: f.empty });
+    });
+    const optionsForLevel = (level, selL1, selL2) => {
+      const set = new Set();
+      HIER.forEach((row) => {
+        const c1 = String(row[0] || ''), c2 = String(row[1] || ''), c3 = String(row[2] || '');
+        if (level === 0) { if (c1) set.add(c1); }
+        else if (level === 1) { if ((!selL1.length || selL1.includes(c1)) && c2) set.add(c2); }
+        else { if ((!selL1.length || selL1.includes(c1)) && (!selL2.length || selL2.includes(c2)) && c3) set.add(c3); }
+      });
+      return [...set];
+    };
+    const repopulate = (prefix, values, cfg) => {
+      const labels = {}; values.forEach((v) => { labels[v] = v; });
+      BvMultiSelect.populate(prefix, values, labels, cfg);
+      mirror(prefix);
+    };
+    const cfg2 = { label: 'Κατηγορίες 2', selectText: 'Όλες οι κατηγορίες 2' };
+    const cfg3 = { label: 'Κατηγορίες 3', selectText: 'Όλες οι κατηγορίες 3' };
+    const syncCascade = () => {
+      if (!HIER.length) return;
+      const selL1 = BvMultiSelect.selectedValues('dst_category_1') || [];
+      repopulate('dst_category_2', optionsForLevel(1, selL1, []), cfg2);
+      const selL2 = BvMultiSelect.selectedValues('dst_category_2') || [];
+      repopulate('dst_category_3', optionsForLevel(2, selL1, selL2), cfg3);
+    };
+    FIELDS.forEach((f) => {
+      const sel = document.getElementById(f.prefix);
+      if (sel) sel.addEventListener('change', () => mirror(f.prefix));
+    });
+    ['dst_category_1', 'dst_category_2'].forEach((p) => {
+      const sel = document.getElementById(p);
+      if (sel) sel.addEventListener('change', syncCascade);
+    });
+    syncCascade();
+    FIELDS.forEach((f) => mirror(f.prefix));
+  }
   document.querySelectorAll('[data-dst-tab]').forEach(btn => btn.addEventListener('click', () => { document.querySelectorAll('[data-dst-tab]').forEach(n => n.classList.toggle('active', n === btn)); document.querySelectorAll('[data-dst-pane]').forEach(p => p.classList.toggle('active', p.getAttribute('data-dst-pane') === btn.getAttribute('data-dst-tab'))); }));
   const draw = (box, dual=false) => { const svg=box.querySelector('svg'); if(!svg)return; const data=JSON.parse(box.getAttribute(dual?'data-dst-dual':'data-dst-lines')||'{}'); const periods=data.periods||[]; const width=640,height=260,p={left:52,right:40,top:20,bottom:42}, plotW=width-p.left-p.right, plotH=height-p.top-p.bottom; const palette=['#2563eb','#f97316','#16a34a','#dc2626','#7c3aed']; const lines=dual?[{name:'overstock',values:data.overstock||[],color:palette[0],right:false},{name:'D3',values:data.d3_overstock||[],color:palette[4],right:false},{name:'margin',values:data.margin||[],color:palette[1],right:true}]:((data.lines||[]).map((l,i)=>({name:l.name,values:l.values||[],color:palette[i%palette.length]}))); const max=Math.max(1,...lines.filter(l=>!l.right).flatMap(l=>l.values)); const x=i=>p.left+(periods.length<=1?plotW/2:(i/(periods.length-1))*plotW); const y=v=>p.top+(1-(Math.max(0,Math.min(max,v))/max))*plotH; const yr=v=>p.top+(1-Math.max(0,Math.min(1,v)))*plotH; const path=(vals,mapper)=>vals.map((v,i)=>`${i?'L':'M'} ${x(i).toFixed(1)} ${mapper(v).toFixed(1)}`).join(' '); const grid=[0,.25,.5,.75,1].map(t=>`<line x1="${p.left}" y1="${p.top+(1-t)*plotH}" x2="${width-p.right}" y2="${p.top+(1-t)*plotH}" stroke="#e5e7eb"/>`).join(''); const labels=periods.map((d,i)=>`<text x="${x(i)}" y="${height-14}" text-anchor="middle" font-size="11" fill="#64748b">${d}</text>`).join(''); svg.setAttribute('viewBox',`0 0 ${width} ${height}`); svg.innerHTML=grid+labels+lines.map(l=>`<path d="${path(l.values,l.right?yr:y)}" fill="none" stroke="${l.color}" stroke-width="3"/>${l.values.map((v,i)=>`<circle cx="${x(i)}" cy="${(l.right?yr:y)(v)}" r="4" fill="${l.color}"/>`).join('')}`).join(''); };
   document.querySelectorAll('[data-dst-lines]').forEach(n=>draw(n,false)); document.querySelectorAll('[data-dst-dual]').forEach(n=>draw(n,true));
 })();
 </script>
-<script type="application/json" id="bvCatHierarchy">{{ (options.category_hierarchy or [])|tojson }}</script>
-<script src="/static/js/bv-category-cascade.js?v=20260801cat1"></script>
 {% endblock %}
