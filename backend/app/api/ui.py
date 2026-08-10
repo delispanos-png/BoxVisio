@@ -14842,6 +14842,7 @@ async def tenant_supplier_orders_dashboard(
             'supplier_rows': [],
             'document_rows': [],
             'line_rows': [],
+            'all_supplier_names': [],
             'error': None,
         }
     else:

@@ -52,7 +52,10 @@
       </div>
       <div class="col-md-4">
         <label class="form-label">Προμηθευτής / Παραστατικό</label>
-        <input class="form-control" type="text" name="supplier" value="{{ filters.supplier }}" placeholder="Αναζήτηση προμηθευτή ή αριθμού">
+        <input class="form-control" type="text" name="supplier" value="{{ filters.supplier }}" placeholder="Αναζήτηση προμηθευτή ή αριθμού" list="supplierNames" autocomplete="off">
+        <datalist id="supplierNames">
+          {% for name in dashboard.all_supplier_names or [] %}<option value="{{ name }}"></option>{% endfor %}
+        </datalist>
       </div>
       <div class="col-md-2">
         <label class="form-label">Κατάσταση</label>

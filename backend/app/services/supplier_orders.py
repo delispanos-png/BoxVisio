@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.tenant_manager import get_tenant_db_session
@@ -76,6 +76,7 @@ def _empty_payload(filters: SupplierOrdersFilters, error: str | None = None) -> 
         'supplier_rows': [],
         'document_rows': [],
         'line_rows': [],
+        'all_supplier_names': [],
         'error': error,
     }
 
@@ -119,7 +120,19 @@ async def _query_supplier_orders_from_facts(tenant_db: AsyncSession, filters: Su
         )
     result = await tenant_db.execute(stmt)
     raw_rows = [_fact_supplier_order_row_dict(fact, branch_name) for fact, branch_name in result.all()]
-    return _build_payload_from_rows(raw_rows, filters)
+    payload = _build_payload_from_rows(raw_rows, filters)
+    # All supplier names (independent of the current supplier filter) for the search typeahead.
+    name_rows = (
+        await tenant_db.execute(
+            select(FactSupplierOrder.supplier_name)
+            .where(func.coalesce(func.trim(FactSupplierOrder.supplier_name), '') != '')
+            .distinct()
+            .order_by(FactSupplierOrder.supplier_name)
+            .limit(3000)
+        )
+    ).scalars().all()
+    payload['all_supplier_names'] = [str(n) for n in name_rows if str(n or '').strip()]
+    return payload
 
 
 def _fact_supplier_order_row_dict(fact: FactSupplierOrder, branch_name: str | None) -> dict[str, Any]:
@@ -233,5 +246,6 @@ def _build_payload_from_rows(raw_rows: list[dict[str, Any]], filters: SupplierOr
         'supplier_rows': supplier_rows[:50],
         'document_rows': document_rows[:1000],
         'line_rows': line_rows,
+        'all_supplier_names': [],
         'error': None,
     }
