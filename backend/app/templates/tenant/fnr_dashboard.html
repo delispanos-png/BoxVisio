@@ -1,4 +1,5 @@
 {% extends "base_tenant.html" %}
+{% from "tenant/_components.html" import multiselect %}
 
 {% block content %}
 {% set summary = fnr.summary if fnr.summary is defined else {} %}
@@ -192,16 +193,7 @@
         <div class="fnr-cell label">Φαρμακεία</div>
         <div class="fnr-cell">
           <input type="hidden" name="pharmacies" value="{{ query_values.pharmacies }}" data-fnr-multi-value="pharmacies">
-          <details class="fnr-dropdown" data-fnr-multi="pharmacies">
-            <summary data-fnr-multi-label>Όλα τα φαρμακεία</summary>
-            <div class="fnr-dropdown-menu">
-              {% for option in options.pharmacies or [] %}
-              <label class="fnr-option"><input type="checkbox" value="{{ option }}"> {{ option }}</label>
-              {% else %}
-              <div class="fnr-option-empty">Δεν υπάρχουν διαθέσιμα φαρμακεία.</div>
-              {% endfor %}
-            </div>
-          </details>
+          {{ multiselect('fnrPharmacies', placeholder='Όλα τα φαρμακεία', search_placeholder='Αναζήτηση φαρμακείου…') }}
         </div>
         <div class="fnr-cell label">Target stock</div>
         <div class="fnr-cell"><input name="target_stock_weeks" type="number" step="0.1" value="{{ query_values.target_stock_weeks }}"></div>
@@ -209,16 +201,7 @@
         <div class="fnr-cell label">Ομάδα</div>
         <div class="fnr-cell">
           <input type="hidden" name="group" value="{{ query_values.group }}" data-fnr-multi-value="group">
-          <details class="fnr-dropdown" data-fnr-multi="group">
-            <summary data-fnr-multi-label>Όλες οι ομάδες</summary>
-            <div class="fnr-dropdown-menu">
-              {% for option in options.group or [] %}
-              <label class="fnr-option"><input type="checkbox" value="{{ option }}"> {{ option }}</label>
-              {% else %}
-              <div class="fnr-option-empty">Δεν υπάρχουν διαθέσιμες ομάδες.</div>
-              {% endfor %}
-            </div>
-          </details>
+          {{ multiselect('fnrGroup', placeholder='Όλες οι ομάδες', search_placeholder='Αναζήτηση ομάδας…') }}
         </div>
         <div class="fnr-cell label">Overstock</div>
         <div class="fnr-cell"><input name="overstock_weeks" type="number" step="0.1" value="{{ query_values.overstock_weeks }}"></div>
@@ -226,16 +209,7 @@
         <div class="fnr-cell label">Κατηγορία 1</div>
         <div class="fnr-cell">
           <input type="hidden" name="category_1" value="{{ query_values.category_1 }}" data-fnr-multi-value="category_1">
-          <details class="fnr-dropdown" data-fnr-multi="category_1">
-            <summary data-fnr-multi-label>Όλες οι κατηγορίες 1</summary>
-            <div class="fnr-dropdown-menu">
-              {% for option in options.category_1 or [] %}
-              <label class="fnr-option"><input type="checkbox" value="{{ option }}"> {{ option }}</label>
-              {% else %}
-              <div class="fnr-option-empty">Δεν υπάρχουν διαθέσιμες κατηγορίες.</div>
-              {% endfor %}
-            </div>
-          </details>
+          {{ multiselect('fnrCat1', placeholder='Όλες οι κατηγορίες 1', search_placeholder='Αναζήτηση κατηγορίας…') }}
         </div>
         <div class="fnr-cell label">MO Εβδ 1</div>
         <div class="fnr-cell"><input name="sales_avg_period_1_weeks" type="number" min="1" step="1" value="{{ query_values.sales_avg_period_1_weeks }}"></div>
@@ -243,16 +217,7 @@
         <div class="fnr-cell label">Κατηγορία 2</div>
         <div class="fnr-cell">
           <input type="hidden" name="category_2" value="{{ query_values.category_2 }}" data-fnr-multi-value="category_2">
-          <details class="fnr-dropdown" data-fnr-multi="category_2">
-            <summary data-fnr-multi-label>Όλες οι κατηγορίες 2</summary>
-            <div class="fnr-dropdown-menu">
-              {% for option in options.category_2 or [] %}
-              <label class="fnr-option"><input type="checkbox" value="{{ option }}"> {{ option }}</label>
-              {% else %}
-              <div class="fnr-option-empty">Δεν υπάρχουν διαθέσιμες κατηγορίες.</div>
-              {% endfor %}
-            </div>
-          </details>
+          {{ multiselect('fnrCat2', placeholder='Όλες οι κατηγορίες 2', search_placeholder='Αναζήτηση κατηγορίας…') }}
         </div>
         <div class="fnr-cell label">MO Εβδ 2</div>
         <div class="fnr-cell"><input name="sales_avg_period_2_weeks" type="number" min="1" step="1" value="{{ query_values.sales_avg_period_2_weeks }}"></div>
@@ -260,16 +225,7 @@
         <div class="fnr-cell label">Κατηγορία 3</div>
         <div class="fnr-cell">
           <input type="hidden" name="category_3" value="{{ query_values.category_3 }}" data-fnr-multi-value="category_3">
-          <details class="fnr-dropdown" data-fnr-multi="category_3">
-            <summary data-fnr-multi-label>Όλες οι κατηγορίες 3</summary>
-            <div class="fnr-dropdown-menu">
-              {% for option in options.category_3 or [] %}
-              <label class="fnr-option"><input type="checkbox" value="{{ option }}"> {{ option }}</label>
-              {% else %}
-              <div class="fnr-option-empty">Δεν υπάρχουν διαθέσιμες κατηγορίες.</div>
-              {% endfor %}
-            </div>
-          </details>
+          {{ multiselect('fnrCat3', placeholder='Όλες οι κατηγορίες 3', search_placeholder='Αναζήτηση κατηγορίας…') }}
         </div>
         <div class="fnr-cell label">Αναζήτηση</div>
         <div class="fnr-cell"><input name="search" value="{{ query_values.search }}" placeholder="κωδικός ή περιγραφή"></div>
@@ -277,16 +233,7 @@
         <div class="fnr-cell label">Προμηθευτής</div>
         <div class="fnr-cell">
           <input type="hidden" name="suppliers" value="{{ query_values.suppliers }}" data-fnr-multi-value="suppliers">
-          <details class="fnr-dropdown" data-fnr-multi="suppliers">
-            <summary data-fnr-multi-label>Όλοι οι προμηθευτές</summary>
-            <div class="fnr-dropdown-menu">
-              {% for option in options.suppliers or [] %}
-              <label class="fnr-option"><input type="checkbox" value="{{ option }}"> {{ option }}</label>
-              {% else %}
-              <div class="fnr-option-empty">Δεν υπάρχουν διαθέσιμοι προμηθευτές.</div>
-              {% endfor %}
-            </div>
-          </details>
+          {{ multiselect('fnrSuppliers', placeholder='Όλοι οι προμηθευτές', search_placeholder='Αναζήτηση προμηθευτή…') }}
         </div>
       </div>
       <div class="fnr-actions">
@@ -501,42 +448,81 @@
   {% endif %}
   {% endif %}
 </div>
+<script type="application/json" id="bvCatHierarchy">{{ (options.category_hierarchy or [])|tojson }}</script>
+<script type="application/json" id="fnrFilterOptions">{{ {
+  'pharmacies': options.pharmacies or [],
+  'group': options.group or [],
+  'category_1': options.category_1 or [],
+  'category_2': options.category_2 or [],
+  'category_3': options.category_3 or [],
+  'suppliers': options.suppliers or [],
+}|tojson }}</script>
 <script>
   (() => {
-    const defaults = {
-      pharmacies: 'Όλα τα φαρμακεία',
-      category_1: 'Όλες οι κατηγορίες 1',
-      category_2: 'Όλες οι κατηγορίες 2',
-      category_3: 'Όλες οι κατηγορίες 3',
-      suppliers: 'Όλοι οι προμηθευτές',
-    };
+    // --- Unified BvMultiSelect filters (replaces the bespoke fnr-dropdown checkbox widgets) ---
     const splitValues = (value) => String(value || '').split(',').map((part) => part.trim()).filter(Boolean);
-    document.querySelectorAll('[data-fnr-multi]').forEach((dropdown) => {
-      const key = dropdown.getAttribute('data-fnr-multi');
-      const hidden = document.querySelector(`[data-fnr-multi-value="${key}"]`);
-      const label = dropdown.querySelector('[data-fnr-multi-label]');
-      const boxes = Array.from(dropdown.querySelectorAll('input[type="checkbox"]'));
-      const refresh = () => {
-        const selected = boxes.filter((box) => box.checked).map((box) => box.value);
-        if (hidden) hidden.value = selected.join(', ');
-        if (label) {
-          if (!selected.length) label.textContent = defaults[key] || 'Όλα';
-          else if (selected.length <= 2) label.textContent = selected.join(', ');
-          else label.textContent = `${selected.length} επιλεγμένα`;
-        }
-      };
-      const initial = new Set(splitValues(hidden?.value));
-      boxes.forEach((box) => {
-        box.checked = initial.has(box.value);
-        box.addEventListener('change', refresh);
-      });
-      refresh();
+    const FIELDS = [
+      { prefix: 'fnrPharmacies', key: 'pharmacies', label: 'Φαρμακεία', empty: 'Όλα τα φαρμακεία' },
+      { prefix: 'fnrGroup', key: 'group', label: 'Ομάδες', empty: 'Όλες οι ομάδες' },
+      { prefix: 'fnrCat1', key: 'category_1', label: 'Κατηγορίες 1', empty: 'Όλες οι κατηγορίες 1' },
+      { prefix: 'fnrCat2', key: 'category_2', label: 'Κατηγορίες 2', empty: 'Όλες οι κατηγορίες 2' },
+      { prefix: 'fnrCat3', key: 'category_3', label: 'Κατηγορίες 3', empty: 'Όλες οι κατηγορίες 3' },
+      { prefix: 'fnrSuppliers', key: 'suppliers', label: 'Προμηθευτές', empty: 'Όλοι οι προμηθευτές' },
+    ];
+    let OPTS = {}; let HIER = [];
+    try { OPTS = JSON.parse(document.getElementById('fnrFilterOptions')?.textContent || '{}') || {}; } catch (e) { OPTS = {}; }
+    try { HIER = JSON.parse(document.getElementById('bvCatHierarchy')?.textContent || '[]') || []; } catch (e) { HIER = []; }
+    if (!window.BvMultiSelect) return;
+    const hiddenFor = {};
+    FIELDS.forEach((f) => { hiddenFor[f.prefix] = document.querySelector(`[data-fnr-multi-value="${f.key}"]`); });
+    const mirror = (prefix) => {
+      const hidden = hiddenFor[prefix];
+      if (hidden) hidden.value = (BvMultiSelect.selectedValues(prefix) || []).join(', ');
+    };
+    // 1) bind + populate (full option lists) + preselect from the submitted (comma-joined) hidden values
+    FIELDS.forEach((f) => {
+      BvMultiSelect.bind(f.prefix, { label: f.label, selectText: f.empty });
+      const values = (OPTS[f.key] || []).map(String);
+      const labels = {}; values.forEach((v) => { labels[v] = v; });
+      BvMultiSelect.populate(f.prefix, values, labels, { label: f.label, selectText: f.empty });
+      BvMultiSelect.setSelected(f.prefix, splitValues(hiddenFor[f.prefix]?.value), { label: f.label, selectText: f.empty });
     });
-    document.addEventListener('click', (event) => {
-      document.querySelectorAll('.fnr-dropdown[open]').forEach((dropdown) => {
-        if (!dropdown.contains(event.target)) dropdown.removeAttribute('open');
+    // 2) category cascade (Κατ.1 → Κατ.2 → Κατ.3) driven by the [c1,c2,c3] hierarchy
+    const optionsForLevel = (level, selL1, selL2) => {
+      const set = new Set();
+      HIER.forEach((row) => {
+        const c1 = String(row[0] || ''), c2 = String(row[1] || ''), c3 = String(row[2] || '');
+        if (level === 0) { if (c1) set.add(c1); }
+        else if (level === 1) { if ((!selL1.length || selL1.includes(c1)) && c2) set.add(c2); }
+        else { if ((!selL1.length || selL1.includes(c1)) && (!selL2.length || selL2.includes(c2)) && c3) set.add(c3); }
       });
+      return [...set];
+    };
+    const repopulate = (prefix, values, cfg) => {
+      const labels = {}; values.forEach((v) => { labels[v] = v; });
+      BvMultiSelect.populate(prefix, values, labels, cfg); // populate() keeps still-valid selections
+      mirror(prefix);
+    };
+    const cfg2 = { label: 'Κατηγορίες 2', selectText: 'Όλες οι κατηγορίες 2' };
+    const cfg3 = { label: 'Κατηγορίες 3', selectText: 'Όλες οι κατηγορίες 3' };
+    const syncCascade = () => {
+      if (!HIER.length) return;
+      const selL1 = BvMultiSelect.selectedValues('fnrCat1') || [];
+      repopulate('fnrCat2', optionsForLevel(1, selL1, []), cfg2);
+      const selL2 = BvMultiSelect.selectedValues('fnrCat2') || [];
+      repopulate('fnrCat3', optionsForLevel(2, selL1, selL2), cfg3);
+    };
+    // 3) attach listeners LAST (so init setSelected above never triggers a mid-build cascade)
+    FIELDS.forEach((f) => {
+      const sel = document.getElementById(f.prefix);
+      if (sel) sel.addEventListener('change', () => mirror(f.prefix));
     });
+    ['fnrCat1', 'fnrCat2'].forEach((p) => {
+      const sel = document.getElementById(p);
+      if (sel) sel.addEventListener('change', syncCascade);
+    });
+    syncCascade();       // filter Κατ.2/Κατ.3 by the initial Κατ.1/Κατ.2 selection
+    FIELDS.forEach((f) => mirror(f.prefix));
     const progressBox = document.querySelector('[data-fnr-sync-progress]');
     if (progressBox) {
       const label = progressBox.querySelector('[data-fnr-sync-label]');
@@ -596,6 +582,4 @@
     }
   })();
 </script>
-<script type="application/json" id="bvCatHierarchy">{{ (options.category_hierarchy or [])|tojson }}</script>
-<script src="/static/js/bv-category-cascade.js?v=20260801cat1"></script>
 {% endblock %}
