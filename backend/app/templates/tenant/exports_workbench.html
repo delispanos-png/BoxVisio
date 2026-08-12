@@ -204,7 +204,7 @@
       <span class="exp-saved-empty">Καμία ακόμη — φτιάξε ένα report, πάτα «Υπολογισμός» και μετά «Αποθήκευση τρέχοντος».</span>
       {% endif %}
     </div>
-    <button type="button" class="exp-saved-btn" data-exp-save><i class="fe fe-save"></i> Αποθήκευση ρεπόρτ</button>
+    <button type="button" class="exp-saved-btn" data-exp-save><i class="fe fe-save"></i> Αποθήκευση Report</button>
   </section>
   <form method="post" action="/tenant/exports/reports/save" id="expSaveForm" hidden>
     <input type="hidden" name="name" id="expSaveName">
@@ -216,12 +216,12 @@
     <div class="exp-modal-backdrop" data-exp-close></div>
     <div class="exp-modal-box" role="dialog" aria-modal="true" aria-labelledby="expModalTitle">
       <div class="exp-modal-head">
-        <h3 id="expModalTitle"><i class="fe fe-save"></i> Αποθήκευση ρεπόρτ</h3>
+        <h3 id="expModalTitle"><i class="fe fe-save"></i> Αποθήκευση Report</h3>
         <button type="button" class="exp-modal-x" data-exp-close aria-label="Κλείσιμο"><i class="fe fe-x"></i></button>
       </div>
       <div class="exp-modal-body">
-        <div class="exp-modal-warn" id="expModalWarn" hidden><i class="fe fe-alert-triangle"></i> Πρώτα διάλεξε στήλες/φίλτρα και πάτησε «Υπολογισμός», μετά αποθήκευσε το ρεπόρτ.</div>
-        <label class="exp-modal-label" for="expModalNameInput">Όνομα ρεπόρτ</label>
+        <div class="exp-modal-warn" id="expModalWarn" hidden><i class="fe fe-alert-triangle"></i> Πρώτα διάλεξε στήλες/φίλτρα και πάτησε «Υπολογισμός», μετά αποθήκευσε το Report.</div>
+        <label class="exp-modal-label" for="expModalNameInput">Όνομα Report</label>
         <input type="text" id="expModalNameInput" class="exp-modal-input" maxlength="120" placeholder="π.χ. Μηνιαία ανά κανάλι" autocomplete="off">
         <label class="exp-modal-check"><input type="checkbox" id="expModalDefaultInput"> <span>Ορισμός ως προεπιλογή — φορτώνει αυτόματα όταν ανοίγεις το Report Builder</span></label>
       </div>
