@@ -101,6 +101,11 @@ from app.services.connection_secrets import (
     encrypt_json_secret,
     encrypt_sqlserver_secret,
 )
+from app.services.copilot_config import (
+    copilot_settings_view,
+    get_copilot_config,
+    upsert_copilot_config,
+)
 from app.services.era_exploration import (
     clear_era_exploration_cache,
     DuplicateMarketImportError as EraDuplicateMarketImportError,
@@ -12377,10 +12382,49 @@ async def tenant_settings(
             'iqvia_data': _tenant_iqvia_settings(tenant),
             'supplier_orders': _tenant_supplier_order_settings(tenant),
             'call_center_3cx': await _tenant_call_center_settings(db, tenant.id),
+            'copilot': copilot_settings_view(await get_copilot_config(db, int(tenant.id))),
             'active_page': 'tenant_settings',
             'title': 'Settings',
         },
     )
+
+
+@router.post('/tenant/settings/copilot')
+async def tenant_settings_copilot(
+    enabled: str = Form(default=''),
+    model: str = Form(default='claude-opus-5'),
+    api_key: str = Form(default=''),
+    clear_key: str = Form(default=''),
+    max_monthly_tokens: int = Form(default=0),
+    data_scope: str = Form(default='row_level'),
+    tenant: Tenant = Depends(get_request_tenant),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_control_db),
+):
+    if user.role not in {RoleName.tenant_admin, RoleName.cloudon_admin}:
+        return RedirectResponse(url='/tenant/settings?copilot_saved=0&reason=permission', status_code=303)
+    await upsert_copilot_config(
+        db,
+        int(tenant.id),
+        enabled=str(enabled) in {'1', 'on', 'true'},
+        model=str(model or 'claude-opus-5'),
+        api_key=(api_key or None),
+        clear_key=str(clear_key) in {'1', 'on', 'true'},
+        max_monthly_tokens=int(max_monthly_tokens or 0),
+        data_scope=str(data_scope or 'row_level'),
+    )
+    # Audit without ever recording the key itself.
+    db.add(
+        AuditLog(
+            tenant_id=int(tenant.id),
+            action='tenant_copilot_settings_saved',
+            entity_type='tenant',
+            entity_id=str(tenant.id),
+            payload={'enabled': str(enabled) in {'1', 'on', 'true'}, 'model': str(model), 'data_scope': str(data_scope), 'key_changed': bool(api_key) or str(clear_key) in {'1', 'on', 'true'}},
+        )
+    )
+    await db.commit()
+    return RedirectResponse(url='/tenant/settings?copilot_saved=1', status_code=303)
 
 
 @router.post('/tenant/settings/supplier-orders')

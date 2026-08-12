@@ -442,3 +442,27 @@ class SavedReport(ControlBase):
     is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+
+class CopilotConfig(ControlBase):
+    """Per-tenant Co-Pilot (AI assistant) configuration. The tenant supplies its OWN
+    LLM API key (billed to the tenant's own account, never through us) from its admin
+    panel; the key is stored encrypted with the same Fernet envelope used for connection
+    secrets. Admin only toggles whether the tenant sees the Co-Pilot module (feature flag)."""
+
+    __tablename__ = 'copilot_configs'
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tenant_id: Mapped[int] = mapped_column(ForeignKey('tenants.id'), nullable=False, unique=True, index=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    provider: Mapped[str] = mapped_column(String(32), nullable=False, default='anthropic')
+    model: Mapped[str] = mapped_column(String(64), nullable=False, default='claude-opus-5')
+    # Fernet-envelope ciphertext of {"api_key": "..."} — never stored or logged in plaintext.
+    api_key_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Optional soft monthly ceiling on output tokens (0/None = no cap).
+    max_monthly_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # 'aggregates' = only KPI/aggregate results may leave to the tenant's LLM; 'row_level'
+    # also allows detail rows. Chosen per tenant; default row_level (their data, their key).
+    data_scope: Mapped[str] = mapped_column(String(16), nullable=False, default='row_level')
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)

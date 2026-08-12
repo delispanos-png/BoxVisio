@@ -420,6 +420,21 @@ SUBSCRIPTION_FEATURES: tuple[SubscriptionFeature, ...] = (
         default_custom=True,
         minimum_plan='Standard',
     ),
+    SubscriptionFeature(
+        key='copilot',
+        label='Co-Pilot AI',
+        group='Analytics',
+        menu_keys=('copilot',),
+        path_prefixes=('/tenant/copilot',),
+        # Add-on, off by default — the admin opts each tenant in per client. The tenant
+        # supplies its own LLM API key (billed to the tenant) in its own admin panel.
+        default_standard=False,
+        default_pro=False,
+        default_enterprise=False,
+        default_custom=False,
+        minimum_plan='Standard',
+        addon=True,
+    ),
 )
 
 FEATURE_BY_KEY = {item.key: item for item in SUBSCRIPTION_FEATURES}
