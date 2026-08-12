@@ -81,6 +81,7 @@ from app.models.control import (
     ProfessionalProfile,
     Invoice,
     Payment,
+    CopilotExport,
     RefreshToken,
     SavedReport,
     SubscriptionLimit,
@@ -12578,6 +12579,32 @@ async def tenant_copilot_conversation_delete(
 ):
     ok = await _copilot_history.delete_conversation(db, int(tenant.id), int(user.id), int(conv_id))
     return JSONResponse({'ok': ok}, status_code=(200 if ok else 404))
+
+
+@router.get('/tenant/copilot/download/{token}')
+async def tenant_copilot_download(
+    token: str,
+    request: Request,
+    tenant: Tenant = Depends(get_request_tenant),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_control_db),
+):
+    del user, request
+    exp = (
+        await db.execute(
+            select(CopilotExport).where(CopilotExport.token == token, CopilotExport.tenant_id == int(tenant.id))
+        )
+    ).scalar_one_or_none()
+    if exp is None:
+        return JSONResponse({'error': 'Το αρχείο δεν βρέθηκε ή έληξε.'}, status_code=404)
+    from urllib.parse import quote
+    fn = exp.filename or 'export.xlsx'
+    headers = {'Content-Disposition': "attachment; filename=\"export.xlsx\"; filename*=UTF-8''" + quote(fn)}
+    return Response(
+        content=bytes(exp.content),
+        media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        headers=headers,
+    )
 
 
 @router.post('/tenant/settings/supplier-orders')

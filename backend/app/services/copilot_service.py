@@ -8,15 +8,19 @@ guard, and a forced row cap — defence in depth so a prompt-injected query cann
 """
 from __future__ import annotations
 
+import io
 import json
 import re
+import secrets
+from datetime import datetime, timedelta
 from typing import Any, AsyncGenerator
 
-from sqlalchemy import text
+from sqlalchemy import delete as sa_delete, text
 
 from app.core.kpi_catalog import catalog_for_lang
+from app.db.control_session import ControlSessionLocal
 from app.db.tenant_manager import get_tenant_db_session
-from app.models.control import CopilotConfig, Tenant
+from app.models.control import CopilotConfig, CopilotExport, Tenant
 from app.services.copilot_config import copilot_api_key
 
 # --- SQL guard -------------------------------------------------------------
@@ -33,7 +37,7 @@ class SqlGuardError(ValueError):
     pass
 
 
-def guard_sql(sql: str, *, data_scope: str = 'row_level') -> str:
+def guard_sql(sql: str, *, data_scope: str = 'row_level', max_rows: int = _MAX_ROWS) -> str:
     """Validate + normalise a model-supplied query. Raises SqlGuardError on anything
     that isn't a single read-only SELECT/CTE. Appends a LIMIT when missing."""
     raw = (sql or '').strip().rstrip(';').strip()
@@ -54,9 +58,9 @@ def guard_sql(sql: str, *, data_scope: str = 'row_level') -> str:
                     'Σε λειτουργία «μόνο σύνολα» δεν επιτρέπονται αναλυτικές γραμμές '
                     f'({banned}). Χρησιμοποίησε τους πίνακες agg_*.'
                 )
-    # Force a row cap so a runaway query can't stream millions of rows to the model.
+    # Force a row cap so a runaway query can't stream millions of rows out.
     if not re.search(r'\blimit\s+\d+', raw, re.IGNORECASE):
-        raw = f'{raw}\nLIMIT {_MAX_ROWS}'
+        raw = f'{raw}\nLIMIT {int(max_rows)}'
     return raw
 
 
@@ -129,6 +133,82 @@ async def describe_schema(tenant: Tenant, table: str | None = None, *, data_scop
     return {'error': 'Δεν ήταν διαθέσιμη η βάση του πελάτη.'}
 
 
+_EXPORT_MAX_ROWS = 5000
+
+
+def _xlsx_cell(value: Any) -> Any:
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, ensure_ascii=False)
+    return value
+
+
+def _build_xlsx(columns: list[str], rows: list[dict], sheet_name: str = 'Δεδομένα') -> bytes:
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill
+    from openpyxl.utils import get_column_letter
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = (sheet_name or 'Δεδομένα')[:31]
+    ws.append(list(columns))
+    header_fill = PatternFill('solid', fgColor='2563EB')
+    for cell in ws[1]:
+        cell.font = Font(bold=True, color='FFFFFF')
+        cell.fill = header_fill
+    for r in rows:
+        ws.append([_xlsx_cell(r.get(col)) for col in columns])
+    for i, col in enumerate(columns, start=1):
+        sample = [len(str(col))] + [len(str(r.get(col) or '')) for r in rows[:150]]
+        ws.column_dimensions[get_column_letter(i)].width = min(max(10, max(sample) + 2), 60)
+    ws.freeze_panes = 'A2'
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+async def export_excel(tenant: Tenant, query: str, filename: str | None = None, *, data_scope: str = 'row_level') -> dict[str, Any]:
+    """Run a guarded read-only query and build a downloadable .xlsx from the rows.
+    Returns {download_url, filename, row_count} or {error}."""
+    try:
+        safe = guard_sql(query, data_scope=data_scope, max_rows=_EXPORT_MAX_ROWS)
+    except SqlGuardError as exc:
+        return {'error': str(exc)}
+    columns: list[str] = []
+    rows: list[dict] = []
+    try:
+        async for db in get_tenant_db_session(
+            tenant_key=str(tenant.id), db_name=tenant.db_name,
+            db_user=tenant.db_user, db_password=tenant.db_password,
+        ):
+            await db.execute(text('SET TRANSACTION READ ONLY'))
+            await db.execute(text(f"SET LOCAL statement_timeout = '{_STMT_TIMEOUT_MS}'"))
+            result = await db.execute(text(safe))
+            mappings = result.mappings().fetchmany(_EXPORT_MAX_ROWS)
+            rows = [{k: _jsonable(v) for k, v in m.items()} for m in mappings]
+            await db.rollback()
+            columns = list(rows[0].keys()) if rows else []
+            break
+    except Exception as exc:  # noqa: BLE001
+        return {'error': f'Σφάλμα εκτέλεσης: {str(exc).splitlines()[0][:200]}'}
+    if not rows:
+        return {'error': 'Το ερώτημα δεν επέστρεψε γραμμές — δεν δημιουργήθηκε Excel.'}
+
+    content = _build_xlsx(columns, rows)
+    fn = re.sub(r'[^\w\-. ]', '', str(filename or 'export')).strip() or 'export'
+    if not fn.lower().endswith('.xlsx'):
+        fn += '.xlsx'
+    token = secrets.token_urlsafe(24)
+    try:
+        async with ControlSessionLocal() as db:
+            # Prune exports older than 24h (opportunistic cleanup — bytes live in the DB).
+            await db.execute(sa_delete(CopilotExport).where(CopilotExport.created_at < datetime.utcnow() - timedelta(days=1)))
+            db.add(CopilotExport(token=token, tenant_id=int(tenant.id), filename=fn, content=content))
+            await db.commit()
+    except Exception:  # noqa: BLE001
+        return {'error': 'Δεν αποθηκεύτηκε το αρχείο Excel.'}
+    return {'download_url': f'/tenant/copilot/download/{token}', 'filename': fn, 'row_count': len(rows)}
+
+
 def app_help(query: str | None = None) -> dict[str, Any]:
     """Return KPI definitions + circuit help (the single-source catalog) so the Co-Pilot
     can answer «τι κάνω εδώ / τι σημαίνει αυτό». Filters by keyword when given."""
@@ -184,6 +264,23 @@ TOOLS = [
             'properties': {'query': {'type': 'string', 'description': 'Προαιρετική λέξη-κλειδί για φιλτράρισμα.'}},
         },
     },
+    {
+        'name': 'export_excel',
+        'description': (
+            'Τρέξε ένα read-only SELECT/WITH και φτιάξε αρχείο Excel (.xlsx) που ΚΑΤΕΒΑΖΕΙ ο χρήστης. '
+            'Χρησιμοποίησέ το όταν ο χρήστης ζητά «export», «Excel», «κατέβασμα», «αρχείο», «λίστα σε Excel». '
+            'Γράψε το query ώστε να έχει τις στήλες που θέλει ο χρήστης (π.χ. στατιστικά πωλήσεων ανά κατηγορία). '
+            'Μετά, πες στον χρήστη ότι το αρχείο είναι έτοιμο — το κουμπί λήψης εμφανίζεται αυτόματα.'
+        ),
+        'input_schema': {
+            'type': 'object',
+            'properties': {
+                'query': {'type': 'string', 'description': 'Ένα SELECT/WITH ερώτημα με τις στήλες του export.'},
+                'filename': {'type': 'string', 'description': 'Προαιρετικό όνομα αρχείου (χωρίς κατάληξη).'},
+            },
+            'required': ['query'],
+        },
+    },
 ]
 
 
@@ -208,7 +305,8 @@ def build_system_prompt(tenant: Tenant, *, page_context: str | None = None) -> s
         "Έχεις εργαλεία για να διαβάζεις τα ΠΡΑΓΜΑΤΙΚΑ δεδομένα του πελάτη:\n"
         "- run_sql: read-only SQL στη βάση (πωλήσεις, απόθεμα, αγορές, ταμείο, έξοδα κ.λπ.)\n"
         "- describe_schema: πίνακες/στήλες πριν γράψεις SQL\n"
-        "- app_help: επεξηγήσεις εφαρμογής & ορισμοί KPI\n\n"
+        "- app_help: επεξηγήσεις εφαρμογής & ορισμοί KPI\n"
+        "- export_excel: φτιάχνει αρχείο Excel (.xlsx) για κατέβασμα, όταν ο χρήστης ζητά export/Excel/λίστα σε αρχείο\n\n"
         "Κανόνες: Ποτέ μην επινοείς νούμερα — αν χρειάζεσαι στοιχεία, κάλεσε εργαλείο. "
         "Οι ημερομηνίες εμφανίζονται ως dd/mm/yyyy. Τα ποσά σε €. Όταν δίνεις νούμερο, πες "
         "και την περίοδο. Αν ένα ερώτημα είναι ασαφές, κάνε τη λογική υπόθεση και ανάφερέ την. "
@@ -225,6 +323,8 @@ async def _dispatch_tool(tenant: Tenant, name: str, tool_input: dict, *, data_sc
         return await describe_schema(tenant, tool_input.get('table'), data_scope=data_scope)
     if name == 'app_help':
         return app_help(tool_input.get('query'))
+    if name == 'export_excel':
+        return await export_excel(tenant, str(tool_input.get('query') or ''), tool_input.get('filename'), data_scope=data_scope)
     return {'error': f'Άγνωστο εργαλείο: {name}'}
 
 
@@ -296,6 +396,8 @@ async def stream_answer(
                 if getattr(block, 'type', None) == 'tool_use':
                     yield {'type': 'tool', 'name': block.name}
                     result = await _dispatch_tool(tenant, block.name, dict(block.input or {}), data_scope=data_scope)
+                    if block.name == 'export_excel' and isinstance(result, dict) and result.get('download_url'):
+                        yield {'type': 'export', 'url': result['download_url'], 'filename': result.get('filename', 'export.xlsx')}
                     tool_results.append({
                         'type': 'tool_result',
                         'tool_use_id': block.id,

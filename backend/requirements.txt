@@ -17,6 +17,7 @@ redis==6.4.0
 pyodbc==5.2.0
 httpx==0.28.1
 anthropic==0.121.0
+openpyxl==3.1.5
 paramiko==3.5.0
 prometheus-client==0.23.1
 sentry-sdk[fastapi,sqlalchemy]==2.35.0

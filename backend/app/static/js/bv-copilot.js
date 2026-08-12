@@ -152,6 +152,11 @@
             } else if (ev.type === 'conversation') {
               currentConvId = ev.id;
               if (opts.onNewConversation) opts.onNewConversation(ev.id, ev.title);
+            } else if (ev.type === 'export') {
+              var dl = el('a', 'bvc-export');
+              dl.href = ev.url; dl.setAttribute('download', ev.filename || 'export.xlsx');
+              dl.innerHTML = '<i class="fe fe-download"></i> ' + (ev.filename || 'export.xlsx');
+              botNode.appendChild(dl);
             } else if (ev.type === 'error') {
               if (status.parentNode) status.remove();
               renderText(body, '⚠️ ' + (ev.error || 'Σφάλμα.'));

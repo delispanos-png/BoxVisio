@@ -10,6 +10,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     Numeric,
     String,
     Text,
@@ -493,6 +494,20 @@ class CopilotConversation(ControlBase):
     title: Mapped[str] = mapped_column(String(200), nullable=False, default='Συνομιλία')
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+
+class CopilotExport(ControlBase):
+    """A one-off Excel file the Co-Pilot produced, keyed by an unguessable token and
+    scoped to a tenant, so it can be downloaded from the chat. Bytes live in the DB so
+    all API workers can serve it; old rows are pruned opportunistically."""
+
+    __tablename__ = 'copilot_exports'
+
+    token: Mapped[str] = mapped_column(String(48), primary_key=True)
+    tenant_id: Mapped[int] = mapped_column(ForeignKey('tenants.id'), nullable=False, index=True)
+    filename: Mapped[str] = mapped_column(String(200), nullable=False, default='export.xlsx')
+    content: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
 
 
 class CopilotMessage(ControlBase):
