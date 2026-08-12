@@ -265,21 +265,6 @@
               <label class="form-label">Μηνιαίο όριο tokens (0 = χωρίς όριο)</label>
               <input class="form-control" type="number" min="0" step="1000" name="max_monthly_tokens" value="{{ copilot.max_monthly_tokens or 0 }}">
             </div>
-            <div class="col-12"><hr class="my-1"></div>
-            <div class="col-md-3">
-              <div class="form-check form-switch mt-2">
-                <input class="form-check-input" type="checkbox" role="switch" id="cpDaily" name="daily_report_enabled" value="1"{% if copilot.daily_report_enabled %} checked{% endif %}>
-                <label class="form-check-label" for="cpDaily">Ημερήσιο report με email</label>
-              </div>
-            </div>
-            <div class="col-md-2">
-              <label class="form-label">Ώρα αποστολής</label>
-              <input class="form-control" type="time" name="daily_report_time" value="{{ copilot.daily_report_time or '10:00' }}">
-            </div>
-            <div class="col-md-7">
-              <label class="form-label">Παραλήπτες (email, χωρισμένα με κόμμα)</label>
-              <input class="form-control" type="text" name="daily_report_recipients" placeholder="owner@pharmacy.gr, manager@pharmacy.gr" value="{{ copilot.daily_report_recipients or '' }}">
-            </div>
             {% if copilot.has_key %}
             <div class="col-md-4">
               <div class="form-check mt-4">
@@ -290,6 +275,75 @@
             {% endif %}
           </form>
           <small class="text-muted d-block mt-2">Το κλειδί αποθηκεύεται κρυπτογραφημένο και δεν εμφανίζεται ποτέ ξανά. Απόκτησε κλειδί από το console.anthropic.com.</small>
+
+          <hr class="my-3">
+          <div class="d-flex align-items-center justify-content-between mb-2">
+            <h6 class="mb-0"><i class="fe fe-calendar me-1"></i> Προγραμματισμένα Reports (email)</h6>
+            <small class="text-muted">Ημερολόγιο: τι report, τι ώρα, ποιος το λαμβάνει. Στέλνονται αυτόματα κάθε μέρα.</small>
+          </div>
+          {% if not copilot.ready %}
+          <div class="alert alert-warning py-2 mb-2">Ενεργοποίησε πρώτα το Co-Pilot (κλειδί + Ενεργοποίηση) για να στέλνονται τα reports.</div>
+          {% endif %}
+
+          {% for s in copilot_schedules %}
+          <div class="border rounded p-2 mb-2 {{ '' if s.enabled else 'opacity-75' }}">
+            <form method="post" action="/tenant/copilot/schedules" class="row g-2 align-items-end">
+              <input type="hidden" name="schedule_id" value="{{ s.id }}">
+              <div class="col-md-4">
+                <label class="form-label mb-0 small">Τίτλος</label>
+                <input class="form-control form-control-sm" name="title" value="{{ s.title }}" maxlength="120">
+              </div>
+              <div class="col-md-2">
+                <label class="form-label mb-0 small">Ώρα</label>
+                <input class="form-control form-control-sm" type="time" name="send_time" value="{{ s.send_time }}">
+              </div>
+              <div class="col-md-4">
+                <label class="form-label mb-0 small">Παραλήπτες (email, με κόμμα)</label>
+                <input class="form-control form-control-sm" name="recipients" value="{{ s.recipients }}" placeholder="owner@x.gr, manager@x.gr">
+              </div>
+              <div class="col-md-2 d-flex align-items-center gap-2">
+                <div class="form-check form-switch mt-3">
+                  <input class="form-check-input" type="checkbox" role="switch" name="enabled" value="1"{% if s.enabled %} checked{% endif %} title="Ενεργό">
+                </div>
+                <button class="btn btn-primary btn-sm mt-3" type="submit" title="Αποθήκευση"><i class="fe fe-save"></i></button>
+              </div>
+              <div class="col-12">
+                <label class="form-label mb-0 small">Τι report να παραχθεί (περιέγραψέ το με φυσικό λόγο)</label>
+                <textarea class="form-control form-control-sm" name="prompt" rows="2" placeholder="π.χ. Έσοδα ανά κατάστημα για χθες, με σύγκριση με προηγούμενη μέρα.">{{ s.prompt }}</textarea>
+              </div>
+            </form>
+            <form method="post" action="/tenant/copilot/schedules/{{ s.id }}/delete" class="mt-1" onsubmit="return confirm('Διαγραφή αυτού του προγραμματισμένου report;');">
+              <button class="btn btn-link btn-sm text-danger p-0" type="submit"><i class="fe fe-trash-2 me-1"></i>Διαγραφή</button>
+            </form>
+          </div>
+          {% endfor %}
+
+          <div class="border rounded border-dashed p-2 mb-1" style="border-style:dashed">
+            <div class="small text-muted mb-1"><i class="fe fe-plus me-1"></i>Νέο προγραμματισμένο report</div>
+            <form method="post" action="/tenant/copilot/schedules" class="row g-2 align-items-end">
+              <input type="hidden" name="schedule_id" value="">
+              <input type="hidden" name="enabled" value="1">
+              <div class="col-md-4">
+                <label class="form-label mb-0 small">Τίτλος</label>
+                <input class="form-control form-control-sm" name="title" placeholder="π.χ. Έσοδα ανά κατάστημα" maxlength="120">
+              </div>
+              <div class="col-md-2">
+                <label class="form-label mb-0 small">Ώρα</label>
+                <input class="form-control form-control-sm" type="time" name="send_time" value="10:00">
+              </div>
+              <div class="col-md-4">
+                <label class="form-label mb-0 small">Παραλήπτες (email, με κόμμα)</label>
+                <input class="form-control form-control-sm" name="recipients" placeholder="owner@x.gr, manager@x.gr">
+              </div>
+              <div class="col-md-2">
+                <button class="btn btn-success btn-sm w-100 mt-3" type="submit"><i class="fe fe-plus me-1"></i>Προσθήκη</button>
+              </div>
+              <div class="col-12">
+                <label class="form-label mb-0 small">Τι report να παραχθεί</label>
+                <textarea class="form-control form-control-sm" name="prompt" rows="2" placeholder="π.χ. Διαθέσιμες ποσότητες και ελλείψεις ημέρας ανά κατηγορία."></textarea>
+              </div>
+            </form>
+          </div>
         </div>
       </div>
       {% endif %}

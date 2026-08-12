@@ -107,7 +107,11 @@ from app.services.copilot_config import (
     cap_reached as _copilot_cap_reached,
     copilot_is_ready,
     copilot_settings_view,
+    delete_schedule as _copilot_delete_schedule,
     get_copilot_config,
+    list_schedules as _copilot_list_schedules,
+    save_schedule as _copilot_save_schedule,
+    schedules_view as _copilot_schedules_view,
     upsert_copilot_config,
 )
 from app.services.copilot_service import stream_answer as _copilot_stream_answer
@@ -12390,6 +12394,7 @@ async def tenant_settings(
             'supplier_orders': _tenant_supplier_order_settings(tenant),
             'call_center_3cx': await _tenant_call_center_settings(db, tenant.id),
             'copilot': copilot_settings_view(await get_copilot_config(db, int(tenant.id))),
+            'copilot_schedules': _copilot_schedules_view(await _copilot_list_schedules(db, int(tenant.id))),
             'active_page': 'tenant_settings',
             'title': 'Settings',
         },
@@ -12438,6 +12443,45 @@ async def tenant_settings_copilot(
     )
     await db.commit()
     return RedirectResponse(url='/tenant/settings?copilot_saved=1', status_code=303)
+
+
+@router.post('/tenant/copilot/schedules')
+async def tenant_copilot_schedule_save(
+    schedule_id: str = Form(default=''),
+    title: str = Form(default='Report'),
+    send_time: str = Form(default='10:00'),
+    recipients: str = Form(default=''),
+    prompt: str = Form(default=''),
+    enabled: str = Form(default=''),
+    tenant: Tenant = Depends(get_request_tenant),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_control_db),
+):
+    if user.role not in {RoleName.tenant_admin, RoleName.cloudon_admin}:
+        return RedirectResponse(url='/tenant/settings?copilot_saved=0&reason=permission', status_code=303)
+    try:
+        sid = int(schedule_id) if schedule_id else None
+    except (TypeError, ValueError):
+        sid = None
+    await _copilot_save_schedule(
+        db, int(tenant.id), sid,
+        title=title, send_time=send_time, recipients=recipients, prompt=prompt,
+        enabled=str(enabled) in {'1', 'on', 'true'},
+    )
+    return RedirectResponse(url='/tenant/settings?copilot_saved=1#copilot', status_code=303)
+
+
+@router.post('/tenant/copilot/schedules/{schedule_id}/delete')
+async def tenant_copilot_schedule_delete(
+    schedule_id: int,
+    tenant: Tenant = Depends(get_request_tenant),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_control_db),
+):
+    if user.role not in {RoleName.tenant_admin, RoleName.cloudon_admin}:
+        return RedirectResponse(url='/tenant/settings?copilot_saved=0&reason=permission', status_code=303)
+    await _copilot_delete_schedule(db, int(tenant.id), int(schedule_id))
+    return RedirectResponse(url='/tenant/settings?copilot_saved=1#copilot', status_code=303)
 
 
 def _copilot_module_enabled(request: Request) -> bool:

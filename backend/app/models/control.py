@@ -503,6 +503,25 @@ class CopilotConversation(ControlBase):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
 
+class CopilotSchedule(ControlBase):
+    """One scheduled Co-Pilot report for a tenant: its own time, recipients and topic
+    (the prompt). A tenant can have several — e.g. revenues-by-store at 10:00 and
+    stock-shortages at 11:00 to different emails."""
+
+    __tablename__ = 'copilot_schedules'
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tenant_id: Mapped[int] = mapped_column(ForeignKey('tenants.id'), nullable=False, index=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    title: Mapped[str] = mapped_column(String(120), nullable=False, default='Report')
+    send_time: Mapped[str] = mapped_column(String(5), nullable=False, default='10:00')
+    recipients: Mapped[str] = mapped_column(Text, nullable=False, default='')
+    prompt: Mapped[str] = mapped_column(Text, nullable=False, default='')
+    last_sent: Mapped[date | None] = mapped_column(Date, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+
 class CopilotExport(ControlBase):
     """A one-off Excel file the Co-Pilot produced, keyed by an unguessable token and
     scoped to a tenant, so it can be downloaded from the chat. Bytes live in the DB so

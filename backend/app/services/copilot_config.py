@@ -17,7 +17,9 @@ from datetime import datetime
 
 from sqlalchemy import update
 
-from app.models.control import CopilotConfig, CopilotUsage
+from sqlalchemy import delete as sa_delete
+
+from app.models.control import CopilotConfig, CopilotSchedule, CopilotUsage
 from app.services.connection_secrets import decrypt_json_secret, encrypt_json_secret
 
 DEFAULT_MODEL = 'claude-opus-5'
@@ -169,3 +171,88 @@ async def add_usage(db: AsyncSession, tenant_id: int, in_tokens: int, out_tokens
                     out_tokens=CopilotUsage.out_tokens + int(out_tokens or 0))
         )
     await db.commit()
+
+
+# --- scheduled reports (multiple per tenant) ----------------------------------
+
+_TIME_RE = re.compile(r'^([01]?\d|2[0-3]):[0-5]\d$')
+
+
+def _norm_time(value: str) -> str:
+    t = str(value or '10:00').strip()
+    if not _TIME_RE.match(t):
+        return '10:00'
+    h, m = t.split(':')
+    return f'{int(h):02d}:{int(m):02d}'
+
+
+async def list_schedules(db: AsyncSession, tenant_id: int) -> list[CopilotSchedule]:
+    return list(
+        (
+            await db.execute(
+                select(CopilotSchedule)
+                .where(CopilotSchedule.tenant_id == int(tenant_id))
+                .order_by(CopilotSchedule.send_time, CopilotSchedule.id)
+            )
+        ).scalars().all()
+    )
+
+
+def schedules_view(schedules: list[CopilotSchedule]) -> list[dict]:
+    return [
+        {
+            'id': s.id,
+            'enabled': bool(s.enabled),
+            'title': s.title,
+            'send_time': s.send_time,
+            'recipients': s.recipients or '',
+            'prompt': s.prompt or '',
+        }
+        for s in schedules
+    ]
+
+
+async def save_schedule(
+    db: AsyncSession,
+    tenant_id: int,
+    sched_id: int | None,
+    *,
+    title: str,
+    send_time: str,
+    recipients: str,
+    prompt: str,
+    enabled: bool = True,
+) -> CopilotSchedule | None:
+    """Create (sched_id falsy) or update an owned schedule. Returns None if the id was
+    given but does not belong to this tenant."""
+    sched: CopilotSchedule | None = None
+    if sched_id:
+        sched = (
+            await db.execute(
+                select(CopilotSchedule).where(
+                    CopilotSchedule.id == int(sched_id), CopilotSchedule.tenant_id == int(tenant_id)
+                )
+            )
+        ).scalar_one_or_none()
+        if sched is None:
+            return None
+    if sched is None:
+        sched = CopilotSchedule(tenant_id=int(tenant_id))
+        db.add(sched)
+    sched.enabled = bool(enabled)
+    sched.title = (str(title or 'Report').strip()[:120] or 'Report')
+    sched.send_time = _norm_time(send_time)
+    sched.recipients = str(recipients or '').strip()
+    sched.prompt = str(prompt or '').strip()
+    await db.commit()
+    return sched
+
+
+async def delete_schedule(db: AsyncSession, tenant_id: int, sched_id: int) -> bool:
+    res = await db.execute(
+        sa_delete(CopilotSchedule).where(
+            CopilotSchedule.id == int(sched_id), CopilotSchedule.tenant_id == int(tenant_id)
+        )
+    )
+    await db.commit()
+    return bool(res.rowcount)
