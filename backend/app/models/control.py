@@ -480,3 +480,28 @@ class CopilotUsage(ControlBase):
     in_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     out_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+
+class CopilotConversation(ControlBase):
+    """A saved Co-Pilot conversation (per tenant user) — the history list on the page."""
+
+    __tablename__ = 'copilot_conversations'
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tenant_id: Mapped[int] = mapped_column(ForeignKey('tenants.id'), nullable=False, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(200), nullable=False, default='Συνομιλία')
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+
+class CopilotMessage(ControlBase):
+    """One turn (user or assistant text) inside a saved Co-Pilot conversation."""
+
+    __tablename__ = 'copilot_messages'
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    conversation_id: Mapped[int] = mapped_column(ForeignKey('copilot_conversations.id', ondelete='CASCADE'), nullable=False, index=True)
+    role: Mapped[str] = mapped_column(String(16), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False, default='')
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)

@@ -34,10 +34,6 @@
     root.innerHTML = '';
 
     const log = el('div', 'bvc-log');
-    const greeting = el('div', 'bvc-msg bvc-assistant');
-    renderText(greeting, opts.greeting || 'Γεια σου! Είμαι ο Co-Pilot. Ρώτησέ με για τις πωλήσεις, το απόθεμα, τι σημαίνει ένας δείκτης, ή «τι κάνω εδώ;».');
-    log.appendChild(greeting);
-
     const form = el('form', 'bvc-input');
     const input = el('textarea', 'bvc-textarea');
     input.rows = 1;
@@ -50,17 +46,22 @@
 
     const history = [];
     let busy = false;
+    let currentConvId = opts.conversationId || null;
 
-    // Suggestion chips (only shown on the full page).
-    if (opts.suggestions) {
-      const chips = el('div', 'bvc-suggest');
-      ['Τι πωλήσεις έχω αυτόν τον μήνα;', 'Ποια είδη έχουν το μεγαλύτερο απόθεμα;', 'Τι θα έπρεπε να κοιτάξω σήμερα;'].forEach((q) => {
-        const c = el('button', 'bvc-chip', q);
-        c.type = 'button';
-        c.addEventListener('click', () => { input.value = q; ask(); });
-        chips.appendChild(c);
-      });
-      log.appendChild(chips);
+    function showGreeting() {
+      const greeting = el('div', 'bvc-msg bvc-assistant');
+      renderText(greeting, opts.greeting || 'Γεια σου! Είμαι ο Co-Pilot. Ρώτησέ με για τις πωλήσεις, το απόθεμα, τι σημαίνει ένας δείκτης, ή «τι κάνω εδώ;».');
+      log.appendChild(greeting);
+      if (opts.suggestions) {
+        const chips = el('div', 'bvc-suggest');
+        ['Τι πωλήσεις έχω αυτόν τον μήνα;', 'Ποια είδη έχουν το μεγαλύτερο απόθεμα;', 'Τι θα έπρεπε να κοιτάξω σήμερα;'].forEach((q) => {
+          const c = el('button', 'bvc-chip', q);
+          c.type = 'button';
+          c.addEventListener('click', () => { input.value = q; ask(); });
+          chips.appendChild(c);
+        });
+        log.appendChild(chips);
+      }
     }
 
     function addMsg(role) {
@@ -109,7 +110,7 @@
         const resp = await fetch('/tenant/copilot/ask', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': cookie('csrf_token') },
-          body: JSON.stringify({ messages: history, page_context: opts.pageContext || document.title || '' }),
+          body: JSON.stringify({ messages: history, page_context: opts.pageContext || document.title || '', conversation_id: currentConvId }),
         });
         if (!resp.ok) {
           let msg = 'Σφάλμα (' + resp.status + ').';
@@ -148,6 +149,9 @@
             } else if (ev.type === 'tool') {
               thinkBuf = ''; think.textContent = '';
               setPhase(ev.name === 'run_sql' ? 'Διαβάζω τα δεδομένα σου…' : ev.name === 'describe_schema' ? 'Ελέγχω τη δομή…' : 'Ψάχνω επεξηγήσεις…');
+            } else if (ev.type === 'conversation') {
+              currentConvId = ev.id;
+              if (opts.onNewConversation) opts.onNewConversation(ev.id, ev.title);
             } else if (ev.type === 'error') {
               if (status.parentNode) status.remove();
               renderText(body, '⚠️ ' + (ev.error || 'Σφάλμα.'));
@@ -170,7 +174,30 @@
       }
     }
 
-    return { ask, focus: () => input.focus() };
+    function loadConversation(conv) {
+      log.innerHTML = '';
+      history.length = 0;
+      currentConvId = (conv && conv.id) || null;
+      (conv && conv.messages || []).forEach(function (m) {
+        history.push({ role: m.role, content: m.content });
+        var n = addMsg(m.role);
+        renderText(n, m.content);
+      });
+      if (!history.length) showGreeting();
+      log.scrollTop = log.scrollHeight;
+      input.focus();
+    }
+
+    function newChat() {
+      log.innerHTML = '';
+      history.length = 0;
+      currentConvId = null;
+      showGreeting();
+      input.focus();
+    }
+
+    showGreeting();
+    return { ask, focus: () => input.focus(), loadConversation: loadConversation, newChat: newChat, currentId: () => currentConvId };
   }
 
   window.BvCopilot = { mount: mount };

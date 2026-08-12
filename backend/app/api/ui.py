@@ -110,6 +110,7 @@ from app.services.copilot_config import (
     upsert_copilot_config,
 )
 from app.services.copilot_service import stream_answer as _copilot_stream_answer
+from app.services import copilot_history as _copilot_history
 from app.db.control_session import ControlSessionLocal as _CopilotControlSession
 from app.services.era_exploration import (
     clear_era_exploration_cache,
@@ -12467,7 +12468,6 @@ async def tenant_copilot_ask(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_control_db),
 ):
-    del user
     if not _copilot_module_enabled(request):
         return JSONResponse({'error': 'Το Co-Pilot δεν είναι ενεργό για αυτόν τον λογαριασμό.'}, status_code=403)
     config = await get_copilot_config(db, int(tenant.id))
@@ -12481,6 +12481,10 @@ async def tenant_copilot_ask(
         body = {}
     raw_messages = body.get('messages') if isinstance(body, dict) else None
     page_context = str((body or {}).get('page_context') or '')[:200] or None
+    try:
+        conversation_id = int((body or {}).get('conversation_id')) if (body or {}).get('conversation_id') else None
+    except (TypeError, ValueError):
+        conversation_id = None
     history: list[dict] = []
     if isinstance(raw_messages, list):
         for m in raw_messages[-20:]:
@@ -12494,28 +12498,86 @@ async def tenant_copilot_ask(
     # Detach a plain snapshot of the tenant so the generator doesn't touch the request-scoped session.
     tenant_snapshot = tenant
     tenant_id = int(tenant.id)
+    user_id = int(user.id)
+    last_user_text = history[-1]['content']
 
     async def event_stream():
         in_tok = out_tok = 0
+        answer_text = ''
+        conv_id = conversation_id
+        # Persist the user turn (create the conversation if new) before answering.
+        try:
+            async with _CopilotControlSession() as pdb:
+                conv_id, title, is_new = await _copilot_history.ensure_conversation(pdb, tenant_id, user_id, conv_id, last_user_text)
+            if is_new:
+                yield f'data: {json.dumps({"type": "conversation", "id": conv_id, "title": title}, ensure_ascii=False)}\n\n'
+        except Exception:  # noqa: BLE001 — history must never break answering
+            conv_id = conversation_id
         try:
             async for ev in _copilot_stream_answer(config, tenant_snapshot, history, page_context=page_context):
-                if ev.get('type') == 'done':
+                et = ev.get('type')
+                if et == 'text':
+                    answer_text += str(ev.get('text') or '')
+                elif et == 'done':
                     usage = ev.get('usage') or {}
                     in_tok = int(usage.get('input_tokens') or 0)
                     out_tok = int(usage.get('output_tokens') or 0)
                 yield f'data: {json.dumps(ev, ensure_ascii=False)}\n\n'
         except Exception as exc:  # noqa: BLE001
             yield f'data: {json.dumps({"type": "error", "error": str(exc).splitlines()[0][:200]}, ensure_ascii=False)}\n\n'
-        # Record usage on our own session (the request-scoped db is already closed here).
-        if in_tok or out_tok:
-            try:
-                async with _CopilotControlSession() as usage_db:
-                    await _copilot_add_usage(usage_db, tenant_id, in_tok, out_tok)
-            except Exception:  # noqa: BLE001 — never let accounting break the stream
-                pass
+        # Persist the assistant answer + record usage on our own session.
+        try:
+            async with _CopilotControlSession() as pdb:
+                if conv_id and answer_text.strip():
+                    await _copilot_history.add_message(pdb, conv_id, 'assistant', answer_text)
+                if in_tok or out_tok:
+                    await _copilot_add_usage(pdb, tenant_id, in_tok, out_tok)
+        except Exception:  # noqa: BLE001
+            pass
         yield 'data: {"type": "end"}\n\n'
 
     return StreamingResponse(event_stream(), media_type='text/event-stream', headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+
+
+@router.get('/tenant/copilot/conversations')
+async def tenant_copilot_conversations(
+    request: Request,
+    tenant: Tenant = Depends(get_request_tenant),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_control_db),
+):
+    if not _copilot_module_enabled(request):
+        return JSONResponse({'conversations': []})
+    items = await _copilot_history.list_conversations(db, int(tenant.id), int(user.id))
+    return JSONResponse({'conversations': items})
+
+
+@router.get('/tenant/copilot/conversations/{conv_id}')
+async def tenant_copilot_conversation(
+    conv_id: int,
+    request: Request,
+    tenant: Tenant = Depends(get_request_tenant),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_control_db),
+):
+    if not _copilot_module_enabled(request):
+        return JSONResponse({'error': 'not enabled'}, status_code=403)
+    conv = await _copilot_history.get_conversation(db, int(tenant.id), int(user.id), int(conv_id))
+    if conv is None:
+        return JSONResponse({'error': 'not found'}, status_code=404)
+    return JSONResponse(conv)
+
+
+@router.delete('/tenant/copilot/conversations/{conv_id}')
+async def tenant_copilot_conversation_delete(
+    conv_id: int,
+    request: Request,
+    tenant: Tenant = Depends(get_request_tenant),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_control_db),
+):
+    ok = await _copilot_history.delete_conversation(db, int(tenant.id), int(user.id), int(conv_id))
+    return JSONResponse({'ok': ok}, status_code=(200 if ok else 404))
 
 
 @router.post('/tenant/settings/supplier-orders')

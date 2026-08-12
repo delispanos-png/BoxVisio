@@ -1,7 +1,7 @@
 {% extends "base_tenant.html" %}
 
 {% block content %}
-<link href="/static/css/bv-copilot.css?v=20260812cp2" rel="stylesheet">
+<link href="/static/css/bv-copilot.css?v=20260812cp3" rel="stylesheet">
 <div class="card content-card">
   <div class="card-header d-flex align-items-center justify-content-between flex-wrap gap-2">
     <h5 class="mb-0 d-inline-flex align-items-center gap-2"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"/><path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"/><path d="M6 18a4 4 0 0 1-1.967-.516"/><path d="M19.967 17.484A4 4 0 0 1 18 18"/></svg>Co-Pilot</h5>
@@ -20,19 +20,83 @@
       {% endif %}
     </div>
     {% else %}
-    <div id="bvCopilotPage" class="bvc-page"></div>
+    <div class="bvc-page-wrap">
+      <aside class="bvc-history">
+        <button type="button" class="btn btn-primary btn-sm w-100 mb-2" id="bvcNewChat"><i class="fe fe-plus me-1"></i>Νέα συνομιλία</button>
+        <div class="bvc-hist-label">Ιστορικό</div>
+        <div id="bvcConvList" class="bvc-conv-list"></div>
+      </aside>
+      <div id="bvCopilotPage" class="bvc-page bvc-page-main"></div>
+    </div>
     {% endif %}
   </div>
 </div>
 {% if copilot.ready %}
-<script src="/static/js/bv-copilot.js?v=20260812cp2"></script>
+<script src="/static/js/bv-copilot.js?v=20260812cp3"></script>
 <script>
   (function () {
     var mountEl = document.getElementById('bvCopilotPage');
-    if (mountEl && window.BvCopilot) {
-      var app = window.BvCopilot.mount(mountEl, { suggestions: true, pageContext: 'Σελίδα Co-Pilot' });
-      app.focus();
+    var listEl = document.getElementById('bvcConvList');
+    var newBtn = document.getElementById('bvcNewChat');
+    if (!mountEl || !window.BvCopilot) return;
+
+    function cookie(n){var m=document.cookie.match('(^|;)\\s*'+n+'\\s*=\\s*([^;]+)');return m?decodeURIComponent(m.pop()):'';}
+    var activeId = null;
+
+    function setActive(id) {
+      activeId = id;
+      Array.prototype.forEach.call(listEl.querySelectorAll('.bvc-conv'), function (r) {
+        r.classList.toggle('is-active', String(r.getAttribute('data-id')) === String(id));
+      });
     }
+
+    function rowFor(c) {
+      var row = document.createElement('div');
+      row.className = 'bvc-conv';
+      row.setAttribute('data-id', c.id);
+      var t = document.createElement('div'); t.className = 'bvc-conv-title'; t.textContent = c.title || 'Συνομιλία';
+      var d = document.createElement('div'); d.className = 'bvc-conv-date'; d.textContent = c.updated_at || '';
+      var del = document.createElement('button'); del.className = 'bvc-conv-del'; del.type = 'button'; del.title = 'Διαγραφή'; del.innerHTML = '&times;';
+      row.append(t, d, del);
+      row.addEventListener('click', function (e) { if (e.target === del) return; openConv(c.id); });
+      del.addEventListener('click', function (e) { e.stopPropagation(); delConv(c.id, row); });
+      return row;
+    }
+
+    function loadList() {
+      fetch('/tenant/copilot/conversations', { headers: { 'Accept': 'application/json' } })
+        .then(function (r) { return r.json(); })
+        .then(function (j) {
+          listEl.innerHTML = '';
+          (j.conversations || []).forEach(function (c) { listEl.appendChild(rowFor(c)); });
+        }).catch(function () {});
+    }
+
+    function openConv(id) {
+      fetch('/tenant/copilot/conversations/' + id, { headers: { 'Accept': 'application/json' } })
+        .then(function (r) { return r.json(); })
+        .then(function (conv) { if (conv && conv.messages) { app.loadConversation(conv); setActive(id); } })
+        .catch(function () {});
+    }
+
+    function delConv(id, row) {
+      fetch('/tenant/copilot/conversations/' + id, { method: 'DELETE', headers: { 'X-CSRF-Token': cookie('csrf_token') } })
+        .then(function () { row.remove(); if (String(activeId) === String(id)) { app.newChat(); activeId = null; } })
+        .catch(function () {});
+    }
+
+    var app = window.BvCopilot.mount(mountEl, {
+      suggestions: true,
+      pageContext: 'Σελίδα Co-Pilot',
+      onNewConversation: function (id, title) {
+        var row = rowFor({ id: id, title: title, updated_at: '' });
+        listEl.insertBefore(row, listEl.firstChild);
+        setActive(id);
+      }
+    });
+    newBtn && newBtn.addEventListener('click', function () { app.newChat(); setActive(null); });
+    loadList();
+    app.focus();
   })();
 </script>
 {% endif %}
