@@ -1,0 +1,39 @@
+{% extends "base_tenant.html" %}
+
+{% block content %}
+<link href="/static/css/bv-copilot.css?v=20260812cp1" rel="stylesheet">
+<div class="card content-card">
+  <div class="card-header d-flex align-items-center justify-content-between flex-wrap gap-2">
+    <h5 class="mb-0"><i class="fe fe-cpu me-2"></i>Co-Pilot</h5>
+    <span class="badge {{ 'bg-success' if copilot.ready else 'bg-secondary' }}">{{ 'Έτοιμο' if copilot.ready else 'Μη ρυθμισμένο' }}</span>
+  </div>
+  <div class="card-body">
+    {% if not copilot.ready %}
+    <div class="text-center py-5">
+      <div style="font-size:42px" class="mb-2"><i class="fe fe-cpu"></i></div>
+      <h6>Το Co-Pilot δεν έχει ρυθμιστεί ακόμη</h6>
+      <p class="text-muted mb-3">Χρειάζεται το δικό σου κλειδί Anthropic (Claude), που χρεώνεται στον δικό σου λογαριασμό.</p>
+      {% if request.state.user_role is defined and request.state.user_role == 'tenant_admin' %}
+      <a class="btn btn-primary" href="/tenant/settings"><i class="fe fe-settings me-1"></i> Ρύθμιση Co-Pilot</a>
+      {% else %}
+      <p class="text-muted">Ζήτησε από τον διαχειριστή του λογαριασμού να το ρυθμίσει στις Ρυθμίσεις.</p>
+      {% endif %}
+    </div>
+    {% else %}
+    <div id="bvCopilotPage" class="bvc-page"></div>
+    {% endif %}
+  </div>
+</div>
+{% if copilot.ready %}
+<script src="/static/js/bv-copilot.js?v=20260812cp1"></script>
+<script>
+  (function () {
+    var mountEl = document.getElementById('bvCopilotPage');
+    if (mountEl && window.BvCopilot) {
+      var app = window.BvCopilot.mount(mountEl, { suggestions: true, pageContext: 'Σελίδα Co-Pilot' });
+      app.focus();
+    }
+  })();
+</script>
+{% endif %}
+{% endblock %}

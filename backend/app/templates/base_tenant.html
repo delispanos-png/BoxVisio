@@ -499,6 +499,15 @@
           </li>
           {% endif %}
 
+          {% if not _menu_locked.get('copilot', true) %}
+          <li class="nav-item">
+            <a class="nav-link{% if active_page == 'copilot' %} active{% endif %}" href="/tenant/copilot">
+              <i class="fe fe-cpu sidemenu-icon"></i>
+              <span class="sidemenu-label">Co-Pilot</span>
+            </a>
+          </li>
+          {% endif %}
+
           {# Help is always available: it does not depend on the subscription package. #}
           <li class="nav-item bv-menu-group {% if _help_open %}active open{% endif %}">
             <button
@@ -2404,6 +2413,39 @@
     reset();
   })();
   </script>
+
+  {# Co-Pilot floating widget — on every tenant page when the module is enabled, except the dedicated Co-Pilot page. #}
+  {% if not (request.state.menu_locked.get('copilot', true) if (request.state.menu_locked is defined and request.state.menu_locked) else true) and active_page != 'copilot' %}
+  <link href="/static/css/bv-copilot.css?v=20260812cp1" rel="stylesheet">
+  <button type="button" class="bvc-launcher" id="bvCopilotLauncher" title="Co-Pilot" aria-label="Co-Pilot"><i class="fe fe-cpu"></i></button>
+  <div class="bvc-panel" id="bvCopilotPanel" aria-hidden="true">
+    <div class="bvc-panel-head">
+      <div><strong>Co-Pilot</strong><small>Ρώτησέ με για τα δεδομένα σου</small></div>
+      <button type="button" class="bvc-panel-close" id="bvCopilotClose" aria-label="Κλείσιμο">&times;</button>
+    </div>
+    <div class="bvc-root" id="bvCopilotWidgetMount"></div>
+  </div>
+  <script src="/static/js/bv-copilot.js?v=20260812cp1"></script>
+  <script>
+    (function () {
+      var launcher = document.getElementById('bvCopilotLauncher');
+      var panel = document.getElementById('bvCopilotPanel');
+      var closeBtn = document.getElementById('bvCopilotClose');
+      var mountEl = document.getElementById('bvCopilotWidgetMount');
+      var app = null;
+      function open() {
+        if (!app && window.BvCopilot) {
+          app = window.BvCopilot.mount(mountEl, { pageContext: document.title || '' });
+        }
+        panel.classList.add('is-open'); panel.setAttribute('aria-hidden', 'false');
+        if (app) app.focus();
+      }
+      function close() { panel.classList.remove('is-open'); panel.setAttribute('aria-hidden', 'true'); }
+      launcher && launcher.addEventListener('click', function () { panel.classList.contains('is-open') ? close() : open(); });
+      closeBtn && closeBtn.addEventListener('click', close);
+    })();
+  </script>
+  {% endif %}
 
 </body>
 </html>

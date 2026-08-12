@@ -23,7 +23,7 @@ from xml.sax.saxutils import escape as xml_escape
 import httpx
 import paramiko
 from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from redis import Redis
 from sqlalchemy import delete, func, select, text, update
@@ -102,10 +102,12 @@ from app.services.connection_secrets import (
     encrypt_sqlserver_secret,
 )
 from app.services.copilot_config import (
+    copilot_is_ready,
     copilot_settings_view,
     get_copilot_config,
     upsert_copilot_config,
 )
+from app.services.copilot_service import stream_answer as _copilot_stream_answer
 from app.services.era_exploration import (
     clear_era_exploration_cache,
     DuplicateMarketImportError as EraDuplicateMarketImportError,
@@ -12425,6 +12427,77 @@ async def tenant_settings_copilot(
     )
     await db.commit()
     return RedirectResponse(url='/tenant/settings?copilot_saved=1', status_code=303)
+
+
+def _copilot_module_enabled(request: Request) -> bool:
+    locked = getattr(request.state, 'menu_locked', None) or {}
+    return not bool(locked.get('copilot', True))
+
+
+@router.get('/tenant/copilot', response_class=HTMLResponse)
+async def tenant_copilot_page(
+    request: Request,
+    tenant: Tenant = Depends(get_request_tenant),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_control_db),
+):
+    config = await get_copilot_config(db, int(tenant.id))
+    return templates.TemplateResponse(
+        'tenant/copilot_dashboard.html',
+        {
+            'request': request,
+            'tenant': tenant,
+            'user': user,
+            **(await _tenant_navigation_context(tenant)),
+            'copilot': copilot_settings_view(config),
+            'copilot_module': _copilot_module_enabled(request),
+            'active_page': 'copilot',
+            'title': 'Co-Pilot',
+        },
+    )
+
+
+@router.post('/tenant/copilot/ask')
+async def tenant_copilot_ask(
+    request: Request,
+    tenant: Tenant = Depends(get_request_tenant),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_control_db),
+):
+    del user
+    if not _copilot_module_enabled(request):
+        return JSONResponse({'error': 'Το Co-Pilot δεν είναι ενεργό για αυτόν τον λογαριασμό.'}, status_code=403)
+    config = await get_copilot_config(db, int(tenant.id))
+    if not copilot_is_ready(config):
+        return JSONResponse({'error': 'Το Co-Pilot δεν έχει ρυθμιστεί (λείπει κλειδί ή είναι ανενεργό). Δες Ρυθμίσεις.'}, status_code=400)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    raw_messages = body.get('messages') if isinstance(body, dict) else None
+    page_context = str((body or {}).get('page_context') or '')[:200] or None
+    history: list[dict] = []
+    if isinstance(raw_messages, list):
+        for m in raw_messages[-20:]:
+            role = str((m or {}).get('role') or '')
+            content = str((m or {}).get('content') or '').strip()
+            if role in {'user', 'assistant'} and content:
+                history.append({'role': role, 'content': content})
+    if not history or history[-1]['role'] != 'user':
+        return JSONResponse({'error': 'Δεν υπάρχει ερώτηση.'}, status_code=400)
+
+    # Detach a plain snapshot of the tenant so the generator doesn't touch the request-scoped session.
+    tenant_snapshot = tenant
+
+    async def event_stream():
+        try:
+            async for ev in _copilot_stream_answer(config, tenant_snapshot, history, page_context=page_context):
+                yield f'data: {json.dumps(ev, ensure_ascii=False)}\n\n'
+        except Exception as exc:  # noqa: BLE001
+            yield f'data: {json.dumps({"type": "error", "error": str(exc).splitlines()[0][:200]}, ensure_ascii=False)}\n\n'
+        yield 'data: {"type": "end"}\n\n'
+
+    return StreamingResponse(event_stream(), media_type='text/event-stream', headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
 
 
 @router.post('/tenant/settings/supplier-orders')
