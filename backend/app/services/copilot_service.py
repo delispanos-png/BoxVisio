@@ -187,6 +187,17 @@ TOOLS = [
 ]
 
 
+_DATA_GUIDE = (
+    "\n\nΟΔΗΓΟΣ ΔΕΔΟΜΕΝΩΝ (PostgreSQL):\n"
+    "- Πωλήσεις: agg_sales_daily / agg_sales_monthly (έτοιμα σύνολα ανά ημέρα/μήνα· στήλες qty, net_value, gross_value, doc_date, behavior_code) και agg_sales_item_daily ανά είδος. Αναλυτικά: fact_sales.\n"
+    "- Αγορές: agg_purchases_daily/monthly, fact_purchases. Απόθεμα: agg_inventory_snapshot_daily, fact_inventory. Ταμείο: agg_cash_daily, fact_cashflows. Έξοδα: agg_expenses_*. Πελάτες/προμηθευτές: dim_customers/dim_suppliers, agg_*_balances_daily.\n"
+    "- Διαστάσεις: dim_items, dim_branches, dim_categories, dim_suppliers κ.λπ. (σύνδεση με τα *_ext_id).\n"
+    "- Προτίμησε τους πίνακες agg_* (είναι προ-αθροισμένοι, πολύ πιο γρήγοροι) εκτός αν χρειάζεσαι αναλυτική γραμμή.\n"
+    "- behavior_code: ο 131 είναι η βασική ΠΩΛΗΣΗ (θετικά ποσά)· οι 181/151/152 είναι ΕΠΙΣΤΡΟΦΕΣ/πιστωτικά (αρνητικά ποσά). Για «καθαρές πωλήσεις» άθροισε net_value σε όλα τα behavior_code (οι επιστροφές αφαιρούνται μόνες τους αφού είναι αρνητικές). Για «μεικτές πωλήσεις» χρησιμοποίησε μόνο τα θετικά (behavior_code=131). Πάντα ανάφερε ποια βάση χρησιμοποίησες.\n"
+    "- Ποσά σε €, ημερομηνίες σε dd/mm/yyyy στην απάντηση."
+)
+
+
 def build_system_prompt(tenant: Tenant, *, page_context: str | None = None) -> str:
     company = getattr(tenant, 'display_name', None) or getattr(tenant, 'name', None) or 'η επιχείρηση'
     ctx = f"\nΟ χρήστης αυτή τη στιγμή βλέπει τη σελίδα: «{page_context}». Αν ρωτήσει «τι κάνω εδώ;» εξήγησε αυτή τη σελίδα." if page_context else ''
@@ -203,6 +214,7 @@ def build_system_prompt(tenant: Tenant, *, page_context: str | None = None) -> s
         "και την περίοδο. Αν ένα ερώτημα είναι ασαφές, κάνε τη λογική υπόθεση και ανάφερέ την. "
         "Κράτα τις απαντήσεις εστιασμένες."
         f"{ctx}"
+        f"{_DATA_GUIDE}"
     )
 
 
@@ -241,6 +253,7 @@ async def stream_answer(
     data_scope = config.data_scope or 'row_level'
     messages: list[dict[str, Any]] = list(history)
     out_tokens = 0
+    in_tokens = 0
 
     try:
         for _round in range(max_rounds):
@@ -256,10 +269,11 @@ async def stream_answer(
                 final = await stream.get_final_message()
 
             out_tokens += int(getattr(final.usage, 'output_tokens', 0) or 0)
+            in_tokens += int(getattr(final.usage, 'input_tokens', 0) or 0)
             messages.append({'role': 'assistant', 'content': final.content})
 
             if final.stop_reason != 'tool_use':
-                yield {'type': 'done', 'usage': {'output_tokens': out_tokens}}
+                yield {'type': 'done', 'usage': {'input_tokens': in_tokens, 'output_tokens': out_tokens}}
                 return
 
             tool_results = []
@@ -274,6 +288,6 @@ async def stream_answer(
                     })
             messages.append({'role': 'user', 'content': tool_results})
 
-        yield {'type': 'done', 'usage': {'output_tokens': out_tokens}}
+        yield {'type': 'done', 'usage': {'input_tokens': in_tokens, 'output_tokens': out_tokens}}
     except Exception as exc:  # noqa: BLE001
         yield {'type': 'error', 'error': str(exc).splitlines()[0][:300]}

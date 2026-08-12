@@ -12,7 +12,11 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.control import CopilotConfig
+from datetime import datetime
+
+from sqlalchemy import update
+
+from app.models.control import CopilotConfig, CopilotUsage
 from app.services.connection_secrets import decrypt_json_secret, encrypt_json_secret
 
 DEFAULT_MODEL = 'claude-opus-5'
@@ -102,3 +106,54 @@ async def upsert_copilot_config(
 
     await db.flush()
     return config
+
+
+# --- monthly token usage / cap ------------------------------------------------
+
+def _month_key() -> int:
+    now = datetime.utcnow()
+    return now.year * 100 + now.month
+
+
+async def month_out_tokens(db: AsyncSession, tenant_id: int) -> int:
+    """Output tokens the tenant's Co-Pilot has spent in the current calendar month."""
+    row = (
+        await db.execute(
+            select(CopilotUsage).where(
+                CopilotUsage.tenant_id == int(tenant_id),
+                CopilotUsage.yyyymm == _month_key(),
+            )
+        )
+    ).scalar_one_or_none()
+    return int(row.out_tokens) if row else 0
+
+
+async def cap_reached(db: AsyncSession, config: CopilotConfig | None) -> bool:
+    """True when a monthly cap is set and this month's output tokens already meet it."""
+    cap = int((config.max_monthly_tokens or 0) if config else 0)
+    if cap <= 0 or config is None:
+        return False
+    return await month_out_tokens(db, int(config.tenant_id)) >= cap
+
+
+async def add_usage(db: AsyncSession, tenant_id: int, in_tokens: int, out_tokens: int) -> None:
+    """Increment this month's usage counters (upsert)."""
+    ym = _month_key()
+    existing = (
+        await db.execute(
+            select(CopilotUsage).where(
+                CopilotUsage.tenant_id == int(tenant_id), CopilotUsage.yyyymm == ym
+            )
+        )
+    ).scalar_one_or_none()
+    if existing is None:
+        db.add(CopilotUsage(tenant_id=int(tenant_id), yyyymm=ym,
+                            in_tokens=int(in_tokens or 0), out_tokens=int(out_tokens or 0)))
+    else:
+        await db.execute(
+            update(CopilotUsage)
+            .where(CopilotUsage.tenant_id == int(tenant_id), CopilotUsage.yyyymm == ym)
+            .values(in_tokens=CopilotUsage.in_tokens + int(in_tokens or 0),
+                    out_tokens=CopilotUsage.out_tokens + int(out_tokens or 0))
+        )
+    await db.commit()

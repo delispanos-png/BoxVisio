@@ -3,6 +3,7 @@ from enum import Enum
 
 from sqlalchemy import (
     JSON,
+    BigInteger,
     Boolean,
     DateTime,
     Enum as SqlEnum,
@@ -465,4 +466,17 @@ class CopilotConfig(ControlBase):
     # also allows detail rows. Chosen per tenant; default row_level (their data, their key).
     data_scope: Mapped[str] = mapped_column(String(16), nullable=False, default='row_level')
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+
+class CopilotUsage(ControlBase):
+    """Per-tenant, per-month Co-Pilot token usage — used to enforce the optional
+    monthly token ceiling set in the tenant's Co-Pilot settings."""
+
+    __tablename__ = 'copilot_usage'
+
+    tenant_id: Mapped[int] = mapped_column(ForeignKey('tenants.id'), primary_key=True)
+    yyyymm: Mapped[int] = mapped_column(Integer, primary_key=True)
+    in_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    out_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)

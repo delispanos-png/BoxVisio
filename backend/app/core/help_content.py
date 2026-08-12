@@ -287,6 +287,51 @@ CIRCUITS: tuple[dict[str, Any], ...] = (
         ),
         'related': ['insights', 'price-control', 'sellout'],
     },
+    {
+        'id': 'copilot',
+        'title': _t('Co-Pilot AI', 'Co-Pilot AI'),
+        'route': '/tenant/copilot',
+        'group': _t('Co-Pilot', 'Co-Pilot'),
+        'shot': None,
+        'purpose': _t(
+            'Ο AI βοηθός σου. Ρωτάς με απλά ελληνικά για τα δεδομένα σου (πωλήσεις, απόθεμα, αγορές, '
+            'ταμείο, έξοδα), για το τι σημαίνει ένας δείκτης ή «τι κάνω εδώ», και απαντά διαβάζοντας τα '
+            'πραγματικά σου στοιχεία. Χρησιμοποιεί το ΔΙΚΟ σου κλειδί Anthropic (Claude) — η χρήση χρεώνεται '
+            'στον δικό σου λογαριασμό, δεν περνά από εμάς.',
+            'Your AI assistant. Ask in plain language about your data (sales, stock, purchases, cash, '
+            'expenses), what a KPI means, or "what am I doing here", and it answers by reading your real '
+            'data. It uses YOUR OWN Anthropic (Claude) key — billed to your own account.',
+        ),
+        'steps': _tl(
+            [
+                'Ρύθμιση (μία φορά, από διαχειριστή): Ρυθμίσεις → Co-Pilot → βάλε το κλειδί Anthropic και ενεργοποίησε.',
+                'Άνοιξε το Co-Pilot από το μενού, ή το πλωτό κουμπί (εγκέφαλος) κάτω δεξιά σε κάθε σελίδα.',
+                'Ρώτησε ό,τι θες — π.χ. «τι πωλήσεις έχω αυτόν τον μήνα;», «ποια είδη έχουν το μεγαλύτερο απόθεμα;».',
+                'Το πλωτό κουμπί ξέρει σε ποια σελίδα βρίσκεσαι, οπότε το «τι κάνω εδώ;» απαντά για τη συγκεκριμένη οθόνη.',
+            ],
+            [
+                'Setup (once, by an admin): Settings → Co-Pilot → enter the Anthropic key and enable.',
+                'Open Co-Pilot from the menu, or the floating brain button at the bottom-right of every page.',
+                'Ask anything — e.g. "what are my sales this month?", "which items have the most stock?".',
+                'The floating button knows which page you are on, so "what am I doing here?" answers for that screen.',
+            ],
+        ),
+        'checks': _tl(
+            [
+                'Χρειάζεται δικό σου κλειδί Anthropic (console.anthropic.com) — η χρήση χρεώνεται σ’ εσένα.',
+                'Το κλειδί αποθηκεύεται κρυπτογραφημένο και δεν εμφανίζεται ποτέ ξανά.',
+                'Ο Co-Pilot διαβάζει μόνο (read-only) τη βάση σου· δεν αλλάζει δεδομένα.',
+                'Μπορείς να βάλεις μηνιαίο όριο tokens και να επιλέξεις αν στέλνονται μόνο σύνολα ή και αναλυτικές γραμμές.',
+            ],
+            [
+                'Requires your own Anthropic key (console.anthropic.com) — usage is billed to you.',
+                'The key is stored encrypted and never shown again.',
+                'Co-Pilot reads your database read-only; it never changes data.',
+                'You can set a monthly token cap and choose whether only aggregates or also detail rows are sent.',
+            ],
+        ),
+        'related': ['business-advisor', 'insights', 'dashboard'],
+    },
 
     # ---------------- Επιχειρησιακά κυκλώματα ----------------------------
     {

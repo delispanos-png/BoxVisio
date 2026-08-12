@@ -102,12 +102,15 @@ from app.services.connection_secrets import (
     encrypt_sqlserver_secret,
 )
 from app.services.copilot_config import (
+    add_usage as _copilot_add_usage,
+    cap_reached as _copilot_cap_reached,
     copilot_is_ready,
     copilot_settings_view,
     get_copilot_config,
     upsert_copilot_config,
 )
 from app.services.copilot_service import stream_answer as _copilot_stream_answer
+from app.db.control_session import ControlSessionLocal as _CopilotControlSession
 from app.services.era_exploration import (
     clear_era_exploration_cache,
     DuplicateMarketImportError as EraDuplicateMarketImportError,
@@ -12470,6 +12473,8 @@ async def tenant_copilot_ask(
     config = await get_copilot_config(db, int(tenant.id))
     if not copilot_is_ready(config):
         return JSONResponse({'error': 'Το Co-Pilot δεν έχει ρυθμιστεί (λείπει κλειδί ή είναι ανενεργό). Δες Ρυθμίσεις.'}, status_code=400)
+    if await _copilot_cap_reached(db, config):
+        return JSONResponse({'error': 'Έφτασες το μηνιαίο όριο tokens του Co-Pilot. Αύξησέ το ή περίμενε τον επόμενο μήνα (Ρυθμίσεις).'}, status_code=429)
     try:
         body = await request.json()
     except Exception:
@@ -12488,13 +12493,26 @@ async def tenant_copilot_ask(
 
     # Detach a plain snapshot of the tenant so the generator doesn't touch the request-scoped session.
     tenant_snapshot = tenant
+    tenant_id = int(tenant.id)
 
     async def event_stream():
+        in_tok = out_tok = 0
         try:
             async for ev in _copilot_stream_answer(config, tenant_snapshot, history, page_context=page_context):
+                if ev.get('type') == 'done':
+                    usage = ev.get('usage') or {}
+                    in_tok = int(usage.get('input_tokens') or 0)
+                    out_tok = int(usage.get('output_tokens') or 0)
                 yield f'data: {json.dumps(ev, ensure_ascii=False)}\n\n'
         except Exception as exc:  # noqa: BLE001
             yield f'data: {json.dumps({"type": "error", "error": str(exc).splitlines()[0][:200]}, ensure_ascii=False)}\n\n'
+        # Record usage on our own session (the request-scoped db is already closed here).
+        if in_tok or out_tok:
+            try:
+                async with _CopilotControlSession() as usage_db:
+                    await _copilot_add_usage(usage_db, tenant_id, in_tok, out_tok)
+            except Exception:  # noqa: BLE001 — never let accounting break the stream
+                pass
         yield 'data: {"type": "end"}\n\n'
 
     return StreamingResponse(event_stream(), media_type='text/event-stream', headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
