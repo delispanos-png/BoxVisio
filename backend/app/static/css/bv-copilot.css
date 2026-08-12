@@ -26,10 +26,11 @@ body.tenant-shell[data-theme='dark'] {
 .bvc-assistant { align-self: flex-start; background: var(--bvc-assist); color: var(--bvc-ink); border-bottom-left-radius: 4px; }
 .bvc-assistant code { background: rgba(127,127,127,.18); padding: 1px 5px; border-radius: 5px; font-size: 12px; }
 .bvc-li { margin: 2px 0; }
-.bvc-status { display: inline-flex; align-items: center; gap: 5px; min-height: 18px; }
-.bvc-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--bvc-muted); animation: bvc-blink 1.2s infinite; }
-.bvc-dot:nth-child(2) { animation-delay: .2s; } .bvc-dot:nth-child(3) { animation-delay: .4s; }
-@keyframes bvc-blink { 0%, 60%, 100% { opacity: .3; } 30% { opacity: 1; } }
+.bvc-status { display: flex; flex-direction: column; gap: 3px; }
+.bvc-phase { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--bvc-muted); font-weight: 600; }
+.bvc-spin { flex: 0 0 auto; width: 13px; height: 13px; border: 2px solid var(--bvc-line); border-top-color: var(--bvc-user); border-radius: 50%; animation: bvc-spin .7s linear infinite; }
+@keyframes bvc-spin { to { transform: rotate(360deg); } }
+.bvc-think { font-size: 11.5px; color: var(--bvc-muted); font-style: italic; line-height: 1.4; max-height: 34px; overflow: hidden; opacity: .75; }
 .bvc-tool { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--bvc-muted); font-style: italic; }
 .bvc-cfg { color: var(--bvc-user); font-weight: 700; }
 

@@ -257,15 +257,30 @@ async def stream_answer(
 
     try:
         for _round in range(max_rounds):
-            async with client.messages.stream(
-                model=config.model or 'claude-opus-5',
-                max_tokens=4096,
-                system=system,
-                tools=TOOLS,
-                messages=messages,
-            ) as stream:
-                async for text_delta in stream.text_stream:
-                    yield {'type': 'text', 'text': text_delta}
+            model = config.model or 'claude-opus-5'
+            kwargs: dict[str, Any] = dict(
+                model=model, max_tokens=4096, system=system, tools=TOOLS, messages=messages,
+            )
+            # Low effort = far less thinking time (this is a data-lookup assistant, not a
+            # deep-reasoning task) → much faster first token. Stream the thinking summary so
+            # the user sees the model working. Haiku doesn't support adaptive thinking/effort.
+            if 'haiku' not in model:
+                kwargs['thinking'] = {'type': 'adaptive', 'display': 'summarized'}
+                kwargs['output_config'] = {'effort': 'low'}
+            async with client.messages.stream(**kwargs) as stream:
+                async for event in stream:
+                    if getattr(event, 'type', '') != 'content_block_delta':
+                        continue
+                    delta = getattr(event, 'delta', None)
+                    dtype = getattr(delta, 'type', '')
+                    if dtype == 'thinking_delta':
+                        chunk = getattr(delta, 'thinking', '') or ''
+                        if chunk:
+                            yield {'type': 'thinking', 'text': chunk}
+                    elif dtype == 'text_delta':
+                        chunk = getattr(delta, 'text', '') or ''
+                        if chunk:
+                            yield {'type': 'text', 'text': chunk}
                 final = await stream.get_final_message()
 
             out_tokens += int(getattr(final.usage, 'output_tokens', 0) or 0)

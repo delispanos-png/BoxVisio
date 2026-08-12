@@ -93,10 +93,16 @@
 
       const botNode = addMsg('assistant');
       const status = el('div', 'bvc-status');
-      status.innerHTML = '<span class="bvc-dot"></span><span class="bvc-dot"></span><span class="bvc-dot"></span>';
+      const phase = el('div', 'bvc-phase');
+      const think = el('div', 'bvc-think');
+      status.append(phase, think);
       botNode.appendChild(status);
       const body = el('div', 'bvc-body');
       botNode.appendChild(body);
+      var thinkBuf = '';
+      function setPhase(label) { phase.innerHTML = '<span class="bvc-spin"></span><span>' + label + '</span>'; }
+      function showThink() { think.textContent = thinkBuf.replace(/\s+/g, ' ').trim().slice(-200); }
+      setPhase('Σκέφτομαι…');
 
       let answer = '';
       try {
@@ -132,14 +138,18 @@
             let ev;
             try { ev = JSON.parse(line.slice(5).trim()); } catch (_) { continue; }
             if (ev.type === 'text') {
-              status.remove();
+              if (status.parentNode) status.remove();
               answer += ev.text;
               renderText(body, answer);
+            } else if (ev.type === 'thinking') {
+              thinkBuf += ev.text;
+              setPhase('Σκέφτομαι…');
+              showThink();
             } else if (ev.type === 'tool') {
-              status.innerHTML = '<span class="bvc-tool"><i class="fe fe-database"></i> ' +
-                (ev.name === 'run_sql' ? 'διαβάζω δεδομένα…' : ev.name === 'describe_schema' ? 'ελέγχω δομή…' : 'επεξηγήσεις…') + '</span>';
+              thinkBuf = ''; think.textContent = '';
+              setPhase(ev.name === 'run_sql' ? 'Διαβάζω τα δεδομένα σου…' : ev.name === 'describe_schema' ? 'Ελέγχω τη δομή…' : 'Ψάχνω επεξηγήσεις…');
             } else if (ev.type === 'error') {
-              status.remove();
+              if (status.parentNode) status.remove();
               renderText(body, '⚠️ ' + (ev.error || 'Σφάλμα.'));
             }
             log.scrollTop = log.scrollHeight;
