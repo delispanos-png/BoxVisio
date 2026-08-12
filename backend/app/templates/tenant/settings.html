@@ -265,6 +265,21 @@
               <label class="form-label">Μηνιαίο όριο tokens (0 = χωρίς όριο)</label>
               <input class="form-control" type="number" min="0" step="1000" name="max_monthly_tokens" value="{{ copilot.max_monthly_tokens or 0 }}">
             </div>
+            <div class="col-12"><hr class="my-1"></div>
+            <div class="col-md-3">
+              <div class="form-check form-switch mt-2">
+                <input class="form-check-input" type="checkbox" role="switch" id="cpDaily" name="daily_report_enabled" value="1"{% if copilot.daily_report_enabled %} checked{% endif %}>
+                <label class="form-check-label" for="cpDaily">Ημερήσιο report με email</label>
+              </div>
+            </div>
+            <div class="col-md-2">
+              <label class="form-label">Ώρα αποστολής</label>
+              <input class="form-control" type="time" name="daily_report_time" value="{{ copilot.daily_report_time or '10:00' }}">
+            </div>
+            <div class="col-md-7">
+              <label class="form-label">Παραλήπτες (email, χωρισμένα με κόμμα)</label>
+              <input class="form-control" type="text" name="daily_report_recipients" placeholder="owner@pharmacy.gr, manager@pharmacy.gr" value="{{ copilot.daily_report_recipients or '' }}">
+            </div>
             {% if copilot.has_key %}
             <div class="col-md-4">
               <div class="form-check mt-4">

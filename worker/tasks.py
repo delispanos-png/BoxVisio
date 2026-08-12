@@ -5691,3 +5691,96 @@ async def _purge_processed_staging_all_tenants(retain_days: int | None = None) -
     total_deleted = sum(int(r.get('deleted') or 0) for r in results)
     logger.info('staging_purge_done retain_days=%s deleted=%s', days, total_deleted)
     return {'status': 'ok', 'retain_days': days, 'deleted': total_deleted, 'tenants': results}
+
+
+# --------------------------------------------------------------------------
+# Scheduled daily Co-Pilot report → email (per tenant, Europe/Athens time)
+# --------------------------------------------------------------------------
+def _copilot_report_html(tenant_name: str, report_text: str, day) -> str:
+    import html as _html
+    esc = _html.escape(report_text or '')
+    body = (
+        esc.replace('**', '')
+        .replace('\n- ', '\n• ')
+        .replace('\n', '<br>')
+    )
+    return (
+        '<div style="font-family:Arial,Helvetica,sans-serif;max-width:640px;margin:0 auto;color:#0f172a">'
+        '<div style="background:linear-gradient(135deg,#6f42c1,#2563eb);color:#fff;padding:16px 20px;border-radius:12px 12px 0 0">'
+        '<strong style="font-size:16px">🧠 Co-Pilot — Ημερήσιο Report</strong><br>'
+        f'<span style="opacity:.85;font-size:13px">{_html.escape(tenant_name)} · {day.strftime("%d/%m/%Y")}</span></div>'
+        '<div style="border:1px solid #e2e8f0;border-top:none;border-radius:0 0 12px 12px;padding:18px 20px;font-size:14px;line-height:1.6">'
+        f'{body}</div>'
+        '<div style="color:#94a3b8;font-size:11px;margin-top:10px;text-align:center">Παρήχθη αυτόματα από τον BoxVisio Co-Pilot.</div>'
+        '</div>'
+    )
+
+
+def _hhmm_to_minutes(value: str) -> int:
+    try:
+        h, m = str(value or '10:00').split(':')
+        return int(h) * 60 + int(m)
+    except Exception:
+        return 600
+
+
+@shared_task(name='worker.tasks.send_scheduled_copilot_reports')
+def send_scheduled_copilot_reports() -> dict:
+    return _run_coro(_send_scheduled_copilot_reports())
+
+
+async def _send_scheduled_copilot_reports() -> dict:
+    from app.models.control import CopilotConfig
+    from app.services import email_delivery
+    from app.services.copilot_config import add_usage, copilot_is_ready
+    from app.services.copilot_service import generate_report
+
+    now = datetime.now(ZoneInfo('Europe/Athens'))
+    today = now.date()
+    now_minutes = now.hour * 60 + now.minute
+    sent = 0
+    if not email_delivery.email_configured():
+        return {'sent': 0, 'reason': 'smtp_not_configured'}
+
+    async with ControlSessionLocal() as db:
+        configs = (
+            await db.execute(select(CopilotConfig).where(CopilotConfig.daily_report_enabled.is_(True)))
+        ).scalars().all()
+        for cfg in configs:
+            if cfg.daily_report_last_sent == today:
+                continue
+            if _hhmm_to_minutes(cfg.daily_report_time) > now_minutes:
+                continue  # not yet its time today
+            if not copilot_is_ready(cfg):
+                continue
+            recipients = [e.strip() for e in str(cfg.daily_report_recipients or '').replace(';', ',').split(',') if e.strip()]
+            if not recipients:
+                continue
+            tenant = (await db.execute(select(Tenant).where(Tenant.id == cfg.tenant_id))).scalar_one_or_none()
+            if tenant is None:
+                continue
+            tname = getattr(tenant, 'display_name', None) or getattr(tenant, 'name', None) or getattr(tenant, 'slug', '') or 'BoxVisio'
+            try:
+                report_text, out_tokens = await generate_report(cfg, tenant)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning('copilot_daily_report_failed tenant=%s err=%s', cfg.tenant_id, str(exc)[:200])
+                continue
+            if not report_text.strip():
+                continue
+            html_body = _copilot_report_html(tname, report_text, today)
+            subject = f'Ημερήσιο Report — {tname} — {today.strftime("%d/%m/%Y")}'
+            for email in recipients:
+                try:
+                    email_delivery.send_email(to_email=email, subject=subject, text_body=report_text, html_body=html_body)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning('copilot_report_email_failed to=%s err=%s', email, str(exc)[:150])
+            cfg.daily_report_last_sent = today
+            await db.commit()
+            if out_tokens:
+                try:
+                    await add_usage(db, int(cfg.tenant_id), 0, int(out_tokens))
+                except Exception:  # noqa: BLE001
+                    pass
+            sent += 1
+            logger.info('copilot_daily_report_sent tenant=%s recipients=%s', cfg.tenant_id, len(recipients))
+    return {'sent': sent}

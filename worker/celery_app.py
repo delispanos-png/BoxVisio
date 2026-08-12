@@ -99,6 +99,12 @@ celery.conf.beat_schedule = {
         'task': 'worker.tasks.refresh_inventory_snapshots_all_tenants',
         'schedule': crontab(hour=22, minute=0),
     },
+    # Every 5 min — send each tenant's scheduled Co-Pilot daily report once its
+    # configured time (Europe/Athens) has passed and it hasn't been sent today.
+    'copilot-daily-reports': {
+        'task': 'worker.tasks.send_scheduled_copilot_reports',
+        'schedule': timedelta(minutes=5),
+    },
 }
 celery.conf.timezone = 'Europe/Athens'
 celery.conf.enable_utc = True

@@ -1,10 +1,11 @@
-from datetime import datetime
+from datetime import date, datetime
 from enum import Enum
 
 from sqlalchemy import (
     JSON,
     BigInteger,
     Boolean,
+    Date,
     DateTime,
     Enum as SqlEnum,
     ForeignKey,
@@ -466,6 +467,12 @@ class CopilotConfig(ControlBase):
     # 'aggregates' = only KPI/aggregate results may leave to the tenant's LLM; 'row_level'
     # also allows detail rows. Chosen per tenant; default row_level (their data, their key).
     data_scope: Mapped[str] = mapped_column(String(16), nullable=False, default='row_level')
+    # Scheduled daily report (Europe/Athens) — the worker generates it via the Co-Pilot
+    # and emails the recipients at the configured time.
+    daily_report_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    daily_report_time: Mapped[str] = mapped_column(String(5), nullable=False, default='10:00')
+    daily_report_recipients: Mapped[str | None] = mapped_column(Text, nullable=True)
+    daily_report_last_sent: Mapped[date | None] = mapped_column(Date, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 

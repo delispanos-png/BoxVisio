@@ -12,6 +12,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import re
 from datetime import datetime
 
 from sqlalchemy import update
@@ -67,6 +68,9 @@ def copilot_settings_view(config: CopilotConfig | None) -> dict[str, Any]:
         'max_monthly_tokens': int(config.max_monthly_tokens or 0),
         'data_scope': config.data_scope or 'row_level',
         'ready': copilot_is_ready(config),
+        'daily_report_enabled': bool(config.daily_report_enabled),
+        'daily_report_time': config.daily_report_time or '10:00',
+        'daily_report_recipients': config.daily_report_recipients or '',
     }
 
 
@@ -80,6 +84,9 @@ async def upsert_copilot_config(
     clear_key: bool = False,
     max_monthly_tokens: int = 0,
     data_scope: str = 'row_level',
+    daily_report_enabled: bool = False,
+    daily_report_time: str = '10:00',
+    daily_report_recipients: str = '',
 ) -> CopilotConfig:
     """Create or update the tenant's Co-Pilot config.
 
@@ -97,6 +104,11 @@ async def upsert_copilot_config(
     config.model = model if model in ALLOWED_MODELS else DEFAULT_MODEL
     config.data_scope = data_scope if data_scope in ALLOWED_DATA_SCOPES else 'row_level'
     config.max_monthly_tokens = int(max_monthly_tokens or 0) or None
+
+    config.daily_report_enabled = bool(daily_report_enabled)
+    _t = str(daily_report_time or '10:00').strip()
+    config.daily_report_time = _t if re.match(r'^([01]?\d|2[0-3]):[0-5]\d$', _t) else '10:00'
+    config.daily_report_recipients = (str(daily_report_recipients or '').strip() or None)
 
     if clear_key:
         config.api_key_enc = None

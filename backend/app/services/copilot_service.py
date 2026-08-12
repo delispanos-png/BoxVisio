@@ -408,3 +408,32 @@ async def stream_answer(
         yield {'type': 'done', 'usage': {'input_tokens': in_tokens, 'output_tokens': out_tokens}}
     except Exception as exc:  # noqa: BLE001
         yield {'type': 'error', 'error': str(exc).splitlines()[0][:300]}
+
+
+DAILY_REPORT_PROMPT = (
+    'Φτιάξε ένα σύντομο ημερήσιο report για τη διοίκηση, στα ελληνικά, με νούμερα και '
+    'συγκρίσεις όπου έχει νόημα. Χρησιμοποίησε τα εργαλεία για ΠΡΑΓΜΑΤΙΚΑ νούμερα:\n'
+    '1) Πωλήσεις χθες (και σύγκριση με την προηγούμενη ημέρα και με πέρσι ίδια ημέρα).\n'
+    '2) Πωλήσεις μήνα-μέχρι-σήμερα vs πέρσι.\n'
+    '3) Top 5 κατηγορίες/είδη σε τζίρο χθες.\n'
+    '4) Ειδοποιήσεις αποθέματος: είδη σε έλλειψη/χαμηλά και τυχόν υπερβάλλον απόθεμα (αν υπάρχουν).\n'
+    '5) Εισπράξεις/ταμείο χθες.\n'
+    'Κράτο το σύντομο και πρακτικό, με bullets. Ξεκίνα με μία γραμμή σύνοψης.'
+)
+
+
+async def generate_report(config: CopilotConfig, tenant: Tenant, prompt: str | None = None) -> tuple[str, int]:
+    """Run the agent once (non-streaming) and return (report_text, output_tokens).
+    Reuses the full tool loop so the report is built from the tenant's real data."""
+    history = [{'role': 'user', 'content': prompt or DAILY_REPORT_PROMPT}]
+    parts: list[str] = []
+    out_tokens = 0
+    async for ev in stream_answer(config, tenant, history, page_context=None):
+        et = ev.get('type')
+        if et == 'text':
+            parts.append(str(ev.get('text') or ''))
+        elif et == 'done':
+            out_tokens = int((ev.get('usage') or {}).get('output_tokens') or 0)
+        elif et == 'error':
+            raise RuntimeError(ev.get('error') or 'Co-Pilot error')
+    return ''.join(parts).strip(), out_tokens

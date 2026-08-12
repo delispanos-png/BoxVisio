@@ -12404,6 +12404,9 @@ async def tenant_settings_copilot(
     clear_key: str = Form(default=''),
     max_monthly_tokens: int = Form(default=0),
     data_scope: str = Form(default='row_level'),
+    daily_report_enabled: str = Form(default=''),
+    daily_report_time: str = Form(default='10:00'),
+    daily_report_recipients: str = Form(default=''),
     tenant: Tenant = Depends(get_request_tenant),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_control_db),
@@ -12419,6 +12422,9 @@ async def tenant_settings_copilot(
         clear_key=str(clear_key) in {'1', 'on', 'true'},
         max_monthly_tokens=int(max_monthly_tokens or 0),
         data_scope=str(data_scope or 'row_level'),
+        daily_report_enabled=str(daily_report_enabled) in {'1', 'on', 'true'},
+        daily_report_time=str(daily_report_time or '10:00'),
+        daily_report_recipients=str(daily_report_recipients or ''),
     )
     # Audit without ever recording the key itself.
     db.add(
