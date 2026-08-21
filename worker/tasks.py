@@ -3891,6 +3891,11 @@ async def _refresh_sales_aggregates(
             FROM fact_sales f
             LEFT JOIN dim_items i ON i.external_id = f.item_code
             WHERE f.doc_date BETWEEN :from_date AND :to_date
+              -- Sanity guardrail: a corrupt SoftOne feed can inject absurd
+              -- (~trillion-€) net_value rows that poison agg_sales_* even when a
+              -- sale and its cancellation offset in the net. No single real sales
+              -- line approaches 1e9, so drop those before aggregation (all tenants).
+              AND ABS(COALESCE(f.net_value, 0)) < 1000000000
         ),
         classified AS (
             SELECT
