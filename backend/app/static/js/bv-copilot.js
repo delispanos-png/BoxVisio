@@ -106,6 +106,7 @@
       setPhase('Σκέφτομαι…');
 
       let answer = '';
+      let errored = false;
       try {
         const resp = await fetch('/tenant/copilot/ask', {
           method: 'POST',
@@ -159,14 +160,21 @@
               botNode.appendChild(dl);
             } else if (ev.type === 'error') {
               if (status.parentNode) status.remove();
-              renderText(body, '⚠️ ' + (ev.error || 'Σφάλμα.'));
+              errored = true;
+              var msg = ev.error || 'Σφάλμα.';
+              if (/credit balance is too low|purchase credits|Plans & Billing/i.test(msg)) {
+                msg = 'Το κλειδί Anthropic του Co-Pilot έχει μηδενικό υπόλοιπο. Χρειάζεται ανανέωση credits στον λογαριασμό Anthropic (Plans & Billing).';
+              } else if (/authentication|invalid x-api-key|401/i.test(msg)) {
+                msg = 'Το κλειδί Anthropic δεν είναι έγκυρο. Έλεγξε το κλειδί στις ρυθμίσεις του Co-Pilot.';
+              }
+              renderText(body, '⚠️ ' + msg);
             }
             log.scrollTop = log.scrollHeight;
           }
         }
         status.remove();
         if (answer.trim()) history.push({ role: 'assistant', content: answer });
-        else renderText(body, 'Δεν έλαβα απάντηση.');
+        else if (!errored) renderText(body, 'Δεν έλαβα απάντηση.');
       } catch (err) {
         status.remove();
         renderText(body, '⚠️ Πρόβλημα σύνδεσης. Δοκίμασε ξανά.');
