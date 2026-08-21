@@ -8832,14 +8832,29 @@ async def _latest_stock_aging_snapshot_date(
     as_of: date,
     branches: list[str] | None = None,
 ) -> date | None:
-    stmt = select(func.max(AggStockAging.snapshot_date)).where(AggStockAging.snapshot_date <= as_of)
+    # Prefer the latest snapshot that actually has stock value, so a partial/empty
+    # snapshot never becomes "current stock" and shows an empty inventory.
     branches = _effective_branch_filter(branches)
+    stmt = (
+        select(
+            AggStockAging.snapshot_date,
+            func.sum(func.coalesce(AggStockAging.stock_value, 0)).label('sv'),
+        )
+        .where(AggStockAging.snapshot_date <= as_of)
+        .group_by(AggStockAging.snapshot_date)
+        .order_by(AggStockAging.snapshot_date.desc())
+        .limit(60)
+    )
     if branches is not None:
         stmt = stmt.where(AggStockAging.branch_ext_id.in_(branches))
-    snapshot_date = (await db.execute(stmt)).scalar_one_or_none()
-    if isinstance(snapshot_date, date):
-        return snapshot_date
-    return None
+    rows = (await db.execute(stmt)).all()
+    if not rows:
+        return None
+    for snap_date, sv in rows:  # newest first
+        if isinstance(snap_date, date) and float(sv or 0) > 0:
+            return snap_date
+    newest = rows[0][0]
+    return newest if isinstance(newest, date) else None
 
 
 def _apply_stock_aging_dimension_filters(stmt, *, brands=None, categories=None, groups=None):

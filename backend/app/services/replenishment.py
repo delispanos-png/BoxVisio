@@ -514,10 +514,20 @@ async def build_replenishment_from_facts(
     purchase_avg_start = as_of - timedelta(days=365)
     sql = text(
         """
-        WITH latest_snapshot AS (
-            SELECT MAX(snapshot_date) AS snapshot_date
+        WITH snapshot_quality AS (
+            SELECT snapshot_date, SUM(COALESCE(value_amount, 0)) AS stock_value
             FROM agg_inventory_snapshot_daily
             WHERE snapshot_date <= :as_of
+            GROUP BY snapshot_date
+        ),
+        latest_snapshot AS (
+            -- Prefer the latest snapshot that actually has stock value, so a partial /
+            -- interrupted snapshot (e.g. a pre-FnR refresh that wrote a handful of items
+            -- with 0 value) never becomes "current stock" and shows an empty inventory.
+            SELECT COALESCE(
+                (SELECT MAX(snapshot_date) FROM snapshot_quality WHERE stock_value > 0),
+                (SELECT MAX(snapshot_date) FROM snapshot_quality)
+            ) AS snapshot_date
         ),
         inventory AS (
             SELECT
@@ -1617,10 +1627,17 @@ async def build_availability_brief_from_facts(
     if selected_item_codes:
         trend_sql = text(
             """
-            WITH latest_stock AS (
-                SELECT MAX(snapshot_date) AS snapshot_date
+            WITH stock_quality AS (
+                SELECT snapshot_date, SUM(COALESCE(stock_value, 0)) AS stock_value
                 FROM agg_stock_aging
                 WHERE snapshot_date <= :period_end
+                GROUP BY snapshot_date
+            ),
+            latest_stock AS (
+                SELECT COALESCE(
+                    (SELECT MAX(snapshot_date) FROM stock_quality WHERE stock_value > 0),
+                    (SELECT MAX(snapshot_date) FROM stock_quality)
+                ) AS snapshot_date
             ),
             stock AS (
                 SELECT COALESCE(asa.branch_ext_id, '') AS branch_ext_id,

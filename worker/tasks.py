@@ -4481,9 +4481,14 @@ async def _refresh_inventory_aggregates(
         text(
             """
             WITH snapshot_days AS (
+                -- Only true stock snapshots define a snapshot day. Movement rows
+                -- (movement_type='entry', e.g. FnR "Ανανέωση αποθέματος" writes)
+                -- carry 0 value and must never be aggregated as a snapshot, or a
+                -- day with only entries produces a bogus partial 0€ snapshot.
                 SELECT DISTINCT fi.doc_date AS snapshot_date
                 FROM fact_inventory fi
                 WHERE fi.doc_date BETWEEN :from_date AND :to_date
+                  AND fi.movement_type = 'snapshot'
             ),
             latest_inventory_rows AS (
                 SELECT
@@ -4504,6 +4509,7 @@ async def _refresh_inventory_aggregates(
                     ) AS rn
                 FROM fact_inventory fi
                 JOIN snapshot_days sd ON fi.doc_date = sd.snapshot_date
+                WHERE fi.movement_type = 'snapshot'
             )
             INSERT INTO agg_inventory_snapshot_daily (
                 snapshot_date, item_external_id, qty_on_hand, value_amount, updated_at, created_at
@@ -4536,9 +4542,14 @@ async def _refresh_inventory_aggregates(
         text(
             """
             WITH snapshot_days AS (
+                -- Only true stock snapshots define a snapshot day. Movement rows
+                -- (movement_type='entry', e.g. FnR "Ανανέωση αποθέματος" writes)
+                -- carry 0 value and must never be aggregated as a snapshot, or a
+                -- day with only entries produces a bogus partial 0€ snapshot.
                 SELECT DISTINCT fi.doc_date AS snapshot_date
                 FROM fact_inventory fi
                 WHERE fi.doc_date BETWEEN :from_date AND :to_date
+                  AND fi.movement_type = 'snapshot'
             ),
             latest_inventory_rows AS (
                 SELECT
@@ -4559,6 +4570,7 @@ async def _refresh_inventory_aggregates(
                     ) AS rn
                 FROM fact_inventory fi
                 JOIN snapshot_days sd ON fi.doc_date = sd.snapshot_date
+                WHERE fi.movement_type = 'snapshot'
             ),
             inventory_base AS (
                 SELECT
@@ -4730,6 +4742,7 @@ async def _refresh_cash_aggregates(
             FROM fact_cashflows fc
             LEFT JOIN dim_branches db ON db.id = fc.branch_id
             WHERE fc.doc_date BETWEEN :from_date AND :to_date
+              AND ABS(COALESCE(fc.amount, 0)) < :max_sane_amount
             GROUP BY
                 fc.doc_date,
                 db.external_id,
@@ -4752,7 +4765,7 @@ async def _refresh_cash_aggregates(
                 updated_at = NOW()
             """
         ),
-        {'from_date': from_date, 'to_date': to_date},
+        {'from_date': from_date, 'to_date': to_date, 'max_sane_amount': 1_000_000_000},
     )
 
     await tenant_db.execute(
