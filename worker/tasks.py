@@ -1152,6 +1152,27 @@ async def _refresh_inventory_snapshots_all_tenants() -> dict:
                     db_password=tenant.db_password,
                 ):
                     res = await refresh_inventory_snapshot(control_db, tenant_db, tenant_id=int(tenant.id))
+                    if res.get('status') == 'skipped' and res.get('reason') == 'no_sql_connector':
+                        # External-API tenants (SoftOne web-service bridge) can't be pulled via
+                        # direct SQL. Their deployed bridge returns only a PARTIAL snapshot on the
+                        # narrow incremental window, so without this they never get a full nightly
+                        # snapshot and their stock KPI goes stale. Re-pull the inventory stream
+                        # through the API with a wide window to force a full as-of snapshot;
+                        # movement rows are upserted by event_id, so the re-pull is idempotent and
+                        # the drain refreshes aggregates once the pull lands.
+                        to_day = date.today()
+                        from_day = to_day - timedelta(days=730)
+                        ingest_inventory_documents.delay(
+                            tenant_slug=tenant.slug,
+                            connector='external_api',
+                            payload={
+                                'from_date': from_day.isoformat(),
+                                'to_date': to_day.isoformat(),
+                                'operation': 'backfill',
+                            },
+                        )
+                        results.append({'tenant': tenant.slug, 'status': 'queued_api_full_snapshot'})
+                        break
                     if res.get('status') == 'ok':
                         today = date.today()
                         await _refresh_inventory_aggregates(tenant_db, today, today)
