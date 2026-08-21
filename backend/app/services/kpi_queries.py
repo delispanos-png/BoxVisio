@@ -8684,16 +8684,33 @@ async def inventory_snapshot(
 
 
 async def _latest_inventory_snapshot_date(db: AsyncSession, as_of: date) -> date | None:
-    snapshot_date = (
+    # Pick the latest snapshot that is actually COMPLETE. A partial/interrupted daily
+    # snapshot (e.g. a pre-FnR refresh that wrote only a handful of items with 0 value)
+    # would otherwise become "current stock" via a naive max(doc_date) and make the
+    # portal show a near-empty inventory. Skip dates whose row count is a small fraction
+    # of the recent typical snapshot size.
+    rows = (
         await db.execute(
-            select(func.max(FactInventory.doc_date)).where(
+            select(FactInventory.doc_date, func.count().label('c'))
+            .where(
                 FactInventory.doc_date <= as_of,
                 FactInventory.movement_type == 'snapshot',
             )
+            .group_by(FactInventory.doc_date)
+            .order_by(FactInventory.doc_date.desc())
+            .limit(60)
         )
-    ).scalar_one_or_none()
-    if isinstance(snapshot_date, date):
-        return snapshot_date
+    ).all()
+    if rows:
+        max_c = max(int(c) for _, c in rows)
+        threshold = max(1, int(max_c * 0.3))
+        for snap_date, cnt in rows:  # newest first
+            if isinstance(snap_date, date) and int(cnt) >= threshold:
+                return snap_date
+        # none complete → newest available (better than nothing)
+        newest = rows[0][0]
+        if isinstance(newest, date):
+            return newest
     fallback_date = (
         await db.execute(
             select(func.min(FactInventory.doc_date)).where(
