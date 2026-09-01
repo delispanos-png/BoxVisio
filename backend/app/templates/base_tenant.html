@@ -166,7 +166,7 @@
         {% set _analytics_open = active_page in ['sales', 'pos', 'call_center', 'eshop_analysis', 'purchases', 'inventory', 'items', 'replenishment', 'availability', 'destocking', 'analytics_receivables_payables', 'supplier_targets', 'price_control', 'business_advisor', 'era_exploration_data', 'iqvia', 'exports_sellout'] or (active_page == 'cashflow' and not _cashflow_is_stream) %}
         {% set _comparison_pages = ['compare_period', 'compare_branch', 'compare_category'] %}
         {% set _comparison_open = active_page in _comparison_pages %}
-        {% set _exports_open = active_page in ['exports_reports', 'exports_csv_excel', 'exports_analysis', 'exports_channels', 'exports_group_comparison'] %}
+        {% set _exports_open = active_page in ['exports_reports', 'exports_csv_excel', 'exports_analysis', 'exports_purchases_analysis', 'exports_channels', 'exports_group_comparison'] %}
         {% set _help_pages = ['help_home', 'help_find', 'help_circuits', 'help_kpis', 'help_faq'] %}
         {% set _help_open = active_page in _help_pages %}
         <ul class="list">
@@ -495,6 +495,9 @@
               <li class="{% if active_page == 'exports_analysis' %}is-active{% endif %}">
                 <a class="bv-submenu-link" href="/tenant/exports/analysis"><i class="fe fe-sliders"></i><span>Report Builder</span></a>
               </li>
+              <li class="{% if active_page == 'exports_purchases_analysis' %}is-active{% endif %}">
+                <a class="bv-submenu-link" href="/tenant/exports/purchases-analysis"><i class="fe fe-truck"></i><span>Report Builder Αγορών</span></a>
+              </li>
             </ul>
           </li>
           {% endif %}
@@ -690,7 +693,8 @@
             'compare_category': 'comparisons',
             'exports_reports': 'exports',
             'exports_csv_excel': 'exports',
-            'exports_analysis': 'exports'
+            'exports_analysis': 'exports',
+            'exports_purchases_analysis': 'exports'
           } %}
           {% set _manual_help_anchor = manual_help_anchor if manual_help_anchor is defined else _manual_help_anchor_map.get(active_page) %}
           <div class="bv-page-title-wrap">

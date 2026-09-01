@@ -185,7 +185,7 @@
     <p>{{ page_description }}</p>
   </section>
 
-  {% if report_kind == 'analysis' %}
+  {% if pivot_report %}
   <section class="exp-saved">
     <div class="exp-saved-left">
       <span class="exp-saved-label"><i class="fe fe-bookmark"></i> Αποθηκευμένες αναφορές</span>
@@ -210,6 +210,7 @@
     <input type="hidden" name="name" id="expSaveName">
     <input type="hidden" name="params" id="expSaveParams">
     <input type="hidden" name="make_default" id="expSaveDefault" value="">
+    <input type="hidden" name="kind" value="{{ saved_report_kind or 'analysis' }}">
   </form>
 
   <div class="exp-modal" id="expSaveModal" hidden>
@@ -240,7 +241,7 @@
         <h2><i class="fe fe-filter"></i> Φίλτρα</h2>
         <span class="exp-count" data-exp-total>—</span>
       </div>
-      {% if report_kind == 'analysis' %}
+      {% if pivot_report %}
       <div class="exp-pivot-controls">
         <div class="exp-field">
           <label>Ομαδοποίηση κατά</label>
@@ -276,7 +277,7 @@
       </div>
       {% endif %}
       <div class="exp-period">
-        {% if report_kind == 'analysis' %}
+        {% if pivot_report %}
         <div class="exp-field"><label>Περίοδος{% if pivot_mode == 'comparison' %} Α{% endif %} — από</label>{{ dateinput('period_from', period.from) }}</div>
         <div class="exp-field"><label>Περίοδος{% if pivot_mode == 'comparison' %} Α{% endif %} — έως</label>{{ dateinput('period_to', period.to) }}</div>
         <div class="exp-field exp-period-b" {% if pivot_mode != 'comparison' %}style="display:none"{% endif %}><label>Περίοδος Β — από</label>{{ dateinput('period_b_from', period.b_from) }}</div>
@@ -351,10 +352,36 @@
     </div>
     {% endif %}
 
-    {% if rows and report_kind == 'analysis' %}
+    {% if rows and pivot_report %}
     <div class="exp-table-wrap">
       <table class="exp-table">
-        {% if pivot_mode == 'comparison' %}
+        {% if pivot_mode == 'comparison' and dataset == 'purchases' %}
+        <thead>
+          <tr>
+            <th>{{ pivot_group_label }}</th>
+            <th class="exp-num">Καθαρή Α</th><th class="exp-num">Τεμ. Α</th>
+            <th class="exp-num">Καθαρή Β</th><th class="exp-num">Τεμ. Β</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in rows %}
+          <tr>
+            <td>{{ r.label }}</td>
+            <td class="exp-num" style="white-space:nowrap">{{ money(r.net_a) }}{{ deltaspan(r.d_net_a) }}</td>
+            <td class="exp-num" style="white-space:nowrap">{{ fmt(r.qty_a, 'int') }}{{ deltaspan(r.d_qty_a) }}</td>
+            <td class="exp-num">{{ money(r.net_b) }}</td><td class="exp-num">{{ fmt(r.qty_b, 'int') }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr class="exp-total-row">
+            <td>ΣΥΝΟΛΟ{% if totals.count %} ({{ totals.count }}){% endif %}</td>
+            <td class="exp-num" style="white-space:nowrap">{{ money(totals.net_a) }}{{ deltaspan(totals.d_net_a) }}</td>
+            <td class="exp-num" style="white-space:nowrap">{{ fmt(totals.qty_a, 'int') }}{{ deltaspan(totals.d_qty_a) }}</td>
+            <td class="exp-num">{{ money(totals.net_b) }}</td><td class="exp-num">{{ fmt(totals.qty_b, 'int') }}</td>
+          </tr>
+        </tfoot>
+        {% elif pivot_mode == 'comparison' %}
         <thead>
           <tr>
             <th>{{ pivot_group_label }}</th>

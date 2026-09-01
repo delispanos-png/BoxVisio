@@ -2287,6 +2287,32 @@ FAQ: tuple[dict[str, Any], ...] = (
         ),
     },
     {
+        'id': 'report_builder_purchases',
+        'q': _t('Πώς φτιάχνω αναφορά αγορών ανά προμηθευτή;', 'How do I build a purchases report by supplier?'),
+        'steps': _tl(
+            [
+                'Πήγαινε Εξαγωγές → «Report Builder Αγορών».',
+                'Στο «Ομαδοποίηση κατά» διάλεξε Προμηθευτή (ή είδος, ομάδα, brand, κατηγορία, κατάστημα, αποθήκη).',
+                'Διάλεξε περίοδο και, αν θες, φίλτρα (προμηθευτής, brand, κατηγορία, κατάστημα).',
+                'Με «Προσθήκη στήλης» βάλε τις στήλες που θες (Καθαρή/Μικτή Αξία, ΦΠΑ, Τεμάχια, Παραστατικά, Είδη) και σύρε τα πλακίδια για τη σειρά.',
+                'Πάτα «Υπολογισμός». Για σύγκριση δύο περιόδων άλλαξε τον «Τύπο» σε «Σύγκριση Α/Β».',
+                'Λήψη σε Excel/CSV ή «Αποθήκευση Report» για να το ξαναφορτώνεις.',
+            ],
+            [
+                'Go to Exports → "Purchases Report Builder".',
+                'In "Group by" choose Supplier (or item, group, brand, category, branch, warehouse).',
+                'Pick a period and, optionally, filters (supplier, brand, category, branch).',
+                'Use "Add column" for the columns you want (Net/Gross Value, VAT, Units, Documents, SKUs) and drag the chips to reorder.',
+                'Press "Calculate". For a two-period comparison switch "Type" to "A/B comparison".',
+                'Download to Excel/CSV or "Save Report" to reload it later.',
+            ],
+        ),
+        'tip': _t(
+            'Η «Καθαρή Αξία» είναι χωρίς ΦΠΑ (όπως όλο το BI)· η «Μικτή Αξία» = Καθαρή + ΦΠΑ, για συμφωνία με το μεικτό σύνολο του SoftOne.',
+            'Net Value excludes VAT (like all of BI); Gross Value = Net + VAT, to reconcile with SoftOne\'s gross total.',
+        ),
+    },
+    {
         'id': 'zero',
         'q': _t('Μια σελίδα δείχνει μηδενικά ενώ ξέρω ότι υπάρχουν κινήσεις.', 'A page shows zeros although I know there is activity.'),
         'steps': _tl(

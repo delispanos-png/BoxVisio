@@ -195,6 +195,7 @@ from app.services.kpi_queries import (
     sales_by_channel,
     sales_comparison_by_group,
     sales_pivot,
+    purchases_pivot,
     normalize_document_series_labels_config,
     normalize_eshop_fulfillment_config,
     normalize_price_margin_targets_config,
@@ -15831,6 +15832,50 @@ def _export_selected_metrics(request: Request, group_by: str = 'channel') -> lis
     return ordered or list(_EXPORT_PIVOT_DEFAULT_METRICS)
 
 
+# ── Report Builder «Αγορές από Προμηθευτές» (mirror of the sales one, over fact_purchases) ──
+_EXPORT_PURCHASES_PIVOT_DIMENSIONS = [
+    ('supplier', 'Προμηθευτής'),
+    ('item', 'Είδος'),
+    ('group', 'Ομάδα Ειδών'),
+    ('brand', 'Brand'),
+    ('category_1', 'Κατηγορία 1'),
+    ('category_2', 'Κατηγορία 2'),
+    ('category_3', 'Κατηγορία 3'),
+    ('branch', 'Υποκατάστημα'),
+    ('warehouse', 'Αποθηκευτικός χώρος'),
+]
+_EXPORT_PURCHASES_PIVOT_DIM_LABELS = dict(_EXPORT_PURCHASES_PIVOT_DIMENSIONS)
+# Purchases metrics (no margin/profit — purchases have no margin). Gross = Net + ΦΠΑ.
+_EXPORT_PURCHASES_PIVOT_METRICS = [
+    ('net_value', 'Καθαρή Αξία', 'money'),
+    ('qty', 'Τεμάχια', 'int'),
+    ('contribution_pct', 'Contribution %', 'pct'),
+    ('gross_value', 'Μικτή Αξία', 'money'),
+    ('vat', 'ΦΠΑ', 'money'),
+    ('discount', 'Έκπτωση', 'money'),
+    ('doc_count', 'Παραστατικά', 'int'),
+    ('item_count', 'Είδη (SKU)', 'int'),
+    ('avg_per_doc', 'Μέση αξία/παραστατικό', 'money'),
+    ('avg_per_item', 'Μέση αξία/είδος', 'money'),
+]
+_EXPORT_PURCHASES_PIVOT_METRIC_MAP = {
+    key: {'label': label, 'kind': kind}
+    for key, label, kind in (_EXPORT_PURCHASES_PIVOT_METRICS + _EXPORT_PIVOT_ITEM_ATTRS)
+}
+_EXPORT_PURCHASES_DEFAULT_METRICS = ['net_value', 'qty', 'contribution_pct', 'doc_count']
+
+
+def _export_purchases_selected_metrics(request: Request, group_by: str = 'supplier') -> list[str]:
+    """Metrics/columns chosen for the purchases report, in the user's arranged order."""
+    ordered: list[str] = []
+    for m in request.query_params.getlist('metric'):
+        if m in _EXPORT_PURCHASES_PIVOT_METRIC_MAP and m not in ordered:
+            ordered.append(m)
+    if group_by != 'item':
+        ordered = [m for m in ordered if m not in _EXPORT_PIVOT_ATTR_KEYS]
+    return ordered or list(_EXPORT_PURCHASES_DEFAULT_METRICS)
+
+
 _EXPORT_DOWNLOAD_HEADERS = [
     'Όνομα είδους', 'Barcode', 'Brand', 'Κατηγορία 1', 'Κατηγορία 2', 'Κατηγορία 3',
     'Ποσότητα (τεμ.)', 'Αξία',
@@ -15920,6 +15965,23 @@ async def _export_query(
                         period_b_to=(datetime.strptime(period['b_to'], '%Y-%m-%d').date() if period['b_to'] else None),
                         **dim_kwargs,
                     )
+                elif report_kind == 'purchases_analysis':
+                    a_group_by = str(request.query_params.get('group_by') or 'supplier').strip()
+                    a_mode = str(request.query_params.get('mode') or 'analysis').strip()
+                    dim_kwargs = {
+                        k: v for k, v in filter_kwargs.items()
+                        if k not in {'period_from', 'period_to', 'payments', 'channels'}
+                    }
+                    rows, totals = await purchases_pivot(
+                        tenant_db,
+                        group_by=a_group_by,
+                        mode=a_mode,
+                        period_from=filter_kwargs.get('period_from'),
+                        period_to=filter_kwargs.get('period_to'),
+                        period_b_from=(datetime.strptime(period['b_from'], '%Y-%m-%d').date() if period['b_from'] else None),
+                        period_b_to=(datetime.strptime(period['b_to'], '%Y-%m-%d').date() if period['b_to'] else None),
+                        **dim_kwargs,
+                    )
                 elif report_kind == 'channels':
                     rows, totals = await sales_by_channel(tenant_db, **filter_kwargs)
                 elif report_kind == 'group_comparison':
@@ -15992,9 +16054,27 @@ async def _render_exports_workbench(
             'title': 'Report Builder',
             'report_kind': 'analysis',
         },
+        'purchases_analysis': {
+            'active_page': 'exports_purchases_analysis',
+            'form_action': '/tenant/exports/purchases-analysis',
+            'heading': 'Report Builder Αγορών',
+            'description': 'Φτιάξε το δικό σου report αγορών: ομαδοποίησε κατά προμηθευτή, είδος, ομάδα, brand, κατηγορία, κατάστημα ή αποθήκη — διάλεξε στήλες και σειρά — σε ανάλυση περιόδου ή σύγκριση Α/Β.',
+            'title': 'Report Builder Αγορών',
+            'report_kind': 'purchases_analysis',
+        },
     }
     cfg = variants[variant]
     report_kind = cfg['report_kind']
+    # Purchases Report Builder mirrors the sales one but over a different dataset/dimensions.
+    is_purchases = report_kind == 'purchases_analysis'
+    pivot_report = report_kind in ('analysis', 'purchases_analysis')
+    _pv_dims = _EXPORT_PURCHASES_PIVOT_DIMENSIONS if is_purchases else _EXPORT_PIVOT_DIMENSIONS
+    _pv_dim_labels = _EXPORT_PURCHASES_PIVOT_DIM_LABELS if is_purchases else _EXPORT_PIVOT_DIM_LABELS
+    _pv_metrics = _EXPORT_PURCHASES_PIVOT_METRICS if is_purchases else _EXPORT_PIVOT_METRICS
+    _pv_metric_map = _EXPORT_PURCHASES_PIVOT_METRIC_MAP if is_purchases else _EXPORT_PIVOT_METRIC_MAP
+    _pv_default_group = 'supplier' if is_purchases else 'channel'
+    _pv_selected_fn = _export_purchases_selected_metrics if is_purchases else _export_selected_metrics
+    saved_kind = 'purchases_analysis' if is_purchases else 'analysis'
 
     # The report is computed on demand: entering the page shows an empty result
     # and only pressing "Υπολογισμός" (which submits calc=1) runs the aggregation,
@@ -16002,9 +16082,9 @@ async def _render_exports_workbench(
     calculated = str(request.query_params.get('calc') or '').strip() in {'1', 'true', 'yes'}
 
     # Flexible "Ανάλυση" report: group-by dimension + mode (analysis | comparison).
-    pivot_group_by = str(request.query_params.get('group_by') or 'channel').strip()
-    if pivot_group_by not in _EXPORT_PIVOT_DIM_LABELS:
-        pivot_group_by = 'channel'
+    pivot_group_by = str(request.query_params.get('group_by') or _pv_default_group).strip()
+    if pivot_group_by not in _pv_dim_labels:
+        pivot_group_by = _pv_default_group
     pivot_mode = str(request.query_params.get('mode') or 'analysis').strip()
     if pivot_mode not in {'analysis', 'comparison'}:
         pivot_mode = 'analysis'
@@ -16022,13 +16102,13 @@ async def _render_exports_workbench(
             return d.replace(year=d.year - years, day=28)
     today = datetime.utcnow().date()
     a_from = today.replace(day=1)
-    wants_comparison = report_kind == 'group_comparison' or (report_kind == 'analysis' and pivot_mode == 'comparison')
+    wants_comparison = report_kind == 'group_comparison' or (pivot_report and pivot_mode == 'comparison')
     if wants_comparison:
         defaults = {
             'from': a_from.isoformat(), 'to': today.isoformat(),
             'b_from': _shift_year(a_from, 1).isoformat(), 'b_to': _shift_year(today, 1).isoformat(),
         }
-    elif report_kind == 'analysis':
+    elif pivot_report:
         defaults = {'from': a_from.isoformat(), 'to': today.isoformat()}
     else:
         defaults = {}
@@ -16042,10 +16122,10 @@ async def _render_exports_workbench(
 
     # Saved Report Builder configurations for the current user (analysis page only).
     saved_reports: list[dict] = []
-    if report_kind == 'analysis':
+    if pivot_report:
         _cur_user = getattr(request.state, 'current_user', None)
         if _cur_user is not None:
-            saved_reports = await _load_saved_reports(int(tenant.id), int(_cur_user.id), 'analysis')
+            saved_reports = await _load_saved_reports(int(tenant.id), int(_cur_user.id), saved_kind)
 
     return templates.TemplateResponse(
         'tenant/exports_workbench.html',
@@ -16070,15 +16150,18 @@ async def _render_exports_workbench(
             'calculated': calculated,
             'totals': totals,
             'report_kind': report_kind,
-            'pivot_dimensions': _EXPORT_PIVOT_DIMENSIONS,
+            'pivot_report': pivot_report,
+            'dataset': 'purchases' if is_purchases else 'sales',
+            'saved_report_kind': saved_kind,
+            'pivot_dimensions': _pv_dims,
             'pivot_modes': _EXPORT_PIVOT_MODES,
             'pivot_group_by': pivot_group_by,
             'pivot_mode': pivot_mode,
-            'pivot_group_label': _EXPORT_PIVOT_DIM_LABELS.get(pivot_group_by, 'Ομάδα'),
-            'pivot_metrics_catalog': _EXPORT_PIVOT_METRICS,
+            'pivot_group_label': _pv_dim_labels.get(pivot_group_by, 'Ομάδα'),
+            'pivot_metrics_catalog': _pv_metrics,
             'pivot_item_attrs': _EXPORT_PIVOT_ITEM_ATTRS,
-            'pivot_metrics_selected': _export_selected_metrics(request, pivot_group_by),
-            'pivot_metric_map': _EXPORT_PIVOT_METRIC_MAP,
+            'pivot_metrics_selected': _pv_selected_fn(request, pivot_group_by),
+            'pivot_metric_map': _pv_metric_map,
             'saved_reports': saved_reports,
         },
     )
@@ -16137,20 +16220,31 @@ async def _render_exports_download(
     if fmt not in {'csv', 'xlsx'}:
         return Response('Μη έγκυρη μορφή εξαγωγής.', status_code=400, media_type='text/plain; charset=utf-8')
 
-    report_kind = {'channels': 'channels', 'group_comparison': 'group_comparison', 'analysis': 'analysis'}.get(variant, 'items')
+    report_kind = {'channels': 'channels', 'group_comparison': 'group_comparison', 'analysis': 'analysis', 'purchases_analysis': 'purchases_analysis'}.get(variant, 'items')
     _options, _selected, period, rows, totals = await _export_query(
         request, tenant, limit=_EXPORT_DOWNLOAD_LIMIT, compute=True, report_kind=report_kind
     )
 
-    if report_kind == 'analysis':
-        a_group_by = str(request.query_params.get('group_by') or 'channel').strip()
-        dim_label = _EXPORT_PIVOT_DIM_LABELS.get(a_group_by, 'Ομάδα')
+    if report_kind in ('analysis', 'purchases_analysis'):
+        _is_pur = report_kind == 'purchases_analysis'
+        _dim_labels = _EXPORT_PURCHASES_PIVOT_DIM_LABELS if _is_pur else _EXPORT_PIVOT_DIM_LABELS
+        _metric_map = _EXPORT_PURCHASES_PIVOT_METRIC_MAP if _is_pur else _EXPORT_PIVOT_METRIC_MAP
+        _selected_fn = _export_purchases_selected_metrics if _is_pur else _export_selected_metrics
+        _def_group = 'supplier' if _is_pur else 'channel'
+        a_group_by = str(request.query_params.get('group_by') or _def_group).strip()
+        dim_label = _dim_labels.get(a_group_by, 'Ομάδα')
         a_mode = str(request.query_params.get('mode') or 'analysis').strip()
         if a_mode == 'comparison':
-            headers = [dim_label, 'Τζίρος Α', 'Κόστος Α', 'Κέρδος Α', 'Τζίρος Β', 'Κόστος Β', 'Κέρδος Β', 'Δ% Τζίρου', 'Δ% Κόστους', 'Δ% Κέρδους']
-            widths = [26, 15, 15, 15, 15, 15, 15, 12, 12, 12]
-            keys = ['turnover_a', 'cost_a', 'profit_a', 'turnover_b', 'cost_b', 'profit_b', 'd_turnover_a', 'd_cost_a', 'd_profit_a']
-            _delta_keys = {'d_turnover_a', 'd_cost_a', 'd_profit_a'}
+            if _is_pur:
+                headers = [dim_label, 'Καθαρή Α', 'Τεμ. Α', 'Καθαρή Β', 'Τεμ. Β', 'Δ% Καθαρής', 'Δ% Τεμ.']
+                widths = [26, 15, 12, 15, 12, 12, 12]
+                keys = ['net_a', 'qty_a', 'net_b', 'qty_b', 'd_net_a', 'd_qty_a']
+                _delta_keys = {'d_net_a', 'd_qty_a'}
+            else:
+                headers = [dim_label, 'Τζίρος Α', 'Κόστος Α', 'Κέρδος Α', 'Τζίρος Β', 'Κόστος Β', 'Κέρδος Β', 'Δ% Τζίρου', 'Δ% Κόστους', 'Δ% Κέρδους']
+                widths = [26, 15, 15, 15, 15, 15, 15, 12, 12, 12]
+                keys = ['turnover_a', 'cost_a', 'profit_a', 'turnover_b', 'cost_b', 'profit_b', 'd_turnover_a', 'd_cost_a', 'd_profit_a']
+                _delta_keys = {'d_turnover_a', 'd_cost_a', 'd_profit_a'}
 
             def _cmp_cell(src, k):
                 v = src.get(k)
@@ -16161,19 +16255,19 @@ async def _render_exports_download(
             if data_rows:
                 data_rows.append(['ΣΥΝΟΛΟ'] + [_cmp_cell(totals, k) for k in keys])
         else:
-            metrics = _export_selected_metrics(request, a_group_by)
-            headers = [dim_label] + [_EXPORT_PIVOT_METRIC_MAP[m]['label'] for m in metrics]
+            metrics = _selected_fn(request, a_group_by)
+            headers = [dim_label] + [_metric_map[m]['label'] for m in metrics]
             widths = [26] + [15] * len(metrics)
 
             def _mval(src, m):
-                kind = _EXPORT_PIVOT_METRIC_MAP[m]['kind']
+                kind = _metric_map[m]['kind']
                 if kind == 'text':
                     return str(src.get(m) or '')
                 return round(float(src.get(m) or 0), 0 if kind == 'int' else 2)
             data_rows = [[r['label']] + [_mval(r, m) for m in metrics] for r in rows]
             if data_rows:
                 data_rows.append(['ΣΥΝΟΛΟ'] + [_mval(totals, m) for m in metrics])
-        base = 'analysi'
+        base = 'agores_analysi' if _is_pur else 'analysi'
     elif report_kind == 'group_comparison':
         headers = ['Ομάδα', 'Τζίρος Α', 'Κόστος Α', 'Κέρδος Α', 'Τζίρος Β', 'Κόστος Β', 'Κέρδος Β']
         widths = [26, 15, 15, 15, 15, 15, 15]
@@ -16358,21 +16452,24 @@ async def tenant_saved_report_save(
     name: str = Form(default=''),
     params: str = Form(default=''),
     make_default: str = Form(default=''),
+    kind: str = Form(default='analysis'),
     tenant: Tenant = Depends(get_request_tenant),
     user=Depends(get_current_user),
     db: AsyncSession = Depends(get_control_db),
 ):
+    rk = 'purchases_analysis' if str(kind or '').strip() == 'purchases_analysis' else 'analysis'
+    page = '/tenant/exports/purchases-analysis' if rk == 'purchases_analysis' else '/tenant/exports/analysis'
     nm = (name or '').strip()[:120]
     prm = (params or '').strip().lstrip('?')[:4000]
     if not nm:
-        return RedirectResponse(url='/tenant/exports/analysis', status_code=303)
+        return RedirectResponse(url=page, status_code=303)
     is_default = str(make_default).strip().lower() in {'1', 'true', 'on', 'yes'}
     existing = (
         await db.execute(
             select(SavedReport).where(
                 SavedReport.tenant_id == int(tenant.id),
                 SavedReport.user_id == int(user.id),
-                SavedReport.kind == 'analysis',
+                SavedReport.kind == rk,
                 SavedReport.name == nm,
             )
         )
@@ -16382,7 +16479,7 @@ async def tenant_saved_report_save(
         existing.is_default = is_default
         target = existing
     else:
-        target = SavedReport(tenant_id=int(tenant.id), user_id=int(user.id), kind='analysis', name=nm, params=prm, is_default=is_default)
+        target = SavedReport(tenant_id=int(tenant.id), user_id=int(user.id), kind=rk, name=nm, params=prm, is_default=is_default)
         db.add(target)
     await db.flush()
     if is_default:
@@ -16391,13 +16488,13 @@ async def tenant_saved_report_save(
             .where(
                 SavedReport.tenant_id == int(tenant.id),
                 SavedReport.user_id == int(user.id),
-                SavedReport.kind == 'analysis',
+                SavedReport.kind == rk,
                 SavedReport.id != target.id,
             )
             .values(is_default=False)
         )
     await db.commit()
-    return RedirectResponse(url=(f'/tenant/exports/analysis?{prm}' if prm else '/tenant/exports/analysis'), status_code=303)
+    return RedirectResponse(url=(f'{page}?{prm}' if prm else page), status_code=303)
 
 
 @router.post('/tenant/exports/reports/{report_id}/delete')
@@ -16621,3 +16718,37 @@ async def tenant_exports_analysis_download(
     _user=Depends(get_current_user),
 ):
     return await _render_exports_download(request=request, tenant=tenant, variant='analysis', fmt=fmt)
+
+
+@router.get('/tenant/exports/purchases-analysis', response_class=HTMLResponse)
+async def tenant_exports_purchases_analysis(
+    request: Request,
+    tenant: Tenant = Depends(get_request_tenant),
+    user=Depends(get_current_user),
+):
+    # Fresh open with no configuration → auto-load the user's default saved purchases report, if any.
+    if not request.query_params:
+        async with ControlSessionLocal() as cdb:
+            default = (
+                await cdb.execute(
+                    select(SavedReport).where(
+                        SavedReport.tenant_id == int(tenant.id),
+                        SavedReport.user_id == int(user.id),
+                        SavedReport.kind == 'purchases_analysis',
+                        SavedReport.is_default.is_(True),
+                    ).limit(1)
+                )
+            ).scalar_one_or_none()
+        if default and default.params:
+            return RedirectResponse(url=f'/tenant/exports/purchases-analysis?{default.params}', status_code=303)
+    return await _render_exports_workbench(request=request, tenant=tenant, variant='purchases_analysis')
+
+
+@router.get('/tenant/exports/purchases-analysis/download/{fmt}')
+async def tenant_exports_purchases_analysis_download(
+    fmt: str,
+    request: Request,
+    tenant: Tenant = Depends(get_request_tenant),
+    _user=Depends(get_current_user),
+):
+    return await _render_exports_download(request=request, tenant=tenant, variant='purchases_analysis', fmt=fmt)

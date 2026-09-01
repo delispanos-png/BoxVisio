@@ -13041,6 +13041,234 @@ async def sales_pivot(
     return rows, totals
 
 
+_PURCHASES_PIVOT_DIMENSIONS = {
+    'supplier': 'Προμηθευτής',
+    'item': 'Είδος',
+    'group': 'Ομάδα Ειδών',
+    'brand': 'Brand',
+    'category_1': 'Κατηγορία 1',
+    'category_2': 'Κατηγορία 2',
+    'category_3': 'Κατηγορία 3',
+    'branch': 'Υποκατάστημα',
+    'warehouse': 'Αποθηκευτικός χώρος',
+}
+
+
+def _purchases_pivot_label_expr(group_by: str):
+    """SQL label expression for a purchases pivot dimension (default: supplier)."""
+    def _clean(col, fallback):
+        return func.coalesce(func.nullif(func.trim(func.coalesce(col, '')), ''), literal(fallback))
+    if group_by == 'item':
+        return func.coalesce(func.nullif(func.trim(func.coalesce(DimItem.name, '')), ''), DimItem.external_id, literal('—'))
+    if group_by == 'group':
+        return _clean(DimGroup.name, 'Χωρίς ομάδα')
+    if group_by == 'brand':
+        return _clean(DimBrand.name, 'Χωρίς brand')
+    if group_by in ('category_1', 'category_2', 'category_3'):
+        return _clean(getattr(DimItem, group_by), '(κενό)')
+    if group_by == 'branch':
+        return func.coalesce(func.nullif(func.trim(func.coalesce(DimBranch.name, '')), ''), FactPurchases.branch_ext_id, literal('N/A'))
+    if group_by == 'warehouse':
+        return func.coalesce(func.nullif(func.trim(func.coalesce(DimWarehouse.name, '')), ''), FactPurchases.warehouse_ext_id, literal('N/A'))
+    return func.coalesce(func.nullif(func.trim(func.coalesce(DimSupplier.name, '')), ''), FactPurchases.supplier_ext_id, literal('Χωρίς προμηθευτή'))
+
+
+async def purchases_pivot(
+    db: AsyncSession,
+    *,
+    group_by: str = 'supplier',
+    mode: str = 'analysis',
+    period_from: date | None = None,
+    period_to: date | None = None,
+    period_b_from: date | None = None,
+    period_b_to: date | None = None,
+    brands: list[str] | None = None,
+    category_1: list[str] | None = None,
+    category_2: list[str] | None = None,
+    category_3: list[str] | None = None,
+    groups: list[str] | None = None,
+    branches: list[str] | None = None,
+    warehouses: list[str] | None = None,
+    suppliers: list[str] | None = None,
+) -> tuple[list[dict], dict]:
+    """One flexible purchases report: group by ANY dimension (supplier/item/group/
+    brand/category 1-3/branch/warehouse) in one of two modes — mirror of sales_pivot
+    on fact_purchases.
+
+    mode='analysis'  -> rows {label, net_value, qty, contribution_pct, gross_value,
+                              vat, discount, doc_count, item_count, avg_per_doc, avg_per_item}
+    mode='comparison'-> rows {label, net_a, qty_a, net_b, qty_b, Δ%} across period A vs B.
+
+    Net/qty are signed exactly like the Αγορές dashboard (credits 151/152 subtract).
+    Gross = Net + VAT (VAT summed from the SoftOne payload).
+    """
+    if group_by not in _PURCHASES_PIVOT_DIMENSIONS:
+        group_by = 'supplier'
+    label_expr = _purchases_pivot_label_expr(group_by)
+    net = _fact_purchases_signed_amount_expr(func.coalesce(FactPurchases.net_value, 0))
+    qty = _fact_purchases_analysis_qty_expr()
+    discount = _fact_purchase_signed_discount_expr()
+    vat = _fact_purchases_signed_amount_expr(
+        cast(func.coalesce(_json_numeric_text_expr(FactPurchases.source_payload_json, 'vat_amount'), literal('0')), Numeric)
+    )
+    doc_key = _fact_purchases_document_key_expr()
+
+    need_item = group_by in {'item', 'group', 'brand', 'category_1', 'category_2', 'category_3'} or bool(
+        brands or groups or category_1 or category_2 or category_3
+    )
+    need_brand = group_by == 'brand' or bool(brands) or group_by == 'item'
+    need_group = group_by == 'group' or bool(groups) or group_by == 'item'
+
+    def _windowed(expr, window):
+        return func.coalesce(func.sum(case((window, expr), else_=literal(0.0))), 0) if window is not None else literal(0.0)
+
+    if mode == 'comparison':
+        in_a = (FactPurchases.doc_date >= period_from) & (FactPurchases.doc_date <= period_to) if (period_from and period_to) else None
+        in_b = (FactPurchases.doc_date >= period_b_from) & (FactPurchases.doc_date <= period_b_to) if (period_b_from and period_b_to) else None
+        stmt = select(
+            label_expr.label('label'),
+            _windowed(net, in_a).label('net_a'),
+            _windowed(qty, in_a).label('qty_a'),
+            _windowed(net, in_b).label('net_b'),
+            _windowed(qty, in_b).label('qty_b'),
+        ).select_from(FactPurchases)
+    else:
+        stmt = select(
+            label_expr.label('label'),
+            func.coalesce(func.sum(net), 0).label('net_value'),
+            func.coalesce(func.sum(qty), 0).label('qty'),
+            func.coalesce(func.sum(discount), 0).label('discount'),
+            func.coalesce(func.sum(vat), 0).label('vat'),
+            func.count(func.distinct(doc_key)).label('doc_count'),
+            func.count(func.distinct(FactPurchases.item_id)).label('item_count'),
+        ).select_from(FactPurchases)
+        if group_by == 'item':
+            stmt = stmt.add_columns(
+                func.max(DimItem.barcode).label('a_barcode'),
+                func.max(DimBrand.name).label('a_brand'),
+                func.max(DimItem.category_1).label('a_cat1'),
+                func.max(DimItem.category_2).label('a_cat2'),
+                func.max(DimItem.category_3).label('a_cat3'),
+                func.max(DimGroup.name).label('a_group'),
+            )
+
+    if group_by == 'supplier':
+        stmt = stmt.join(DimSupplier, DimSupplier.external_id == FactPurchases.supplier_ext_id, isouter=True)
+    if need_item:
+        stmt = stmt.join(DimItem, FactPurchases.item_id == DimItem.id, isouter=True)
+    if need_brand:
+        stmt = stmt.join(DimBrand, DimItem.brand_id == DimBrand.id, isouter=True)
+    if need_group:
+        stmt = stmt.join(DimGroup, DimItem.group_id == DimGroup.id, isouter=True)
+    if group_by == 'branch':
+        stmt = stmt.join(DimBranch, DimBranch.external_id == FactPurchases.branch_ext_id, isouter=True)
+    if group_by == 'warehouse':
+        stmt = stmt.join(DimWarehouse, DimWarehouse.external_id == FactPurchases.warehouse_ext_id, isouter=True)
+
+    if brands:
+        stmt = stmt.where(DimBrand.external_id.in_(brands))
+    if groups:
+        stmt = stmt.where(DimGroup.external_id.in_(groups))
+    if category_1:
+        stmt = stmt.where(DimItem.category_1.in_(category_1))
+    if category_2:
+        stmt = stmt.where(DimItem.category_2.in_(category_2))
+    if category_3:
+        stmt = stmt.where(DimItem.category_3.in_(category_3))
+    if branches:
+        stmt = stmt.where(FactPurchases.branch_ext_id.in_(branches))
+    if warehouses:
+        stmt = stmt.where(FactPurchases.warehouse_ext_id.in_(warehouses))
+    if suppliers:
+        stmt = stmt.where(FactPurchases.supplier_ext_id.in_(suppliers))
+
+    if mode == 'comparison':
+        windows = [w for w in (in_a, in_b) if w is not None]
+        if windows:
+            scope = windows[0]
+            for w in windows[1:]:
+                scope = scope | w
+            stmt = stmt.where(scope)
+    else:
+        if period_from:
+            stmt = stmt.where(FactPurchases.doc_date >= period_from)
+        if period_to:
+            stmt = stmt.where(FactPurchases.doc_date <= period_to)
+
+    group_col = DimItem.id if group_by == 'item' else label_expr
+    stmt = stmt.group_by(group_col).order_by(literal_column('2').desc())
+    if group_by == 'item':
+        stmt = stmt.limit(5000)
+    raw = (await db.execute(stmt)).mappings().all()
+
+    rows: list[dict] = []
+    if mode == 'comparison':
+        tot = {'net_a': 0.0, 'qty_a': 0.0, 'net_b': 0.0, 'qty_b': 0.0}
+        def _pct(cur, base):
+            return ((cur - base) / abs(base) * 100.0) if base else None
+        for r in raw:
+            na, qa = float(r['net_a'] or 0), float(r['qty_a'] or 0)
+            nb, qb = float(r['net_b'] or 0), float(r['qty_b'] or 0)
+            row = {'label': str(r['label'] or '—'),
+                   'net_a': na, 'qty_a': qa, 'net_b': nb, 'qty_b': qb,
+                   'delta_pct': _pct(na, nb),
+                   'd_net_a': _pct(na, nb), 'd_qty_a': _pct(qa, qb),
+                   'd_net_b': _pct(nb, na), 'd_qty_b': _pct(qb, qa)}
+            rows.append(row)
+            for k in ('net_a', 'qty_a', 'net_b', 'qty_b'):
+                tot[k] += row[k]
+        tot['count'] = len(rows)
+        tot['delta_pct'] = _pct(tot['net_a'], tot['net_b'])
+        tot['d_net_a'] = _pct(tot['net_a'], tot['net_b'])
+        tot['d_qty_a'] = _pct(tot['qty_a'], tot['qty_b'])
+        tot['d_net_b'] = _pct(tot['net_b'], tot['net_a'])
+        tot['d_qty_b'] = _pct(tot['qty_b'], tot['qty_a'])
+        totals = tot
+    else:
+        total_net = sum(float(r['net_value'] or 0) for r in raw)
+
+        def _metric_row(label, netv, qtyv, vatv, disc, docs, items):
+            return {
+                'label': label,
+                'net_value': netv, 'qty': qtyv,
+                'contribution_pct': (netv / total_net * 100.0) if total_net else 0.0,
+                'gross_value': netv + vatv, 'vat': vatv, 'discount': disc,
+                'doc_count': docs, 'item_count': items,
+                'avg_per_doc': (netv / docs) if docs else 0.0,
+                'avg_per_item': (netv / items) if items else 0.0,
+            }
+
+        agg = {'net_value': 0.0, 'qty': 0.0, 'vat': 0.0, 'discount': 0.0,
+               'gross_value': 0.0, 'doc_count': 0, 'item_count': 0}
+        for r in raw:
+            netv = float(r['net_value'] or 0)
+            vatv = float(r['vat'] or 0)
+            row = _metric_row(
+                str(r['label'] or '—'), netv, float(r['qty'] or 0), vatv,
+                float(r['discount'] or 0), int(r['doc_count'] or 0), int(r['item_count'] or 0),
+            )
+            if group_by == 'item':
+                row['a_barcode'] = str(r.get('a_barcode') or '')
+                row['a_brand'] = str(r.get('a_brand') or '')
+                row['a_cat1'] = str(r.get('a_cat1') or '')
+                row['a_cat2'] = str(r.get('a_cat2') or '')
+                row['a_cat3'] = str(r.get('a_cat3') or '')
+                row['a_group'] = str(r.get('a_group') or '')
+            rows.append(row)
+            for k in agg:
+                agg[k] += row[k]
+        totals = {
+            'count': len(rows),
+            'net_value': agg['net_value'], 'qty': agg['qty'],
+            'contribution_pct': 100.0 if total_net else 0.0,
+            'gross_value': agg['gross_value'], 'vat': agg['vat'], 'discount': agg['discount'],
+            'doc_count': agg['doc_count'], 'item_count': agg['item_count'],
+            'avg_per_doc': (agg['net_value'] / agg['doc_count']) if agg['doc_count'] else 0.0,
+            'avg_per_item': (agg['net_value'] / agg['item_count']) if agg['item_count'] else 0.0,
+        }
+    return rows, totals
+
+
 async def sales_comparison_by_group(
     db: AsyncSession,
     *,
