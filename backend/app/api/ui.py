@@ -16049,9 +16049,9 @@ async def _render_exports_workbench(
         'analysis': {
             'active_page': 'exports_analysis',
             'form_action': '/tenant/exports/analysis',
-            'heading': 'Report Builder',
+            'heading': 'Report Builder Πωλήσεων',
             'description': 'Φτιάξε το δικό σου report: ομαδοποίησε κατά είδος, κανάλι, ομάδα, brand, κατηγορία, κατάστημα ή αποθήκη — διάλεξε στήλες και σειρά — σε ανάλυση περιόδου ή σύγκριση Α/Β.',
-            'title': 'Report Builder',
+            'title': 'Report Builder Πωλήσεων',
             'report_kind': 'analysis',
         },
         'purchases_analysis': {
