@@ -11272,6 +11272,17 @@ async def suppliers_overview(
                 DimSupplier.name,
                 literal(''),
             )
+            # Supplier balances arrive as a FULL daily snapshot, so the current payables
+            # position is the MOST RECENT snapshot (<= date_to). Using each supplier's last
+            # balance across all history resurrects stale/settled suppliers (and any historic
+            # corrupt rows on old dates) and massively overstates liabilities — so pin to the
+            # latest snapshot date only.
+            _asb_latest = aliased(AggSupplierBalancesDaily)
+            _latest_supplier_balance_date_sq = (
+                select(func.max(_asb_latest.balance_date))
+                .where(_asb_latest.balance_date <= date_to)
+                .scalar_subquery()
+            )
             balances_by_day = (
                 select(
                     balance_supplier_key.label('supplier_id'),
@@ -11286,7 +11297,7 @@ async def suppliers_overview(
                 )
                 .select_from(AggSupplierBalancesDaily)
                 .join(DimSupplier, DimSupplier.external_id == AggSupplierBalancesDaily.supplier_ext_id, isouter=True)
-                .where(AggSupplierBalancesDaily.balance_date <= date_to)
+                .where(AggSupplierBalancesDaily.balance_date == _latest_supplier_balance_date_sq)
                 .where(balance_supplier_key.in_(supplier_ids))
             )
             branches = _effective_branch_filter(branches)
@@ -11392,6 +11403,32 @@ async def suppliers_overview(
                     'updated_at': _raw_scalar(row.get('updated_at')),
                 }
             )
+
+        # Total payables = the FULL current snapshot across ALL suppliers (matches the card
+        # /Ισοζύγιο formula "άθροισμα open_balance όλων των προμηθευτών"), not just the top-N
+        # purchase rows above. Pinned to the latest snapshot date and guardrailed (<1e8) so
+        # stale/corrupt historical rows can never inflate liabilities.
+        _payables_total_stmt = (
+            select(
+                func.coalesce(func.sum(AggSupplierBalancesDaily.open_balance), 0),
+                func.coalesce(func.sum(AggSupplierBalancesDaily.overdue_balance), 0),
+                func.coalesce(func.sum(AggSupplierBalancesDaily.aging_bucket_0_30), 0),
+                func.coalesce(func.sum(AggSupplierBalancesDaily.aging_bucket_31_60), 0),
+                func.coalesce(func.sum(AggSupplierBalancesDaily.aging_bucket_61_90), 0),
+                func.coalesce(func.sum(AggSupplierBalancesDaily.aging_bucket_90_plus), 0),
+            )
+            .where(AggSupplierBalancesDaily.balance_date == _latest_supplier_balance_date_sq)
+            .where(func.abs(func.coalesce(AggSupplierBalancesDaily.open_balance, 0)) < literal(100000000))
+        )
+        if branches is not None:
+            _payables_total_stmt = _payables_total_stmt.where(AggSupplierBalancesDaily.branch_ext_id.in_(branches))
+        _pt = (await db.execute(_payables_total_stmt)).one()
+        open_balance_total = float(_pt[0] or 0)
+        overdue_balance_total = float(_pt[1] or 0)
+        aging_bucket_0_30_total = float(_pt[2] or 0)
+        aging_bucket_31_60_total = float(_pt[3] or 0)
+        aging_bucket_61_90_total = float(_pt[4] or 0)
+        aging_bucket_90_plus_total = float(_pt[5] or 0)
 
         return {
             'summary': {

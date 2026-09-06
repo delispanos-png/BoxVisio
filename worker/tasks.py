@@ -5079,6 +5079,10 @@ async def _refresh_supplier_balances_aggregates(
                 NOW()
             FROM fact_supplier_balances fsb
             WHERE fsb.balance_date BETWEEN :from_date AND :to_date
+              -- Sanity guardrail: a corrupt SoftOne feed can inject absurd (100M–15B €)
+              -- balance rows that poison payables (per-supplier-latest picks them up from
+              -- stale dates). No real single supplier balance approaches 1e8, so drop them.
+              AND ABS(COALESCE(fsb.open_balance, 0)) < :max_sane_balance
             GROUP BY fsb.balance_date, fsb.supplier_ext_id, fsb.branch_ext_id
             ON CONFLICT (balance_date, supplier_ext_id, branch_ext_id) DO UPDATE
             SET
@@ -5093,7 +5097,7 @@ async def _refresh_supplier_balances_aggregates(
                 updated_at = NOW()
             """
         ),
-        {'from_date': from_date, 'to_date': to_date},
+        {'from_date': from_date, 'to_date': to_date, 'max_sane_balance': 100_000_000},
     )
     await _delete_stale_aggregate_rows(
         tenant_db,
@@ -5143,6 +5147,8 @@ async def _refresh_customer_balances_aggregates(
                 NOW()
             FROM fact_customer_balances fcb
             WHERE fcb.balance_date BETWEEN :from_date AND :to_date
+              -- Same corrupt-feed guardrail as supplier balances (see above).
+              AND ABS(COALESCE(fcb.open_balance, 0)) < :max_sane_balance
             GROUP BY fcb.balance_date, fcb.customer_ext_id, fcb.branch_ext_id
             ON CONFLICT (balance_date, customer_ext_id, branch_ext_id) DO UPDATE
             SET
@@ -5157,7 +5163,7 @@ async def _refresh_customer_balances_aggregates(
                 updated_at = NOW()
             """
         ),
-        {'from_date': from_date, 'to_date': to_date},
+        {'from_date': from_date, 'to_date': to_date, 'max_sane_balance': 100_000_000},
     )
     await _delete_stale_aggregate_rows(
         tenant_db,
