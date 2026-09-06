@@ -1,6 +1,6 @@
 /*
   BoxVisio BI Bridge for SoftOne Advanced JavaScript
-  Version: 2026-07-29_sales-cogs-purmtk-primary
+  Version: 2026-09-06_cash-socash-account
 
   Purpose
   - Extract Sales, Purchases, Inventory, Cash, Balances, Expenses data directly from SoftOne tables.
@@ -24,7 +24,7 @@
       /s1services/JS/myWS/GetAllForBI
 */
 
-var BVBI_VERSION = "2026-07-29_sales-cogs-purmtk-primary";
+var BVBI_VERSION = "2026-09-06_cash-socash-account";
 var _BVBI_COL_CACHE = {};
 
 function _bv_is_array(v) {
@@ -2095,7 +2095,16 @@ function _bv_cash_sql(cfg) {
     "WHEN ISNULL(" + c.sodtype + ",0)=12 THEN 'supplier' " +
     "WHEN ISNULL(" + c.sodtype + ",0)=14 THEN 'internal' " +
     "ELSE 'internal' END";
-  if (_bv_table_exists("ACCOUNT")) {
+  if (_bv_table_exists("SOCASH")) {
+    // The cash register/account of a cash document is FINDOC.SOCASH -> the SOCASH
+    // table (mirrors the SQL querypack). This is the real "Ταμείο" — ACNT/ACCOUNT is not.
+    var scName = _bv_col_expr("SC", "SOCASH", ["NAME", "DESCR"], "NULL");
+    var scCode = _bv_col_expr("SC", "SOCASH", ["CODE"], "NULL");
+    var fSocash = _bv_col_expr("F", "FINDOC", ["SOCASH"], "0");
+    accountJoinSql = " LEFT JOIN SOCASH SC ON SC.SOCASH=" + fSocash + " AND SC.COMPANY=F.COMPANY";
+    accountIdExpr =
+      "CAST(NULLIF(LTRIM(RTRIM(COALESCE(NULLIF(" + scName + ",''), NULLIF(" + scCode + ",''), CAST(NULLIF(" + fSocash + ",0) AS VARCHAR(128))))),'') AS VARCHAR(128))";
+  } else if (_bv_table_exists("ACCOUNT")) {
     var accId = _bv_col_expr("AC", "ACCOUNT", ["ACCOUNT", "ACNT"], "0");
     var accCompany = _bv_col_expr("AC", "ACCOUNT", ["COMPANY"], c.company);
     var accCode = _bv_col_expr("AC", "ACCOUNT", ["CODE", "ACCCODE"], "''");
@@ -2207,7 +2216,7 @@ function _bv_cash_sql(cfg) {
     "CAST(ISNULL(" + c.branch + ",0) AS VARCHAR(64)) AS BRANCH_EXT_ID," +
     branchInfo.branchNameExpr + " AS BRANCH_NAME," +
     "CAST(ISNULL(" + c.company + ",0) AS VARCHAR(64)) AS COMPANY_ID," +
-    "CAST(NULL AS VARCHAR(128)) AS ACCOUNT_ID," +
+    accountIdExpr + " AS ACCOUNT_ID," +
     "CAST(ISNULL(T.CODE, " + c.trdr + ") AS VARCHAR(128)) AS COUNTERPARTY_ID," +
     "CAST(ISNULL(T.NAME, '') AS VARCHAR(255)) AS COUNTERPARTY_NAME," +
     "CAST(ABS(ISNULL(" + tlValue + ",0)) AS FLOAT) AS AMOUNT_ABS," +
@@ -2224,6 +2233,7 @@ function _bv_cash_sql(cfg) {
     "FROM FINDOC F " +
     "INNER JOIN TRDFLINES TL ON TL.FINDOC=" + c.findoc + " AND TL.COMPANY=F.COMPANY " +
     "LEFT JOIN TRDR T ON T.TRDR=" + c.trdr + " AND T.COMPANY=F.COMPANY " +
+    accountJoinSql +
     branchInfo.joinSql +
     lineWhereSql;
 
