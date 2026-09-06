@@ -9999,25 +9999,25 @@ def _normalize_cashflow_signed_amount(raw_amount: float, transaction_type: str |
 
 
 def _cashflow_signed_amount_expr():
+    # Direction is driven by SUBCATEGORY, mirroring agg_cash_daily.net_amount — NOT by
+    # transaction_type 101/102. In this feed supplier payments/transfers carry tx=101, so a
+    # tx-based rule wrongly counted ~15M € of outflows (supplier payments/transfers) as
+    # INFLOWS and inflated Καθαρή Ροή. `amount` is stored positive; the sign comes from here.
     tx_col = func.lower(cast(func.coalesce(FactCashflow.transaction_type, literal('')), String))
-    entry_col = func.lower(cast(func.coalesce(FactCashflow.entry_type, literal('')), String))
     subcategory_col = func.lower(cast(func.coalesce(FactCashflow.subcategory, literal('')), String))
-    positive = sorted(_cashflow_entry_types_for_category('customer_collections') or set())
-    negative = sorted((_cashflow_entry_types_for_category('supplier_payments') or set()) | {'refund'})
-    sign_expr = case(
-        (tx_col.like('101%'), literal(0.0)),
-        (or_(tx_col.like('102%'), tx_col == '2'), literal(-1.0)),
-        (subcategory_col.in_(positive), literal(1.0)),
-        (entry_col.in_(positive), literal(1.0)),
-        (subcategory_col.in_(negative), literal(-1.0)),
-        (entry_col.in_(negative), literal(-1.0)),
-        else_=literal(1.0),
-    )
-    amount_expr = func.coalesce(FactCashflow.amount, 0)
+    amount_raw = func.coalesce(FactCashflow.amount, 0)
+    amount_abs = func.abs(amount_raw)
+    is_tx102 = or_(tx_col.like('102%'), tx_col == '2')
     return case(
-        (tx_col.like('101%'), amount_expr),
-        (or_(tx_col.like('102%'), tx_col == '2'), -func.abs(amount_expr)),
-        else_=(sign_expr * func.abs(amount_expr)),
+        # customer collections/transfers = inflow (a tx=102 reversal subtracts)
+        (and_(subcategory_col.in_(['customer_collections', 'customer_transfers']), is_tx102), -amount_abs),
+        (subcategory_col.in_(['customer_collections', 'customer_transfers']), amount_abs),
+        # internal transfers between own accounts: keep the raw sign
+        (subcategory_col == 'financial_accounts', amount_raw),
+        # supplier payments/transfers = outflow (a tx=102 refund adds back)
+        (and_(subcategory_col.in_(['supplier_payments', 'supplier_transfers']), is_tx102), amount_abs),
+        (subcategory_col.in_(['supplier_payments', 'supplier_transfers']), -amount_abs),
+        else_=literal(0.0),
     )
 
 

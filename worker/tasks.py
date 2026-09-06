@@ -4735,7 +4735,7 @@ async def _refresh_cash_aggregates(
                     ELSE 'unknown'
                 END) AS subcategory,
                 COALESCE(fc.transaction_type, fc.entry_type) AS transaction_type,
-                COALESCE(fc.account_id, fc.reference_no, fc.external_id) AS account_id,
+                COALESCE(fc.account_id, '') AS account_id,
                 COUNT(fc.id) AS entries,
                 SUM(CASE
                     WHEN COALESCE(NULLIF(LOWER(fc.subcategory), ''), '') IN ('customer_collections','customer_transfers')
@@ -4781,7 +4781,7 @@ async def _refresh_cash_aggregates(
                     ELSE 'unknown'
                 END),
                 COALESCE(fc.transaction_type, fc.entry_type),
-                COALESCE(fc.account_id, fc.reference_no, fc.external_id)
+                COALESCE(fc.account_id, '')
             ON CONFLICT (doc_date, branch_ext_id, subcategory, transaction_type, account_id) DO UPDATE
             SET
                 entries = EXCLUDED.entries,
