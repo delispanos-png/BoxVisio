@@ -4680,16 +4680,6 @@ async def sales_documents_overview(
                     )
                 )
             ).mappings().all()
-        summary_values = await sales_summary(
-            db,
-            date_from,
-            date_to,
-            branches=branches,
-            warehouses=warehouses,
-            brands=brands,
-            categories=categories,
-            groups=groups,
-        )
         count_stmt = select(func.coalesce(func.count(func.distinct(doc_key)), 0)).select_from(FactSales).where(
             *_date_range(FactSales.doc_date, date_from, date_to)
         )
@@ -4738,16 +4728,26 @@ async def sales_documents_overview(
             count_stmt = count_stmt.where(
                 func.lower(cast(func.coalesce(FactSales.destination_ref, literal('')), String)).like(f'%{to_ref_clean}%')
             )
-        expenses_doc_sub = (
+        #  The footer totals sit under the list, so they have to add up to its columns:
+        #  Καθαρή αξία is the net of the lines and the document's expenses stand in
+        #  their own column beside it. sales_summary() answers a different question —
+        #  turnover, i.e. net + expenses, under the turnover rules — so reading the
+        #  footer off it counted the expenses twice and skewed the ΦΠΑ that was derived
+        #  from it. Aggregate the very expressions the rows are built from, so this
+        #  path and the filtered one below report the same numbers.
+        totals_doc_sub = (
             select(
                 doc_key.label('document_id'),
-                func.coalesce(func.max(_fact_sales_payload_expenses_expr()), 0).label('expenses_value'),
+                func.coalesce(func.sum(FactSales.qty), 0).label('qty_total'),
+                func.coalesce(func.sum(net_line_expr), 0).label('net_value'),
+                vat_doc_expr.label('vat_value'),
+                expenses_doc_expr.label('expenses_value'),
             )
             .select_from(FactSales)
             .where(*_date_range(FactSales.doc_date, date_from, date_to))
         )
-        expenses_doc_sub = _apply_fact_sales_filters(
-            expenses_doc_sub,
+        totals_doc_sub = _apply_fact_sales_filters(
+            totals_doc_sub,
             branches=branches,
             warehouses=warehouses,
             brands=brands,
@@ -4755,16 +4755,23 @@ async def sales_documents_overview(
             groups=groups,
             channels=channels,
         )
-        expenses_doc_sub = expenses_doc_sub.group_by(doc_key).subquery('sales_docs_expenses')
-        expenses_total = (
-            await db.execute(select(func.coalesce(func.sum(expenses_doc_sub.c.expenses_value), 0)).select_from(expenses_doc_sub))
-        ).scalar_one()
+        totals_doc_sub = totals_doc_sub.group_by(doc_key).subquery('sales_docs_totals')
+        totals_row = (
+            await db.execute(
+                select(
+                    func.coalesce(func.sum(totals_doc_sub.c.qty_total), 0),
+                    func.coalesce(func.sum(totals_doc_sub.c.net_value), 0),
+                    func.coalesce(func.sum(totals_doc_sub.c.vat_value), 0),
+                    func.coalesce(func.sum(totals_doc_sub.c.expenses_value), 0),
+                ).select_from(totals_doc_sub)
+            )
+        ).one()
         summary_docs_count = int((await db.execute(count_stmt)).scalar_one() or 0)
-        summary_gross_value = float(summary_values.get('gross_value') or 0)
-        summary_net_value = float(summary_values.get('net_value') or 0)
-        summary_qty_total = float(summary_values.get('qty') or 0)
-        summary_expenses_value = float(expenses_total or 0)
-        summary_vat_value = summary_gross_value - summary_net_value
+        summary_qty_total = float(totals_row[0] or 0)
+        summary_net_value = float(totals_row[1] or 0)
+        summary_vat_value = float(totals_row[2] or 0)
+        summary_expenses_value = float(totals_row[3] or 0)
+        summary_gross_value = summary_net_value + summary_vat_value + summary_expenses_value
     else:
         docs_sub = base.group_by(doc_key).subquery('sales_docs')
         rows = (
