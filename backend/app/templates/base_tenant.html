@@ -1151,6 +1151,19 @@
       return document.querySelector('form[id$="Filters"]');
     }
 
+    //  Whether a filter input actually holds a date. The from/to name patterns below
+    //  are deliberately loose, so on their own they also swallow text filters that
+    //  merely read like a range — the sales-documents «Από»/«Σε» reference fields
+    //  (from_ref / to_ref) are the ones that bite: a date written into them filters
+    //  the documents by a reference number that can never contain it, and the list
+    //  comes back empty. Every real date filter is either a dd/mm/yyyy input or a
+    //  native date one, so ask the input itself rather than its name.
+    function isDateInputField(el) {
+      if (!el) return false;
+      if (el.hasAttribute('data-date-format')) return true;
+      return (el.type || '').toLowerCase() === 'date';
+    }
+
     function isFromField(el) {
       const rawKey = `${el?.name || ''} ${el?.id || ''}`;
       const key = rawKey.toLowerCase();
@@ -1179,10 +1192,7 @@
       const dateInputs = Array.from(root.querySelectorAll('input[data-date-format="dmy"], input[name], input[id]'))
         .filter((el) => (el.tagName || '').toLowerCase() === 'input')
         .filter((el) => (el.type || 'text').toLowerCase() !== 'hidden')
-        .filter((el) => {
-          const key = `${el.name || ''} ${el.id || ''}`.toLowerCase();
-          return el.hasAttribute('data-date-format') || /(from|to|snapshot|as_of|date|asof)/.test(key);
-        });
+        .filter(isDateInputField);
 
       let setCount = 0;
       dateInputs.forEach((el) => {
@@ -1376,10 +1386,7 @@
       const inputs = Array.from(panel.querySelectorAll('input[data-date-format="dmy"], input[name], input[id]'))
         .filter((el) => (el.tagName || '').toLowerCase() === 'input')
         .filter((el) => (el.type || 'text').toLowerCase() !== 'hidden')
-        .filter((el) => {
-          const key = `${el.name || ''} ${el.id || ''}`.toLowerCase();
-          return el.hasAttribute('data-date-format') || /(from|to|snapshot|as_of|date|asof)/.test(key);
-        });
+        .filter(isDateInputField);
       let touched = 0;
       inputs.forEach((el) => {
         if (isFromField(el)) {
@@ -1399,7 +1406,7 @@
     function bvEnsureFilterDatePresets(panel) {
       if (!panel || panel.dataset.datePresetsBound === '1') return;
       const body = panel.querySelector('.card-body') || panel;
-      const hasDateInputs = !!panel.querySelector('input[data-date-format="dmy"], input[name*="from" i], input[name*="to" i], input[id*="date" i], input[id*="asof" i]');
+      const hasDateInputs = Array.from(panel.querySelectorAll('input')).some(isDateInputField);
       if (!hasDateInputs) return;
       const wrap = document.createElement('div');
       wrap.className = 'bv-filter-date-presets';
@@ -2027,10 +2034,7 @@
       function findFormDateRangeInputs() {
         const form = findPrimaryFilterForm();
         const allDateInputs = Array.from(form?.querySelectorAll?.('input[data-date-format="dmy"], input[name], input[id]') || [])
-          .filter((el) => {
-            const key = `${el.name || ''} ${el.id || ''}`.toLowerCase();
-            return el.hasAttribute('data-date-format') || /(from|to|snapshot|as_of|date|asof)/.test(key);
-          });
+          .filter(isDateInputField);
         const fromInput = allDateInputs.find((el) => isFromField(el)) || allDateInputs[0];
         const toInput = allDateInputs.find((el) => isToField(el)) || allDateInputs[1] || allDateInputs[0];
         return { fromInput, toInput };
