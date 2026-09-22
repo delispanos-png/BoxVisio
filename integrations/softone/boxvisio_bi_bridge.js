@@ -1,6 +1,6 @@
 /*
   BoxVisio BI Bridge for SoftOne Advanced JavaScript
-  Version: 2026-09-21_tsyp-prescription-balance
+  Version: 2026-09-22_document-remarks
 
   Purpose
   - Extract Sales, Purchases, Inventory, Cash, Balances, Expenses data directly from SoftOne tables.
@@ -24,7 +24,7 @@
       /s1services/JS/myWS/GetAllForBI
 */
 
-var BVBI_VERSION = "2026-09-21_tsyp-prescription-balance";
+var BVBI_VERSION = "2026-09-22_document-remarks";
 var _BVBI_COL_CACHE = {};
 
 function _bv_is_array(v) {
@@ -872,6 +872,11 @@ function _bv_sales_sql(cfg) {
     " AS VARCHAR(128)) AS DOCUMENT_SERIES," +
     seriesInfo.seriesNameExpr +
     " AS DOCUMENT_SERIES_NAME," +
+    // The document's αιτιολογία, the field that tells a fund credit note apart
+    // («Rebate έτους 2025»). c.comments already resolves to FINDOC.COMMENTS, which is
+    // the only one of the three text fields that holds it here - REMARKS carries
+    // dispatch noise and COMMENTS1 the customer name.
+    "CAST(NULLIF(NULLIF(LTRIM(RTRIM(ISNULL(" + c.comments + ",''))),''),'0') AS VARCHAR(255)) AS NOTES," +
     "'sales_' + CAST(ISNULL(" +
     c.sosource +
     ",0) + ISNULL(" +

@@ -53,6 +53,14 @@ SELECT
   CAST(ISNULL(F.FINCODE, F.FINDOC) AS nvarchar(128)) AS document_no,
   CAST(F.SERIES AS nvarchar(128)) AS document_series,
   CAST(ISNULL(SR.NAME, CAST(F.SERIES AS nvarchar(255))) AS nvarchar(255)) AS document_series_name,
+  -- The document's αιτιολογία. FINDOC keeps three text fields and only COMMENTS holds
+  -- it: REMARKS carries dispatch noise ('email', 'ΕΝΔΙΑΜΕΣΟΣ', '0') and COMMENTS1 the
+  -- customer name ('ΠΕΛΑΤΗΣ ΛΙΑΝΙΚΗΣ'), so neither is worth coalescing in. A bare '0'
+  -- is the retail tills' empty marker, not an αιτιολογία, so it is dropped too. It is what
+  -- tells a fund credit note apart - «Rebate έτους 2025», «αριθμός υποβολής … για
+  -- 10/2025» - which matters because those notes are booked on generic items
+  -- (Πωλήσεις, Rebate, Περικοπές) instead of the drugs they correct.
+  CAST(NULLIF(NULLIF(LTRIM(RTRIM(ISNULL(F.COMMENTS, ''))), ''), '0') AS nvarchar(255)) AS notes,
   CAST('sales_' + CAST(ISNULL(F.SOSOURCE, 0) + ISNULL(F.SOREDIR, 0) AS nvarchar(16)) AS nvarchar(128)) AS document_type,
   CAST(
     CASE
