@@ -4355,19 +4355,35 @@ async def sales_filter_options(
                 max_date,
             )
 
+    #  The same channel id can carry more than one name in fact_sales (a channel that
+    #  was renamed in the ERP, or rows that arrived before it got its final name). A
+    #  plain DISTINCT over the pair then lists that channel once per name, and since
+    #  the label map is keyed by id every copy shows the *same* text — the dropdown
+    #  ends up with visible duplicates. Keep one option per id, labelled with the name
+    #  that most of the rows actually use.
     channels_rows = (
         await db.execute(
-            select(FactSales.channel_ext_id, FactSales.channel_name)
+            select(
+                FactSales.channel_ext_id,
+                FactSales.channel_name,
+                func.count().label('row_count'),
+            )
             .where(FactSales.doc_date >= date_from)
             .where(FactSales.doc_date <= date_to)
             .where(FactSales.channel_ext_id.is_not(None))
             .where(FactSales.channel_ext_id != '')
-            .distinct()
-            .order_by(FactSales.channel_name)
+            .group_by(FactSales.channel_ext_id, FactSales.channel_name)
         )
     ).all()
-    channel_ids = [str(r[0]) for r in channels_rows]
-    labels['channels'] = {str(r[0]): str(r[1] or r[0]) for r in channels_rows}
+    channel_best: dict[str, tuple[int, str]] = {}
+    for channel_ext, channel_name, row_count in channels_rows:
+        key = str(channel_ext)
+        label = str(channel_name or key).strip() or key
+        current = channel_best.get(key)
+        if current is None or int(row_count or 0) > current[0]:
+            channel_best[key] = (int(row_count or 0), label)
+    channel_ids = sorted(channel_best, key=lambda key: channel_best[key][1].lower())
+    labels['channels'] = {key: channel_best[key][1] for key in channel_ids}
 
     return {**options, 'channels': channel_ids, 'labels': labels}
 
