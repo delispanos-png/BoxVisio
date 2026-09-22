@@ -1978,6 +1978,34 @@ TASK_GROUPS: tuple[dict[str, Any], ...] = (
         'icon': 'fe-percent',
         'tasks': (
             {
+                'q': _t('Πόσο αγοράζω από κάθε brand και από ποιον προμηθευτή;',
+                        'How much do I buy per brand, and from which supplier?'),
+                'route': '/tenant/exports/purchases-analysis?group_by=brand_supplier',
+                'circuit': 'exports',
+                'steps': _tl(
+                    [
+                        'Εξαγωγές → «Report Builder Αγορών».',
+                        'Στο «Τύπος» διάλεξε «Αγορές ανά Brand & Προμηθευτή».',
+                        'Όρισε περίοδο και πάτα «Υπολογισμός».',
+                        'Οι στήλες «Προμηθευτής» και «Κωδ. Προμηθευτή» μπαίνουν αυτόματα δίπλα στο brand — η ομαδοποίηση την ορίζει η ίδια η αναφορά.',
+                        'Ψάξε brands που εμφανίζονται σε πάνω από μία γραμμή — τα παίρνεις από περισσότερους του ενός προμηθευτές.',
+                    ],
+                    [
+                        'Exports → "Purchases Report Builder".',
+                        'In "Type" choose "Purchases by Brand & Supplier".',
+                        'Set the period and press "Calculate".',
+                        'The "Supplier" and "Supplier Code" columns are added next to the brand — the report sets its own grouping.',
+                        'Look for brands appearing on more than one row — those you source from several suppliers.',
+                    ],
+                ),
+                'why': _t(
+                    'Δείχνει πού σκορπίζεται ο τζίρος ενός brand σε πολλούς προμηθευτές. Συγκεντρώνοντάς τον σε έναν '
+                    'έχεις μεγαλύτερο όγκο και καλύτερη διαπραγμάτευση — και βλέπεις αν αγοράζεις το ίδιο brand ακριβότερα αλλού.',
+                    'It shows where one brand\'s spend is scattered across suppliers. Consolidating it gives you more volume '
+                    'and a better negotiation — and reveals whether you are paying more for the same brand elsewhere.',
+                ),
+            },
+            {
                 'q': _t('Ποιο είναι το πραγματικό μου περιθώριο;', 'What is my real margin?'),
                 'route': '/tenant/sales',
                 'circuit': 'sales-analytics',
@@ -2293,6 +2321,7 @@ FAQ: tuple[dict[str, Any], ...] = (
             [
                 'Πήγαινε Εξαγωγές → «Report Builder Αγορών».',
                 'Στο «Ομαδοποίηση κατά» διάλεξε Προμηθευτή (ή είδος, ομάδα, brand, κατηγορία, κατάστημα, αποθήκη).',
+                'Για να δεις τι αγοράζεις ανά brand ΚΑΙ από ποιον, άλλαξε τον «Τύπο» σε «Αγορές ανά Brand & Προμηθευτή»: έτοιμη αναφορά με μία γραμμή για κάθε ζεύγος brand-προμηθευτή και τις στήλες «Προμηθευτής» και «Κωδ. Προμηθευτή» δίπλα στο brand. Ένα brand που το παίρνεις από τρεις προμηθευτές εμφανίζεται σε τρεις γραμμές.',
                 'Διάλεξε περίοδο και, αν θες, φίλτρα (προμηθευτής, brand, κατηγορία, κατάστημα).',
                 'Με «Προσθήκη στήλης» βάλε τις στήλες που θες (Καθαρή/Μικτή Αξία, ΦΠΑ, Τεμάχια, Παραστατικά, Είδη) και σύρε τα πλακίδια για τη σειρά.',
                 'Πάτα «Υπολογισμός». Για σύγκριση δύο περιόδων άλλαξε τον «Τύπο» σε «Σύγκριση Α/Β».',
@@ -2301,6 +2330,7 @@ FAQ: tuple[dict[str, Any], ...] = (
             [
                 'Go to Exports → "Purchases Report Builder".',
                 'In "Group by" choose Supplier (or item, group, brand, category, branch, warehouse).',
+                'To see what you buy per brand AND from whom, switch "Type" to "Purchases by Brand & Supplier": a ready-made report with one row per brand-supplier pair and the Supplier and Supplier Code columns next to the brand. A brand you source from three suppliers shows up as three rows.',
                 'Pick a period and, optionally, filters (supplier, brand, category, branch).',
                 'Use "Add column" for the columns you want (Net/Gross Value, VAT, Units, Documents, SKUs) and drag the chips to reorder.',
                 'Press "Calculate". For a two-period comparison switch "Type" to "A/B comparison".',

@@ -243,7 +243,7 @@
       </div>
       {% if pivot_report %}
       <div class="exp-pivot-controls">
-        <div class="exp-field">
+        <div class="exp-field exp-field-groupby" {% if pivot_group_locked %}style="display:none"{% endif %}>
           <label>Ομαδοποίηση κατά</label>
           <select class="exp-select" name="group_by" data-exp-groupby>
             {% for key, label in pivot_dimensions %}<option value="{{ key }}" {% if key == pivot_group_by %}selected{% endif %}>{{ label }}</option>{% endfor %}
@@ -252,7 +252,7 @@
         <div class="exp-field">
           <label>Τύπος</label>
           <select class="exp-select" name="mode" data-exp-mode>
-            {% for key, label in pivot_modes %}<option value="{{ key }}" {% if key == pivot_mode %}selected{% endif %}>{{ label }}</option>{% endfor %}
+            {% for key, label in pivot_modes %}<option value="{{ key }}" {% if key == (pivot_mode_selected if pivot_mode_selected is defined else pivot_mode) %}selected{% endif %}>{{ label }}</option>{% endfor %}
           </select>
         </div>
       </div>
@@ -268,7 +268,10 @@
               <label class="exp-opt"><input type="checkbox" data-exp-col value="{{ key }}" {% if key in pivot_metrics_selected %}checked{% endif %}> <span>{{ label }}</span></label>
               {% endfor %}
               {% for key, label, kind in pivot_item_attrs %}
-              <label class="exp-opt exp-col-attr" {% if pivot_group_by != 'item' %}style="display:none"{% endif %}><input type="checkbox" data-exp-col value="{{ key }}" {% if key in pivot_metrics_selected %}checked{% endif %}> <span>{{ label }} (είδους)</span></label>
+              <label class="exp-opt exp-col-attr" data-attr-for="item" {% if pivot_group_by != 'item' %}style="display:none"{% endif %}><input type="checkbox" data-exp-col value="{{ key }}" {% if key in pivot_metrics_selected %}checked{% endif %}> <span>{{ label }} (είδους)</span></label>
+              {% endfor %}
+              {% for key, label, kind, dim in pivot_dim_attrs %}
+              <label class="exp-opt exp-col-attr" data-attr-for="{{ dim }}" {% if pivot_group_by != dim %}style="display:none"{% endif %}><input type="checkbox" data-exp-col value="{{ key }}" {% if key in pivot_metrics_selected %}checked{% endif %}> <span>{{ label }}</span></label>
               {% endfor %}
             </div>
           </details>
@@ -410,24 +413,27 @@
           </tr>
         </tfoot>
         {% else %}
+        {# pivot_columns carries the grouped label as pivot_label_col, so a report can put
+           the columns that identify its rows ahead of it instead of always trailing it. #}
         <thead>
           <tr>
-            <th>{{ pivot_group_label }}</th>
-            {% for m in pivot_metrics_selected %}<th class="{% if pivot_metric_map[m].kind != 'text' %}exp-num{% endif %}">{{ pivot_metric_map[m].label }}</th>{% endfor %}
+            {% for c in pivot_columns %}{% if c == pivot_label_col %}<th>{{ pivot_group_label }}</th>{% else %}<th class="{% if pivot_metric_map[c].kind != 'text' %}exp-num{% endif %}">{{ pivot_metric_map[c].label }}</th>{% endif %}{% endfor %}
           </tr>
         </thead>
         <tbody>
           {% for r in rows %}
           <tr>
-            <td>{{ r.label }}</td>
-            {% for m in pivot_metrics_selected %}<td class="{% if pivot_metric_map[m].kind != 'text' %}exp-num{% endif %}{% if pivot_metric_map[m].kind == 'text' %} exp-mono{% endif %}">{{ fmt(r[m], pivot_metric_map[m].kind) }}</td>{% endfor %}
+            {# Monospace is for codes, not names: a supplier or category column set in
+               mono reads as a different table from the label column next to it. #}
+            {% for c in pivot_columns %}{% if c == pivot_label_col %}<td>{{ r.label }}</td>{% else %}<td class="{% if pivot_metric_map[c].kind != 'text' %}exp-num{% elif c == 'a_barcode' %}exp-mono{% endif %}">{{ fmt(r[c], pivot_metric_map[c].kind) }}</td>{% endif %}{% endfor %}
           </tr>
           {% endfor %}
         </tbody>
         <tfoot>
           <tr class="exp-total-row">
-            <td>ΣΥΝΟΛΟ{% if totals.count %} ({{ totals.count }}){% endif %}</td>
-            {% for m in pivot_metrics_selected %}<td class="{% if pivot_metric_map[m].kind != 'text' %}exp-num{% endif %}">{{ fmt(totals[m], pivot_metric_map[m].kind) }}</td>{% endfor %}
+            {# ΣΥΝΟΛΟ belongs in the first cell whatever that column is; the other text
+               columns have nothing to total. #}
+            {% for c in pivot_columns %}{% if loop.first %}<td>ΣΥΝΟΛΟ{% if totals.count %} ({{ totals.count }}){% endif %}</td>{% elif c == pivot_label_col or pivot_metric_map[c].kind == 'text' %}<td></td>{% else %}<td class="exp-num">{{ fmt(totals[c], pivot_metric_map[c].kind) }}</td>{% endif %}{% endfor %}
           </tr>
         </tfoot>
         {% endif %}
@@ -683,21 +689,35 @@
       document.querySelectorAll('.exp-period-b').forEach(function (el) { el.style.display = comparison ? '' : 'none'; });
       var metrics = document.querySelector('[data-exp-metrics]');
       if (metrics) metrics.style.display = comparison ? 'none' : '';
+      // A ready-made report in Τύπος brings its own grouping, so the picker goes away.
+      var grouped = document.querySelector('.exp-field-groupby');
+      if (grouped) grouped.style.display = (modeSel.value === 'brand_supplier') ? 'none' : '';
+      syncAttrCols(true);
     });
   }
 
-  // Item-attribute columns (barcode/brand/…) only apply when grouping by Είδος.
-  var groupBySel = document.querySelector('[data-exp-groupby]');
-  if (groupBySel) {
-    groupBySel.addEventListener('change', function () {
-      var isItem = groupBySel.value === 'item';
-      document.querySelectorAll('.exp-col-attr').forEach(function (opt) {
-        opt.style.display = isItem ? '' : 'none';
-        var cb = opt.querySelector('input[type=checkbox]');
-        if (!isItem && cb && cb.checked) { cb.checked = false; cb.dispatchEvent(new Event('change')); }
-      });
+  // Attribute columns belong to one dimension each — barcode/brand/… to Είδος,
+  // Προμηθευτής to the Brand & Προμηθευτής report. Show only the ones the current
+  // report supports and drop any that are checked when the user switches away.
+  // A Τύπος preset pins the dimension, so it wins over the grouping dropdown.
+  // `autoCheck` ticks the attribute a preset depends on, so switching Τύπος shows the
+  // Προμηθευτής chip straight away instead of only after the server puts it back.
+  function syncAttrCols(autoCheck) {
+    var gb = document.querySelector('[data-exp-groupby]');
+    var md = document.querySelector('[data-exp-mode]');
+    var preset = md && md.value === 'brand_supplier';
+    var dim = preset ? 'brand_supplier' : (gb ? gb.value : '');
+    document.querySelectorAll('.exp-col-attr').forEach(function (opt) {
+      var applies = (opt.getAttribute('data-attr-for') || 'item') === dim;
+      opt.style.display = applies ? '' : 'none';
+      var cb = opt.querySelector('input[type=checkbox]');
+      if (!cb) return;
+      if (!applies && cb.checked) { cb.checked = false; cb.dispatchEvent(new Event('change')); }
+      if (applies && autoCheck && preset && !cb.checked) { cb.checked = true; cb.dispatchEvent(new Event('change')); }
     });
   }
+  var groupBySel = document.querySelector('[data-exp-groupby]');
+  if (groupBySel) { groupBySel.addEventListener('change', syncAttrCols); }
 
   // Column picker: chosen metrics show as removable chips; "Προσθήκη στήλης"
   // opens the field list. The checkboxes are what the form submits.

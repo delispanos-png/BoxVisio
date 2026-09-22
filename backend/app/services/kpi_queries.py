@@ -12496,6 +12496,32 @@ async def inventory_by_manufacturer(
     ]
 
 
+async def purchases_supplier_filter_options(db: AsyncSession) -> list[dict[str, str]]:
+    """Supplier options for the purchases Report Builder.
+
+    The generic export options build this list from `DimItem.preferred_supplier_ext_id`
+    — the supplier set on the item card, which is SoftOne's MTRSUP (a TRDR *id*, e.g.
+    '20106'). `fact_purchases.supplier_ext_id` holds the supplier *code* ('000081'), so
+    selecting a supplier there matched nothing and the report came back empty. These
+    options come from the purchase documents themselves, so the id space lines up and
+    the list only offers suppliers actually bought from.
+    """
+    rows = (await db.execute(
+        select(
+            FactPurchases.supplier_ext_id,
+            func.max(func.coalesce(func.nullif(func.trim(DimSupplier.name), ''), FactPurchases.supplier_ext_id)),
+        )
+        .select_from(FactPurchases)
+        .join(DimSupplier, DimSupplier.external_id == FactPurchases.supplier_ext_id, isouter=True)
+        .where(func.coalesce(func.trim(FactPurchases.supplier_ext_id), '') != '')
+        .group_by(FactPurchases.supplier_ext_id)
+    )).all()
+    return sorted(
+        ({'value': str(r[0]), 'label': str(r[1] or r[0])} for r in rows if str(r[0] or '').strip()),
+        key=lambda o: o['label'].lower(),
+    )
+
+
 async def export_filter_options(db: AsyncSession) -> dict[str, list[dict[str, str]]]:
     """Filter options for the Εξαγωγές circuit (Αναφορές + CSV/Excel).
 
@@ -13083,6 +13109,7 @@ _PURCHASES_PIVOT_DIMENSIONS = {
     'item': 'Είδος',
     'group': 'Ομάδα Ειδών',
     'brand': 'Brand',
+    'brand_supplier': 'Brand → Προμηθευτής',
     'category_1': 'Κατηγορία 1',
     'category_2': 'Κατηγορία 2',
     'category_3': 'Κατηγορία 3',
@@ -13099,7 +13126,10 @@ def _purchases_pivot_label_expr(group_by: str):
         return func.coalesce(func.nullif(func.trim(func.coalesce(DimItem.name, '')), ''), DimItem.external_id, literal('—'))
     if group_by == 'group':
         return _clean(DimGroup.name, 'Χωρίς ομάδα')
-    if group_by == 'brand':
+    if group_by in ('brand', 'brand_supplier'):
+        #  A brand_supplier row is one brand bought FROM one supplier: the label stays
+        #  the brand and the supplier rides along in the a_supplier column, so the
+        #  report reads "purchases per brand, and who we buy that brand from".
         return _clean(DimBrand.name, 'Χωρίς brand')
     if group_by in ('category_1', 'category_2', 'category_3'):
         return _clean(getattr(DimItem, group_by), '(κενό)')
@@ -13107,7 +13137,16 @@ def _purchases_pivot_label_expr(group_by: str):
         return func.coalesce(func.nullif(func.trim(func.coalesce(DimBranch.name, '')), ''), FactPurchases.branch_ext_id, literal('N/A'))
     if group_by == 'warehouse':
         return func.coalesce(func.nullif(func.trim(func.coalesce(DimWarehouse.name, '')), ''), FactPurchases.warehouse_ext_id, literal('N/A'))
-    return func.coalesce(func.nullif(func.trim(func.coalesce(DimSupplier.name, '')), ''), FactPurchases.supplier_ext_id, literal('Χωρίς προμηθευτή'))
+    return _purchases_pivot_supplier_expr()
+
+
+def _purchases_pivot_supplier_expr():
+    """Supplier display name, falling back to the raw SoftOne id."""
+    return func.coalesce(
+        func.nullif(func.trim(func.coalesce(DimSupplier.name, '')), ''),
+        FactPurchases.supplier_ext_id,
+        literal('Χωρίς προμηθευτή'),
+    )
 
 
 async def purchases_pivot(
@@ -13129,8 +13168,12 @@ async def purchases_pivot(
     suppliers: list[str] | None = None,
 ) -> tuple[list[dict], dict]:
     """One flexible purchases report: group by ANY dimension (supplier/item/group/
-    brand/category 1-3/branch/warehouse) in one of two modes — mirror of sales_pivot
-    on fact_purchases.
+    brand/brand_supplier/category 1-3/branch/warehouse) in one of two modes — mirror
+    of sales_pivot on fact_purchases.
+
+    group_by='brand_supplier' answers "what do I buy per brand, and from whom": one
+    row per (brand, supplier) pair, the brand as the label and the supplier in the
+    a_supplier column. A brand sourced from three suppliers gives three rows.
 
     mode='analysis'  -> rows {label, net_value, qty, contribution_pct, gross_value,
                               vat, discount, doc_count, item_count, avg_per_doc, avg_per_item}
@@ -13142,6 +13185,12 @@ async def purchases_pivot(
     if group_by not in _PURCHASES_PIVOT_DIMENSIONS:
         group_by = 'supplier'
     label_expr = _purchases_pivot_label_expr(group_by)
+    supplier_expr = _purchases_pivot_supplier_expr()
+    by_brand_supplier = group_by == 'brand_supplier'
+    if by_brand_supplier and mode == 'comparison':
+        #  The A/B table has no attribute columns, so a bare brand label would print
+        #  the same brand once per supplier with no way to tell the rows apart.
+        label_expr = label_expr.concat(literal(' · ')).concat(supplier_expr)
     net = _fact_purchases_signed_amount_expr(func.coalesce(FactPurchases.net_value, 0))
     qty = _fact_purchases_analysis_qty_expr()
     discount = _fact_purchase_signed_discount_expr()
@@ -13150,10 +13199,10 @@ async def purchases_pivot(
     )
     doc_key = _fact_purchases_document_key_expr()
 
-    need_item = group_by in {'item', 'group', 'brand', 'category_1', 'category_2', 'category_3'} or bool(
+    need_item = group_by in {'item', 'group', 'brand', 'brand_supplier', 'category_1', 'category_2', 'category_3'} or bool(
         brands or groups or category_1 or category_2 or category_3
     )
-    need_brand = group_by == 'brand' or bool(brands) or group_by == 'item'
+    need_brand = group_by in {'brand', 'brand_supplier', 'item'} or bool(brands)
     need_group = group_by == 'group' or bool(groups) or group_by == 'item'
 
     def _windowed(expr, window):
@@ -13188,8 +13237,13 @@ async def purchases_pivot(
                 func.max(DimItem.category_3).label('a_cat3'),
                 func.max(DimGroup.name).label('a_group'),
             )
+        if by_brand_supplier:
+            stmt = stmt.add_columns(
+                supplier_expr.label('a_supplier'),
+                func.coalesce(FactPurchases.supplier_ext_id, literal('')).label('a_supplier_code'),
+            )
 
-    if group_by == 'supplier':
+    if group_by in ('supplier', 'brand_supplier'):
         stmt = stmt.join(DimSupplier, DimSupplier.external_id == FactPurchases.supplier_ext_id, isouter=True)
     if need_item:
         stmt = stmt.join(DimItem, FactPurchases.item_id == DimItem.id, isouter=True)
@@ -13232,9 +13286,18 @@ async def purchases_pivot(
         if period_to:
             stmt = stmt.where(FactPurchases.doc_date <= period_to)
 
-    group_col = DimItem.id if group_by == 'item' else label_expr
-    stmt = stmt.group_by(group_col).order_by(literal_column('2').desc())
     if group_by == 'item':
+        group_cols = [DimItem.id]
+    elif by_brand_supplier and mode != 'comparison':
+        #  One row per (brand, supplier) pair — the supplier is a selected column, so
+        #  it has to be grouped too, not aggregated away. The supplier id is in there
+        #  as well because a handful of names carry two SoftOne codes (separate
+        #  accounts); grouping by name alone would merge them and hide one code.
+        group_cols = [label_expr, supplier_expr, FactPurchases.supplier_ext_id]
+    else:
+        group_cols = [label_expr]
+    stmt = stmt.group_by(*group_cols).order_by(literal_column('2').desc())
+    if group_by in ('item', 'brand_supplier'):
         stmt = stmt.limit(5000)
     raw = (await db.execute(stmt)).mappings().all()
 
@@ -13291,6 +13354,9 @@ async def purchases_pivot(
                 row['a_cat2'] = str(r.get('a_cat2') or '')
                 row['a_cat3'] = str(r.get('a_cat3') or '')
                 row['a_group'] = str(r.get('a_group') or '')
+            if by_brand_supplier:
+                row['a_supplier'] = str(r.get('a_supplier') or '')
+                row['a_supplier_code'] = str(r.get('a_supplier_code') or '')
             rows.append(row)
             for k in agg:
                 agg[k] += row[k]

@@ -196,6 +196,7 @@ from app.services.kpi_queries import (
     sales_comparison_by_group,
     sales_pivot,
     purchases_pivot,
+    purchases_supplier_filter_options,
     normalize_document_series_labels_config,
     normalize_eshop_fulfillment_config,
     normalize_price_margin_targets_config,
@@ -15845,6 +15846,35 @@ _EXPORT_PURCHASES_PIVOT_DIMENSIONS = [
     ('warehouse', 'Αποθηκευτικός χώρος'),
 ]
 _EXPORT_PURCHASES_PIVOT_DIM_LABELS = dict(_EXPORT_PURCHASES_PIVOT_DIMENSIONS)
+#  «Τύπος» on the purchases builder. The first two are the generic report shapes it
+#  shares with the sales builder; the third is a ready-made report — it pins its own
+#  grouping (brand × supplier) and runs as a single-period analysis, so the user picks
+#  it and presses Υπολογισμός without setting anything else up.
+#  Not offered in «Ομαδοποίηση κατά» — the Τύπος preset below is the way in — but it
+#  still needs a display name wherever the grouping gets labelled.
+_EXPORT_PURCHASES_PIVOT_DIM_LABELS['brand_supplier'] = 'Brand → Προμηθευτής'
+_EXPORT_PURCHASES_BRAND_SUPPLIER_MODE = 'brand_supplier'
+_EXPORT_PURCHASES_PIVOT_MODES = _EXPORT_PIVOT_MODES + [
+    (_EXPORT_PURCHASES_BRAND_SUPPLIER_MODE, 'Αγορές ανά Brand & Προμηθευτή'),
+]
+
+
+def _export_purchases_report_shape(request: Request) -> tuple[str, str]:
+    """(group_by, mode) for the purchases builder, with the preset resolved.
+
+    Picking «Αγορές ανά Brand & Προμηθευτή» in Τύπος overrides the grouping, so the
+    page, the table and the download all read the shape from here and never from the
+    raw query params.
+    """
+    mode = str(request.query_params.get('mode') or 'analysis').strip()
+    if mode == _EXPORT_PURCHASES_BRAND_SUPPLIER_MODE:
+        return 'brand_supplier', 'analysis'
+    if mode not in {'analysis', 'comparison'}:
+        mode = 'analysis'
+    group_by = str(request.query_params.get('group_by') or 'supplier').strip()
+    if group_by not in _EXPORT_PURCHASES_PIVOT_DIM_LABELS:
+        group_by = 'supplier'
+    return group_by, mode
 # Purchases metrics (no margin/profit — purchases have no margin). Gross = Net + ΦΠΑ.
 _EXPORT_PURCHASES_PIVOT_METRICS = [
     ('net_value', 'Καθαρή Αξία', 'money'),
@@ -15858,11 +15888,58 @@ _EXPORT_PURCHASES_PIVOT_METRICS = [
     ('avg_per_doc', 'Μέση αξία/παραστατικό', 'money'),
     ('avg_per_item', 'Μέση αξία/είδος', 'money'),
 ]
+#  Attribute columns that belong to a dimension other than Είδος. `dim` is the
+#  group_by they apply to — the picker and the table only offer them there.
+#  Order matters: this is the order the identity columns appear in, left to right.
+_EXPORT_PURCHASES_DIM_ATTRS = [
+    ('a_supplier_code', 'Κωδ. Προμηθευτή', 'text', 'brand_supplier'),
+    ('a_supplier', 'Προμηθευτής', 'text', 'brand_supplier'),
+]
+_EXPORT_PURCHASES_DIM_ATTR_FOR = {key: dim for key, _l, _k, dim in _EXPORT_PURCHASES_DIM_ATTRS}
+#  In analysis mode the first column of a brand_supplier report holds only the brand
+#  (the supplier is its own column), so it is headed "Brand" rather than the full
+#  dimension name. Comparison mode has no supplier column and prints a combined
+#  label, so it keeps the dimension name.
+_EXPORT_PURCHASES_LABEL_HEADERS = {'brand_supplier': 'Brand'}
+
+
+#  Marks the grouped-label column inside a pivot column list, so the label is no longer
+#  structurally pinned to the front and can sit wherever the report wants it.
+_PIVOT_LABEL_COL = '__label__'
+
+
+def _pivot_column_order(group_by: str, metrics: list[str], *, is_purchases: bool) -> list[str]:
+    """Column order for a pivot table.
+
+    Whatever identifies the row comes first: «Αγορές ανά Brand & Προμηθευτή» leads with
+    the supplier (then its code) and puts the grouped brand next to it. Every other
+    report keeps the grouped label in front of the metrics, exactly as before.
+    """
+    if is_purchases:
+        lead = [m for m in metrics if _EXPORT_PURCHASES_DIM_ATTR_FOR.get(m) == group_by]
+        if lead:
+            return lead + [_PIVOT_LABEL_COL] + [m for m in metrics if m not in lead]
+    return [_PIVOT_LABEL_COL] + list(metrics)
+
+
+def _export_purchases_label_header(group_by: str, mode: str) -> str | None:
+    if mode == 'comparison':
+        return None
+    return _EXPORT_PURCHASES_LABEL_HEADERS.get(group_by)
 _EXPORT_PURCHASES_PIVOT_METRIC_MAP = {
     key: {'label': label, 'kind': kind}
-    for key, label, kind in (_EXPORT_PURCHASES_PIVOT_METRICS + _EXPORT_PIVOT_ITEM_ATTRS)
+    for key, label, kind in (
+        _EXPORT_PURCHASES_PIVOT_METRICS
+        + _EXPORT_PIVOT_ITEM_ATTRS
+        + [(k, l, kind) for k, l, kind, _d in _EXPORT_PURCHASES_DIM_ATTRS]
+    )
 }
 _EXPORT_PURCHASES_DEFAULT_METRICS = ['net_value', 'qty', 'contribution_pct', 'doc_count']
+#  Grouping by Brand → Προμηθευτής is pointless without the supplier column, so it
+#  leads the default column set for that dimension.
+_EXPORT_PURCHASES_DEFAULT_METRICS_BY_DIM = {
+    'brand_supplier': ['a_supplier_code', 'a_supplier', 'net_value', 'qty', 'contribution_pct', 'doc_count'],
+}
 
 
 def _export_purchases_selected_metrics(request: Request, group_by: str = 'supplier') -> list[str]:
@@ -15873,7 +15950,22 @@ def _export_purchases_selected_metrics(request: Request, group_by: str = 'suppli
             ordered.append(m)
     if group_by != 'item':
         ordered = [m for m in ordered if m not in _EXPORT_PIVOT_ATTR_KEYS]
-    return ordered or list(_EXPORT_PURCHASES_DEFAULT_METRICS)
+    ordered = [
+        m for m in ordered
+        if _EXPORT_PURCHASES_DIM_ATTR_FOR.get(m, group_by) == group_by
+    ]
+    chosen = ordered or list(
+        _EXPORT_PURCHASES_DEFAULT_METRICS_BY_DIM.get(group_by, _EXPORT_PURCHASES_DEFAULT_METRICS)
+    )
+    #  The dimension's own columns identify the row, so they are always present and
+    #  always lead, in catalogue order — «Αγορές ανά Brand & Προμηθευτή» without the
+    #  supplier and its code is not that report. They cannot be dropped: switching
+    #  Τύπος re-submits whatever was ticked before, and honouring that silently left
+    #  the report rendering brand rows with no supplier. Metrics keep the user's order.
+    dim_attrs = [a for a, dim in _EXPORT_PURCHASES_DIM_ATTR_FOR.items() if dim == group_by]
+    if dim_attrs:
+        chosen = dim_attrs + [m for m in chosen if m not in dim_attrs]
+    return chosen
 
 
 _EXPORT_DOWNLOAD_HEADERS = [
@@ -15915,6 +16007,12 @@ async def _export_query(
         db_password=tenant.db_password,
     ):
         options = await export_filter_options(tenant_db)
+        if report_kind == 'purchases_analysis':
+            #  «Προμηθευτής» means who we bought FROM here, which is the supplier on the
+            #  purchase document — a different id space from the item card's preferred
+            #  supplier that the generic options use. Same list drives the dropdown and
+            #  the validation below, so a pick always matches.
+            options['supplier'] = await purchases_supplier_filter_options(tenant_db)
         selected: dict[str, list[str]] = {}
         for key, _label, _ph in _EXPORT_FILTER_FIELDS:
             raw = str(request.query_params.get(key) or '').strip()
@@ -15966,8 +16064,7 @@ async def _export_query(
                         **dim_kwargs,
                     )
                 elif report_kind == 'purchases_analysis':
-                    a_group_by = str(request.query_params.get('group_by') or 'supplier').strip()
-                    a_mode = str(request.query_params.get('mode') or 'analysis').strip()
+                    a_group_by, a_mode = _export_purchases_report_shape(request)
                     dim_kwargs = {
                         k: v for k, v in filter_kwargs.items()
                         if k not in {'period_from', 'period_to', 'payments', 'channels'}
@@ -16082,12 +16179,24 @@ async def _render_exports_workbench(
     calculated = str(request.query_params.get('calc') or '').strip() in {'1', 'true', 'yes'}
 
     # Flexible "Ανάλυση" report: group-by dimension + mode (analysis | comparison).
-    pivot_group_by = str(request.query_params.get('group_by') or _pv_default_group).strip()
-    if pivot_group_by not in _pv_dim_labels:
-        pivot_group_by = _pv_default_group
-    pivot_mode = str(request.query_params.get('mode') or 'analysis').strip()
-    if pivot_mode not in {'analysis', 'comparison'}:
-        pivot_mode = 'analysis'
+    if is_purchases:
+        #  A Τύπος preset can pin its own grouping, so the shape is resolved in one place.
+        pivot_group_by, pivot_mode = _export_purchases_report_shape(request)
+    else:
+        pivot_group_by = str(request.query_params.get('group_by') or _pv_default_group).strip()
+        if pivot_group_by not in _pv_dim_labels:
+            pivot_group_by = _pv_default_group
+        pivot_mode = str(request.query_params.get('mode') or 'analysis').strip()
+        if pivot_mode not in {'analysis', 'comparison'}:
+            pivot_mode = 'analysis'
+    #  What the Τύπος dropdown should show as selected — the preset keeps its own name
+    #  even though the report runs as a plain single-period analysis underneath.
+    pivot_mode_selected = (
+        str(request.query_params.get('mode') or '').strip()
+        if is_purchases and str(request.query_params.get('mode') or '').strip() == _EXPORT_PURCHASES_BRAND_SUPPLIER_MODE
+        else pivot_mode
+    )
+    _pv_metrics_selected = _pv_selected_fn(request, pivot_group_by)
 
     _ROW_LIMIT = 1000
     options, selected, period, rows, totals = await _export_query(
@@ -16154,13 +16263,22 @@ async def _render_exports_workbench(
             'dataset': 'purchases' if is_purchases else 'sales',
             'saved_report_kind': saved_kind,
             'pivot_dimensions': _pv_dims,
-            'pivot_modes': _EXPORT_PIVOT_MODES,
+            'pivot_modes': _EXPORT_PURCHASES_PIVOT_MODES if is_purchases else _EXPORT_PIVOT_MODES,
             'pivot_group_by': pivot_group_by,
             'pivot_mode': pivot_mode,
-            'pivot_group_label': _pv_dim_labels.get(pivot_group_by, 'Ομάδα'),
+            'pivot_mode_selected': pivot_mode_selected,
+            # The preset drives its own grouping, so the Ομαδοποίηση dropdown is hidden.
+            'pivot_group_locked': is_purchases and pivot_mode_selected == _EXPORT_PURCHASES_BRAND_SUPPLIER_MODE,
+            'pivot_group_label': (
+                (is_purchases and _export_purchases_label_header(pivot_group_by, pivot_mode))
+                or _pv_dim_labels.get(pivot_group_by, 'Ομάδα')
+            ),
             'pivot_metrics_catalog': _pv_metrics,
             'pivot_item_attrs': _EXPORT_PIVOT_ITEM_ATTRS,
-            'pivot_metrics_selected': _pv_selected_fn(request, pivot_group_by),
+            'pivot_dim_attrs': _EXPORT_PURCHASES_DIM_ATTRS if is_purchases else [],
+            'pivot_metrics_selected': _pv_metrics_selected,
+            'pivot_columns': _pivot_column_order(pivot_group_by, _pv_metrics_selected, is_purchases=is_purchases),
+            'pivot_label_col': _PIVOT_LABEL_COL,
             'pivot_metric_map': _pv_metric_map,
             'saved_reports': saved_reports,
         },
@@ -16231,9 +16349,12 @@ async def _render_exports_download(
         _metric_map = _EXPORT_PURCHASES_PIVOT_METRIC_MAP if _is_pur else _EXPORT_PIVOT_METRIC_MAP
         _selected_fn = _export_purchases_selected_metrics if _is_pur else _export_selected_metrics
         _def_group = 'supplier' if _is_pur else 'channel'
-        a_group_by = str(request.query_params.get('group_by') or _def_group).strip()
+        if _is_pur:
+            a_group_by, a_mode = _export_purchases_report_shape(request)
+        else:
+            a_group_by = str(request.query_params.get('group_by') or _def_group).strip()
+            a_mode = str(request.query_params.get('mode') or 'analysis').strip()
         dim_label = _dim_labels.get(a_group_by, 'Ομάδα')
-        a_mode = str(request.query_params.get('mode') or 'analysis').strip()
         if a_mode == 'comparison':
             if _is_pur:
                 headers = [dim_label, 'Καθαρή Α', 'Τεμ. Α', 'Καθαρή Β', 'Τεμ. Β', 'Δ% Καθαρής', 'Δ% Τεμ.']
@@ -16256,17 +16377,28 @@ async def _render_exports_download(
                 data_rows.append(['ΣΥΝΟΛΟ'] + [_cmp_cell(totals, k) for k in keys])
         else:
             metrics = _selected_fn(request, a_group_by)
-            headers = [dim_label] + [_metric_map[m]['label'] for m in metrics]
-            widths = [26] + [15] * len(metrics)
+            if _is_pur:
+                dim_label = _export_purchases_label_header(a_group_by, a_mode) or dim_label
+            #  Same column order as the on-screen table, so the file matches what was seen.
+            columns = _pivot_column_order(a_group_by, metrics, is_purchases=_is_pur)
+            headers = [dim_label if c == _PIVOT_LABEL_COL else _metric_map[c]['label'] for c in columns]
+            widths = [26 if c == _PIVOT_LABEL_COL else 15 for c in columns]
 
             def _mval(src, m):
                 kind = _metric_map[m]['kind']
                 if kind == 'text':
                     return str(src.get(m) or '')
                 return round(float(src.get(m) or 0), 0 if kind == 'int' else 2)
-            data_rows = [[r['label']] + [_mval(r, m) for m in metrics] for r in rows]
+            data_rows = [
+                [r['label'] if c == _PIVOT_LABEL_COL else _mval(r, c) for c in columns]
+                for r in rows
+            ]
             if data_rows:
-                data_rows.append(['ΣΥΝΟΛΟ'] + [_mval(totals, m) for m in metrics])
+                data_rows.append([
+                    'ΣΥΝΟΛΟ' if i == 0
+                    else ('' if c == _PIVOT_LABEL_COL or _metric_map[c]['kind'] == 'text' else _mval(totals, c))
+                    for i, c in enumerate(columns)
+                ])
         base = 'agores_analysi' if _is_pur else 'analysi'
     elif report_kind == 'group_comparison':
         headers = ['Ομάδα', 'Τζίρος Α', 'Κόστος Α', 'Κέρδος Α', 'Τζίρος Β', 'Κόστος Β', 'Κέρδος Β']
