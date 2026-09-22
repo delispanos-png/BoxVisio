@@ -1,6 +1,6 @@
 /*
   BoxVisio BI Bridge for SoftOne Advanced JavaScript
-  Version: 2026-09-06_cash-socash-account
+  Version: 2026-09-21_tsyp-prescription-balance
 
   Purpose
   - Extract Sales, Purchases, Inventory, Cash, Balances, Expenses data directly from SoftOne tables.
@@ -24,7 +24,7 @@
       /s1services/JS/myWS/GetAllForBI
 */
 
-var BVBI_VERSION = "2026-09-06_cash-socash-account";
+var BVBI_VERSION = "2026-09-21_tsyp-prescription-balance";
 var _BVBI_COL_CACHE = {};
 
 function _bv_is_array(v) {
@@ -522,6 +522,26 @@ function _bv_series_info_expr(common) {
   return out;
 }
 
+function _bv_cancel_series_info(common) {
+  // A cancelling series carries the SAME behaviour code as the series it cancels
+  // (TFPRMS 100 on both the prescription-balance invoice and its cancellation), so the
+  // behaviour alone cannot give it a negative sign. SoftOne links the pair the other
+  // way round: the positive series names its cancelling one in SERIES.CSERIES, so a
+  // series that some other series points at is the cancelling half of a pair.
+  var out = { joinSql: "", isCancellingExpr: "0" };
+  if (!_bv_table_exists("SERIES")) return out;
+  if (!_bv_has_column("SERIES", "CSERIES")) return out;
+  var whereSql =
+    " WHERE PS.CSERIES=" + common.series +
+    " AND ISNULL(PS.CSERIES,0)<>0" +
+    " AND PS.SERIES<>" + common.series;
+  if (_bv_has_column("SERIES", "COMPANY")) whereSql += " AND PS.COMPANY=F.COMPANY";
+  if (_bv_has_column("SERIES", "SOSOURCE")) whereSql += " AND PS.SOSOURCE=" + common.sosource;
+  out.joinSql = " OUTER APPLY (SELECT TOP 1 1 AS IS_CANCELLING FROM SERIES PS WITH (NOLOCK)" + whereSql + ") CANC";
+  out.isCancellingExpr = "ISNULL(CANC.IS_CANCELLING,0)";
+  return out;
+}
+
 function _bv_branch_info_expr(common) {
   var out = {
     joinSql: "",
@@ -542,6 +562,7 @@ function _bv_branch_info_expr(common) {
 function _bv_sales_sql(cfg) {
   var c = _bv_findoc_common_exprs();
   var seriesInfo = _bv_series_info_expr(c);
+  var cancelInfo = _bv_cancel_series_info(c);
   var branchInfo = _bv_branch_info_expr(c);
 
   var lLineId = _bv_col_expr("L", "MTRLINES", ["MTRLINES", "LINENUM"], "0");
@@ -644,6 +665,7 @@ function _bv_sales_sql(cfg) {
   var docGrossTotal = _bv_col_expr("F", "FINDOC", ["SUMAMNT"], "(ISNULL(" + docNetTotal + ",0) + ISNULL(" + c.taxAmount + ",0))");
   var salesSign =
     "(CASE " +
+    "WHEN ISNULL(F.SOSOURCE,0)=1351 AND ISNULL(F.TFPRMS,0)=100 AND " + cancelInfo.isCancellingExpr + "=1 THEN -1 " +
     "WHEN ISNULL(F.SOSOURCE,0)=1351 AND ISNULL(F.TFPRMS,0) IN (151,152,181) THEN -1 " +
     "WHEN ISNULL(F.SOSOURCE,0)<>1351 AND ISNULL(F.TFPRMS,0) IN (102,181) THEN -1 " +
     "ELSE 1 END)";
@@ -821,7 +843,10 @@ function _bv_sales_sql(cfg) {
     " AND ISNULL(" +
     c.sodtype +
     ",0)=13 AND ((" +
-    "ISNULL(" + c.sosource + ",0)=1351 AND ISNULL(" + c.soredir + ",0) IN (0,10000) AND ISNULL(F.TFPRMS,0) IN (102,103,131,151,152,181)" +
+    // 100 = the prescription-balance documents. They carry the insurance fund's share of
+    // each prescription on the day it is dispensed, per drug, while the monthly fund
+    // invoice only repeats the same money weeks later.
+    "ISNULL(" + c.sosource + ",0)=1351 AND ISNULL(" + c.soredir + ",0) IN (0,10000) AND ISNULL(F.TFPRMS,0) IN (100,102,103,131,151,152,181)" +
     ") OR (" +
     "ISNULL(" + c.sosource + ",0)<>1351 AND ISNULL(F.TFPRMS,0) IN (101,102,131,181)" +
     "))";
@@ -1177,6 +1202,7 @@ function _bv_sales_sql(cfg) {
     " AND (P.COMPANY=F.COMPANY OR P.COMPANY=1000) ORDER BY CASE WHEN P.COMPANY=F.COMPANY THEN 0 ELSE 1 END) PM " +
     branchInfo.joinSql +
     seriesInfo.joinSql +
+    cancelInfo.joinSql +
     whereSql +
     " ORDER BY " +
     c.trnDate +

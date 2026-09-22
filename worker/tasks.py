@@ -40,6 +40,7 @@ from app.observability.metrics import (
     sync_field_fill_pct,
     sync_duration_seconds,
 )
+from app.services.rule_config import resolve_rule_payload
 from app.services.ingestion import (
     acquire_tenant_lock,
     allow_tenant_ingestion,
@@ -3863,11 +3864,53 @@ def _document_rules_sql_payload(rule_rows: list[dict[str, Any]]) -> str:
     )
 
 
+def _sales_series_exclusions_sql_payload(sales_kpi_config: dict[str, Any] | None) -> str:
+    """The series the tenant has taken out of turnover, as JSON for the aggregate SQL.
+
+    The document rules above are keyed by behaviour code, which cannot express this:
+    the monthly insurance-fund invoice shares behaviour 102 with every other sales
+    invoice, so only the series tells them apart. The KPI layer already honours these
+    rules when it reads fact_sales; without the same filter here the aggregates — which
+    every unfiltered dashboard reads — would keep counting what the KPIs drop.
+    """
+    raw_rules = (sales_kpi_config or {}).get('series_rules')
+    if not isinstance(raw_rules, list):
+        return '[]'
+    out: list[dict[str, Any]] = []
+    for item in raw_rules:
+        if not isinstance(item, dict):
+            continue
+        series = str(item.get('series') or item.get('document_series') or '').strip()
+        if not series:
+            continue
+        if not bool(item.get('enabled', True)):
+            continue
+        include_turnover = item.get('include_turnover')
+        if include_turnover is None:
+            exclude = item.get('exclude')
+            include_turnover = (not bool(exclude)) if exclude is not None else True
+        if bool(include_turnover):
+            continue
+        branch_ext_ids = item.get('branch_ext_ids') or item.get('branches') or []
+        out.append(
+            {
+                'series': series,
+                'date_from': str(item.get('date_from') or '').strip() or None,
+                'date_to': str(item.get('date_to') or '').strip() or None,
+                'branch_ext_ids': [str(b).strip() for b in branch_ext_ids if str(b or '').strip()]
+                if isinstance(branch_ext_ids, list)
+                else [],
+            }
+        )
+    return json.dumps(out)
+
+
 async def _refresh_sales_aggregates(
     tenant_db,
     from_date: date,
     to_date: date,
     document_rules_json: str,
+    series_exclusions_json: str = '[]',
 ) -> None:
     sales_expenses_sql = """
         CAST(
@@ -3969,6 +4012,21 @@ async def _refresh_sales_aggregates(
               -- sale and its cancellation offset in the net. No single real sales
               -- line approaches 1e9, so drop those before aggregation (all tenants).
               AND ABS(COALESCE(f.net_value, 0)) < 1000000000
+              -- Series the tenant has taken out of turnover (e.g. the monthly
+              -- insurance-fund invoice, whose money now reaches the BI daily through
+              -- the per-prescription documents). Behaviour-keyed rules cannot express
+              -- this, since those invoices share behaviour 102 with ordinary ones.
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM jsonb_array_elements(CAST(:series_exclusions_json AS jsonb)) AS ex
+                  WHERE ex->>'series' = f.document_series
+                    AND (ex->>'date_from' IS NULL OR f.doc_date >= (ex->>'date_from')::date)
+                    AND (ex->>'date_to' IS NULL OR f.doc_date <= (ex->>'date_to')::date)
+                    AND (
+                      jsonb_array_length(COALESCE(ex->'branch_ext_ids', '[]'::jsonb)) = 0
+                      OR f.branch_ext_id IN (SELECT jsonb_array_elements_text(ex->'branch_ext_ids'))
+                    )
+              )
         ),
         classified AS (
             SELECT
@@ -4030,7 +4088,8 @@ async def _refresh_sales_aggregates(
                 updated_at = NOW()
             """
         ),
-        {'from_date': from_date, 'to_date': to_date, 'rules_json': document_rules_json},
+        {'from_date': from_date, 'to_date': to_date, 'rules_json': document_rules_json,
+         'series_exclusions_json': series_exclusions_json},
     )
     await tenant_db.execute(
         text(
@@ -4097,7 +4156,8 @@ async def _refresh_sales_aggregates(
                 updated_at = NOW()
             """
         ),
-        {'from_date': from_date, 'to_date': to_date, 'rules_json': document_rules_json},
+        {'from_date': from_date, 'to_date': to_date, 'rules_json': document_rules_json,
+         'series_exclusions_json': series_exclusions_json},
     )
     await tenant_db.execute(
         text(
@@ -4167,7 +4227,8 @@ async def _refresh_sales_aggregates(
                 updated_at = NOW()
             """
         ),
-        {'from_date': from_date, 'to_date': to_date, 'rules_json': document_rules_json},
+        {'from_date': from_date, 'to_date': to_date, 'rules_json': document_rules_json,
+         'series_exclusions_json': series_exclusions_json},
     )
     await tenant_db.execute(
         text(
@@ -4195,7 +4256,8 @@ async def _refresh_sales_aggregates(
                 updated_at = NOW()
             """
         ),
-        {'from_date': from_date, 'to_date': to_date, 'rules_json': document_rules_json},
+        {'from_date': from_date, 'to_date': to_date, 'rules_json': document_rules_json,
+         'series_exclusions_json': series_exclusions_json},
     )
 
     from_month = from_date.replace(day=1)
@@ -4227,7 +4289,8 @@ async def _refresh_sales_aggregates(
                 updated_at = NOW()
             """
         ),
-        {'from_date': from_date, 'to_date': to_date, 'rules_json': document_rules_json},
+        {'from_date': from_date, 'to_date': to_date, 'rules_json': document_rules_json,
+         'series_exclusions_json': series_exclusions_json},
     )
     await _delete_stale_aggregate_rows(
         tenant_db,
@@ -5252,6 +5315,7 @@ async def _refresh_aggregates_task(
             if not tenant:
                 return {'status': 'not_found'}
             sales_rules_json = '[]'
+            sales_series_exclusions_json = '[]'
             purchases_rules_json = '[]'
             if entity == 'sales':
                 sales_rules_json = _document_rules_sql_payload(
@@ -5259,6 +5323,16 @@ async def _refresh_aggregates_task(
                         control_db,
                         tenant_id=int(tenant.id),
                         stream=OperationalStream.sales_documents,
+                    )
+                )
+                sales_series_exclusions_json = _sales_series_exclusions_sql_payload(
+                    await resolve_rule_payload(
+                        control_db,
+                        tenant_id=int(tenant.id),
+                        domain=RuleDomain.kpi_participation_rules,
+                        stream=OperationalStream.sales_documents,
+                        rule_key='sales_kpi_config',
+                        fallback_payload={},
                     )
                 )
             elif entity == 'purchases':
@@ -5336,6 +5410,7 @@ async def _refresh_aggregates_task(
                         from_date=from_date,
                         to_date=to_date,
                         document_rules_json=sales_rules_json,
+                        series_exclusions_json=sales_series_exclusions_json,
                     )
                 elif entity == 'purchases':
                     await _refresh_purchases_aggregates(

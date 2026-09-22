@@ -7,6 +7,7 @@ SELECT
   CAST(
     (
       CASE
+        WHEN ISNULL(F.SOSOURCE, 0) = 1351 AND ISNULL(F.TFPRMS, 0) = 100 AND ISNULL(CANC.is_cancelling, 0) = 1 THEN -1
         WHEN ISNULL(F.SOSOURCE, 0) = 1351 AND ISNULL(F.TFPRMS, 0) IN (151, 152, 181) THEN -1
         WHEN ISNULL(F.SOSOURCE, 0) <> 1351 AND ISNULL(F.TFPRMS, 0) IN (102, 181) THEN -1
         ELSE 1
@@ -18,6 +19,7 @@ SELECT
   CAST(
     (
       CASE
+        WHEN ISNULL(F.SOSOURCE, 0) = 1351 AND ISNULL(F.TFPRMS, 0) = 100 AND ISNULL(CANC.is_cancelling, 0) = 1 THEN -1
         WHEN ISNULL(F.SOSOURCE, 0) = 1351 AND ISNULL(F.TFPRMS, 0) IN (151, 152, 181) THEN -1
         WHEN ISNULL(F.SOSOURCE, 0) <> 1351 AND ISNULL(F.TFPRMS, 0) IN (102, 181) THEN -1
         ELSE 1
@@ -29,6 +31,7 @@ SELECT
   CAST(
     (
       CASE
+        WHEN ISNULL(F.SOSOURCE, 0) = 1351 AND ISNULL(F.TFPRMS, 0) = 100 AND ISNULL(CANC.is_cancelling, 0) = 1 THEN -1
         WHEN ISNULL(F.SOSOURCE, 0) = 1351 AND ISNULL(F.TFPRMS, 0) IN (151, 152, 181) THEN -1
         WHEN ISNULL(F.SOSOURCE, 0) <> 1351 AND ISNULL(F.TFPRMS, 0) IN (102, 181) THEN -1
         ELSE 1
@@ -74,6 +77,7 @@ SELECT
   CAST(
     (
       CASE
+        WHEN ISNULL(F.SOSOURCE, 0) = 1351 AND ISNULL(F.TFPRMS, 0) = 100 AND ISNULL(CANC.is_cancelling, 0) = 1 THEN -1
         WHEN ISNULL(F.SOSOURCE, 0) = 1351 AND ISNULL(F.TFPRMS, 0) IN (151, 152, 181) THEN -1
         WHEN ISNULL(F.SOSOURCE, 0) <> 1351 AND ISNULL(F.TFPRMS, 0) IN (102, 181) THEN -1
         ELSE 1
@@ -85,6 +89,7 @@ SELECT
   CAST(
     (
       CASE
+        WHEN ISNULL(F.SOSOURCE, 0) = 1351 AND ISNULL(F.TFPRMS, 0) = 100 AND ISNULL(CANC.is_cancelling, 0) = 1 THEN -1
         WHEN ISNULL(F.SOSOURCE, 0) = 1351 AND ISNULL(F.TFPRMS, 0) IN (151, 152, 181) THEN -1
         WHEN ISNULL(F.SOSOURCE, 0) <> 1351 AND ISNULL(F.TFPRMS, 0) IN (102, 181) THEN -1
         ELSE 1
@@ -100,6 +105,7 @@ SELECT
   CAST(
     (
       CASE
+        WHEN ISNULL(F.SOSOURCE, 0) = 1351 AND ISNULL(F.TFPRMS, 0) = 100 AND ISNULL(CANC.is_cancelling, 0) = 1 THEN -1
         WHEN ISNULL(F.SOSOURCE, 0) = 1351 AND ISNULL(F.TFPRMS, 0) IN (151, 152, 181) THEN -1
         WHEN ISNULL(F.SOSOURCE, 0) <> 1351 AND ISNULL(F.TFPRMS, 0) IN (102, 181) THEN -1
         ELSE 1
@@ -280,6 +286,7 @@ SELECT
   CAST(COALESCE(NULLIF(
     (
       CASE
+        WHEN ISNULL(F.SOSOURCE, 0) = 1351 AND ISNULL(F.TFPRMS, 0) = 100 AND ISNULL(CANC.is_cancelling, 0) = 1 THEN -1
         WHEN ISNULL(F.SOSOURCE, 0) = 1351 AND ISNULL(F.TFPRMS, 0) IN (151, 152, 181) THEN -1
         WHEN ISNULL(F.SOSOURCE, 0) <> 1351 AND ISNULL(F.TFPRMS, 0) IN (102, 181) THEN -1
         ELSE 1
@@ -291,6 +298,7 @@ SELECT
   CAST(COALESCE(NULLIF(
     (
       CASE
+        WHEN ISNULL(F.SOSOURCE, 0) = 1351 AND ISNULL(F.TFPRMS, 0) = 100 AND ISNULL(CANC.is_cancelling, 0) = 1 THEN -1
         WHEN ISNULL(F.SOSOURCE, 0) = 1351 AND ISNULL(F.TFPRMS, 0) IN (151, 152, 181) THEN -1
         WHEN ISNULL(F.SOSOURCE, 0) <> 1351 AND ISNULL(F.TFPRMS, 0) IN (102, 181) THEN -1
         ELSE 1
@@ -304,6 +312,7 @@ SELECT
       (
         (
           CASE
+            WHEN ISNULL(F.SOSOURCE, 0) = 1351 AND ISNULL(F.TFPRMS, 0) = 100 AND ISNULL(CANC.is_cancelling, 0) = 1 THEN -1
             WHEN ISNULL(F.SOSOURCE, 0) = 1351 AND ISNULL(F.TFPRMS, 0) IN (151, 152, 181) THEN -1
             WHEN ISNULL(F.SOSOURCE, 0) <> 1351 AND ISNULL(F.TFPRMS, 0) IN (102, 181) THEN -1
             ELSE 1
@@ -408,6 +417,20 @@ LEFT JOIN BRANCH BR WITH (NOLOCK) ON BR.BRANCH = F.BRANCH AND BR.COMPANY = F.COM
 LEFT JOIN TRDBRANCH CB WITH (NOLOCK) ON CB.TRDBRANCH = F.TRDBRANCH AND (CB.COMPANY = F.COMPANY OR CB.COMPANY = 0)
 LEFT JOIN TRDBRANCH ORIGCB WITH (NOLOCK) ON ORIGCB.TRDBRANCH = ORIG.TRDBRANCH AND (ORIGCB.COMPANY = F.COMPANY OR ORIGCB.COMPANY = 0)
 LEFT JOIN SERIES SR WITH (NOLOCK) ON SR.SERIES = F.SERIES AND SR.COMPANY = F.COMPANY AND SR.SOSOURCE = F.SOSOURCE
+-- A cancelling series carries the SAME behaviour code as the series it cancels
+-- (TFPRMS 100 on both ΤΣΥΠ and ΑΚΤΣΥΠ), so the behaviour alone cannot give it a
+-- negative sign. SoftOne links them the other way round: the positive series names
+-- its cancelling one in SERIES.CSERIES. A series that some other series points at is
+-- therefore the cancelling half of a pair.
+OUTER APPLY (
+  SELECT TOP 1 1 AS is_cancelling
+  FROM SERIES PS WITH (NOLOCK)
+  WHERE PS.CSERIES = F.SERIES
+    AND PS.SOSOURCE = F.SOSOURCE
+    AND PS.COMPANY = F.COMPANY
+    AND ISNULL(PS.CSERIES, 0) <> 0
+    AND PS.SERIES <> F.SERIES
+) CANC
 OUTER APPLY (
   SELECT
     CAST(
@@ -767,7 +790,12 @@ WHERE
     (
       ISNULL(F.SOSOURCE, 0) = 1351
       AND ISNULL(F.SOREDIR, 0) IN (0, 10000)
-      AND ISNULL(F.TFPRMS, 0) IN (102, 103, 131, 151, 152, 181)
+      -- 100 = «Αδιάφορο»: the prescription-balance documents (ΤΣΥΠ / ΑΚΤΣΥΠ). They
+      -- carry the insurance fund's share of each prescription on the day it is
+      -- dispensed, per drug, while the monthly fund invoice only repeats the same
+      -- money weeks later. On this tenant family the pair (SOSOURCE 1351, SODTYPE 13,
+      -- TFPRMS 100) selects those series and nothing else.
+      AND ISNULL(F.TFPRMS, 0) IN (100, 102, 103, 131, 151, 152, 181)
     )
     OR (
       ISNULL(F.SOSOURCE, 0) <> 1351
