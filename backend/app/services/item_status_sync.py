@@ -53,7 +53,7 @@ LEFT JOIN MTRPCATEGORY CG WITH (NOLOCK) ON CG.MTRPCATEGORY = I.MTRPCATEGORY AND 
 LEFT JOIN CCCCATEGORY01 CT1 WITH (NOLOCK) ON CT1.CATEGORY01 = I.CCCCATEGORY01
 LEFT JOIN CCCCATEGORY02 CT2 WITH (NOLOCK) ON CT2.CATEGORY02 = I.CCCCATEGORY02
 LEFT JOIN CCCCATEGORY03 CT3 WITH (NOLOCK) ON CT3.CATEGORY03 = I.CCCCATEGORY03
-WHERE I.COMPANY = ?
+WHERE (? IS NULL OR I.COMPANY = ?)
   AND ISNULL(I.SODTYPE, 0) = 51
   AND NULLIF(ISNULL(I.CODE, ''), '') IS NOT NULL
 """
@@ -66,7 +66,11 @@ def _fetch_status_rows(connection_string: str, company) -> list[tuple]:
     try:
         cn.timeout = 180
         cur = cn.cursor()
-        cur.execute(_STATUS_SQL, company)
+        #  A tenant that syncs every SoftOne company stores no company id, exactly as the
+        #  item_master querypack's `@company_id IS NULL` branch expects. Binding it as a
+        #  plain equality made `COMPANY = NULL` — no rows, and the sync quietly did
+        #  nothing instead of failing.
+        cur.execute(_STATUS_SQL, company, company)
         return cur.fetchall()
     finally:
         cn.close()
