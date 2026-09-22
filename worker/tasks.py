@@ -99,6 +99,53 @@ def _tenant_ingest_queue_depth(redis: Redis, tenant_slug: str) -> int:
     return int(redis.llen(tenant_queue_name(tenant_slug)) + redis.llen(tenant_live_queue_name(tenant_slug)))
 
 
+#  The daily recovery sweep waits for an idle tenant, which a multi-hour backfill never
+#  is. Waiting is right — the sweep is heavy and the live sync already covers today —
+#  but waiting FOREVER is not: the sweep only looks back `ingest_daily_recovery_days`
+#  (7), so a backfill running longer than that would let real gaps pass unnoticed. After
+#  this long without a sweep the tenant stops being skipped and one is forced through.
+_DAILY_RECOVERY_MAX_SKIP_SECONDS = 48 * 60 * 60
+_DAILY_RECOVERY_LAST_RUN_TTL_SECONDS = 60 * 60 * 24 * 30
+
+
+def _daily_recovery_last_run_key(tenant_slug: str) -> str:
+    return f'ingest:daily_recovery:last_run:{tenant_slug}'
+
+
+def _daily_recovery_overdue(redis: Redis, tenant_slug: str) -> bool:
+    """True when this tenant has gone too long without a recovery sweep."""
+    raw = redis.get(_daily_recovery_last_run_key(tenant_slug))
+    if not raw:
+        return True
+    try:
+        last_run = float(str(raw))
+    except (TypeError, ValueError):
+        return True
+    return (time.time() - last_run) >= _DAILY_RECOVERY_MAX_SKIP_SECONDS
+
+
+def _mark_daily_recovery_run(redis: Redis, tenant_slug: str) -> None:
+    redis.set(
+        _daily_recovery_last_run_key(tenant_slug),
+        str(time.time()),
+        ex=_DAILY_RECOVERY_LAST_RUN_TTL_SECONDS,
+    )
+
+
+def _tenant_live_queue_depth(redis: Redis, tenant_slug: str) -> int:
+    """Depth of the live lane only — what the live scheduler is allowed to look at.
+
+    Counting the backfill queue here is what let a 600-day historical backfill starve
+    the live sync for 17 hours on 2026-09-21: the queue sat above the 100-job cap, so
+    the scheduler refused to enqueue anything, and the live lane it was protecting
+    stayed permanently empty. The lane is self-limiting anyway — enqueue_tenant_job
+    replaces the queued job for a stream instead of stacking another, so it tops out at
+    one job per stream. Backfill depth is work a human asked for and is popped only
+    after the live lane, so it must not gate live scheduling.
+    """
+    return int(redis.llen(tenant_live_queue_name(tenant_slug)))
+
+
 def _auto_sync_queue_limit() -> int:
     return max(1, int(getattr(settings, 'auto_sync_max_queue_depth_per_tenant', 100) or 100))
 
@@ -2083,7 +2130,8 @@ async def _enqueue_incremental_sync_all_tenants(
             if get_ingest_circuit_reason(tenant.slug):
                 skipped += 1
                 continue
-            if _tenant_ingest_queue_depth(redis, tenant.slug) >= queue_limit:
+            #  Live lane only: a pending backfill must never stop the live sync.
+            if _tenant_live_queue_depth(redis, tenant.slug) >= queue_limit:
                 skipped += 1
                 continue
 
@@ -2279,12 +2327,15 @@ async def _enqueue_daily_recovery_sync_all_tenants(
             if get_ingest_circuit_reason(tenant.slug):
                 skipped += 1
                 continue
-            if _tenant_ingest_queue_depth(redis, tenant.slug) > 0 or bool(redis.get(f'lock:ingest:{tenant.slug}')):
-                skipped += 1
-                continue
-            if _tenant_ingest_queue_depth(redis, tenant.slug) >= queue_limit:
-                skipped += 1
-                continue
+            #  Prefer an idle tenant, but never let a long backfill starve the sweep out
+            #  of existence — past the overdue threshold it goes in regardless.
+            if not _daily_recovery_overdue(redis, tenant.slug):
+                if _tenant_ingest_queue_depth(redis, tenant.slug) > 0 or bool(redis.get(f'lock:ingest:{tenant.slug}')):
+                    skipped += 1
+                    continue
+                if _tenant_ingest_queue_depth(redis, tenant.slug) >= queue_limit:
+                    skipped += 1
+                    continue
 
             active_conn = (
                 await control_db.execute(
@@ -2328,6 +2379,7 @@ async def _enqueue_daily_recovery_sync_all_tenants(
                 to_date=recovery_meta.get('to_date'),
             )
             drain_tenant_ingest_queue.delay(tenant_slug=tenant.slug)
+            _mark_daily_recovery_run(redis, tenant.slug)
             tenants_queued += 1
             jobs_queued += tenant_jobs
 
