@@ -1222,14 +1222,18 @@ async def _refresh_inventory_snapshots_all_tenants() -> dict:
                                 'from_date': from_day.isoformat(),
                                 'to_date': to_day.isoformat(),
                                 'operation': 'backfill',
-                                #  Stock is a BALANCE stream on the bridge, and the bridge caps
-                                #  balances at balanceLimit=500 rows unless full sync is asked for
-                                #  explicitly. Without these two the "full nightly snapshot" landed
-                                #  exactly 500 rows (zisopoulosph: 500 of ~7,900 items) -- a
-                                #  truncated snapshot that only the partial-snapshot guard in
-                                #  _latest_inventory_snapshot_date kept off the portal.
-                                'allowFullBalanceSync': True,
+                                #  `limit: 0` is the one that matters for stock: the bridge builds
+                                #  the inventory SELECT with _bv_top_clause(cfg.limit), and 0 means
+                                #  no TOP cap. Send it explicitly -- zisopoulosph's nightly snapshot
+                                #  came back as exactly 500 rows of ~7,900 items, and only the
+                                #  partial-snapshot guard in _latest_inventory_snapshot_date kept
+                                #  that truncated day off the portal by falling back a day.
+                                #  allowFullBalanceSync is for the supplier/customer balance streams
+                                #  (the only callers of _bv_balance_top_clause, which defaults to
+                                #  balanceLimit=500); it does not affect stock, but the same nightly
+                                #  re-pull carries those streams, so lift their cap here too.
                                 'limit': 0,
+                                'allowFullBalanceSync': True,
                             },
                         )
                         results.append({'tenant': tenant.slug, 'status': 'queued_api_full_snapshot'})
