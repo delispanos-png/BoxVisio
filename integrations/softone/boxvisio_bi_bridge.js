@@ -1,6 +1,6 @@
 /*
   BoxVisio BI Bridge for SoftOne Advanced JavaScript
-  Version: 2026-09-22_document-remarks
+  Version: 2026-09-23_supplier-order-company-and-item-sodtype
 
   Purpose
   - Extract Sales, Purchases, Inventory, Cash, Balances, Expenses data directly from SoftOne tables.
@@ -24,7 +24,7 @@
       /s1services/JS/myWS/GetAllForBI
 */
 
-var BVBI_VERSION = "2026-09-22_document-remarks";
+var BVBI_VERSION = "2026-09-23_supplier-order-company-and-item-sodtype";
 var _BVBI_COL_CACHE = {};
 
 function _bv_is_array(v) {
@@ -1607,6 +1607,10 @@ function _bv_supplier_orders_sql(cfg) {
     "CONVERT(VARCHAR(10), " + c.trnDate + ", 23) AS DOC_DATE," +
     "CONVERT(VARCHAR(19), ISNULL(" + c.updDate + ", " + c.trnDate + "), 126) AS UPDATED_AT," +
     "CAST(ISNULL(" + c.tfprms + ",0) AS INT) AS DOCUMENT_BEHAVIOR_CODE," +
+    // Every other stream emits COMPANY_ID, and _bv_attach_org_fields needs it to
+    // scope branch_ext_id as 'COMPANY:branch'. Without it this stream alone shipped
+    // a bare branch code, which splits each store into two dim_branches rows.
+    "CAST(ISNULL(" + c.company + ",0) AS VARCHAR(64)) AS COMPANY_ID," +
     "CAST(ISNULL(" + c.branch + ",0) AS VARCHAR(64)) AS BRANCH_EXT_ID," +
     branchInfo.branchNameExpr + " AS BRANCH_NAME," +
     "CAST(ISNULL(" + supplierCode + ", " + c.trdr + ") AS VARCHAR(128)) AS SUPPLIER_EXT_ID," +
@@ -2093,6 +2097,10 @@ function _bv_item_master_sql(cfg) {
     "LEFT JOIN MTRPCATEGORY CG ON CG.MTRPCATEGORY = I.MTRPCATEGORY AND CG.COMPANY = I.COMPANY " +
     "WHERE I.COMPANY=" +
     cfg.company +
+    // Match item_master.sql: without SODTYPE=51 a single CODE can come back on
+    // several rows with conflicting values, and the loader keeps whichever lands
+    // last. That is how 86 commercial statuses were blanked on the SQL connector.
+    " AND ISNULL(" + soTypeExpr + ",0)=" + cfg.inventoryItemSoType +
     " AND ISNULL(" +
     codeExpr +
     ", '') <> '' " +
