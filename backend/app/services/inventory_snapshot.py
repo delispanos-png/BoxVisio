@@ -28,21 +28,29 @@ from app.services.connection_secrets import decrypt_sqlserver_secret, build_odbc
 # normal inventory_facts.sql produces, so the aggregates dedup/group correctly.
 _BALANCE_SQL = """
 WITH sp AS (
+    -- A tenant that syncs every SoftOne company stores no company id (the same
+    -- `@company_id IS NULL` branch the querypacks use), so bind it NULL-aware instead
+    -- of as a plain equality -- `COMPANY = NULL` matched nothing and the nightly
+    -- snapshot quietly wrote zero rows. The HAVING is the other half: an abandoned
+    -- company still carries balances at its last fiscal year (pharmacy295 has 1002
+    -- frozen at 2016, worth ~840k EUR / ~99k units) and folding those into today's
+    -- stock would inflate every stock-dependent circuit. Keep only live companies.
     SELECT COMPANY, MAX(FISCPRD) AS FISCPRD
     FROM MTRBALSHEET WITH (NOLOCK)
-    WHERE COMPANY = ? AND PERIOD = 0
+    WHERE PERIOD = 0 AND (? IS NULL OR COMPANY = ?)
     GROUP BY COMPANY
+    HAVING MAX(FISCPRD) >= YEAR(GETDATE()) - 1
 ),
 mac AS (
     -- Moving-average unit cost = lifetime purchase value / purchase qty (all periods, all
     -- years). The on-hand cost is qty * this — matching SoftOne's «Κόστος υπολ.». Summing
     -- IMPVAL-EXPVAL is wrong (EXPVAL is valued at the cost at time of sale, and the year
     -- opening value is not in IMPVAL) — it went negative per warehouse and overstated totals.
-    SELECT COMPANY, MTRL,
-           CASE WHEN SUM(ISNULL(PURQTY, 0)) > 0 THEN SUM(ISNULL(PURVAL, 0)) / SUM(ISNULL(PURQTY, 0)) ELSE 0 END AS unit_cost
-    FROM MTRBALSHEET WITH (NOLOCK)
-    WHERE COMPANY = ?
-    GROUP BY COMPANY, MTRL
+    SELECT B.COMPANY, B.MTRL,
+           CASE WHEN SUM(ISNULL(B.PURQTY, 0)) > 0 THEN SUM(ISNULL(B.PURVAL, 0)) / SUM(ISNULL(B.PURQTY, 0)) ELSE 0 END AS unit_cost
+    FROM MTRBALSHEET B WITH (NOLOCK)
+    JOIN sp ON sp.COMPANY = B.COMPANY
+    GROUP BY B.COMPANY, B.MTRL
 )
 SELECT
     CAST(ISNULL(I.CODE, I.MTRL) AS VARCHAR(128)) AS code,
@@ -65,7 +73,7 @@ LEFT JOIN mac ON mac.COMPANY = S.COMPANY AND mac.MTRL = S.MTRL
 LEFT JOIN WHOUSE W WITH (NOLOCK) ON W.WHOUSE = S.WHOUSE AND W.COMPANY = S.COMPANY
 LEFT JOIN BRANCH BR WITH (NOLOCK)
     ON BR.BRANCH = ISNULL(NULLIF(W.WHOUSEG, 0), ISNULL(S.WHOUSE, 0)) AND BR.COMPANY = S.COMPANY
-WHERE S.COMPANY = ? AND NULLIF(ISNULL(I.CODE, ''), '') IS NOT NULL
+WHERE NULLIF(ISNULL(I.CODE, ''), '') IS NOT NULL
 GROUP BY
     CAST(ISNULL(I.CODE, I.MTRL) AS VARCHAR(128)),
     CAST(ISNULL(S.WHOUSE, 0) AS VARCHAR(64)),
@@ -107,7 +115,9 @@ def _fetch_balance_rows(connection_string: str, company) -> list[tuple]:
     try:
         cn.timeout = 120
         cur = cn.cursor()
-        cur.execute(_BALANCE_SQL, company, company, company)
+        #  Two binds, both for the NULL-aware company predicate in `sp`; `mac` and the
+        #  main SELECT now reach the company set by joining `sp` instead of re-filtering.
+        cur.execute(_BALANCE_SQL, company, company)
         return cur.fetchall()
     finally:
         cn.close()
@@ -137,7 +147,11 @@ async def refresh_inventory_snapshot(
 
     batch = [
         {
-            'eid': f'STKSNAP|{snapshot_day.isoformat()}|{str(r[1])}|{str(r[0])}',
+            #  branch_ext_id is 'COMPANY:branch', so its first segment scopes the key by
+            #  company. Without it a tenant that syncs several SoftOne companies collides:
+            #  warehouse 1000 exists in both 1001 and 3000, and the two rows for the same
+            #  item code produced one external_id -> UniqueViolation on the whole batch.
+            'eid': f"STKSNAP|{snapshot_day.isoformat()}|{str(r[2] or '').split(':')[0]}|{str(r[1])}|{str(r[0])}",
             'd': snapshot_day,
             'code': str(r[0]),
             'wh': str(r[1]) if r[1] is not None else None,
