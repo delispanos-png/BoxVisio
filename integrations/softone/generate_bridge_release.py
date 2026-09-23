@@ -153,7 +153,13 @@ def main() -> int:
         sys.stdout.write(release_text)
         return 0
 
-    output_path = INTEGRATIONS_DIR / f"boxvisio_bi_bridge_{release_stamp}.js"
+    #  Keep the timestamp AND the version's descriptive half in the file name: several
+    #  releases can be cut on the same day, and a date-only name makes them
+    #  indistinguishable. BVBI_VERSION is itself 'YYYY-MM-DD_slug', so drop its leading
+    #  date and append just the slug -> boxvisio_bi_bridge_<date>_<time>_<slug>.js
+    version_slug = re.sub(r"^\d{4}-\d{2}-\d{2}_?", "", version).strip("_")
+    suffix = f"_{version_slug}" if version_slug else ""
+    output_path = INTEGRATIONS_DIR / f"boxvisio_bi_bridge_{release_stamp}{suffix}.js"
     _write(output_path, release_text)
 
     manual_text = _read(MANUAL)
