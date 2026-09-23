@@ -330,6 +330,48 @@ Customer and supplier open-balance streams follow SoftOne document behavior, not
 
 Open balance snapshots are calculated `ως ημερομηνία` (`toDate`) and should not be restricted by `fromDate`.
 
+### Sales sign logic (and the cancelling-series trap)
+
+`sales_documents` signs each line from the document behaviour:
+
+- `SOSOURCE=1351`, `TFPRMS IN (151,152,181)` => negative (returns / credit)
+- `SOSOURCE<>1351`, `TFPRMS IN (102,181)` => negative
+- everything else => positive
+
+`TFPRMS=100` is the prescription-balance invoice (ΤΣΥΠ, «Τιμολόγιο Υπολοίπου
+Συνταγής»). It must be admitted by the header filter, which therefore reads
+`TFPRMS IN (100,102,103,131,151,152,181)`.
+
+**The trap:** SoftOne gives a cancelling series the SAME behaviour code as the
+series it cancels, so both halves of a ΤΣΥΠ pair are `TFPRMS=100`. Admitting 100
+without detecting the cancelling half books cancellations as positive revenue.
+The pairing lives in `SERIES.CSERIES`: the positive series names its cancelling
+one, so a series that some *other* series points at is the cancelling half:
+
+```sql
+OUTER APPLY (
+  SELECT TOP 1 1 AS IS_CANCELLING
+  FROM SERIES PS WITH (NOLOCK)
+  WHERE PS.CSERIES = F.SERIES AND ISNULL(PS.CSERIES,0) <> 0
+    AND PS.SERIES <> F.SERIES AND PS.COMPANY = F.COMPANY
+    AND PS.SOSOURCE = F.SOSOURCE
+) CANC
+```
+
+...and the sign gains `WHEN SOSOURCE=1351 AND TFPRMS=100 AND IS_CANCELLING=1 THEN -1`.
+
+Two more rules learned the hard way:
+
+- **Declare `CANC` early in the `FROM` chain.** SQL Server resolves an `APPLY`
+  only against aliases introduced before it, and the expense `APPLY` embeds the
+  sign expression. Declared last, the whole statement fails with
+  *"The multi-part identifier CANC.IS_CANCELLING could not be bound"* -- no rows
+  at all, not wrong numbers.
+- **This logic lives in three places** and they drift silently: the querypack
+  `sales_facts.sql`, the bridge `_bv_sales_sql`, and `LIVE_SALES_LIGHT_QUERY` in
+  `backend/app/services/ingestion/pharmacyone_connector.py` (the copy the live
+  incremental sync actually uses). Change one, change all three.
+
 
 ## 13) Release Workflow For Customer JS Files
 
@@ -346,9 +388,20 @@ python3 integrations/softone/generate_bridge_release.py
 What the generator does:
 
 - validates that the canonical bridge still matches the current `sales_facts.sql` mappings
-- creates a timestamped customer snapshot like `boxvisio_bi_bridge_2026-04-22_18-30-00.js`
+- creates a customer snapshot named `boxvisio_bi_bridge_<date>_<time>_<slug>.js`,
+  e.g. `boxvisio_bi_bridge_2026-09-23_12-28-01_fix-sales-cancel-join-scope.js`
 - uses `Europe/Athens` time for the snapshot timestamp
 - keeps the deployable customer JS under the same `integrations/softone/` folder
+
+**Do not rename the generated file.** Several releases can be cut on the same
+day, and the time is what tells them apart; the slug comes from `BVBI_VERSION`.
+Note the release files are gitignored, so they never arrive via `git pull` --
+they exist only where they were generated.
+
+**Every stream must emit `COMPANY_ID`.** `_bv_attach_org_fields` uses it to scope
+`branch_ext_id` as `COMPANY:branch`. A stream that omits it ships a bare branch
+code and splits each store into two `dim_branches` rows (this happened to
+`supplier_orders`, 65k rows deep, and needed a data migration to undo).
 
 Validation currently guards these synchronized fields:
 
@@ -357,19 +410,19 @@ Validation currently guards these synchronized fields:
 - `FINDOC.SOTIME/INSDATE` -> `source_created_at`
 - `ITEM.MTRGROUP` -> item group
 
-## 14) Release Candidate Bridge (2026-05-21)
+## 14) Current Bridge Release
 
-Release candidate deployable file:
+Rather than pinning a version here -- this section sat four months stale and
+pointed customers at a bridge from 2026-05-21 -- read the live values:
 
-- `integrations/softone/boxvisio_bi_bridge_2026-05-21.js`
+- canonical source: `integrations/softone/boxvisio_bi_bridge.js`
+- version: the `BVBI_VERSION` constant near the top of that file, which must
+  match the `Version:` line in its header comment
+- deployable file: the newest `boxvisio_bi_bridge_<date>_<time>_<slug>.js`
 
-Canonical source:
-
-- `integrations/softone/boxvisio_bi_bridge.js`
-
-Bridge version:
-
-- `2026-05-19_15-30-00`
+As of 2026-09-23 the version is `2026-09-23_fix-sales-cancel-join-scope`, which
+carries the cancelling-series fix above, `COMPANY_ID` on `supplier_orders`, and
+`SODTYPE=51` on `item_master`.
 
 Checksums:
 

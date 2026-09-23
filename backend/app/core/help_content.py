@@ -1958,6 +1958,38 @@ TASK_GROUPS: tuple[dict[str, Any], ...] = (
                 ),
             },
             {
+                'q': _t(
+                    'Τι είναι τα ΤΣΥΠ και μετράνε στον τζίρο;',
+                    'What are prescription-balance invoices, and do they count in turnover?',
+                ),
+                'route': '/tenant/sales-documents',
+                'circuit': 'sales-documents',
+                'steps': _tl(
+                    [
+                        'Επιχειρησιακά → Παραστατικά Πωλήσεων.',
+                        'Φίλτραρε στη στήλη «Σειρά» τις σειρές που λήγουν σε 104 (ΤΣΥΠ) και 105 (ακυρωτικά).',
+                        'Κάθε κατάστημα έχει δικό του ζεύγος: 4104/4105 Έδρα, 3104/3105 Ελληνικό, '
+                        '5104/5105 Κηφισιά, 8104/8105 Περιστέρι, 6104/6105 Σπάτα.',
+                    ],
+                    [
+                        'Operational → Sales Documents.',
+                        'Filter the "Series" column for series ending in 104 (invoice) and 105 (cancellation).',
+                        'Each store has its own pair: 4104/4105 HQ, 3104/3105 Elliniko, '
+                        '5104/5105 Kifisia, 8104/8105 Peristeri, 6104/6105 Spata.',
+                    ],
+                ),
+                'why': _t(
+                    'ΤΣΥΠ = «Τιμολόγιο Υπολοίπου Συνταγής»: το υπόλοιπο που πληρώνει ο ασθενής πάνω από '
+                    'την αποζημίωση του ασφαλιστικού ταμείου. Ναι, μετράει κανονικά στον τζίρο, και τα '
+                    'ακυρωτικά (σειρές 105) αφαιρούνται αυτόματα. Μην τα μπερδεύεις με τα «Παραστατικά '
+                    'Ασφαλιστικών Ταμείων» (σειρές 106/107/108) ή με τα τιμολόγια ΗΔΙΚΑ — είναι άλλο πράγμα.',
+                    'A prescription-balance invoice is the patient-paid remainder on top of what the '
+                    'insurance fund reimburses. Yes, it counts in turnover, and the cancelling series '
+                    '(ending 105) are subtracted automatically. Do not confuse these with insurance-fund '
+                    'invoices (series 106/107/108) or HDIKA invoices — those are a different thing.',
+                ),
+            },
+            {
                 'q': _t('Πόσο είναι το καλάθι στο κατάστημα;', 'What is the in-store basket value?'),
                 'route': '/tenant/pos',
                 'circuit': 'pos',
