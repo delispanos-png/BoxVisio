@@ -79,6 +79,11 @@ from app.services.ingestion.sync_planner import SQL_CONNECTOR_ALIASES, plan_tena
 from app.services.intelligence_service import generate_daily_insights
 from app.services.kpi_cache import invalidate_tenant_cache
 
+#  Connector types that actually ingest operational data. Used to pick a tenant's
+#  sync connection -- a tenant may also hold active connections that ingest nothing
+#  (3cx_call_center), and those must never be chosen as the sync connector.
+_INGEST_CONNECTOR_TYPES = tuple(SQL_CONNECTOR_ALIASES) + ('external_api', 'generic_sql')
+
 logger = logging.getLogger(__name__)
 _TASK_LOOP: asyncio.AbstractEventLoop | None = None
 _INFRASTRUCTURE_TENANT_SLUGS = {'startdb', 'rddb'}
@@ -2151,6 +2156,7 @@ async def _enqueue_incremental_sync_all_tenants(
                     select(TenantConnection).where(
                         TenantConnection.tenant_id == tenant.id,
                         TenantConnection.is_active.is_(True),
+                        TenantConnection.connector_type.in_(_INGEST_CONNECTOR_TYPES),
                     ).order_by(TenantConnection.id.asc()).limit(1)
                 )
             ).scalar_one_or_none()
@@ -2351,7 +2357,12 @@ async def _enqueue_daily_recovery_sync_all_tenants(
                     select(TenantConnection).where(
                         TenantConnection.tenant_id == tenant.id,
                         TenantConnection.is_active.is_(True),
-                    ).limit(1)
+                        #  A tenant also has non-ingest connections (pharmacy295 keeps an active
+                        #  3cx_call_center one). Unfiltered+unordered, LIMIT 1 returned that, so
+                        #  every recovery job was enqueued with connector='3cx_call_center' and
+                        #  died with "Unknown connector" -- ~1,900 dead letters since 2026-07-28.
+                        TenantConnection.connector_type.in_(_INGEST_CONNECTOR_TYPES),
+                    ).order_by(TenantConnection.id.asc()).limit(1)
                 )
             ).scalar_one_or_none()
             if not active_conn:
