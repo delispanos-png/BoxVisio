@@ -1,6 +1,6 @@
 /*
   BoxVisio BI Bridge for SoftOne Advanced JavaScript
-  Version: 2026-09-23_supplier-order-company-and-item-sodtype
+  Version: 2026-09-23_fix-sales-cancel-join-scope
 
   Purpose
   - Extract Sales, Purchases, Inventory, Cash, Balances, Expenses data directly from SoftOne tables.
@@ -24,7 +24,7 @@
       /s1services/JS/myWS/GetAllForBI
 */
 
-var BVBI_VERSION = "2026-09-23_supplier-order-company-and-item-sodtype";
+var BVBI_VERSION = "2026-09-23_fix-sales-cancel-join-scope";
 var _BVBI_COL_CACHE = {};
 
 function _bv_is_array(v) {
@@ -1156,6 +1156,12 @@ function _bv_sales_sql(cfg) {
     "INNER JOIN MTRLINES L ON L.FINDOC=" +
     c.findoc +
     " AND L.COMPANY=F.COMPANY " +
+    // CANC has to be declared here, not at the end of the chain: SQL Server only lets
+    // an APPLY reference aliases introduced BEFORE it, and the expense APPLY below
+    // embeds salesSign, which reads CANC.IS_CANCELLING. Declared last, that APPLY
+    // failed with "The multi-part identifier CANC.IS_CANCELLING could not be bound"
+    // and took the whole sales stream down for every bridge tenant with EXPANAL rows.
+    cancelInfo.joinSql + " " +
     "OUTER APPLY (SELECT TOP 1 ORIGF.* FROM FINDOC ORIGF WHERE ORIGF.FINDOC=NULLIF(" +
     lFindocs +
     ",0) AND ORIGF.COMPANY=L.COMPANY) ORIG " +
@@ -1207,7 +1213,6 @@ function _bv_sales_sql(cfg) {
     " AND (P.COMPANY=F.COMPANY OR P.COMPANY=1000) ORDER BY CASE WHEN P.COMPANY=F.COMPANY THEN 0 ELSE 1 END) PM " +
     branchInfo.joinSql +
     seriesInfo.joinSql +
-    cancelInfo.joinSql +
     whereSql +
     " ORDER BY " +
     c.trnDate +
