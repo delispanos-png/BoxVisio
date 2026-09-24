@@ -13038,6 +13038,13 @@ async def sales_pivot(
         if period_to:
             stmt = stmt.where(FactSales.doc_date <= period_to)
 
+    # Honour the tenant's turnover series rules, exactly as every KPI and aggregate
+    # does. Without this the Report Builder kept counting series the tenant has taken
+    # out of turnover -- for pharmacy295 the monthly insurance-fund invoices (…106,
+    # …107), whose value is already booked per prescription through the ΤΣΥΠ
+    # documents -- so it reported ~50-80k EUR/month more than the dashboard.
+    stmt = _apply_fact_sales_turnover_rules(stmt)
+
     # ORDER BY the 2nd select column (the primary value metric) descending.
     # Group items by id (so equally-named items stay distinct); everything else by label.
     group_col = DimItem.id if group_by == 'item' else label_expr
