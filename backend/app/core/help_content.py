@@ -352,12 +352,16 @@ CIRCUITS: tuple[dict[str, Any], ...] = (
             [
                 'Όρισε περίοδο και, αν χρειάζεται, υποκατάστημα, αποθηκευτικό χώρο, κανάλι ή σειρά.',
                 'Χρησιμοποίησε την αναζήτηση για συγκεκριμένο παραστατικό, πελάτη ή κωδικό.',
+                'Για σειρά του SoftOne γράψε τον κωδικό της (π.χ. 3218) στην αναζήτηση ή στο φίλτρο «Σειρά». '
+                'Για πολλές σειρές μαζί χώρισέ τες με κόμμα (π.χ. 3218,5218,4218).',
                 'Διπλό κλικ σε γραμμή ανοίγει την καρτέλα του παραστατικού με τις γραμμές ειδών.',
                 'Διάβασε το footer: Καθαρή Αξία, Έξοδα, ΦΠΑ και Σύνολο είναι ξεχωριστά μεγέθη — αυτά συγκρίνεις με το SoftOne.',
             ],
             [
                 'Set the period and, if needed, branch, warehouse, channel or series.',
                 'Use search for a specific document, customer or code.',
+                'For a SoftOne series type its code (e.g. 3218) in the search box or the «Series» filter. '
+                'Separate several series with commas (e.g. 3218,5218,4218).',
                 'Double-click a row to open the document with its item lines.',
                 'Read the footer: Net Value, Charges, VAT and Total are separate figures — those are what you reconcile against SoftOne.',
             ],

@@ -4388,6 +4388,14 @@ async def sales_filter_options(
     return {**options, 'channels': channel_ids, 'labels': labels}
 
 
+def _split_search_terms(raw: str | None) -> list[str]:
+    """Split a search box on commas/semicolons into lower-cased terms.
+
+    Not on spaces: customer names and addresses contain them, and a single term
+    must keep behaving exactly as before (e.g. ΤΣΥΠΚ26004958)."""
+    return [t.strip().lower() for t in re.split(r'[,;]+', str(raw or '')) if t.strip()]
+
+
 async def sales_documents_overview(
     db: AsyncSession,
     date_from: date,
@@ -4512,12 +4520,37 @@ async def sales_documents_overview(
         )
 
     series_clean = str(series or '').strip().lower()
-    if series_clean:
-        base = base.where(
-            func.lower(cast(func.coalesce(FactSales.document_series, FactSales.document_type, literal('')), String)).like(
-                f'%{series_clean}%'
-            )
+    #  Search by SoftOne SERIES.SERIES: a purely numeric term that is an actual series
+    #  in the period (e.g. 3218) matches that series exactly; several can be given
+    #  comma-separated (3218,5218,4218). Anything else keeps the old «contains»
+    #  behaviour, so document numbers, e-shop codes and customers search as before.
+    series_terms = _split_search_terms(series)
+    q_terms = _split_search_terms(q)
+    numeric_terms = sorted({t for t in series_terms + q_terms if t.isdigit()})
+    known_series: set[str] = set()
+    if numeric_terms:
+        known_series = {
+            str(r[0]).strip().lower()
+            for r in (
+                await db.execute(
+                    select(FactSales.document_series)
+                    .where(FactSales.doc_date >= date_from, FactSales.doc_date <= date_to)
+                    .where(FactSales.document_series.in_(numeric_terms))
+                    .distinct()
+                )
+            ).all()
+            if r[0] is not None
+        }
+    series_text_expr = func.lower(cast(func.coalesce(FactSales.document_series, FactSales.document_type, literal('')), String))
+    series_predicate = None
+    if series_terms:
+        series_predicate = or_(
+            *[
+                (FactSales.document_series == t) if t in known_series else series_text_expr.like(f'%{t}%')
+                for t in series_terms
+            ]
         )
+        base = base.where(series_predicate)
 
     document_no_clean = str(document_no or '').strip().lower()
     if document_no_clean:
@@ -4557,22 +4590,26 @@ async def sales_documents_overview(
 
     q_clean = str(q or '').strip().lower()
     if q_clean:
-        like = f'%{q_clean}%'
-        base = base.where(
-            func.lower(cast(func.coalesce(FactSales.document_no, FactSales.document_id, FactSales.external_id), String)).like(
-                like
+
+        def _q_term_predicate(term: str):
+            if term in known_series:
+                return FactSales.document_series == term
+            like = f'%{term}%'
+            return (
+                func.lower(cast(func.coalesce(FactSales.document_no, FactSales.document_id, FactSales.external_id), String)).like(
+                    like
+                )
+                | func.lower(cast(func.coalesce(FactSales.customer_name, FactSales.customer_code, literal('')), String)).like(
+                    like
+                )
+                | func.lower(cast(func.coalesce(FactSales.eshop_code, literal('')), String)).like(like)
+                | series_text_expr.like(like)
+                | func.lower(cast(func.coalesce(FactSales.delivery_address, literal('')), String)).like(like)
+                | func.lower(cast(func.coalesce(FactSales.delivery_city, literal('')), String)).like(like)
+                | func.lower(cast(func.coalesce(FactSales.notes, FactSales.notes_2, literal('')), String)).like(like)
             )
-            | func.lower(cast(func.coalesce(FactSales.customer_name, FactSales.customer_code, literal('')), String)).like(
-                like
-            )
-            | func.lower(cast(func.coalesce(FactSales.eshop_code, literal('')), String)).like(like)
-            | func.lower(cast(func.coalesce(FactSales.document_series, FactSales.document_type, literal('')), String)).like(
-                like
-            )
-            | func.lower(cast(func.coalesce(FactSales.delivery_address, literal('')), String)).like(like)
-            | func.lower(cast(func.coalesce(FactSales.delivery_city, literal('')), String)).like(like)
-            | func.lower(cast(func.coalesce(FactSales.notes, FactSales.notes_2, literal('')), String)).like(like)
-        )
+
+        base = base.where(or_(*[_q_term_predicate(t) for t in (q_terms or [q_clean])]))
 
     page_limit = max(1, min(int(limit), 500))
     page_offset = max(0, int(offset))
@@ -4623,12 +4660,8 @@ async def sales_documents_overview(
             candidate = candidate.where(
                 func.lower(cast(func.coalesce(FactSales.document_status, literal('')), String)).like(f'%{status_clean}%')
             )
-        if series_clean:
-            candidate = candidate.where(
-                func.lower(cast(func.coalesce(FactSales.document_series, FactSales.document_type, literal('')), String)).like(
-                    f'%{series_clean}%'
-                )
-            )
+        if series_predicate is not None:
+            candidate = candidate.where(series_predicate)
         if document_no_clean:
             candidate = candidate.where(
                 func.lower(cast(func.coalesce(FactSales.document_no, FactSales.document_id, FactSales.external_id), String)).like(
@@ -4698,12 +4731,8 @@ async def sales_documents_overview(
             count_stmt = count_stmt.where(
                 func.lower(cast(func.coalesce(FactSales.document_status, literal('')), String)).like(f'%{status_clean}%')
             )
-        if series_clean:
-            count_stmt = count_stmt.where(
-                func.lower(cast(func.coalesce(FactSales.document_series, FactSales.document_type, literal('')), String)).like(
-                    f'%{series_clean}%'
-                )
-            )
+        if series_predicate is not None:
+            count_stmt = count_stmt.where(series_predicate)
         if document_no_clean:
             count_stmt = count_stmt.where(
                 func.lower(cast(func.coalesce(FactSales.document_no, FactSales.document_id, FactSales.external_id), String)).like(
