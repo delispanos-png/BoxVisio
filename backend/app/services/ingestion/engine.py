@@ -6,7 +6,7 @@ import logging
 from datetime import date as date_cls, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import func, select, text, tuple_
+from sqlalchemy import case, func, select, text, tuple_
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -1686,9 +1686,22 @@ async def _mark_staging_row_failed(
 
 def _upsert_dim_stmt(model, external_id: str, name: str):
     ins = insert(model).values(external_id=external_id, name=name)
+    #  Callers fall back to the bare code when a row carries no name
+    #  (`get('brand_name') or brand`). Never let that fallback overwrite a real name:
+    #  pharmacy295's brands are defined only in SoftOne company 1001, so every line
+    #  from company 3000 (the Logika e-shop) joined MTRMARK to nothing and renamed
+    #  LAMBERTS to "2872" until the next item_master pass put it back -- 693 brands
+    #  flip-flopping between name and number in the Report Builder. A blank or
+    #  code-only incoming name keeps whatever is stored; a real name still wins.
+    incoming_is_fallback = (func.coalesce(func.trim(ins.excluded.name), '') == '') | (
+        ins.excluded.name == ins.excluded.external_id
+    )
     return ins.on_conflict_do_update(
         index_elements=['external_id'],
-        set_={'updated_at': datetime.utcnow(), 'name': ins.excluded.name},
+        set_={
+            'updated_at': datetime.utcnow(),
+            'name': case((incoming_is_fallback, model.name), else_=ins.excluded.name),
+        },
     )
 
 
