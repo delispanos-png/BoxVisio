@@ -12989,8 +12989,10 @@ async def sales_pivot(
             label_expr.label('label'),
             _windowed(net, in_a).label('turnover_a'),
             _windowed(profit, in_a).label('profit_a'),
+            _windowed(qty, in_a).label('qty_a'),
             _windowed(net, in_b).label('turnover_b'),
             _windowed(profit, in_b).label('profit_b'),
+            _windowed(qty, in_b).label('qty_b'),
         ).select_from(FactSales)
     else:
         stmt = select(
@@ -13084,7 +13086,8 @@ async def sales_pivot(
 
     rows: list[dict] = []
     if mode == 'comparison':
-        tot = {'turnover_a': 0.0, 'cost_a': 0.0, 'profit_a': 0.0, 'turnover_b': 0.0, 'cost_b': 0.0, 'profit_b': 0.0}
+        tot = {'turnover_a': 0.0, 'cost_a': 0.0, 'profit_a': 0.0, 'qty_a': 0.0,
+               'turnover_b': 0.0, 'cost_b': 0.0, 'profit_b': 0.0, 'qty_b': 0.0}
         def _pct(cur, base):
             # No % change is definable from a zero baseline (item had no sales in period B);
             # return None so the UI shows nothing instead of a misleading +100%.
@@ -13093,15 +13096,17 @@ async def sales_pivot(
             ta, pa = float(r['turnover_a'] or 0), float(r['profit_a'] or 0)
             tb, pb = float(r['turnover_b'] or 0), float(r['profit_b'] or 0)
             ca, cb = ta - pa, tb - pb
+            qa, qb = float(r['qty_a'] or 0), float(r['qty_b'] or 0)
             row = {'label': str(r['label'] or '—'),
-                   'turnover_a': ta, 'cost_a': ca, 'profit_a': pa,
-                   'turnover_b': tb, 'cost_b': cb, 'profit_b': pb,
+                   'turnover_a': ta, 'cost_a': ca, 'profit_a': pa, 'qty_a': qa,
+                   'turnover_b': tb, 'cost_b': cb, 'profit_b': pb, 'qty_b': qb,
+                   'd_qty_a': _pct(qa, qb), 'd_qty_b': _pct(qb, qa),
                    # Per-metric Δ%: each A metric vs its B counterpart, and each B metric vs A.
                    'delta_pct': _pct(ta, tb),
                    'd_turnover_a': _pct(ta, tb), 'd_cost_a': _pct(ca, cb), 'd_profit_a': _pct(pa, pb),
                    'd_turnover_b': _pct(tb, ta), 'd_cost_b': _pct(cb, ca), 'd_profit_b': _pct(pb, pa)}
             rows.append(row)
-            for k in ('turnover_a', 'cost_a', 'profit_a', 'turnover_b', 'cost_b', 'profit_b'):
+            for k in ('turnover_a', 'cost_a', 'profit_a', 'qty_a', 'turnover_b', 'cost_b', 'profit_b', 'qty_b'):
                 tot[k] += row[k]
         tot['count'] = len(rows)
         tot['delta_pct'] = _pct(tot['turnover_a'], tot['turnover_b'])
@@ -13111,6 +13116,8 @@ async def sales_pivot(
         tot['d_turnover_b'] = _pct(tot['turnover_b'], tot['turnover_a'])
         tot['d_cost_b'] = _pct(tot['cost_b'], tot['cost_a'])
         tot['d_profit_b'] = _pct(tot['profit_b'], tot['profit_a'])
+        tot['d_qty_a'] = _pct(tot['qty_a'], tot['qty_b'])
+        tot['d_qty_b'] = _pct(tot['qty_b'], tot['qty_a'])
         totals = tot
     else:
         total_net = sum(float(r['net_value'] or 0) for r in raw)

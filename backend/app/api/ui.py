@@ -16362,10 +16362,12 @@ async def _render_exports_download(
                 keys = ['net_a', 'qty_a', 'net_b', 'qty_b', 'd_net_a', 'd_qty_a']
                 _delta_keys = {'d_net_a', 'd_qty_a'}
             else:
-                headers = [dim_label, 'Τζίρος Α', 'Κόστος Α', 'Κέρδος Α', 'Τζίρος Β', 'Κόστος Β', 'Κέρδος Β', 'Δ% Τζίρου', 'Δ% Κόστους', 'Δ% Κέρδους']
-                widths = [26, 15, 15, 15, 15, 15, 15, 12, 12, 12]
-                keys = ['turnover_a', 'cost_a', 'profit_a', 'turnover_b', 'cost_b', 'profit_b', 'd_turnover_a', 'd_cost_a', 'd_profit_a']
-                _delta_keys = {'d_turnover_a', 'd_cost_a', 'd_profit_a'}
+                headers = [dim_label, 'Τζίρος Α', 'Κόστος Α', 'Κέρδος Α', 'Τεμ. Α', 'Τζίρος Β', 'Κόστος Β', 'Κέρδος Β', 'Τεμ. Β',
+                           'Δ% Τζίρου', 'Δ% Κόστους', 'Δ% Κέρδους', 'Δ% Τεμ.']
+                widths = [26, 15, 15, 15, 12, 15, 15, 15, 12, 12, 12, 12, 12]
+                keys = ['turnover_a', 'cost_a', 'profit_a', 'qty_a', 'turnover_b', 'cost_b', 'profit_b', 'qty_b',
+                        'd_turnover_a', 'd_cost_a', 'd_profit_a', 'd_qty_a']
+                _delta_keys = {'d_turnover_a', 'd_cost_a', 'd_profit_a', 'd_qty_a'}
 
             def _cmp_cell(src, k):
                 v = src.get(k)

@@ -388,8 +388,8 @@
         <thead>
           <tr>
             <th>{{ pivot_group_label }}</th>
-            <th class="exp-num">Τζίρος Α</th><th class="exp-num">Κόστος Α</th><th class="exp-num">Κέρδος Α</th>
-            <th class="exp-num">Τζίρος Β</th><th class="exp-num">Κόστος Β</th><th class="exp-num">Κέρδος Β</th>
+            <th class="exp-num">Τζίρος Α</th><th class="exp-num">Κόστος Α</th><th class="exp-num">Κέρδος Α</th><th class="exp-num">Τεμ. Α</th>
+            <th class="exp-num">Τζίρος Β</th><th class="exp-num">Κόστος Β</th><th class="exp-num">Κέρδος Β</th><th class="exp-num">Τεμ. Β</th>
           </tr>
         </thead>
         <tbody>
@@ -399,7 +399,8 @@
             <td class="exp-num" style="white-space:nowrap">{{ money(r.turnover_a) }}{{ deltaspan(r.d_turnover_a) }}</td>
             <td class="exp-num" style="white-space:nowrap">{{ money(r.cost_a) }}{{ deltaspan(r.d_cost_a) }}</td>
             <td class="exp-num" style="white-space:nowrap">{{ money(r.profit_a) }}{{ deltaspan(r.d_profit_a) }}</td>
-            <td class="exp-num">{{ money(r.turnover_b) }}</td><td class="exp-num">{{ money(r.cost_b) }}</td><td class="exp-num">{{ money(r.profit_b) }}</td>
+            <td class="exp-num" style="white-space:nowrap">{{ fmt(r.qty_a, 'int') }}{{ deltaspan(r.d_qty_a) }}</td>
+            <td class="exp-num">{{ money(r.turnover_b) }}</td><td class="exp-num">{{ money(r.cost_b) }}</td><td class="exp-num">{{ money(r.profit_b) }}</td><td class="exp-num">{{ fmt(r.qty_b, 'int') }}</td>
           </tr>
           {% endfor %}
         </tbody>
@@ -409,7 +410,8 @@
             <td class="exp-num" style="white-space:nowrap">{{ money(totals.turnover_a) }}{{ deltaspan(totals.d_turnover_a) }}</td>
             <td class="exp-num" style="white-space:nowrap">{{ money(totals.cost_a) }}{{ deltaspan(totals.d_cost_a) }}</td>
             <td class="exp-num" style="white-space:nowrap">{{ money(totals.profit_a) }}{{ deltaspan(totals.d_profit_a) }}</td>
-            <td class="exp-num">{{ money(totals.turnover_b) }}</td><td class="exp-num">{{ money(totals.cost_b) }}</td><td class="exp-num">{{ money(totals.profit_b) }}</td>
+            <td class="exp-num" style="white-space:nowrap">{{ fmt(totals.qty_a, 'int') }}{{ deltaspan(totals.d_qty_a) }}</td>
+            <td class="exp-num">{{ money(totals.turnover_b) }}</td><td class="exp-num">{{ money(totals.cost_b) }}</td><td class="exp-num">{{ money(totals.profit_b) }}</td><td class="exp-num">{{ fmt(totals.qty_b, 'int') }}</td>
           </tr>
         </tfoot>
         {% else %}
