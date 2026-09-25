@@ -5178,11 +5178,108 @@ async def _refresh_expenses_aggregates(
     )
 
 
+# Balance rows computed from SoftOne's trader ledger carry their own id prefix
+# (querypack SB2|/CB2|, SoftOne bridge SUPBAL2|/CUSBAL2|). The feeds before them
+# summed every document since 2016 with no opening balance, so once a tenant has
+# ledger rows the older ones are left out of the aggregates entirely.
+_LEDGER_BALANCE_PREFIXES = {
+    'fact_supplier_balances': ('SB2|', 'SUPBAL2|'),
+    'fact_customer_balances': ('CB2|', 'CUSBAL2|'),
+}
+
+
+def _ledger_balance_predicate(table: str, alias: str) -> str:
+    return '(' + ' OR '.join(f"{alias}.external_id LIKE '{p}%'" for p in _LEDGER_BALANCE_PREFIXES[table]) + ')'
+
+
+async def _has_ledger_balances(tenant_db, table: str) -> bool:
+    row = (await tenant_db.execute(text(
+        f'SELECT 1 FROM {table} x WHERE {_ledger_balance_predicate(table, "x")} LIMIT 1'
+    ))).first()
+    return row is not None
+
+
+async def _refresh_ledger_balances_aggregates(
+    tenant_db,
+    *,
+    kind: str,
+    from_date: date,
+    to_date: date,
+) -> None:
+    """Materialise a full snapshot per day from incremental ledger rows.
+
+    The ledger stream only re-sends the traders whose documents changed, so a
+    day's fact rows are a delta. Every reader of the aggregate treats a day as a
+    complete snapshot (payables pin to the latest date), so each day here carries
+    forward every trader's latest balance up to that day; traders at zero drop out.
+    """
+    fact = f'fact_{kind}_balances'
+    agg = f'agg_{kind}_balances_daily'
+    key = f'{kind}_ext_id'
+    count_col = f'{kind}s'
+    await tenant_db.execute(
+        text(
+            f"""
+            INSERT INTO {agg} (
+                balance_date, {key}, branch_ext_id,
+                open_balance, overdue_balance,
+                aging_bucket_0_30, aging_bucket_31_60, aging_bucket_61_90, aging_bucket_90_plus,
+                trend_vs_previous, {count_col}, updated_at, created_at
+            )
+            SELECT
+                d.balance_date, l.{key}, l.branch_ext_id,
+                l.open_balance, l.overdue_balance,
+                l.aging_bucket_0_30, l.aging_bucket_31_60, l.aging_bucket_61_90, l.aging_bucket_90_plus,
+                0, 1, NOW(), NOW()
+            FROM (
+                SELECT CAST(g AS date) AS balance_date
+                FROM generate_series(CAST(:from_date AS date), CAST(:to_date AS date), interval '1 day') g
+            ) d
+            CROSS JOIN LATERAL (
+                SELECT DISTINCT ON (f.{key}, f.branch_ext_id)
+                    f.{key}, f.branch_ext_id,
+                    COALESCE(f.open_balance, 0) AS open_balance,
+                    COALESCE(f.overdue_balance, 0) AS overdue_balance,
+                    COALESCE(f.aging_bucket_0_30, 0) AS aging_bucket_0_30,
+                    COALESCE(f.aging_bucket_31_60, 0) AS aging_bucket_31_60,
+                    COALESCE(f.aging_bucket_61_90, 0) AS aging_bucket_61_90,
+                    COALESCE(f.aging_bucket_90_plus, 0) AS aging_bucket_90_plus
+                FROM {fact} f
+                WHERE f.balance_date <= d.balance_date
+                  AND f.{key} IS NOT NULL
+                  AND {_ledger_balance_predicate(fact, 'f')}
+                  AND ABS(COALESCE(f.open_balance, 0)) < :max_sane_balance
+                ORDER BY f.{key}, f.branch_ext_id, f.balance_date DESC, f.updated_at DESC
+            ) l
+            WHERE l.open_balance <> 0
+            ON CONFLICT (balance_date, {key}, branch_ext_id) DO UPDATE
+            SET
+                open_balance = EXCLUDED.open_balance,
+                overdue_balance = EXCLUDED.overdue_balance,
+                aging_bucket_0_30 = EXCLUDED.aging_bucket_0_30,
+                aging_bucket_31_60 = EXCLUDED.aging_bucket_31_60,
+                aging_bucket_61_90 = EXCLUDED.aging_bucket_61_90,
+                aging_bucket_90_plus = EXCLUDED.aging_bucket_90_plus,
+                trend_vs_previous = EXCLUDED.trend_vs_previous,
+                {count_col} = EXCLUDED.{count_col},
+                updated_at = NOW()
+            """
+        ),
+        {'from_date': from_date, 'to_date': to_date, 'max_sane_balance': 100_000_000},
+    )
+    await _delete_stale_aggregate_rows(
+        tenant_db, table=agg, date_column='balance_date', from_date=from_date, to_date=to_date,
+    )
+
+
 async def _refresh_supplier_balances_aggregates(
     tenant_db,
     from_date: date,
     to_date: date,
 ) -> None:
+    if await _has_ledger_balances(tenant_db, 'fact_supplier_balances'):
+        await _refresh_ledger_balances_aggregates(tenant_db, kind='supplier', from_date=from_date, to_date=to_date)
+        return
     await tenant_db.execute(
         text(
             """
@@ -5251,6 +5348,9 @@ async def _refresh_customer_balances_aggregates(
     from_date: date,
     to_date: date,
 ) -> None:
+    if await _has_ledger_balances(tenant_db, 'fact_customer_balances'):
+        await _refresh_ledger_balances_aggregates(tenant_db, kind='customer', from_date=from_date, to_date=to_date)
+        return
     await tenant_db.execute(
         text(
             """

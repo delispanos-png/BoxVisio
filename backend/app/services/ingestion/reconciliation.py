@@ -138,10 +138,14 @@ def _num(value: Any) -> float:
     return float(value)
 
 
-def _company_id(conn: TenantConnection) -> int:
+def _company_id(conn: TenantConnection) -> int | None:
+    # Same resolution as the sync (pharmacyone_connector): no configured company means
+    # every company. Defaulting to 1001 here compared a 1001-only SoftOne count with a
+    # BI that also holds company 3000 (pharmacy295's e-shop) and raised false alarms.
     params = conn.connection_parameters if isinstance(conn.connection_parameters, dict) else {}
     auth = params.get('auth_config') if isinstance(params.get('auth_config'), dict) else {}
-    return int(params.get('company_id') or params.get('company') or auth.get('company') or auth.get('COMPANY') or 1001)
+    company = params.get('company_id') or params.get('company') or auth.get('company') or auth.get('COMPANY')
+    return int(company) if company else None
 
 
 def _templates(conn: TenantConnection) -> dict[str, str]:
@@ -187,7 +191,7 @@ ORDER BY bucket
 """
 
 
-def _bind(sql: str, *, from_date: date, to_date: date, company_id: int) -> tuple[str, list[Any]]:
+def _bind(sql: str, *, from_date: date, to_date: date, company_id: int | None) -> tuple[str, list[Any]]:
     return _bind_template_params(
         sql,
         from_date=datetime.combine(from_date, time.min),

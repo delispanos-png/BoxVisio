@@ -1850,6 +1850,25 @@ def _sales_customer_key_expr():
     return func.coalesce(customer_code, customer_name, cast(FactSales.external_id, String))
 
 
+# Balance rows computed from SoftOne's trader ledger carry their own id prefix
+# (querypack SB2|/CB2|, SoftOne bridge SUPBAL2|/CUSBAL2|). The feeds before them
+# summed every document since 2016 with no opening balance, so once a tenant has
+# ledger rows the older ones are ignored instead of being added to them. The same
+# rule builds the balance aggregates (worker.tasks._LEDGER_BALANCE_PREFIXES).
+_LEDGER_BALANCE_PREFIXES = {'supplier': ('SB2|', 'SUPBAL2|'), 'customer': ('CB2|', 'CUSBAL2|')}
+
+
+async def _ledger_balance_filter(db: AsyncSession, kind: str):
+    """Predicate limiting fact balance rows to ledger rows, or None when the tenant has none yet."""
+    cache = db.info.setdefault('ledger_balance_filter', {})
+    if kind not in cache:
+        model = FactSupplierBalance if kind == 'supplier' else FactCustomerBalance
+        predicate = or_(*[model.external_id.like(f'{prefix}%') for prefix in _LEDGER_BALANCE_PREFIXES[kind]])
+        has_ledger = (await db.execute(select(literal(1)).select_from(model).where(predicate).limit(1))).first() is not None
+        cache[kind] = predicate if has_ledger else None
+    return cache[kind]
+
+
 def _customer_balance_key_expr():
     customer_ext = func.nullif(func.btrim(cast(func.coalesce(FactCustomerBalance.customer_ext_id, literal('')), String)), '')
     customer_name = func.nullif(func.btrim(cast(func.coalesce(FactCustomerBalance.customer_name, literal('')), String)), '')
@@ -2154,6 +2173,9 @@ async def _latest_customer_balances_map(
     branches = _effective_branch_filter(branches)
     if branches is not None:
         snapshots_stmt = snapshots_stmt.where(FactCustomerBalance.branch_ext_id.in_(branches))
+    ledger_filter = await _ledger_balance_filter(db, 'customer')
+    if ledger_filter is not None:
+        snapshots_stmt = snapshots_stmt.where(ledger_filter)
     if customer_ids:
         snapshots_stmt = snapshots_stmt.where(key_expr.in_(customer_ids))
 
@@ -9844,6 +9866,9 @@ async def _supplier_balance_afm_map(
     branches = _effective_branch_filter(branches)
     if branches is not None:
         stmt = stmt.where(FactSupplierBalance.branch_ext_id.in_(branches))
+    ledger_filter = await _ledger_balance_filter(db, 'supplier')
+    if ledger_filter is not None:
+        stmt = stmt.where(ledger_filter)
     rows = (await db.execute(stmt)).all()
     return {str(supplier_id or '').strip(): str(afm or '').strip() for supplier_id, afm in rows if str(supplier_id or '').strip()}
 
@@ -11631,6 +11656,9 @@ async def suppliers_overview(
         branches = _effective_branch_filter(branches)
         if branches is not None:
             balances_by_day = balances_by_day.where(FactSupplierBalance.branch_ext_id.in_(branches))
+        ledger_filter = await _ledger_balance_filter(db, 'supplier')
+        if ledger_filter is not None:
+            balances_by_day = balances_by_day.where(ledger_filter)
         balances_by_day = balances_by_day.group_by(balance_supplier_key, FactSupplierBalance.balance_date).subquery(
             'supplier_balances_by_day'
         )
@@ -12059,6 +12087,9 @@ async def receivables_collection_trend(
         branches = _effective_branch_filter(branches)
         if branches is not None:
             stmt = stmt.where(FactCustomerBalance.branch_ext_id.in_(branches))
+        ledger_filter = await _ledger_balance_filter(db, 'customer')
+        if ledger_filter is not None:
+            stmt = stmt.where(ledger_filter)
 
     rows = (await db.execute(stmt)).mappings().all()
     out_rows = []

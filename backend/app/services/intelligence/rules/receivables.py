@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from sqlalchemy import String, cast, func, literal, select
+from sqlalchemy import String, cast, func, literal, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import over
 
@@ -33,6 +33,9 @@ def _customer_key_expr():
 
 async def _latest_customer_balance_snapshots(db: AsyncSession, *, as_of: date) -> list[dict[str, object]]:
     key_expr = _customer_key_expr()
+    from app.services.kpi_queries import _ledger_balance_filter  # lazy: kpi_queries imports intelligence
+
+    ledger_filter = await _ledger_balance_filter(db, 'customer')
     by_day = (
         select(
             key_expr.label('customer_id'),
@@ -45,6 +48,7 @@ async def _latest_customer_balance_snapshots(db: AsyncSession, *, as_of: date) -
         )
         .select_from(FactCustomerBalance)
         .where(FactCustomerBalance.balance_date <= as_of)
+        .where(ledger_filter if ledger_filter is not None else true())
         .group_by(key_expr, FactCustomerBalance.balance_date)
     ).subquery('customer_balances_by_day')
 

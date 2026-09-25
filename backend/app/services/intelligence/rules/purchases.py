@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import timedelta
 from statistics import mean, pstdev
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.tenant import AggPurchasesDaily, AggSalesDaily, DimSupplier, FactSupplierBalance
@@ -328,6 +328,9 @@ async def run_supplier_overdue_exposure(db: AsyncSession, params: dict, ctx: Rul
     overdue_ratio_threshold = float(params.get('overdue_ratio_threshold', 0.35))
     min_overdue_delta = float(params.get('min_overdue_delta', 200))
 
+    from app.services.kpi_queries import _ledger_balance_filter  # lazy: kpi_queries imports intelligence
+
+    ledger_filter = await _ledger_balance_filter(db, 'supplier')
     rows = (
         await db.execute(
             select(
@@ -337,6 +340,7 @@ async def run_supplier_overdue_exposure(db: AsyncSession, params: dict, ctx: Rul
                 func.coalesce(func.sum(FactSupplierBalance.overdue_balance), 0).label('overdue_balance'),
             )
             .where(FactSupplierBalance.balance_date <= ctx.period_to)
+            .where(ledger_filter if ledger_filter is not None else true())
             .group_by(FactSupplierBalance.supplier_ext_id, FactSupplierBalance.balance_date)
             .order_by(FactSupplierBalance.supplier_ext_id.asc(), FactSupplierBalance.balance_date.desc())
         )
