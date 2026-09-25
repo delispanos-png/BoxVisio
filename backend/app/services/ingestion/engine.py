@@ -3142,11 +3142,24 @@ async def _process_job_once(job: dict[str, Any]) -> dict[str, Any]:
         and isinstance(initial_last_ts, datetime)
         and not bool(payload.get('disable_cursor_overlap'))
     ):
+        #  The tenant's own overlap (admin «auto-sync» settings, saved per stream and as a
+        #  default) was stored but never read, so every tenant re-read only the global 5
+        #  minutes. A document whose lines commit a moment after its header is skipped once
+        #  (NOLOCK sees the header without lines) and, once the cursor moves past its
+        #  UPDDATE, never again -- pharmacy295 lost a 6,413 EUR invoice exactly that way.
+        _conn_params = context.connection_parameters if isinstance(getattr(context, 'connection_parameters', None), dict) else {}
+        _stream_over = (_conn_params.get('stream_sync_overrides') or {}).get(stream) if isinstance(_conn_params.get('stream_sync_overrides'), dict) else None
+        _tenant_overlap = (
+            (_stream_over or {}).get('overlap_minutes') if isinstance(_stream_over, dict) else None
+        )
+        if _tenant_overlap in (None, ''):
+            _tenant_overlap = _conn_params.get('sync_overlap_minutes')
         try:
             cursor_overlap_minutes = max(
                 0,
                 int(
                     payload.get('cursor_overlap_minutes')
+                    or _tenant_overlap
                     or getattr(settings, 'incremental_sync_overlap_minutes', 5)
                     or 0
                 ),
