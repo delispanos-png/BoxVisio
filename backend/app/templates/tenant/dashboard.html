@@ -720,7 +720,7 @@
   <div class="card-header d-flex align-items-center justify-content-between gap-2">
     <div>
       <h5 class="mb-0 fw-bold">Τζίρος Εταιρείας / Έτος</h5>
-      <div class="text-muted small mt-1">Μηνιαία εξέλιξη τρέχοντος και προηγούμενου έτους (Καθαρή αξία χωρίς ΦΠΑ)</div>
+      <div class="text-muted small mt-1">Μηνιαία εξέλιξη τρέχοντος και προηγούμενου έτους (Καθαρή αξία χωρίς ΦΠΑ). Ο μήνας σε εξέλιξη φαίνεται διακεκομμένος και συγκρίνεται με τις ίδιες μέρες πέρσι (◇).</div>
     </div>
   </div>
   <div class="card-body"><canvas id="companyTrendChart" height="110"></canvas></div>
@@ -1430,9 +1430,18 @@ function renderMonthlyBranchPerformance(rows, prevRows, anchors){
   }).join('');
 }
 
-function renderTrend(monthly){
+function renderTrend(monthly, currentMonth){
   const labels=['Ιαν', 'Φεβ', 'Μαρ', 'Απρ', 'Μαϊ', 'Ιουν', 'Ιουλ', 'Αυγ', 'Σεπ', 'Οκτ', 'Νοε', 'Δεκ'];
   const datasets = [];
+  const cm = currentMonth || {};
+  // The running month is a partial total (e.g. 01-25/09). Plotted as-is next to last
+  // year's WHOLE month it reads as a drop even when the same days are up, so mark it
+  // as partial and show last year's same-days value beside it.
+  const partialIdx = cm.is_partial && cm.month_start ? new Date(cm.month_start).getMonth() : null;
+  const partialYear = cm.month_start ? Number(String(cm.month_start).slice(0, 4)) : null;
+  const asOfLabel = cm.as_of ? formatDMY(cm.as_of).slice(0, 5) : '';
+  const prevSameDays = partialIdx !== null ? toNum(cm.prev_year_same_days) : null;
+  let partialCurrentValue = null;
   (monthly||[]).forEach((entry, idx) => {
     // Keep missing months as null so the chart does not draw false zero values.
     const values = new Array(12).fill(null);
@@ -1443,26 +1452,87 @@ function renderTrend(monthly){
         values[monthIdx] = toNum(row.net_value);
       }
     });
+    // A year with no data at all (e.g. before the tenant's history starts) only
+    // adds an empty legend entry -- leave it out.
+    if (values.every((v) => v === null)) return;
     const style = [
       { border: '#eab308', fill: 'rgba(234,179,8,.12)' },
       { border: '#ef4444', fill: 'rgba(239,68,68,.10)' },
       { border: '#16a34a', fill: 'rgba(22,163,74,.10)' }
     ][idx] || { border: '#1d4ed8', fill: 'rgba(29,78,216,.10)' };
+    const isPartialYear = partialIdx !== null && Number(entry.year) === partialYear;
+    if (isPartialYear) partialCurrentValue = values[partialIdx];
     datasets.push({
       label: String(entry.year),
       data: values,
       borderColor: style.border,
-      backgroundColor: style.fill,
-      tension: .32,
-      pointRadius: 3,
-      fill: false
+      backgroundColor: isPartialYear
+        ? values.map((_, i) => (i === partialIdx ? '#ffffff' : style.border))
+        : style.border,
+      // monotone keeps the curve between the real points; a free spline overshoots
+      // and dips below values that were never there.
+      cubicInterpolationMode: 'monotone',
+      pointRadius: isPartialYear ? values.map((_, i) => (i === partialIdx ? 5 : 3)) : 3,
+      pointBorderWidth: isPartialYear ? values.map((_, i) => (i === partialIdx ? 2 : 1)) : 1,
+      segment: isPartialYear ? { borderDash: (ctx) => (ctx.p1DataIndex === partialIdx ? [6, 4] : undefined) } : undefined,
+      fill: false,
+      _partialIdx: isPartialYear ? partialIdx : null,
     });
   });
+  if (partialIdx !== null && prevSameDays !== null && prevSameDays > 0) {
+    const pts = new Array(12).fill(null);
+    pts[partialIdx] = prevSameDays;
+    datasets.push({
+      label: `${cm.prev_year || ''} ίδιες μέρες`,
+      data: pts,
+      showLine: false,
+      borderColor: '#ef4444',
+      backgroundColor: 'rgba(239,68,68,.18)',
+      pointStyle: 'rectRot',
+      pointRadius: 9,
+      pointHoverRadius: 10,
+      pointBorderWidth: 2,
+      // Drawn behind the running-month point: when the two values are close the
+      // larger diamond still shows around it instead of vanishing underneath.
+      order: 10,
+      _sameDays: true,
+    });
+  }
   if(companyTrendChart) companyTrendChart.destroy();
   companyTrendChart = new Chart(document.getElementById('companyTrendChart'), {
     type:'line',
     data:{labels, datasets},
-    options:{responsive:true, maintainAspectRatio:true, aspectRatio:2.8}
+    options:{
+      responsive:true, maintainAspectRatio:true, aspectRatio:2.8,
+      interaction: { mode: 'index', intersect: false },
+      scales: {
+        // Start at zero: a floor near the data turns a few percent into a cliff.
+        y: { beginAtZero: true, ticks: { callback: (v) => `${fmt0.format(Math.round(v / 1000))}k` } },
+      },
+      plugins: {
+        tooltip: {
+          callbacks: {
+            label: (ctx) => {
+              const v = ctx.parsed.y;
+              if (v === null || v === undefined) return null;
+              const ds = ctx.dataset || {};
+              if (ds._sameDays) return ` ${ds.label} (01-${asOfLabel}): ${money(v)}`;
+              if (ds._partialIdx !== null && ds._partialIdx !== undefined && ctx.dataIndex === ds._partialIdx) {
+                return ` ${ds.label} έως ${asOfLabel} (μήνας σε εξέλιξη): ${money(v)}`;
+              }
+              return ` ${ds.label}: ${money(v)}`;
+            },
+            afterBody: (items) => {
+              if (partialIdx === null || !items.length || items[0].dataIndex !== partialIdx) return '';
+              if (partialCurrentValue === null || !(prevSameDays > 0)) return '';
+              const diff = partialCurrentValue - prevSameDays;
+              const pctv = (diff / prevSameDays) * 100;
+              return `\nΊδιες μέρες: ${diff >= 0 ? '+' : ''}${money(diff)} (${pctv >= 0 ? '+' : ''}${fmt2.format(pctv)}%)`;
+            },
+          },
+        },
+      },
+    }
   });
 }
 
@@ -2450,7 +2520,7 @@ async function reloadCentralDashboard(e){
       { year: prev2Year, rows: trendY2 || [] },
       { year: prev1Year, rows: trendY1 || [] },
       { year: currentYear, rows: trendY0 || [] }
-    ]);
+    ], trend?.current_month);
     fillTable('tblDayByBranch', dayByBranch, false);
     fillTable('tblMonthByBranch', monthByBranch, false);
     fillTable('tblYearByBranch', yearByBranch, true);

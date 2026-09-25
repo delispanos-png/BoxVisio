@@ -98,11 +98,17 @@ CIRCUITS: tuple[dict[str, Any], ...] = (
                 'Κάρτες KPI για ημέρα, εβδομάδα, μήνα και έτος, με σύγκριση προηγούμενου έτους.',
                 'Συνολική εικόνα εταιρείας: πωλήσεις, αγορές, μικτό κέρδος και περιθώριο περιόδου.',
                 'Δείκτες υποκαταστημάτων: ενεργά σημεία και συγκέντρωση κορυφαίου καταστήματος.',
+                'Γράφημα «Τζίρος Εταιρείας / Έτος»: ο μήνας σε εξέλιξη φαίνεται διακεκομμένος, γιατί δεν έχει '
+                'κλείσει. Συγκρίνε τον με τον ρόμβο «ίδιες μέρες» του προηγούμενου έτους, όχι με ολόκληρο τον '
+                'περσινό μήνα. Στο tooltip φαίνεται η διαφορά σε € και %.',
             ],
             [
                 'KPI cards for day, week, month and year, each with a previous-year comparison.',
                 'Company overview: period sales, purchases, gross profit and margin.',
                 'Branch indicators: active sites and top-branch concentration.',
+                'Company turnover / year chart: the running month is drawn dashed because it is not closed yet. '
+                'Compare it with last year\'s same-days diamond, not with last year\'s whole month; the tooltip '
+                'shows the difference in € and %.',
             ],
         ),
         'popups': _tl(

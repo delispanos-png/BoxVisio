@@ -14263,6 +14263,22 @@ async def executive_dashboard_summary(
     trend_y1 = trend_by_year[prev1_year]
     trend_y2 = trend_by_year[prev2_year]
 
+    # The chart plots whole-month totals, so the running month (e.g. 01-24/09) sat
+    # next to the whole of last year's September and read as a ~90k drop that was
+    # really a gain on a same-days basis. Hand the chart last year's value for the
+    # SAME days, from the same company-wide aggregate its lines come from.
+    _next_month = (date(anchor_date.year, anchor_date.month, 28) + timedelta(days=4)).replace(day=1)
+    _same_days_prev = await sales_monthly_company_totals(
+        db, date_from=prev_year_month_from, date_to=prev_year_month_to
+    )
+    current_month_trend = {
+        'month_start': date(anchor_date.year, anchor_date.month, 1).isoformat(),
+        'as_of': anchor_date.isoformat(),
+        'is_partial': anchor_date.year == current_year and anchor_date < _next_month - timedelta(days=1),
+        'prev_year': prev1_year,
+        'prev_year_same_days': round(sum(float(r.get('net_value') or 0) for r in _same_days_prev), 2),
+    }
+
     purchase_windows_data = await _purchases_summaries_by_windows(
         db,
         windows={
@@ -14436,6 +14452,7 @@ async def executive_dashboard_summary(
             'warehouse_prev_year': warehouse_windows.get('prev_year', []),
         },
         'trend': {
+            'current_month': current_month_trend,
             'y0': {'year': current_year, 'rows': trend_y0},
             'y1': {'year': prev1_year, 'rows': trend_y1},
             'y2': {'year': prev2_year, 'rows': trend_y2},
