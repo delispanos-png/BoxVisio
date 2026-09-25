@@ -1,6 +1,6 @@
 /*
   BoxVisio BI Bridge for SoftOne Advanced JavaScript
-  Version: 2026-09-23_fix-sales-cancel-join-scope
+  Version: 2026-09-25_ledger-balances
 
   Purpose
   - Extract Sales, Purchases, Inventory, Cash, Balances, Expenses data directly from SoftOne tables.
@@ -24,7 +24,7 @@
       /s1services/JS/myWS/GetAllForBI
 */
 
-var BVBI_VERSION = "2026-09-23_fix-sales-cancel-join-scope";
+var BVBI_VERSION = "2026-09-25_ledger-balances";
 var _BVBI_COL_CACHE = {};
 
 function _bv_is_array(v) {
@@ -2286,6 +2286,93 @@ function _bv_cash_sql(cfg) {
   return "SELECT * FROM (" + lineSql + " UNION ALL " + headerSql + ") C ORDER BY DOC_DATE ASC, DOCUMENT_ID ASC, EVENT_ID ASC";
 }
 
+// Supplier/customer balances from SoftOne's trader ledger (parity with the
+// querypack supplier_balances_facts.sql / customer_balances_facts.sql).
+// The older queries summed every FINDOC since the first year with no opening
+// balance and returned the first N traders by code, so most balances were wrong
+// or never refreshed. Here: balance = TRDBALSHEET as of today (TRDTRN signed by
+// TPRMS.FLG01 debit / FLG02 credit for a past date), FIFO ageing by document
+// date, and the snapshot holds every trader with a balance plus every trader
+// with a document in the last 45 days, so a balance that drops to zero is sent
+// as zero. Rows carry SUPBAL2|/CUSBAL2| ids; the BI then ignores the old ones.
+function _bv_ledger_balances_available() {
+  return _bv_table_exists("TRDBALSHEET") && _bv_table_exists("TRDTRN") && _bv_table_exists("TPRMS");
+}
+
+function _bv_ledger_balances_sql(cfg, kind) {
+  var isSupplier = kind === "supplier";
+  var sodtype = isSupplier ? 12 : 13;
+  var sign = isSupplier ? "(P.FLG02 - P.FLG01)" : "(P.FLG01 - P.FLG02)";
+  var bsSign = isSupplier ? "(BS.LCREDIT - BS.LDEBIT)" : "(BS.LDEBIT - BS.LCREDIT)";
+  var paySources = isSupplier ? "1281,1412,1416" : "1381,1413";
+  var idCol = isSupplier ? "SUPPLIER" : "CUSTOMER";
+  var lastCol = isSupplier ? "LAST_PAYMENT_DATE" : "LAST_COLLECTION_DATE";
+  var company = cfg.company;
+  var asOf = cfg.toDate !== "" ? "CAST(" + _bv_sql_quote(cfg.toDate) + " AS DATE)" : "CAST(GETDATE() AS DATE)";
+  var top = cfg.allowFullBalanceSync ? _bv_top_clause(cfg.limit) : "TOP 20000 ";
+  var ledgerRows =
+    "FROM TRDTRN X WITH (NOLOCK) INNER JOIN TPRMS P WITH (NOLOCK) ON P.COMPANY=X.COMPANY AND P.SODTYPE=X.SODTYPE AND P.TPRMS=X.TPRMS " +
+    "WHERE X.COMPANY=T.COMPANY AND X.TRDR=T.TRDR AND ABS(ISNULL(X.LTRNVAL,0)) < 1000000000 AND X.TRNDATE < DATEADD(day,1," + asOf + ")";
+  var bucket = function (cond) {
+    return "ISNULL(SUM(CASE WHEN " + cond + " THEN Z.OPEN_PART ELSE 0 END),0)";
+  };
+  return (
+    "SELECT " + top + "* FROM (SELECT " +
+    "CAST(ISNULL(T.CODE, CAST(T.TRDR AS VARCHAR(64))) AS VARCHAR(64)) AS " + idCol + "_EXT_ID," +
+    "CAST(ISNULL(T.NAME,'') AS VARCHAR(255)) AS " + idCol + "_NAME," +
+    "CAST(ISNULL(T.AFM,'') AS VARCHAR(64)) AS " + idCol + "_AFM," +
+    "CAST(ISNULL(HB.BRANCH,0) AS VARCHAR(64)) AS BRANCH_EXT_ID," +
+    "CAST(ISNULL(HB.NAME,'') AS VARCHAR(255)) AS BRANCH_NAME," +
+    "CAST(T.COMPANY AS VARCHAR(64)) AS COMPANY_ID," +
+    "CONVERT(VARCHAR(10), " + asOf + ", 23) AS BALANCE_DATE," +
+    "CONVERT(VARCHAR(10), " + asOf + ", 23) AS DOC_DATE," +
+    "CAST(ISNULL(BAL.OPEN_BALANCE,0) AS FLOAT) AS OPEN_BALANCE," +
+    "CAST(0 AS FLOAT) AS OVERDUE_BALANCE," +
+    "CAST(ISNULL(AG.B0_30,0) AS FLOAT) AS AGING_BUCKET_0_30," +
+    "CAST(ISNULL(AG.B31_60,0) AS FLOAT) AS AGING_BUCKET_31_60," +
+    "CAST(ISNULL(AG.B61_90,0) AS FLOAT) AS AGING_BUCKET_61_90," +
+    "CAST(ISNULL(AG.B90_PLUS,0) AS FLOAT) AS AGING_BUCKET_90_PLUS," +
+    "CONVERT(VARCHAR(10), LP.TRNDATE, 23) AS " + lastCol + "," +
+    "CAST(0 AS FLOAT) AS TREND_VS_PREVIOUS," +
+    "CONVERT(VARCHAR(19), ISNULL(ACT.LAST_UPD, " + asOf + "), 126) AS UPDATED_AT," +
+    "1 AS LEDGER," +
+    "CASE WHEN ACT.LAST_UPD IS NULL THEN 0 ELSE 1 END AS RECENT " +
+    "FROM (" +
+    "SELECT BS.TRDR FROM TRDBALSHEET BS WITH (NOLOCK) WHERE BS.COMPANY=" + company + " GROUP BY BS.TRDR HAVING ABS(SUM(BS.LDEBIT - BS.LCREDIT)) >= 0.005 " +
+    "UNION " +
+    "SELECT F.TRDR FROM FINDOC F WITH (NOLOCK) WHERE F.COMPANY=" + company + " AND F.SODTYPE=" + sodtype +
+    " AND F.TRDR IS NOT NULL AND F.UPDDATE >= DATEADD(day,-45,GETDATE())" +
+    ") K " +
+    "INNER JOIN TRDR T WITH (NOLOCK) ON T.TRDR=K.TRDR AND T.COMPANY=" + company + " AND T.SODTYPE=" + sodtype + " " +
+    "OUTER APPLY (SELECT TOP 1 BR.BRANCH, BR.NAME FROM BRANCH BR WITH (NOLOCK) WHERE BR.COMPANY=T.COMPANY ORDER BY BR.BRANCH) HB " +
+    "OUTER APPLY (SELECT MAX(F.UPDDATE) AS LAST_UPD FROM FINDOC F WITH (NOLOCK) WHERE F.COMPANY=T.COMPANY AND F.TRDR=T.TRDR AND F.SODTYPE=" + sodtype +
+    " AND F.UPDDATE >= DATEADD(day,-45,GETDATE())) ACT " +
+    "OUTER APPLY (SELECT TOP 1 FP.TRNDATE FROM FINDOC FP WITH (NOLOCK) WHERE FP.COMPANY=T.COMPANY AND FP.TRDR=T.TRDR AND FP.SOSOURCE IN (" + paySources + ")" +
+    " AND FP.TRNDATE < DATEADD(day,1," + asOf + ") ORDER BY FP.TRNDATE DESC) LP " +
+    "OUTER APPLY (SELECT COALESCE(" +
+    "(SELECT SUM(" + bsSign + ") FROM TRDBALSHEET BS WITH (NOLOCK) WHERE BS.COMPANY=T.COMPANY AND BS.TRDR=T.TRDR AND " + asOf + " >= CAST(GETDATE() AS DATE))," +
+    "(SELECT SUM(X.LTRNVAL * " + sign + ") " + ledgerRows + " AND " + asOf + " < CAST(GETDATE() AS DATE))" +
+    ") AS OPEN_BALANCE) BAL " +
+    "OUTER APPLY (SELECT " +
+    bucket("Z.AGE_DAYS <= 30") + " AS B0_30," +
+    bucket("Z.AGE_DAYS BETWEEN 31 AND 60") + " AS B31_60," +
+    bucket("Z.AGE_DAYS BETWEEN 61 AND 90") + " AS B61_90," +
+    bucket("Z.AGE_DAYS > 90") +
+    " + CASE WHEN ISNULL(BAL.OPEN_BALANCE,0) > ISNULL(SUM(Z.OPEN_PART),0) THEN ISNULL(BAL.OPEN_BALANCE,0) - ISNULL(SUM(Z.OPEN_PART),0) ELSE 0 END AS B90_PLUS " +
+    "FROM (SELECT DATEDIFF(day, Y.TRNDATE, " + asOf + ") AS AGE_DAYS, " +
+    "CASE WHEN ISNULL(BAL.OPEN_BALANCE,0) <= 0 THEN 0 " +
+    "WHEN Y.RUNNING - Y.AMOUNT >= BAL.OPEN_BALANCE THEN 0 " +
+    "WHEN Y.RUNNING <= BAL.OPEN_BALANCE THEN Y.AMOUNT " +
+    "ELSE BAL.OPEN_BALANCE - (Y.RUNNING - Y.AMOUNT) END AS OPEN_PART " +
+    "FROM (SELECT X.TRNDATE, X.LTRNVAL * " + sign + " AS AMOUNT, " +
+    "SUM(X.LTRNVAL * " + sign + ") OVER (ORDER BY X.TRNDATE DESC, X.FINDOC DESC, X.TRDTRN DESC ROWS UNBOUNDED PRECEDING) AS RUNNING " +
+    ledgerRows + " AND ISNULL(BAL.OPEN_BALANCE,0) > 0 AND X.LTRNVAL * " + sign + " > 0" +
+    " AND X.TRNDATE >= DATEADD(day,-400," + asOf + ")) Y) Z) AG" +
+    ") B WHERE B.OPEN_BALANCE <> 0 OR B.RECENT = 1 " +
+    "ORDER BY B." + idCol + "_EXT_ID"
+  );
+}
+
 function _bv_supplier_balances_sql(cfg) {
   var c = _bv_findoc_common_exprs();
   var branchInfo = _bv_branch_info_expr(c);
@@ -3008,7 +3095,7 @@ function _bv_supplier_balance_record(ds) {
   var branchExt = _bv_text(_bv_field(ds, "BRANCH_EXT_ID", ""), "");
   var balanceDate = _bv_text(_bv_field(ds, "BALANCE_DATE", ""), "");
   var rec = {
-    external_id: "SUPBAL|" + supplierId + "|" + branchExt + "|" + balanceDate,
+    external_id: (_bv_num(_bv_field(ds, "LEDGER", 0), 0) === 1 ? "SUPBAL2|" : "SUPBAL|") + supplierId + "|" + branchExt + "|" + balanceDate,
     supplier_id: supplierId,
     supplier_ext_id: supplierId,
     supplier_name: _bv_text(_bv_field(ds, "SUPPLIER_NAME", ""), ""),
@@ -3036,7 +3123,7 @@ function _bv_customer_balance_record(ds) {
   var branchExt = _bv_text(_bv_field(ds, "BRANCH_EXT_ID", ""), "");
   var balanceDate = _bv_text(_bv_field(ds, "BALANCE_DATE", ""), "");
   var rec = {
-    external_id: "CUSBAL|" + customerId + "|" + branchExt + "|" + balanceDate,
+    external_id: (_bv_num(_bv_field(ds, "LEDGER", 0), 0) === 1 ? "CUSBAL2|" : "CUSBAL|") + customerId + "|" + branchExt + "|" + balanceDate,
     customer_id: customerId,
     customer_ext_id: customerId,
     customer_name: _bv_text(_bv_field(ds, "CUSTOMER_NAME", ""), ""),
@@ -3184,7 +3271,7 @@ function GetSupplierBalancesForBI(obj) {
   try {
     _bv_require_client(obj);
     var cfg = _bv_resolve_request(obj || {});
-    var sql = _bv_supplier_balances_sql(cfg);
+    var sql = _bv_ledger_balances_available() ? _bv_ledger_balances_sql(cfg, "supplier") : _bv_supplier_balances_sql(cfg);
     var records = _bv_query_records(sql, _bv_supplier_balance_record);
     return _bv_stream_result("supplier_balances", records, sql, cfg.debug);
   } catch (e) {
@@ -3200,7 +3287,7 @@ function GetCustomerBalancesForBI(obj) {
   try {
     _bv_require_client(obj);
     var cfg = _bv_resolve_request(obj || {});
-    var sql = _bv_customer_balances_sql(cfg);
+    var sql = _bv_ledger_balances_available() ? _bv_ledger_balances_sql(cfg, "customer") : _bv_customer_balances_sql(cfg);
     var records = _bv_query_records(sql, _bv_customer_balance_record);
     return _bv_stream_result("customer_balances", records, sql, cfg.debug);
   } catch (e) {

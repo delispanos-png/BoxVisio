@@ -39,10 +39,30 @@ SELECT
   CAST(ISNULL(HB.BRANCH, 0) AS nvarchar(64)) AS branch_code,
   CAST(B.COMPANY AS nvarchar(64)) AS company_id
 FROM (
-  -- Only traders with a document changed since the cursor (all of them on a full
-  -- run); the open-ended range keeps the UPDDATE index usable.
-  SELECT FC.COMPANY, FC.TRDR, MAX(FC.UPDDATE) AS updated_at
-  FROM FINDOC FC WITH (NOLOCK)
+  SELECT K.COMPANY, K.TRDR, MAX(K.updated_at) AS updated_at
+  FROM (
+    -- Incremental: traders with a document changed since the cursor.
+    SELECT FC.COMPANY, FC.TRDR, FC.UPDDATE AS updated_at
+    FROM FINDOC FC WITH (NOLOCK)
+    WHERE
+      (@company_id IS NULL OR FC.COMPANY = @company_id)
+      AND FC.SODTYPE = 12
+      AND FC.TRDR IS NOT NULL
+      AND @last_sync_ts IS NOT NULL
+      AND FC.UPDDATE >= @last_sync_ts
+    UNION ALL
+    -- Full run: every trader the ledger shows with a balance, including one reached
+    -- only through other traders' documents (pharmacy295 «ΑΓΝΩΣΤΕΣ ΚΑΤΑΘΕΣΕΙΣ»,
+    -- -3.315). Scanning all documents instead took ~2 minutes for customers.
+    SELECT BS.COMPANY, BS.TRDR, CAST(GETDATE() AS datetime)
+    FROM TRDBALSHEET BS WITH (NOLOCK)
+    WHERE
+      @last_sync_ts IS NULL
+      AND (@company_id IS NULL OR BS.COMPANY = @company_id)
+    GROUP BY BS.COMPANY, BS.TRDR
+    HAVING ABS(SUM(BS.LDEBIT - BS.LCREDIT)) >= 0.005
+  ) K
+  INNER JOIN TRDR TK WITH (NOLOCK) ON TK.TRDR = K.TRDR AND TK.COMPANY = K.COMPANY AND TK.SODTYPE = 12
   -- A dormant company (no document for a year) carries no live balances: its
   -- closing balances were brought forward into the successor company, so
   -- counting both would double them (pharmacy295: 1002, last used 2016).
@@ -51,13 +71,8 @@ FROM (
     FROM FINDOC FA WITH (NOLOCK)
     WHERE FA.TRNDATE >= DATEADD(year, -1, CAST(GETDATE() AS date))
     GROUP BY FA.COMPANY
-  ) AC ON AC.COMPANY = FC.COMPANY
-  WHERE
-    (@company_id IS NULL OR FC.COMPANY = @company_id)
-    AND FC.SODTYPE = 12
-    AND FC.TRDR IS NOT NULL
-    AND FC.UPDDATE >= ISNULL(@last_sync_ts, CAST('19000101' AS datetime))
-  GROUP BY FC.COMPANY, FC.TRDR
+  ) AC ON AC.COMPANY = K.COMPANY
+  GROUP BY K.COMPANY, K.TRDR
 ) B
 LEFT JOIN TRDR T WITH (NOLOCK) ON T.TRDR = B.TRDR AND T.COMPANY = B.COMPANY
 -- A trader's balance belongs to the company, not a store: book it on the head branch.

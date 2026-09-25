@@ -3004,62 +3004,75 @@ async def process_job(job: dict[str, Any]) -> dict[str, Any]:
     raise RuntimeError('unreachable transient retry state')
 
 
-_SALES_PRUNE_MAX_SHARE = 0.05
-_SALES_PRUNE_MIN_ABS = 20
+_PRUNE_MAX_SHARE = 0.05
+_PRUNE_MIN_ABS = 20
+# Fact tables a fully re-fetched window may be mirrored into:
+# entity -> (table, date column, document column or None).
+_PRUNABLE_FACTS = {
+    'sales': ('fact_sales', 'doc_date', 'document_id'),
+    'purchases': ('fact_purchases', 'doc_date', 'document_id'),
+    'cashflows': ('fact_cashflows', 'doc_date', None),
+    'expenses': ('fact_expenses', 'expense_date', None),
+}
 
 
-async def _prune_stale_sales_rows(
+async def _prune_stale_fact_rows(
     tenant_db: AsyncSession,
     *,
+    entity: str,
+    connector_type: str,
     date_from,
     date_to,
     kept_external_ids: set[str],
     fetched_rows: int,
     tenant_slug: str,
 ) -> dict[str, int]:
-    """Mirror a fully re-fetched sales window: delete rows SoftOne no longer has.
+    """Mirror a fully re-fetched window: delete rows SoftOne no longer has.
 
-    The sales stream only ever upserts, so it could never learn about a deletion:
+    These streams only ever upsert, so they could never learn about a deletion:
     a document deleted in SoftOne stayed in the BI for good, and an edited one --
     SoftOne rewrites its lines under new MTRLINES ids -- kept its old lines next to
-    the new ones, doubling it (pharmacy295: ΑΛΠΔΑΠ 0326012749 read 28.64 for 14.32).
+    the new ones, doubling it (pharmacy295: ΑΛΠΔΑΠ 0326012749 read 28.64 for 14.32;
+    2026 purchases carried 44 deleted invoices, +25k). Cash rows also change id
+    (C|FINDOC <-> C|FINDOC-line) when a payment gains lines, leaving both behind.
 
     Only call this for a window fetched completely (SQL connector, from/to given,
-    no sync cursor): the connector then pages exhaustively or raises. Two guards
-    keep a bad fetch from wiping data -- nothing is deleted when SoftOne returned
-    no rows, or when the deletion would exceed a small share of the window.
+    no sync cursor): the connector then pages exhaustively or raises. Guards keep a
+    bad fetch from wiping data -- only rows this connector wrote are candidates,
+    nothing is deleted when SoftOne returned no rows, and nothing when the deletion
+    would exceed a small share of the window.
     """
+    table, date_col, doc_col = _PRUNABLE_FACTS[entity]
     if fetched_rows <= 0 or not kept_external_ids:
         return {'pruned': 0, 'skipped': 1}
-    params = {'f': date_from, 't': date_to, 'keep': list(kept_external_ids)}
-    total = int((await tenant_db.execute(
-        text('SELECT count(*) FROM fact_sales WHERE doc_date BETWEEN :f AND :t'), params)).scalar() or 0)
-    stale = int((await tenant_db.execute(
-        text('SELECT count(*) FROM fact_sales WHERE doc_date BETWEEN :f AND :t '
-             'AND NOT (external_id = ANY(CAST(:keep AS text[])))'), params)).scalar() or 0)
+    params = {'f': date_from, 't': date_to, 'keep': list(kept_external_ids), 'src': connector_type}
+    scope = f'FROM {table} WHERE {date_col} BETWEEN :f AND :t AND source_connector_id = :src'
+    stale_pred = ' AND NOT (external_id = ANY(CAST(:keep AS text[])))'
+    total = int((await tenant_db.execute(text(f'SELECT count(*) {scope}'), params)).scalar() or 0)
+    stale = int((await tenant_db.execute(text(f'SELECT count(*) {scope}{stale_pred}'), params)).scalar() or 0)
     if stale == 0:
         return {'pruned': 0, 'skipped': 0}
-    limit = max(_SALES_PRUNE_MIN_ABS, int(total * _SALES_PRUNE_MAX_SHARE))
+    limit = max(_PRUNE_MIN_ABS, int(total * _PRUNE_MAX_SHARE))
     if stale > limit:
         logger.warning(
-            'sales_prune_skipped_too_many tenant=%s window=%s..%s stale=%s total=%s limit=%s',
-            tenant_slug, date_from, date_to, stale, total, limit,
+            '%s_prune_skipped_too_many tenant=%s window=%s..%s stale=%s total=%s limit=%s',
+            entity, tenant_slug, date_from, date_to, stale, total, limit,
         )
         return {'pruned': 0, 'skipped': 1, 'stale': stale}
-    gone_docs = (await tenant_db.execute(text(
-        'DELETE FROM fact_sales WHERE doc_date BETWEEN :f AND :t '
-        'AND NOT (external_id = ANY(CAST(:keep AS text[]))) RETURNING document_id'), params)).scalars().all()
-    # Charges of documents that no longer have any line at all go too.
-    orphan_docs = sorted({str(d) for d in gone_docs if d})
+    returning = doc_col or 'external_id'
+    gone = (await tenant_db.execute(
+        text(f'DELETE {scope}{stale_pred} RETURNING {returning}'), params)).scalars().all()
+    docs = sorted({str(d) for d in gone if d}) if doc_col else []
     charges = 0
-    if orphan_docs:
+    if entity == 'sales' and docs:
+        # Charges of documents that no longer have any line at all go too.
         charges = (await tenant_db.execute(text(
             'DELETE FROM fact_sales_document_charges c WHERE c.document_id = ANY(CAST(:docs AS text[])) '
             'AND NOT EXISTS (SELECT 1 FROM fact_sales f WHERE f.document_id = c.document_id)'),
-            {'docs': orphan_docs})).rowcount or 0
-    logger.info('sales_pruned tenant=%s window=%s..%s rows=%s docs=%s charges=%s',
-                tenant_slug, date_from, date_to, len(gone_docs), len(orphan_docs), charges)
-    return {'pruned': len(gone_docs), 'docs': len(orphan_docs), 'charges': int(charges), 'skipped': 0}
+            {'docs': docs})).rowcount or 0
+    logger.info('%s_pruned tenant=%s window=%s..%s rows=%s docs=%s charges=%s',
+                entity, tenant_slug, date_from, date_to, len(gone), len(docs), charges)
+    return {'pruned': len(gone), 'docs': len(docs), 'charges': int(charges), 'skipped': 0}
 
 
 async def _process_job_once(job: dict[str, Any]) -> dict[str, Any]:
@@ -3251,7 +3264,7 @@ async def _process_job_once(job: dict[str, Any]) -> dict[str, Any]:
     min_doc_date = None
     max_doc_date = None
     skipped_company_mismatch = 0
-    sales_kept_external_ids: set[str] = set()
+    prune_kept_external_ids: set[str] = set()
     dim_id_cache: dict[tuple[str, str], Any] = {}
     expense_category_cache: dict[str, Any] = {}
     fact_identity_cache: dict[tuple[Any, ...], str] = {}
@@ -3447,8 +3460,8 @@ async def _process_job_once(job: dict[str, Any]) -> dict[str, Any]:
                 raise
 
             last_ts, last_id = _update_incremental_state(last_ts, last_id, incremental_val)
-            if entity == 'sales' and fact.get('external_id'):
-                sales_kept_external_ids.add(str(fact['external_id']))
+            if entity in _PRUNABLE_FACTS and fact.get('external_id'):
+                prune_kept_external_ids.add(str(fact['external_id']))
             doc_date = fact.get('doc_date')
             if doc_date is not None:
                 if min_doc_date is None or doc_date < min_doc_date:
@@ -3476,7 +3489,7 @@ async def _process_job_once(job: dict[str, Any]) -> dict[str, Any]:
         await _flush_fact_batch()
         _pf, _pt = payload.get('from_date'), payload.get('to_date')
         if (
-            entity == 'sales'
+            entity in _PRUNABLE_FACTS
             and connector_type in SQL_CONNECTOR_ALIASES
             and ignore_sync_state
             and _pf and _pt
@@ -3486,16 +3499,18 @@ async def _process_job_once(job: dict[str, Any]) -> dict[str, Any]:
             # that are still uncommitted at this point.
             try:
                 async with tenant_db.begin_nested():
-                    await _prune_stale_sales_rows(
+                    await _prune_stale_fact_rows(
                         tenant_db,
+                        entity=entity,
+                        connector_type=connector_type,
                         date_from=_as_doc_date(_pf),
                         date_to=_as_doc_date(_pt),
-                        kept_external_ids=sales_kept_external_ids,
+                        kept_external_ids=prune_kept_external_ids,
                         fetched_rows=len(rows),
                         tenant_slug=tenant_slug,
                     )
             except Exception:
-                logger.exception('sales_prune_failed tenant=%s window=%s..%s', tenant_slug, _pf, _pt)
+                logger.exception('%s_prune_failed tenant=%s window=%s..%s', entity, tenant_slug, _pf, _pt)
         # Relink surrogate FKs after the flush. bulk_fact_mode covers SQL connectors,
         # but non-SQL connectors (external_api) skip both the bulk path and — in
         # backfill mode — per-row resolution, leaving fact rows with NULL item_id and

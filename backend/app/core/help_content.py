@@ -699,8 +699,22 @@ CIRCUITS: tuple[dict[str, Any], ...] = (
             ['Supplier detail and history where available.'],
         ),
         'checks': _tl(
-            ['Είναι τρέχον υπόλοιπο — δεν επηρεάζεται από την περίοδο.', 'Τα πιστωτικά υπόλοιπα προμηθευτή μειώνουν το σύνολο.'],
-            ['This is a current balance — the period does not affect it.', 'Supplier credit balances reduce the total.'],
+            [
+                'Είναι τρέχον υπόλοιπο — δεν επηρεάζεται από την περίοδο.',
+                'Τα πιστωτικά υπόλοιπα προμηθευτή μειώνουν το σύνολο.',
+                'Το υπόλοιπο είναι αυτό της καρτέλας προμηθευτή στο SoftOne (κινήσεις συναλλασσόμενου), '
+                'ανά εταιρεία. Η παλιά εταιρεία χωρίς κινήσεις τον τελευταίο χρόνο δεν μετράει.',
+                'Aging: το ανοικτό υπόλοιπο μοιράζεται στα πιο πρόσφατα τιμολόγια (FIFO) και μετριέται από την '
+                'ημερομηνία του παραστατικού — το SoftOne δεν κρατά ημερομηνία λήξης, γι\'αυτό το ληξιπρόθεσμο είναι 0.',
+            ],
+            [
+                'This is a current balance — the period does not affect it.',
+                'Supplier credit balances reduce the total.',
+                'The balance is the SoftOne supplier card (trader ledger), per company. A dormant company '
+                'with no documents in the last year is left out.',
+                'Aging: the open balance is allocated to the most recent invoices (FIFO) and aged from the '
+                'document date — SoftOne keeps no due date, so overdue shows 0.',
+            ],
         ),
         'related': ['purchase-documents', 'finance-dashboard', 'cash-transactions'],
     },
@@ -737,11 +751,15 @@ CIRCUITS: tuple[dict[str, Any], ...] = (
         'checks': _tl(
             [
                 'Είναι τρέχον υπόλοιπο — δεν επηρεάζεται από την περίοδο.',
-                'Υπόλοιπο χωρίς ημερομηνία λήξης δεν ενηλικιώνεται και δεν εμφανίζεται ως ληξιπρόθεσμο.',
+                'Το υπόλοιπο είναι αυτό της καρτέλας πελάτη στο SoftOne (κινήσεις συναλλασσόμενου), ανά εταιρεία.',
+                'Aging: το ανοικτό υπόλοιπο μοιράζεται στα πιο πρόσφατα παραστατικά (FIFO) και μετριέται από την '
+                'ημερομηνία τους. Χωρίς ημερομηνία λήξης στο SoftOne, το ληξιπρόθεσμο εμφανίζεται 0.',
             ],
             [
                 'This is a current balance — the period does not affect it.',
-                'A balance with no due date cannot be aged and never shows as overdue.',
+                'The balance is the SoftOne customer card (trader ledger), per company.',
+                'Aging: the open balance is allocated to the most recent documents (FIFO) and aged from their '
+                'date. With no due date in SoftOne, overdue shows 0.',
             ],
         ),
         'related': ['finance-dashboard', 'cash-transactions', 'sales-documents'],
