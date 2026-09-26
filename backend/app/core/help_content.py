@@ -101,6 +101,9 @@ CIRCUITS: tuple[dict[str, Any], ...] = (
                 'Γράφημα «Τζίρος Εταιρείας / Έτος»: ο μήνας σε εξέλιξη φαίνεται διακεκομμένος, γιατί δεν έχει '
                 'κλείσει. Συγκρίνε τον με τον ρόμβο «ίδιες μέρες» του προηγούμενου έτους, όχι με ολόκληρο τον '
                 'περσινό μήνα. Στο tooltip φαίνεται η διαφορά σε € και %.',
+                'Κουμπί «Δείξε όλες τις τιμές» (πάνω δεξιά στο γράφημα): ένα κλικ δείχνει μαζί τις τιμές όλων '
+                'των μηνών και για τα δύο έτη, με τη μεταβολή % του τρέχοντος έτους· δεύτερο κλικ («Κρύψε τις '
+                'τιμές») τις κρύβει.',
             ],
             [
                 'KPI cards for day, week, month and year, each with a previous-year comparison.',
@@ -109,6 +112,8 @@ CIRCUITS: tuple[dict[str, Any], ...] = (
                 'Company turnover / year chart: the running month is drawn dashed because it is not closed yet. '
                 'Compare it with last year\'s same-days diamond, not with last year\'s whole month; the tooltip '
                 'shows the difference in € and %.',
+                '«Show all values» button (top right of the chart): one click shows every month\'s values for '
+                'both years at once, with the current year\'s % change; a second click hides them.',
             ],
         ),
         'popups': _tl(
@@ -1266,11 +1271,25 @@ CIRCUITS: tuple[dict[str, Any], ...] = (
                 'Τα φίλτρα εφαρμόζονται ΠΡΙΝ τον υπολογισμό των KPI.',
                 'Το Vendor MOQ μπορεί να ανεβάσει την ποσότητα πάνω από την καθαρή ανάγκη.',
                 'Είδη χωρίς τιμή αγοράς δεν αποτιμώνται, οπότε η αξία παραγγελίας υποεκτιμάται.',
+                'Status 1 (ABCD) και Status 2 έρχονται από την καρτέλα είδους του SoftOne. Για τις παραγγελίες '
+                'αναγνωρίζονται οι κλάσεις A, B, C, D, S (και οι υποκλάσεις τους, π.χ. D3, B1). Είδος με άλλο status '
+                '(π.χ. Non-Core Selective, Legacy, Watchlist, RAW) εμφανίζεται με το status του αλλά δεν παραγγέλνεται '
+                'αυτόματα, μέχρι να οριστεί κανόνας για την κλάση αυτή.',
+                'Η ζήτηση (MO1/MO2) μετρά μόνο παραστατικά που κινούν απόθεμα (κίνηση είδους με «Εξαγωγή»): '
+                'η απόδειξη λιανικής μετράει, το ΤΣΥΠ προς τον ΕΟΠΥΥ («μόνο αξία») όχι — αλλιώς κάθε κουτί '
+                'με συνταγή θα μετρούσε δύο φορές.',
             ],
             [
                 'Filters are applied BEFORE the KPIs are computed.',
                 'Vendor MOQ can push the quantity above the pure need.',
                 'Items with no purchase price are not valued, so the order value is understated.',
+                'Status 1 (ABCD) and Status 2 come from the SoftOne item card. Ordering recognises the classes '
+                'A, B, C, D, S (and their sub-classes, e.g. D3, B1). An item with any other status (e.g. Non-Core '
+                'Selective, Legacy, Watchlist, RAW) shows that status but is not ordered automatically until a '
+                'rule is defined for that class.',
+                'Demand (MO1/MO2) counts only documents that move stock (item movement with «Export»): the '
+                'retail receipt counts, the value-only ΤΣΥΠ to the fund does not — otherwise every prescription '
+                'box would count twice.',
             ],
         ),
         'related': ['replenishment', 'supplier-orders', 'availability'],

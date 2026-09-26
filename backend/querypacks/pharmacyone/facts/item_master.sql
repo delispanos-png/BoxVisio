@@ -81,7 +81,25 @@ LEFT JOIN CCCCATEGORY03 CT3 WITH (NOLOCK)
 LEFT JOIN MTRPCATEGORY CG WITH (NOLOCK)
   ON CG.MTRPCATEGORY = I.MTRPCATEGORY
  AND CG.COMPANY = I.COMPANY
+-- dim_items is keyed by CODE, and a code can exist in more than one company. The
+-- copy in a secondary company (pharmacy295: 1002, dormant since 2016) has no
+-- MTREXTRA/UTBL04 rows of its own, so it landed as a blank status or the raw UTBL04
+-- number and overwrote the real one (113926: 'C' became '3', FnR read it as A).
+-- Keep the primary company's row (the company holding most items) whenever it exists.
+CROSS JOIN (
+  SELECT TOP 1 M.COMPANY AS COMPANY
+  FROM MTRL M WITH (NOLOCK)
+  WHERE ISNULL(M.SODTYPE, 0) = 51
+  GROUP BY M.COMPANY
+  ORDER BY COUNT(*) DESC
+) PRIMARYCO
+LEFT JOIN MTRL PDUP WITH (NOLOCK)
+  ON PDUP.CODE = I.CODE
+ AND ISNULL(PDUP.SODTYPE, 0) = 51
+ AND PDUP.COMPANY = PRIMARYCO.COMPANY
+ AND PDUP.COMPANY <> I.COMPANY
 WHERE
   (@company_id IS NULL OR I.COMPANY = @company_id)
   AND ISNULL(I.SODTYPE, 0) = 51
   AND NULLIF(ISNULL(I.CODE, ''), '') IS NOT NULL
+  AND PDUP.MTRL IS NULL

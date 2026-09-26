@@ -35,6 +35,19 @@
     height: 320px !important;
     max-height: 320px !important;
   }
+  .trend-wrap { position: relative; }
+  /* Toggle: shows every month's values at once instead of hovering month by month. */
+  .trend-peek {
+    position: absolute; top: 0; right: 0; z-index: 2;
+    display: inline-flex; align-items: center; gap: .35rem;
+    padding: .25rem .6rem; font-size: .78rem; line-height: 1.2;
+    border: 1px solid var(--bs-border-color, #dee2e6); border-radius: 999px;
+    background: var(--bs-body-bg, #fff); color: var(--bs-secondary-color, #6c757d);
+    cursor: pointer; user-select: none; -webkit-user-select: none;
+  }
+  .trend-peek:hover { color: var(--bs-body-color, #212529); }
+  .trend-peek:focus-visible { outline: 2px solid #16a34a; outline-offset: 2px; }
+  .trend-peek.is-active { background: #16a34a; border-color: #16a34a; color: #fff; }
   .branch-donut-card {
     height: 100%;
   }
@@ -723,7 +736,14 @@
       <div class="text-muted small mt-1">Μηνιαία εξέλιξη τρέχοντος και προηγούμενου έτους (Καθαρή αξία χωρίς ΦΠΑ). Ο μήνας σε εξέλιξη φαίνεται διακεκομμένος και συγκρίνεται με τις ίδιες μέρες πέρσι (◇).</div>
     </div>
   </div>
-  <div class="card-body"><canvas id="companyTrendChart" height="110"></canvas></div>
+  <div class="card-body">
+    <div class="trend-wrap">
+      <button type="button" id="trendPeek" class="trend-peek" aria-pressed="false" title="Εμφάνιση / απόκρυψη των τιμών όλων των μηνών">
+        <i class="fe fe-eye" aria-hidden="true"></i><span>Δείξε όλες τις τιμές</span>
+      </button>
+      <canvas id="companyTrendChart" height="110"></canvas>
+    </div>
+  </div>
 </div>
 
 <div class="row g-3 mb-3">
@@ -1430,6 +1450,97 @@ function renderMonthlyBranchPerformance(rows, prevRows, anchors){
   }).join('');
 }
 
+// Values of every month at once while the «όλες οι τιμές» toggle is on, so the
+// whole year reads at a glance instead of hovering month by month. Per month the
+// higher point is labelled above and the lower below, so the two years never overlap;
+// the current year also carries its change against last year (the running month
+// against last year's same days, as in its tooltip).
+const fmtK = new Intl.NumberFormat('el-GR', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+const trendValueLabels = {
+  id: 'trendValueLabels',
+  afterDatasetsDraw(chart) {
+    if (!chart.$peek) return;
+    const { ctx, chartArea } = chart;
+    const meta = chart.data.datasets
+      .map((ds, i) => ({ ds, i, m: chart.getDatasetMeta(i) }))
+      .filter((x) => !x.m.hidden);
+    const years = meta.filter((x) => !x.ds._sameDays);
+    const current = years.length ? years[years.length - 1] : null;
+    const previous = years.length > 1 ? years[years.length - 2] : null;
+    const label = (v) => `${fmtK.format(v / 1000)}k`;
+    ctx.save();
+    ctx.font = '600 11px system-ui, -apple-system, "Segoe UI", sans-serif';
+    ctx.textAlign = 'center';
+    for (let idx = 0; idx < 12; idx++) {
+      const pts = years
+        .map((x) => ({ x, v: x.ds.data[idx], el: x.m.data[idx] }))
+        .filter((p) => p.v !== null && p.v !== undefined && p.el);
+      if (!pts.length) continue;
+      const top = pts.reduce((a, b) => (b.v > a.v ? b : a));
+      pts.forEach((p) => {
+        let text = label(p.v);
+        if (current && p.x === current) {
+          const isPartial = current.ds._partialIdx === idx;
+          const base = isPartial ? chart.$sameDaysValue : (previous ? previous.ds.data[idx] : null);
+          if (base) {
+            const d = ((p.v - base) / Math.abs(base)) * 100;
+            text += ` (${d >= 0 ? '+' : ''}${fmtK.format(d)}%)`;
+          }
+        }
+        const above = p === top;
+        const y = above ? p.el.y - 10 : p.el.y + 16;
+        const w = ctx.measureText(text).width + 8;
+        const x = Math.min(Math.max(p.el.x, chartArea.left + w / 2), chartArea.right - w / 2);
+        ctx.fillStyle = 'rgba(255,255,255,.88)';
+        ctx.fillRect(x - w / 2, y - 11, w, 14);
+        ctx.fillStyle = p.x.ds.borderColor;
+        ctx.fillText(text, x, y);
+      });
+    }
+    const same = meta.find((x) => x.ds._sameDays);
+    if (same) {
+      same.ds.data.forEach((v, idx) => {
+        const el = same.m.data[idx];
+        if (v === null || v === undefined || !el) return;
+        // Below the diamond, under the running month's own label (drawn at +16).
+        const text = `ίδιες μέρες πέρσι ${label(v)}`;
+        const w = ctx.measureText(text).width + 8;
+        const x = Math.min(Math.max(el.x, chartArea.left + w / 2), chartArea.right - w / 2);
+        ctx.fillStyle = 'rgba(255,255,255,.88)';
+        ctx.fillRect(x - w / 2, el.y + 21, w, 14);
+        ctx.fillStyle = '#ef4444';
+        ctx.fillText(text, x, el.y + 32);
+      });
+    }
+    ctx.restore();
+  },
+};
+
+function setTrendPeek(on) {
+  const chart = companyTrendChart;
+  const btn = document.getElementById('trendPeek');
+  if (btn) {
+    btn.classList.toggle('is-active', !!on);
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    const icon = btn.querySelector('i');
+    const text = btn.querySelector('span');
+    if (icon) icon.className = on ? 'fe fe-eye-off' : 'fe fe-eye';
+    if (text) text.textContent = on ? 'Κρύψε τις τιμές' : 'Δείξε όλες τις τιμές';
+  }
+  if (!chart) return;
+  chart.$peek = !!on;
+  chart.options.plugins.tooltip.enabled = !on;
+  if (on) chart.tooltip.setActiveElements([], { x: 0, y: 0 });
+  chart.update('none');
+}
+
+(function bindTrendPeek() {
+  const btn = document.getElementById('trendPeek');
+  if (!btn) return;
+  // Click on, click off (a button click also covers Enter/Space and touch).
+  btn.addEventListener('click', () => setTrendPeek(btn.getAttribute('aria-pressed') !== 'true'));
+})();
+
 function renderTrend(monthly, currentMonth){
   const labels=['Ιαν', 'Φεβ', 'Μαρ', 'Απρ', 'Μαϊ', 'Ιουν', 'Ιουλ', 'Αυγ', 'Σεπ', 'Οκτ', 'Νοε', 'Δεκ'];
   const datasets = [];
@@ -1502,8 +1613,11 @@ function renderTrend(monthly, currentMonth){
   companyTrendChart = new Chart(document.getElementById('companyTrendChart'), {
     type:'line',
     data:{labels, datasets},
+    plugins: [trendValueLabels],
     options:{
       responsive:true, maintainAspectRatio:true, aspectRatio:2.8,
+      // Room above the top point for its value label while «όλες οι τιμές» is on.
+      layout: { padding: { top: 34, right: 8 } },
       interaction: { mode: 'index', intersect: false },
       scales: {
         // Start at zero: a floor near the data turns a few percent into a cliff.
@@ -1534,6 +1648,9 @@ function renderTrend(monthly, currentMonth){
       },
     }
   });
+  companyTrendChart.$sameDaysValue = prevSameDays > 0 ? prevSameDays : null;
+  // Filters re-render the chart; keep the values showing if the toggle is on.
+  if (document.getElementById('trendPeek')?.getAttribute('aria-pressed') === 'true') setTrendPeek(true);
 }
 
 async function fetchJsonStrict(url){

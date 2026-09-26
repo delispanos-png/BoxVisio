@@ -20,7 +20,11 @@ FROM (
     CAST('EUR' AS nvarchar(3)) AS currency,
     CAST(ISNULL(F.FINCODE, F.FINDOC) AS nvarchar(64)) AS reference_no,
     CAST(ISNULL(F.COMMENTS, '') AS nvarchar(255)) AS notes,
-    CAST('C|' + CAST(F.FINDOC AS nvarchar(40)) + '-' + CAST(ISNULL(TL.LINENUM, 0) AS nvarchar(32)) AS nvarchar(128)) AS external_id,
+    -- Line ordinal by TRDFLINES id, not LINENUM: a receipt paid two ways (cash + card)
+    -- can carry the same LINENUM on both lines, and one id for two lines kept only the
+    -- last amount (pharmacy295: 1.370 receipts, 17.956 EUR of collections lost).
+    -- Equal to LINENUM everywhere else, so existing ids do not change.
+    CAST('C|' + CAST(F.FINDOC AS nvarchar(40)) + '-' + CAST(ROW_NUMBER() OVER (PARTITION BY F.FINDOC ORDER BY TL.TRDFLINES) AS nvarchar(32)) AS nvarchar(128)) AS external_id,
     CAST(ISNULL(F.UPDDATE, F.TRNDATE) AS datetime2) AS updated_at,
     CAST(F.FINDOC AS nvarchar(40)) AS event_id,
     CAST(ISNULL(F.FINCODE, F.FINDOC) AS nvarchar(128)) AS transaction_id,

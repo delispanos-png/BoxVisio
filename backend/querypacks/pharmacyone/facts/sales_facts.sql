@@ -14,6 +14,7 @@ SELECT
       END
     )
     * COALESCE(TRY_CAST(ISNULL(L.QTY1, ISNULL(L.QTY, 0)) AS decimal(28,8)), 0)
+    * ISNULL(MV.stock_factor, 0)
     AS decimal(28,8)
   ) AS qty,
   CAST(
@@ -38,6 +39,7 @@ SELECT
       END
     )
     * COALESCE(TRY_CAST(ISNULL(NULLIF(L.SALESCVAL,0), ISNULL(L.NETLINEVAL, ISNULL(L.LINEVAL, 0))) AS decimal(28,8)), 0)
+    * ISNULL(MV.stock_factor, 0)
     AS decimal(28,8)
   ) AS cost_amount,
   CAST('S|' + CAST(F.FINDOC AS nvarchar(40)) + '|' + CAST(ISNULL(L.MTRLINES, ISNULL(L.LINENUM, 0)) AS nvarchar(40)) AS nvarchar(128)) AS external_id,
@@ -439,6 +441,22 @@ OUTER APPLY (
     AND ISNULL(PS.CSERIES, 0) <> 0
     AND PS.SERIES <> F.SERIES
 ) CANC
+-- Quantity and cost belong to the document that moves the stock. A prescription is
+-- booked twice in SoftOne: the retail receipt (item movement 7071, «Εξαγωγή» +1) and
+-- the ΤΣΥΠ to the fund (7060 «Τιμολόγιο Πώλησης μόνο αξία», Εξαγωγή 0) which repeats
+-- the quantity in Ποσ.1 and the cost. Counting both doubled every prescription drug's
+-- units (FnR demand, pharmacy295 AUGMENTIN 127332: 24.50/week instead of 12.25) and
+-- its cost. The movement type's «Εξαγωγή» flag (TPRMS.FLG04) says whether the line
+-- moves stock; a document with no item movement (fund invoice) carries value only.
+OUTER APPLY (
+  SELECT TOP 1 ABS(CAST(P.FLG04 AS int)) AS stock_factor
+  FROM MTRTRN MT WITH (NOLOCK)
+  INNER JOIN TPRMS P WITH (NOLOCK) ON P.COMPANY = MT.COMPANY AND P.SODTYPE = MT.SODTYPE AND P.TPRMS = MT.TPRMS
+  WHERE MT.FINDOC = F.FINDOC
+    AND MT.COMPANY = F.COMPANY
+    AND MT.MTRL = L.MTRL
+  ORDER BY MT.MTRTRN
+) MV
 OUTER APPLY (
   SELECT
     CAST(

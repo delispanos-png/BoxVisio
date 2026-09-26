@@ -14272,6 +14272,13 @@ async def _enqueue_fnr_expected_orders_sync(tenant: Tenant) -> dict[str, object]
             'live_priority': True,
             'front_of_queue': True,
             'reason': 'fnr_expected_orders_refresh',
+            # Expected quantities come from open orders, and an order still open after a
+            # year is stale. Re-reading the whole history (pharmacy295: 124k lines) ran past
+            # the 15-minute job limit every time and never landed; a bounded window with the
+            # backfill limit finishes.
+            'from_date': (date.today() - timedelta(days=400)).isoformat(),
+            'to_date': date.today().isoformat(),
+            'backfill': True,
         },
         'attempt': 0,
         'max_retries': settings.ingest_job_max_retries,

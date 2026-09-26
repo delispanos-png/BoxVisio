@@ -846,6 +846,13 @@ def _fnr_status_code(value: object) -> str:
         return 'A'
     if text_value in {'CONS', 'TESTER'}:
         return 'D'
+    if text_value == 'EXC->D':
+        return 'D'
+    # Raw materials and the classes the pharmacy added later (Non-Core Selective,
+    # Legacy, Watchlist) carry no reorder rule yet: no status, so no automatic order.
+    # They used to fall through to 'A' below and were ordered at every store.
+    if text_value in {'RAW', 'NON-CORE SELECTIVE', 'LEGACY', 'WATCHLIST'}:
+        return ''
     folded = str(value or '').strip().casefold()
     folded = folded.translate(str.maketrans({
         'ά': 'α',
@@ -881,7 +888,9 @@ def _fnr_status_code(value: object) -> str:
         'no agreement',
     }:
         return 'D'
-    return 'A'
+    # An unknown status is not an A: treating it as one placed orders for every item
+    # whose class the mapping had never seen (pharmacy295 2026-09: 1.124 items).
+    return ''
 
 
 def _fnr_list(raw: object) -> list[str]:
@@ -1113,7 +1122,9 @@ async def build_fnr_excel_from_facts(
             'category_1': item.get('category_1') or '',
             'category_2': item.get('category_2') or '',
             'category_3': item.get('category_3') or '',
-            'status_1': status_1 or '',
+            # The class code when the status maps to one, else the status as SoftOne
+            # names it, so «Non-Core Selective» reads as such and not as a blank.
+            'status_1': status_1 or str(item.get('status_1') or ''),
             'status_2': item.get('status_2') or '',
             'supplier': item.get('supplier') or '',
             'group': item.get('group') or '',

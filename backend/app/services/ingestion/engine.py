@@ -3006,6 +3006,11 @@ async def process_job(job: dict[str, Any]) -> dict[str, Any]:
 
 _PRUNE_MAX_SHARE = 0.05
 _PRUNE_MIN_ABS = 20
+# A larger deletion is allowed only when SoftOne clearly returned the whole window
+# (kept rows >= 90% of what the BI holds): one deleted 708-line invoice alone is 6%
+# of a pharmacy295 purchases month, while a truncated fetch keeps far fewer rows.
+_PRUNE_MAX_SHARE_FULL_FETCH = 0.15
+_PRUNE_FULL_FETCH_COVERAGE = 0.90
 # Fact tables a fully re-fetched window may be mirrored into:
 # entity -> (table, date column, document column or None).
 _PRUNABLE_FACTS = {
@@ -3053,6 +3058,8 @@ async def _prune_stale_fact_rows(
     if stale == 0:
         return {'pruned': 0, 'skipped': 0}
     limit = max(_PRUNE_MIN_ABS, int(total * _PRUNE_MAX_SHARE))
+    if total and (total - stale) >= total * _PRUNE_FULL_FETCH_COVERAGE:
+        limit = max(limit, int(total * _PRUNE_MAX_SHARE_FULL_FETCH))
     if stale > limit:
         logger.warning(
             '%s_prune_skipped_too_many tenant=%s window=%s..%s stale=%s total=%s limit=%s',
@@ -3490,7 +3497,9 @@ async def _process_job_once(job: dict[str, Any]) -> dict[str, Any]:
         _pf, _pt = payload.get('from_date'), payload.get('to_date')
         if (
             entity in _PRUNABLE_FACTS
-            and connector_type in SQL_CONNECTOR_ALIASES
+            # SQL pages exhaustively; the SoftOne bridge (external_api) answers a
+            # from/to window in one call with no row limit, so both are complete.
+            and (connector_type in SQL_CONNECTOR_ALIASES or connector_type == 'external_api')
             and ignore_sync_state
             and _pf and _pt
             and not payload.get('disable_prune')

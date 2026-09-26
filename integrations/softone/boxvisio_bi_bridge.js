@@ -1,6 +1,6 @@
 /*
   BoxVisio BI Bridge for SoftOne Advanced JavaScript
-  Version: 2026-09-25_ledger-balances
+  Version: 2026-09-26_cash-line-ordinal
 
   Purpose
   - Extract Sales, Purchases, Inventory, Cash, Balances, Expenses data directly from SoftOne tables.
@@ -24,7 +24,7 @@
       /s1services/JS/myWS/GetAllForBI
 */
 
-var BVBI_VERSION = "2026-09-25_ledger-balances";
+var BVBI_VERSION = "2026-09-26_cash-line-ordinal";
 var _BVBI_COL_CACHE = {};
 
 function _bv_is_array(v) {
@@ -694,6 +694,17 @@ function _bv_sales_sql(cfg) {
     "WHEN ISNULL(" + finStates + ",0) IN (1,2) THEN N'Open' " +
     "ELSE N'Open' END)";
   var lQty = _bv_col_expr("L", "MTRLINES", ["QTY1", "QTY"], "0");
+  // Quantity and cost only where the line moves stock (item movement «Εξαγωγή»,
+  // TPRMS.FLG04). A prescription is booked twice: the retail receipt (7071, moves
+  // stock) and the ΤΣΥΠ to the fund (7060 «μόνο αξία») which repeats quantity and
+  // cost, so both doubled for every prescription drug. Mirrors sales_facts.sql.
+  var bvStockMove = _bv_table_exists("MTRTRN") && _bv_table_exists("TPRMS");
+  var stockFactor = bvStockMove ? " * ISNULL(MV.STOCK_FACTOR,0)" : "";
+  var stockMoveJoinSql = bvStockMove
+    ? "OUTER APPLY (SELECT TOP 1 ABS(CAST(TP.FLG04 AS INT)) AS STOCK_FACTOR FROM MTRTRN MT WITH (NOLOCK) " +
+      "INNER JOIN TPRMS TP WITH (NOLOCK) ON TP.COMPANY=MT.COMPANY AND TP.SODTYPE=MT.SODTYPE AND TP.TPRMS=MT.TPRMS " +
+      "WHERE MT.FINDOC=F.FINDOC AND MT.COMPANY=F.COMPANY AND MT.MTRL=L.MTRL ORDER BY MT.MTRTRN) MV "
+    : "";
   var lNet = _bv_col_expr("L", "MTRLINES", ["NETLINEVAL", "NETVAL", "NETAMNT", "LINEVAL"], "0");
   var lLineValue = _bv_col_expr("L", "MTRLINES", ["LINEVAL", "NETLINEVAL", "NETVAL", "NETAMNT"], "0");
   var lVat = _bv_col_expr("L", "MTRLINES", ["VATAMNT", "TAXAMNT", "FPAAMNT", "LINEVAT", "LINETAX", "LINEVATAMNT", "LINETAXAMNT"], "NULL");
@@ -1094,7 +1105,7 @@ function _bv_sales_sql(cfg) {
     salesSign +
     " * ISNULL(" +
     lQty +
-    ",0) AS FLOAT) AS QTY," +
+    ",0)" + stockFactor + " AS FLOAT) AS QTY," +
     "CAST(" +
     salesSign +
     " * ISNULL(" +
@@ -1136,7 +1147,7 @@ function _bv_sales_sql(cfg) {
     salesSign +
     " * ISNULL(" +
     lCost +
-    ",0) AS FLOAT) AS COST_AMOUNT," +
+    ",0)" + stockFactor + " AS FLOAT) AS COST_AMOUNT," +
     "CAST(ISNULL(" +
     c.sosource +
     ",0) AS INT) AS SOURCE_MODULE_ID," +
@@ -1162,6 +1173,7 @@ function _bv_sales_sql(cfg) {
     // failed with "The multi-part identifier CANC.IS_CANCELLING could not be bound"
     // and took the whole sales stream down for every bridge tenant with EXPANAL rows.
     cancelInfo.joinSql + " " +
+    stockMoveJoinSql +
     "OUTER APPLY (SELECT TOP 1 ORIGF.* FROM FINDOC ORIGF WHERE ORIGF.FINDOC=NULLIF(" +
     lFindocs +
     ",0) AND ORIGF.COMPANY=L.COMPANY) ORIG " +
@@ -2237,7 +2249,10 @@ function _bv_cash_sql(cfg) {
     return headerSql + " ORDER BY " + c.trnDate + " ASC, " + c.findoc + " ASC";
   }
 
-  var tlLineNo = _bv_col_expr("TL", "TRDFLINES", ["LINENUM", "TRDFLINES"], "0");
+  // Line ordinal by TRDFLINES id, not LINENUM: a receipt paid two ways (cash + card)
+  // can carry the same LINENUM on both lines, and one id for two lines kept only the
+  // last amount. Equal to LINENUM everywhere else, so existing ids do not change.
+  var tlLineNo = "ROW_NUMBER() OVER (PARTITION BY TL.FINDOC ORDER BY TL.TRDFLINES)";
   var tlValue = _bv_col_expr("TL", "TRDFLINES", ["LINEVAL", "AMOUNT", "TRNVAL", "VAL"], "0");
   var lineWhereSql = " WHERE F.COMPANY=" + cfg.company + " AND F.SOSOURCE IN (1261,1281,1381,1412,1413,1416)";
   if (cfg.fromDate !== "") lineWhereSql += " AND " + c.trnDate + " >= " + _bv_sql_quote(cfg.fromDate);
@@ -2293,7 +2308,7 @@ function _bv_cash_sql(cfg) {
 // or never refreshed. Here: balance = TRDBALSHEET as of today (TRDTRN signed by
 // TPRMS.FLG01 debit / FLG02 credit for a past date), FIFO ageing by document
 // date, and the snapshot holds every trader with a balance plus every trader
-// with a document in the last 45 days, so a balance that drops to zero is sent
+// with a document in the last 10 days, so a balance that drops to zero is sent
 // as zero. Rows carry SUPBAL2|/CUSBAL2| ids; the BI then ignores the old ones.
 function _bv_ledger_balances_available() {
   return _bv_table_exists("TRDBALSHEET") && _bv_table_exists("TRDTRN") && _bv_table_exists("TPRMS");
@@ -2313,6 +2328,12 @@ function _bv_ledger_balances_sql(cfg, kind) {
   var ledgerRows =
     "FROM TRDTRN X WITH (NOLOCK) INNER JOIN TPRMS P WITH (NOLOCK) ON P.COMPANY=X.COMPANY AND P.SODTYPE=X.SODTYPE AND P.TPRMS=X.TPRMS " +
     "WHERE X.COMPANY=T.COMPANY AND X.TRDR=T.TRDR AND ABS(ISNULL(X.LTRNVAL,0)) < 1000000000 AND X.TRNDATE < DATEADD(day,1," + asOf + ")";
+  // Today: the per-period table gives the ledger total cheaply; a past date needs
+  // the ledger itself, which can stop on any day. Decided here, not in SQL, so the
+  // server never evaluates the branch it does not need.
+  var balanceSql = cfg.toDate === ""
+    ? "SELECT SUM(" + bsSign + ") FROM TRDBALSHEET BS WITH (NOLOCK) WHERE BS.COMPANY=T.COMPANY AND BS.TRDR=T.TRDR"
+    : "SELECT SUM(X.LTRNVAL * " + sign + ") " + ledgerRows;
   var bucket = function (cond) {
     return "ISNULL(SUM(CASE WHEN " + cond + " THEN Z.OPEN_PART ELSE 0 END),0)";
   };
@@ -2334,25 +2355,24 @@ function _bv_ledger_balances_sql(cfg, kind) {
     "CAST(ISNULL(AG.B90_PLUS,0) AS FLOAT) AS AGING_BUCKET_90_PLUS," +
     "CONVERT(VARCHAR(10), LP.TRNDATE, 23) AS " + lastCol + "," +
     "CAST(0 AS FLOAT) AS TREND_VS_PREVIOUS," +
-    "CONVERT(VARCHAR(19), ISNULL(ACT.LAST_UPD, " + asOf + "), 126) AS UPDATED_AT," +
+    "CONVERT(VARCHAR(19), ISNULL(K.LAST_UPD, " + asOf + "), 126) AS UPDATED_AT," +
     "1 AS LEDGER," +
-    "CASE WHEN ACT.LAST_UPD IS NULL THEN 0 ELSE 1 END AS RECENT " +
-    "FROM (" +
-    "SELECT BS.TRDR FROM TRDBALSHEET BS WITH (NOLOCK) WHERE BS.COMPANY=" + company + " GROUP BY BS.TRDR HAVING ABS(SUM(BS.LDEBIT - BS.LCREDIT)) >= 0.005 " +
-    "UNION " +
-    "SELECT F.TRDR FROM FINDOC F WITH (NOLOCK) WHERE F.COMPANY=" + company + " AND F.SODTYPE=" + sodtype +
-    " AND F.TRDR IS NOT NULL AND F.UPDDATE >= DATEADD(day,-45,GETDATE())" +
-    ") K " +
+    "CASE WHEN K.LAST_UPD IS NULL THEN 0 ELSE 1 END AS RECENT " +
+    "FROM (SELECT U.TRDR, MAX(U.LAST_UPD) AS LAST_UPD FROM (" +
+    "SELECT BS.TRDR, CAST(NULL AS DATETIME) AS LAST_UPD FROM TRDBALSHEET BS WITH (NOLOCK) WHERE BS.COMPANY=" + company +
+    " GROUP BY BS.TRDR HAVING ABS(SUM(BS.LDEBIT - BS.LCREDIT)) >= 0.005 " +
+    "UNION ALL " +
+    "SELECT FD.TRDR, MAX(FD.UPDDATE) FROM FINDOC FD WITH (NOLOCK) WHERE FD.COMPANY=" + company + " AND FD.SODTYPE=" + sodtype +
+    " AND FD.TRDR IS NOT NULL AND FD.UPDDATE >= DATEADD(day,-10,GETDATE()) GROUP BY FD.TRDR" +
+    ") U GROUP BY U.TRDR) K " +
     "INNER JOIN TRDR T WITH (NOLOCK) ON T.TRDR=K.TRDR AND T.COMPANY=" + company + " AND T.SODTYPE=" + sodtype + " " +
     "OUTER APPLY (SELECT TOP 1 BR.BRANCH, BR.NAME FROM BRANCH BR WITH (NOLOCK) WHERE BR.COMPANY=T.COMPANY ORDER BY BR.BRANCH) HB " +
-    "OUTER APPLY (SELECT MAX(F.UPDDATE) AS LAST_UPD FROM FINDOC F WITH (NOLOCK) WHERE F.COMPANY=T.COMPANY AND F.TRDR=T.TRDR AND F.SODTYPE=" + sodtype +
-    " AND F.UPDDATE >= DATEADD(day,-45,GETDATE())) ACT " +
-    "OUTER APPLY (SELECT TOP 1 FP.TRNDATE FROM FINDOC FP WITH (NOLOCK) WHERE FP.COMPANY=T.COMPANY AND FP.TRDR=T.TRDR AND FP.SOSOURCE IN (" + paySources + ")" +
-    " AND FP.TRNDATE < DATEADD(day,1," + asOf + ") ORDER BY FP.TRNDATE DESC) LP " +
-    "OUTER APPLY (SELECT COALESCE(" +
-    "(SELECT SUM(" + bsSign + ") FROM TRDBALSHEET BS WITH (NOLOCK) WHERE BS.COMPANY=T.COMPANY AND BS.TRDR=T.TRDR AND " + asOf + " >= CAST(GETDATE() AS DATE))," +
-    "(SELECT SUM(X.LTRNVAL * " + sign + ") " + ledgerRows + " AND " + asOf + " < CAST(GETDATE() AS DATE))" +
-    ") AS OPEN_BALANCE) BAL " +
+    // Last payment within the last 400 days, in one grouped pass (a per-trader
+    // lookup scanned the retail customer's millions of documents every time).
+    "LEFT JOIN (SELECT FP.TRDR, MAX(FP.TRNDATE) AS TRNDATE FROM FINDOC FP WITH (NOLOCK) WHERE FP.COMPANY=" + company +
+    " AND FP.SOSOURCE IN (" + paySources + ") AND FP.TRNDATE >= DATEADD(day,-400," + asOf + ") AND FP.TRNDATE < DATEADD(day,1," + asOf + ")" +
+    " GROUP BY FP.TRDR) LP ON LP.TRDR=T.TRDR " +
+    "OUTER APPLY (SELECT (" + balanceSql + ") AS OPEN_BALANCE) BAL " +
     "OUTER APPLY (SELECT " +
     bucket("Z.AGE_DAYS <= 30") + " AS B0_30," +
     bucket("Z.AGE_DAYS BETWEEN 31 AND 60") + " AS B31_60," +
@@ -2371,6 +2391,8 @@ function _bv_ledger_balances_sql(cfg, kind) {
     ") B WHERE B.OPEN_BALANCE <> 0 OR B.RECENT = 1 " +
     "ORDER BY B." + idCol + "_EXT_ID"
   );
+  // FINDOC is aliased FD here: _bv_sqlserver_read_hints appends NOLOCK after the
+  // alias it knows for FINDOC, and a second hint on one table is a syntax error.
 }
 
 function _bv_supplier_balances_sql(cfg) {
