@@ -626,9 +626,23 @@ def _expected_company_id(context: ConnectorContext) -> str | None:
     return _as_optional_text(company, 64)
 
 
+def _excluded_company_ids(context: ConnectorContext) -> set[str]:
+    """Companies the tenant wants ignored on every stream (connection parameter
+    ``excluded_companies``): pharmacy295's 1002 is the pharmacy's previous legal entity,
+    dormant since 2016, whose item copies and balances kept leaking into the BI."""
+    params = context.connection_parameters if isinstance(context.connection_parameters, dict) else {}
+    raw = params.get('excluded_companies')
+    if isinstance(raw, str):
+        raw = raw.split(',')
+    if not isinstance(raw, (list, tuple, set)):
+        return set()
+    return {str(item).strip() for item in raw if str(item).strip()}
+
+
 def _company_mismatch(row: dict[str, Any], fact: dict[str, Any], context: ConnectorContext) -> bool:
     expected = _expected_company_id(context)
-    if not expected:
+    excluded = _excluded_company_ids(context)
+    if not expected and not excluded:
         return False
 
     get = _row_getter(row)
@@ -636,13 +650,13 @@ def _company_mismatch(row: dict[str, Any], fact: dict[str, Any], context: Connec
         get('company_id', 'company', 'COMPANY', 'company_code', 'legal_entity_id', 'organization_id'),
         64,
     )
-    if row_company and row_company != expected:
+    if row_company and (row_company in excluded or (expected and row_company != expected)):
         return True
 
     branch_ext = _as_optional_text(fact.get('branch_ext_id'), 64)
     if branch_ext and ':' in branch_ext:
         branch_company = branch_ext.split(':', 1)[0].strip()
-        if branch_company and branch_company != expected:
+        if branch_company and (branch_company in excluded or (expected and branch_company != expected)):
             return True
 
     return False

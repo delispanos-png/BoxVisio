@@ -14198,6 +14198,15 @@ def _build_fnr_order_xlsx(fnr: dict[str, object], *, tenant_name: str = '', incl
     return _build_xlsx_workbook(sheets)
 
 
+def _tenant_fnr_status_map(tenant) -> dict[str, str] | None:
+    """Per-tenant FnR status -> class map from feature_flags['fnr_status_map'] (None = built-in table)."""
+    flags = getattr(tenant, 'feature_flags', None)
+    raw = flags.get('fnr_status_map') if isinstance(flags, dict) else None
+    if not isinstance(raw, dict) or not raw:
+        return None
+    return {str(k): str(v or '') for k, v in raw.items() if str(k or '').strip()}
+
+
 def _tenant_fnr_store_map(tenant) -> dict[str, object] | None:
     """Per-tenant FnR warehouse->store map from feature_flags (None = branch-level)."""
     flags = getattr(tenant, 'feature_flags', None)
@@ -14223,6 +14232,7 @@ async def _build_fnr_context(
     scope_sold_days: int | None = None,
     store_warehouse_map: dict[str, object] | None = None,
     include_no_order: bool = False,
+    status_map: dict[str, str] | None = None,
 ) -> dict[str, object]:
     return await build_fnr_excel_from_facts(
         tenant_db,
@@ -14241,6 +14251,7 @@ async def _build_fnr_context(
         scope_sold_days=scope_sold_days,
         store_warehouse_map=store_warehouse_map,
         include_no_order=include_no_order,
+        status_map=status_map,
     )
 
 
@@ -14807,6 +14818,7 @@ async def tenant_fnr_dashboard(
                     limit=5000,
                     scope_sold_days=_fnr_scope_sold_days(tenant),
                     store_warehouse_map=_tenant_fnr_store_map(tenant),
+                    status_map=_tenant_fnr_status_map(tenant),
                     include_no_order=fnr_include_no_order,
                 ),
             )
@@ -14990,6 +15002,7 @@ async def tenant_fnr_export(
             limit=20000,
             scope_sold_days=_fnr_scope_sold_days(tenant),
             store_warehouse_map=_tenant_fnr_store_map(tenant),
+            status_map=_tenant_fnr_status_map(tenant),
             include_no_order=fnr_include_no_order,
         ),
     )

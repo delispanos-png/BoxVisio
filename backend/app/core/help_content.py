@@ -1273,8 +1273,9 @@ CIRCUITS: tuple[dict[str, Any], ...] = (
                 'Είδη χωρίς τιμή αγοράς δεν αποτιμώνται, οπότε η αξία παραγγελίας υποεκτιμάται.',
                 'Status 1 (ABCD) και Status 2 έρχονται από την καρτέλα είδους του SoftOne. Για τις παραγγελίες '
                 'αναγνωρίζονται οι κλάσεις A, B, C, D, S (και οι υποκλάσεις τους, π.χ. D3, B1). Είδος με άλλο status '
-                '(π.χ. Non-Core Selective, Legacy, Watchlist, RAW) εμφανίζεται με το status του αλλά δεν παραγγέλνεται '
-                'αυτόματα, μέχρι να οριστεί κανόνας για την κλάση αυτή.',
+                '(π.χ. Non-Core Selective, Legacy, Watchlist, RAW) εμφανίζεται με το status του και ακολουθεί την κλάση '
+                'που έχει οριστεί γι\' αυτό στις ρυθμίσεις του πελάτη (π.χ. Non-Core Selective → C, Legacy → D, '
+                'Watchlist → B)· χωρίς ορισμό δεν παραγγέλνεται αυτόματα.',
                 'Η ζήτηση (MO1/MO2) μετρά μόνο παραστατικά που κινούν απόθεμα (κίνηση είδους με «Εξαγωγή»): '
                 'η απόδειξη λιανικής μετράει, το ΤΣΥΠ προς τον ΕΟΠΥΥ («μόνο αξία») όχι — αλλιώς κάθε κουτί '
                 'με συνταγή θα μετρούσε δύο φορές.',
@@ -1285,8 +1286,9 @@ CIRCUITS: tuple[dict[str, Any], ...] = (
                 'Items with no purchase price are not valued, so the order value is understated.',
                 'Status 1 (ABCD) and Status 2 come from the SoftOne item card. Ordering recognises the classes '
                 'A, B, C, D, S (and their sub-classes, e.g. D3, B1). An item with any other status (e.g. Non-Core '
-                'Selective, Legacy, Watchlist, RAW) shows that status but is not ordered automatically until a '
-                'rule is defined for that class.',
+                'Selective, Legacy, Watchlist, RAW) shows that status and follows the class configured for it in '
+                'the tenant settings (e.g. Non-Core Selective → C, Legacy → D, Watchlist → B); with no rule it is '
+                'not ordered automatically.',
                 'Demand (MO1/MO2) counts only documents that move stock (item movement with «Export»): the '
                 'retail receipt counts, the value-only ΤΣΥΠ to the fund does not — otherwise every prescription '
                 'box would count twice.',

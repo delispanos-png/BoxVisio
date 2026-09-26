@@ -833,8 +833,16 @@ def _fnr_allowed(value: str, selected: list[str]) -> bool:
     return any(item.casefold() == folded for item in selected)
 
 
-def _fnr_status_code(value: object) -> str:
+def _fnr_status_code(value: object, status_map: dict[str, str] | None = None) -> str:
     text_value = str(value or '').strip().upper()
+    # A tenant's own classes first (feature flag fnr_status_map: status name -> A/B/C/D/S),
+    # e.g. pharmacy295's «Non-Core Selective» -> C. The built-in table below only knows
+    # the SoftOne defaults.
+    if status_map:
+        for raw_key, raw_class in status_map.items():
+            if str(raw_key or '').strip().upper() == text_value:
+                mapped = str(raw_class or '').strip().upper()
+                return mapped if mapped in {'A', 'B', 'C', 'D', 'S'} else ''
     if text_value in {'A', 'B', 'C', 'D', 'S'}:
         return text_value
     # Normalize ABC sub-codes from manual_order_category to their base class.
@@ -922,6 +930,7 @@ async def build_fnr_excel_from_facts(
     scope_sold_days: int | None = None,
     store_warehouse_map: dict[str, object] | None = None,
     include_no_order: bool = False,
+    status_map: dict[str, str] | None = None,
 ) -> dict[str, object]:
     """Build the FNR worksheet using the same column logic as the provided Excel."""
     as_of = as_of or date.today()
@@ -1066,7 +1075,7 @@ async def build_fnr_excel_from_facts(
     order_rows: list[dict[str, object]] = []
     for item in items.values():
         stores = item['stores']  # type: ignore[assignment]
-        status_1 = _fnr_status_code(item.get('status_1'))
+        status_1 = _fnr_status_code(item.get('status_1'), status_map)
         min_stock = _as_float(item.get('min_stock'), 1.0)
         repl_moq = max(_as_float(item.get('repl_moq'), 1.0), 1.0)
         vendor_moq = max(_as_float(item.get('vendor_moq'), 1.0), 1.0)
