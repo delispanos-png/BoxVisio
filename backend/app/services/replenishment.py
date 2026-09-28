@@ -1002,15 +1002,13 @@ async def build_fnr_excel_from_facts(
         'category_hierarchy': set(),
         'suppliers': set(),
     }
-    for detail in period_1.get('detail_rows') or []:
-        if not isinstance(detail, dict):
-            continue
+    def _take(detail: dict[str, object]) -> None:
         item_code = str(detail.get('item_code') or '').strip()
         store_code = _fnr_store_code(detail.get('store'))
         if not item_code or not store_code:
-            continue
+            return
         if selected_pharmacies and store_code not in selected_pharmacies:
-            continue
+            return
         c1 = str(detail.get('category_1') or detail.get('category') or '').strip()
         c2 = str(detail.get('category_2') or '').strip()
         c3 = str(detail.get('category_3') or '').strip()
@@ -1030,19 +1028,19 @@ async def build_fnr_excel_from_facts(
         if supplier:
             options['suppliers'].add(supplier)
         if group_filter and not _fnr_allowed(grp, group_filter):
-            continue
+            return
         if not _fnr_allowed(c1, category_1_filter):
-            continue
+            return
         if category_2_filter and not _fnr_allowed(c2, category_2_filter):
-            continue
+            return
         if category_3_filter and not _fnr_allowed(c3, category_3_filter):
-            continue
+            return
         if supplier_filter and not _fnr_allowed(supplier, supplier_filter):
-            continue
+            return
         if search_filter:
             haystack = ' '.join([item_code, item_name, c1, c2, c3, supplier]).casefold()
             if search_filter not in haystack:
-                continue
+                return
         item = items.setdefault(
             item_code,
             {
@@ -1070,6 +1068,47 @@ async def build_fnr_excel_from_facts(
         # Match the Excel note by assigning vendor expected quantities to Logica only.
         if store_code == 'LOGICA':
             store['expected_qty'] = max(_as_float(detail.get('expected_qty')), 0.0)
+
+    for detail in period_1.get('detail_rows') or []:
+        if isinstance(detail, dict):
+            _take(detail)
+
+    # Every active item that carries an ABCD status belongs in the worksheet, even with
+    # no stock and no sale in the availability window: the pharmacy manages it and
+    # wants it listed (pharmacy295 2026-09: 4.495 statused items were missing, D/Legacy/
+    # C mostly). They join with zero stock and zero run rate, so they only produce an
+    # order line when their class rule says so.
+    statused_result = await db.execute(
+        text(
+            """
+            SELECT
+                di.external_id AS item_code,
+                COALESCE(di.name, di.external_id) AS item_name,
+                COALESCE(NULLIF(di.category_1, ''), 'Χωρίς κατηγορία') AS category_1,
+                COALESCE(NULLIF(di.category_2, ''), '') AS category_2,
+                COALESCE(NULLIF(di.category_3, ''), '') AS category_3,
+                COALESCE(NULLIF(dg.name, ''), 'Χωρίς ομάδα') AS "group",
+                di.manual_order_category AS abc_category,
+                COALESCE(NULLIF(di.commercial_status, ''), '-') AS commercial_status,
+                COALESCE(NULLIF(di.preferred_supplier_name, ''), 'Χωρίς προμηθευτή') AS vendor,
+                COALESCE(di.min_stock, 1) AS min_stock,
+                COALESCE(di.replenishment_moq, 1) AS repl_moq,
+                COALESCE(di.vendor_moq, 1) AS vendor_moq,
+                COALESCE(di.current_purchase_price, 0) AS latest_purchase_price
+            FROM dim_items di
+            LEFT JOIN dim_groups dg ON dg.id = di.group_id
+            WHERE COALESCE(di.softone_sotype, 51) = 51
+              AND COALESCE(di.is_active_source, true) = true
+              AND COALESCE(di.manual_order_category, '') <> ''
+            """
+        )
+    )
+    for extra in statused_result.mappings().all():
+        code = str(extra.get('item_code') or '').strip()
+        if not code or code in items:
+            continue
+        for store_code in STORE_CODES:
+            _take({**dict(extra), 'store': store_code, 'weekly_sales': 0.0, 'stock_qty': 0.0, 'expected_qty': 0.0})
 
     output_rows: list[dict[str, object]] = []
     order_rows: list[dict[str, object]] = []

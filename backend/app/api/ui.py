@@ -14983,7 +14983,7 @@ async def tenant_fnr_export(
             sales_avg_period_2_weeks=sales_avg_period_2_weeks,
             include_no_order=fnr_include_no_order,
             scope_sold_days=_fnr_scope_sold_days(tenant) or 0,
-            limit=20000,
+            limit=60000,
         ),
         ttl_seconds=300,
         producer=lambda: _build_fnr_context(
@@ -14999,7 +14999,7 @@ async def tenant_fnr_export(
             overstock_weeks=overstock_weeks,
             sales_avg_period_1_weeks=sales_avg_period_1_weeks,
             sales_avg_period_2_weeks=sales_avg_period_2_weeks,
-            limit=20000,
+            limit=60000,
             scope_sold_days=_fnr_scope_sold_days(tenant),
             store_warehouse_map=_tenant_fnr_store_map(tenant),
             status_map=_tenant_fnr_status_map(tenant),
