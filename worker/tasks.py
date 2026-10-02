@@ -1177,6 +1177,44 @@ async def _refresh_item_status_for_tenant(tenant_slug: str) -> dict:
     return {'tenant': tenant_slug, **result}
 
 
+@shared_task(name='worker.tasks.refresh_item_status_all_tenants')
+def refresh_item_status_all_tenants() -> dict:
+    """Scheduled light sync of item status / categories for every operational tenant.
+
+    The item_master stream is incremental on MTRL.UPDDATE, and a status lives in
+    MTREXTRA, which carries no change stamp: a class changed in bulk in SoftOne reached
+    the BI only when something else touched the item, so FnR kept ordering on the old
+    class (pharmacy295 2026-10: 2.497 items behind). The status query reads every item
+    in a few seconds, so it simply runs on a short interval.
+    """
+    return _run_coro(_refresh_item_status_all_tenants())
+
+
+async def _refresh_item_status_all_tenants() -> dict:
+    async with ControlSessionLocal() as control_db:
+        tenants = (
+            await control_db.execute(
+                select(Tenant)
+                .where(
+                    Tenant.status == TenantStatus.active,
+                    Tenant.subscription_status.in_(
+                        [SubscriptionStatus.active, SubscriptionStatus.trial, SubscriptionStatus.past_due]
+                    ),
+                )
+                .order_by(Tenant.id.asc())
+            )
+        ).scalars().all()
+        slugs = [tenant.slug for tenant in tenants if _is_background_operational_tenant(tenant)]
+    results: list[dict] = []
+    for slug in slugs:
+        try:
+            results.append(await _refresh_item_status_for_tenant(slug))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning('item_status_sync_failed tenant=%s error=%s', slug, str(exc)[:200])
+            results.append({'tenant': slug, 'status': 'error', 'reason': str(exc)[:200]})
+    return {'status': 'ok', 'tenants': results}
+
+
 async def _refresh_inventory_snapshots_all_tenants() -> dict:
     from app.services.inventory_snapshot import refresh_inventory_snapshot
 

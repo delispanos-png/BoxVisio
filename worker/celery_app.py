@@ -36,6 +36,7 @@ celery.conf.task_routes = {
     'worker.tasks.enqueue_incremental_sync_all_tenants': {'queue': 'ingest'},
     'worker.tasks.sync_3cx_call_center_due_tenants': {'queue': 'ingest'},
     'worker.tasks.refresh_inventory_snapshots_all_tenants': {'queue': 'ingest'},
+    'worker.tasks.refresh_item_status_all_tenants': {'queue': 'default'},
     'worker.tasks.enqueue_daily_recovery_sync_all_tenants': {'queue': 'ingest'},
     'worker.tasks.enqueue_daily_reconciliation_checks': {'queue': 'default'},
     'worker.tasks.run_daily_reconciliation_for_tenant': {'queue': 'default'},
@@ -95,6 +96,12 @@ celery.conf.beat_schedule = {
     },
     # Nightly 22:00 Europe/Athens — re-pull SoftOne net stock so the daily snapshot is
     # accurate (incremental syncs never refresh the balance). Timezone set below.
+    # Item status / categories every 30 minutes: MTREXTRA has no change stamp, so the
+    # incremental item stream cannot see a status that changed on its own.
+    'item-status-refresh': {
+        'task': 'worker.tasks.refresh_item_status_all_tenants',
+        'schedule': timedelta(minutes=30),
+    },
     'nightly-inventory-stock-snapshot': {
         'task': 'worker.tasks.refresh_inventory_snapshots_all_tenants',
         'schedule': crontab(hour=22, minute=0),

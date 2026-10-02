@@ -1170,9 +1170,9 @@ async def build_fnr_excel_from_facts(
             'category_1': item.get('category_1') or '',
             'category_2': item.get('category_2') or '',
             'category_3': item.get('category_3') or '',
-            # The class code when the status maps to one, else the status as SoftOne
-            # names it, so «Non-Core Selective» reads as such and not as a blank.
-            'status_1': status_1 or str(item.get('status_1') or ''),
+            # The status as SoftOne names it (D3, Non-Core Selective...), so the sheet
+            # matches the item card one to one; the class it maps to only drives the rules.
+            'status_1': str(item.get('status_1') or '') or status_1,
             'status_2': item.get('status_2') or '',
             'supplier': item.get('supplier') or '',
             'group': item.get('group') or '',
