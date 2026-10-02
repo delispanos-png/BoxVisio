@@ -44,7 +44,11 @@ SELECT
     CAST(ISNULL(CG.NAME, '')  AS nvarchar(255)) AS commercial_category,
     CAST(ISNULL(CT1.NAME, '') AS nvarchar(255)) AS category_1,
     CAST(ISNULL(CT2.NAME, '') AS nvarchar(255)) AS category_2,
-    CAST(ISNULL(CT3.NAME, '') AS nvarchar(255)) AS category_3
+    CAST(ISNULL(CT3.NAME, '') AS nvarchar(255)) AS category_3,
+    -- The item card's supplier, same expressions as the querypack: FnR lists an item
+    -- under it, so a supplier changed on the card must not wait for the item stream.
+    CAST(NULLIF(CAST(ISNULL(I.MTRSUP, 0) AS nvarchar(128)), '0') AS nvarchar(128)) AS preferred_supplier_ext_id,
+    CAST(ISNULL(SUP.NAME, '') AS nvarchar(255)) AS preferred_supplier_name
 FROM MTRL I WITH (NOLOCK)
 LEFT JOIN MTREXTRA IX WITH (NOLOCK) ON IX.MTRL = I.MTRL AND IX.COMPANY = I.COMPANY
 LEFT JOIN UTBL04 UT4 WITH (NOLOCK) ON UT4.UTBL04 = IX.UTBL04 AND UT4.COMPANY = IX.COMPANY AND UT4.SODTYPE = I.SODTYPE
@@ -53,6 +57,7 @@ LEFT JOIN MTRPCATEGORY CG WITH (NOLOCK) ON CG.MTRPCATEGORY = I.MTRPCATEGORY AND 
 LEFT JOIN CCCCATEGORY01 CT1 WITH (NOLOCK) ON CT1.CATEGORY01 = I.CCCCATEGORY01
 LEFT JOIN CCCCATEGORY02 CT2 WITH (NOLOCK) ON CT2.CATEGORY02 = I.CCCCATEGORY02
 LEFT JOIN CCCCATEGORY03 CT3 WITH (NOLOCK) ON CT3.CATEGORY03 = I.CCCCATEGORY03
+LEFT JOIN TRDR SUP WITH (NOLOCK) ON SUP.TRDR = I.MTRSUP AND SUP.COMPANY = I.COMPANY
 -- Same rule as the item_master querypack: a code that also exists in the primary
 -- company (the one holding most items) is read from that company only; the copy in a
 -- secondary company has no UTBL04/MTREXTRA of its own (pharmacy295 company 1002).
@@ -110,6 +115,7 @@ async def refresh_item_status(control_db: AsyncSession, tenant_db: AsyncSession,
         value = (
             _norm(r[1], 128), _norm(r[2], 128), _norm(r[3], 255),
             _norm(r[4], 255), _norm(r[5], 255), _norm(r[6], 255),
+            _norm(r[7], 128), _norm(r[8], 255),
         )
         previous = soft.get(code)
         #  SODTYPE=51 should make CODE unique, but a catalog that still returns the
@@ -129,17 +135,18 @@ async def refresh_item_status(control_db: AsyncSession, tenant_db: AsyncSession,
         await tenant_db.execute(
             text(
                 'SELECT external_id, manual_order_category, commercial_status, commercial_category, '
-                'category_1, category_2, category_3 FROM dim_items'
+                'category_1, category_2, category_3, preferred_supplier_ext_id, preferred_supplier_name '
+                'FROM dim_items'
             )
         )
     ).all()
 
     diffs: list[dict] = []
-    for code, mo, cs, cc, c1, c2, c3 in current:
+    for code, mo, cs, cc, c1, c2, c3, se, sn in current:
         source = soft.get(str(code))
         if source is None:  # item not in SoftOne right now — leave untouched
             continue
-        if (mo or None, cs or None, cc or None, c1 or None, c2 or None, c3 or None) != source:
+        if (mo or None, cs or None, cc or None, c1 or None, c2 or None, c3 or None, se or None, sn or None) != source:
             diffs.append(
                 {
                     'c': str(code),
@@ -149,6 +156,8 @@ async def refresh_item_status(control_db: AsyncSession, tenant_db: AsyncSession,
                     'c1': source[3],
                     'c2': source[4],
                     'c3': source[5],
+                    'se': source[6],
+                    'sn': source[7],
                 }
             )
 
@@ -157,6 +166,7 @@ async def refresh_item_status(control_db: AsyncSession, tenant_db: AsyncSession,
             text(
                 'UPDATE dim_items SET manual_order_category = :mo, commercial_status = :cs, '
                 'commercial_category = :cc, category_1 = :c1, category_2 = :c2, category_3 = :c3, '
+                'preferred_supplier_ext_id = :se, preferred_supplier_name = :sn, '
                 'updated_at = now() WHERE external_id = :c'
             ),
             diffs[i : i + 1000],

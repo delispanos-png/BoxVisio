@@ -2489,7 +2489,11 @@ async def build_availability_foundation(
             COALESCE(NULLIF(dg.name, ''), 'Χωρίς ομάδα') AS group_name,
             COALESCE(NULLIF(di.manual_order_category, ''), 'Χωρίς ABC') AS abc_category,
             COALESCE(NULLIF(di.commercial_status, ''), '-') AS commercial_status,
-            COALESCE(NULLIF(supplier_rank.supplier_name, ''), NULLIF(expected.expected_supplier, ''), NULLIF(di.preferred_supplier_name, ''), 'Χωρίς προμηθευτή') AS supplier_name,
+            -- The supplier on the item card first: it is what the pharmacy maintains, and a
+            -- change there must show at once. Purchase history only fills in when the card
+            -- has none (it kept APOLLONIAN on MOLLER'S 178909 for months after the card
+            -- moved to ΣΑΡΑΝΤΗΣ, because the old supplier still led the 180-day value).
+            COALESCE(NULLIF(di.preferred_supplier_name, ''), NULLIF(supplier_rank.supplier_name, ''), NULLIF(expected.expected_supplier, ''), 'Χωρίς προμηθευτή') AS supplier_name,
             COALESCE(stock.stock_qty, 0) AS stock_qty,
             COALESCE(stock.stock_value, 0) AS stock_value,
             COALESCE(sales.sales_qty_current, 0) AS sales_qty_current,
