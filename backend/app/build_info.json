@@ -1,8 +1,8 @@
 {
   "series": "2.7",
-  "build": 241,
-  "version": "2.7.241",
-  "commit": "2d99fec",
+  "build": 242,
+  "version": "2.7.242",
+  "commit": "0ecd187",
   "branch": "ui-ux-refresh",
-  "stamped_at": "2026-10-02T18:44:50+00:00"
+  "stamped_at": "2026-10-05T14:19:51+00:00"
 }

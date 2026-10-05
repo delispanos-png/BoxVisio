@@ -14867,11 +14867,34 @@ async def tenant_fnr_dashboard(
 async def tenant_fnr_sync_expected_orders(
     request: Request,
     tenant: Tenant = Depends(get_request_tenant),
+    tenant_db: AsyncSession = Depends(get_tenant_db),
     _user=Depends(get_current_user),
 ):
-    await _enqueue_fnr_expected_orders_sync(tenant)
+    # SQL-connector tenants: read the open quantities straight from SoftOne and fix only
+    # the lines that differ (seconds). The queued full re-ingest stays as the path for
+    # tenants on the SoftOne bridge, which this light read cannot reach.
+    from app.services.expected_orders_sync import refresh_expected_orders
+
+    fast: dict = {}
+    try:
+        async with ControlSessionLocal() as control_db:
+            fast = await refresh_expected_orders(control_db, tenant_db, tenant_id=int(tenant.id))
+    except Exception:
+        logger.exception('fnr_expected_orders_fast_sync_failed', extra={'tenant_id': tenant.id})
+        fast = {}
     query = dict(request.query_params)
-    query['expected_sync'] = 'queued'
+    for stale_key in ('expected_sync', 'expected_changed'):
+        query.pop(stale_key, None)
+    if fast.get('status') == 'ok':
+        try:
+            await invalidate_tenant_cache(str(tenant.id), namespace_prefix='tenant:worksheet:fnr')
+        except Exception:
+            logger.warning('fnr_expected_orders_cache_invalidate_failed', extra={'tenant_id': tenant.id})
+        query['expected_sync'] = 'done'
+        query['expected_changed'] = str(int(fast.get('updated') or 0) + int(fast.get('closed') or 0))
+    else:
+        await _enqueue_fnr_expected_orders_sync(tenant)
+        query['expected_sync'] = 'queued'
     redirect_url = '/tenant/fnr'
     if query:
         redirect_url = f'{redirect_url}?{urlencode(query)}'
@@ -14907,7 +14930,9 @@ async def tenant_fnr_refresh_stock(
         logger.exception('fnr_refresh_stock_failed', extra={'tenant_id': tenant.id})
 
     query = dict(request.query_params)
-    query['stock_refreshed'] = '1' if result.get('status') == 'ok' else 'err'
+    for stale_key in ('stock_refreshed', 'stock_items'):
+        query.pop(stale_key, None)
+    query['stock_refreshed'] = {'ok': '1', 'busy': 'busy'}.get(str(result.get('status')), 'err')
     if result.get('items'):
         query['stock_items'] = str(result.get('items'))
     redirect_url = '/tenant/fnr'

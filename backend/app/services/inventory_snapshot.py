@@ -13,6 +13,7 @@ pre-FnR refresh action.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import date
 
 from sqlalchemy import select, text
@@ -141,7 +142,18 @@ async def refresh_inventory_snapshot(
     if not connection_string:
         return {'status': 'skipped', 'reason': 'no_sql_connector', 'items': 0, 'rows': 0}
 
-    rows = _fetch_balance_rows(connection_string, company)
+    # One refresh per day at a time. Two overlapping runs (a second click while the first
+    # is still working, or the nightly job meeting a manual one) both wrote the same
+    # STKSNAP ids and the later one died on the unique key, leaving the user with an error.
+    got_lock = (
+        await tenant_db.execute(
+            text('SELECT pg_try_advisory_xact_lock(hashtext(:k))'), {'k': f'stksnap:{snapshot_day.isoformat()}'}
+        )
+    ).scalar()
+    if not got_lock:
+        return {'status': 'busy', 'items': 0, 'rows': 0}
+
+    rows = await asyncio.to_thread(_fetch_balance_rows, connection_string, company)
     if not rows:
         return {'status': 'skipped', 'reason': 'no_rows', 'items': 0, 'rows': 0}
 
@@ -174,12 +186,34 @@ async def refresh_inventory_snapshot(
         net_by_code[b['code']] = net_by_code.get(b['code'], 0.0) + b['q']
     batch = [b for b in batch if abs(net_by_code.get(b['code'], 0.0)) > 1e-4]
 
-    # Replace today's snapshot only (movement docs and other days untouched).
-    await tenant_db.execute(
-        text("DELETE FROM fact_inventory WHERE doc_date = :d AND COALESCE(movement_type, 'snapshot') = 'snapshot'"),
-        {'d': snapshot_day},
-    )
-    for i in range(0, len(batch), 1000):
+    # Write only what changed against today's snapshot (movement docs and other days are
+    # untouched). Rewriting all ~50k rows of a table this size on every click took half a
+    # minute; between two refreshes of the same day only a few hundred balances move.
+    existing = {
+        str(r[0]): (float(r[1] or 0), float(r[2] or 0), float(r[3] or 0))
+        for r in (
+            await tenant_db.execute(
+                text(
+                    "SELECT external_id, qty_on_hand, value_amount, cost_amount FROM fact_inventory "
+                    "WHERE doc_date = :d AND COALESCE(movement_type, 'snapshot') = 'snapshot'"
+                ),
+                {'d': snapshot_day},
+            )
+        ).all()
+    }
+    wanted_ids = {b['eid'] for b in batch}
+    changed = [
+        b for b in batch
+        if (prev := existing.get(b['eid'])) is None
+        or abs(prev[0] - b['q']) > 1e-4 or abs(prev[1] - b['val']) > 0.005 or abs(prev[2] - b['v']) > 0.005
+    ]
+    gone = [eid for eid in existing if eid not in wanted_ids]
+    for i in range(0, len(gone), 5000):
+        await tenant_db.execute(
+            text('DELETE FROM fact_inventory WHERE external_id = ANY(CAST(:ids AS text[]))'),
+            {'ids': gone[i : i + 5000]},
+        )
+    for i in range(0, len(changed), 1000):
         await tenant_db.execute(
             text(
                 """
@@ -192,9 +226,16 @@ async def refresh_inventory_snapshot(
                      :q, :q, 0, 0,
                      :val, :v, jsonb_build_object('retail_value_amount', CAST(:retail AS double precision)),
                      'snapshot', now(), now())
+                ON CONFLICT (external_id) DO UPDATE SET
+                    qty_on_hand = EXCLUDED.qty_on_hand,
+                    qty_available = EXCLUDED.qty_available,
+                    value_amount = EXCLUDED.value_amount,
+                    cost_amount = EXCLUDED.cost_amount,
+                    source_payload_json = EXCLUDED.source_payload_json,
+                    updated_at = now()
                 """
             ),
-            batch[i : i + 1000],
+            changed[i : i + 1000],
         )
 
     # The INSERT above carries only ext keys; relink the surrogate FKs so downstream
@@ -212,6 +253,7 @@ async def refresh_inventory_snapshot(
             WHERE fi.doc_date = :d
               AND COALESCE(fi.movement_type, 'snapshot') = 'snapshot'
               AND di.external_id = fi.item_code
+              AND (fi.item_id IS NULL OR fi.branch_id IS NULL OR fi.warehouse_id IS NULL)
             """
         ),
         {'d': snapshot_day},
@@ -224,6 +266,8 @@ async def refresh_inventory_snapshot(
         'status': 'ok',
         'items': distinct_items,
         'rows': len(batch),
+        'changed': len(changed),
+        'removed': len(gone),
         'value': round(total_value, 2),
         'snapshot_date': snapshot_day.isoformat(),
     }

@@ -253,10 +253,14 @@
         <span><strong>Πριν την τελική παραγγελία:</strong> ανανέωσε το απόθεμα &amp; συγχρόνισε τα αναμενόμενα για να αφαιρεθούν παραγγελίες που μόλις μετασχηματίστηκαν ή ακυρώθηκαν.</span>
         {% if request.query_params.get('stock_refreshed') == '1' %}
         <span class="fnr-sync-ok">Το απόθεμα ανανεώθηκε από το SoftOne{% if request.query_params.get('stock_items') %} ({{ request.query_params.get('stock_items') }} είδη){% endif %}.</span>
+        {% elif request.query_params.get('stock_refreshed') == 'busy' %}
+        <span class="fnr-sync-ok" style="background:#fef3c7;color:#92400e;">Η ανανέωση αποθέματος τρέχει ήδη — περίμενε λίγα δευτερόλεπτα και πάτα «Εφαρμογή».</span>
         {% elif request.query_params.get('stock_refreshed') == 'err' %}
         <span class="fnr-sync-ok" style="background:#fee2e2;color:#991b1b;">Αποτυχία ανανέωσης αποθέματος — δοκίμασε ξανά.</span>
         {% endif %}
-        {% if request.query_params.get('expected_sync') == 'queued' %}
+        {% if request.query_params.get('expected_sync') == 'done' %}
+        <span class="fnr-sync-ok">Τα αναμενόμενα συγχρονίστηκαν με το SoftOne{% if request.query_params.get('expected_changed') %} ({{ request.query_params.get('expected_changed') }} γραμμές παραγγελιών ενημερώθηκαν){% endif %}.</span>
+        {% elif request.query_params.get('expected_sync') == 'queued' %}
         <span class="fnr-sync-ok">Ο συγχρονισμός μπήκε στην priority ουρά. Κάνε ανανέωση/Εφαρμογή μόλις ολοκληρωθεί.</span>
         {% endif %}
       </div>

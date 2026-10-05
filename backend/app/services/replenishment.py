@@ -2364,6 +2364,10 @@ async def build_availability_foundation(
                     ) AS _rn
                     FROM fact_inventory fi2
                     WHERE COALESCE(fi2.movement_type, 'snapshot') = 'snapshot'
+                      -- Only the latest snapshot day. The join below says the same, but the
+                      -- planner cannot push it through the window function, so without this
+                      -- line it ranked every snapshot row ever stored (5.9M, 10 s per FnR).
+                      AND fi2.doc_date = (SELECT snapshot_date FROM latest_stock)
                 ) z WHERE z._rn = 1
             ) fi
             JOIN latest_stock ls ON ls.snapshot_date = fi.doc_date
