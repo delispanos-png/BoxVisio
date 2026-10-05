@@ -691,6 +691,16 @@ def auto_recover_stuck_ingest() -> dict:
         # executing in run_in_executor (a thread) and will eventually be cancelled by
         # asyncio.wait_for or by pyodbc conn.timeout. Treat it as alive up to force_after_seconds.
         heartbeat_fresh = heartbeat_age_seconds < stale_after_seconds
+        # One sync per tenant at a time. A job with a live heartbeat is already bounded by
+        # its own timeout (asyncio.wait_for: 15 min, 60 for item_master, 120 for backfills),
+        # so taking its lock at force_after_seconds did not stop it -- it only let a second
+        # drain start beside it, and the two then deadlocked on the same dimension rows
+        # (pharmacy295 2026-10: a 27-minute item job against the supplier-order sync).
+        # While the heartbeat is fresh the ceiling is therefore the longest job timeout.
+        longest_job_timeout = max(1200, int(getattr(settings, 'ingest_backfill_job_timeout_seconds', 7200) or 7200))
+        effective_force_after = (
+            max(force_after_seconds, longest_job_timeout + 300) if heartbeat_fresh else force_after_seconds
+        )
 
         # Pool drains are scheduled with tenant_slug="__pool__" and choose the
         # concrete tenant inside the task. Celery inspect still reports the
@@ -722,13 +732,13 @@ def auto_recover_stuck_ingest() -> dict:
             and (
                 not job_in_flight
                 or current_job_age_seconds < stale_after_seconds
-                or (heartbeat_fresh and current_job_age_seconds < force_after_seconds)
+                or (heartbeat_fresh and current_job_age_seconds < effective_force_after)
             )
         )
         # Force-recover only when the *current job* has been running past the absolute ceiling.
         # Using drain-task age (max_active_age_seconds) was wrong: a drain that processes many
         # jobs over 17+ minutes is healthy — its Celery task age is not a stuck-job signal.
-        force_by_age = job_in_flight and current_job_age_seconds >= force_after_seconds
+        force_by_age = job_in_flight and current_job_age_seconds >= effective_force_after
 
         if active_is_making_progress and not force_by_age:
             skipped.append(
@@ -751,14 +761,14 @@ def auto_recover_stuck_ingest() -> dict:
         job_stuck = (
             job_in_flight
             and current_job_age_seconds >= stale_after_seconds
-            and (not heartbeat_fresh or current_job_age_seconds >= force_after_seconds)
+            and (not heartbeat_fresh or current_job_age_seconds >= effective_force_after)
         )
         # within_grace: the drain has not yet exceeded its tolerance window.
         # Use job_progress_age (time since last job completed) rather than drain-task age
         # (max_active_age_seconds) so a drain that has processed many jobs over a long
         # period is not force-killed simply because its Celery task is "old".
         within_grace = (
-            job_progress_age_seconds < force_after_seconds
+            job_progress_age_seconds < effective_force_after
         ) and not allow_early_recover and not job_stuck
 
         if active and within_grace:

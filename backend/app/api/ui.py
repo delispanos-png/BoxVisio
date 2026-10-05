@@ -1,4 +1,3 @@
-import secrets
 import asyncio
 import csv
 import hashlib
@@ -12,6 +11,7 @@ import shutil
 import subprocess
 import time
 import zipfile
+import secrets
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -14863,6 +14863,36 @@ async def tenant_fnr_dashboard(
     )
 
 
+def _fnr_manual_sync_acquire(tenant: Tenant) -> str | None:
+    """One manual FnR sync per tenant at a time, across both buttons and all users.
+
+    Returns a token to release with, or None when another sync is still running. The
+    key expires on its own, so a request that dies mid-way cannot leave it locked."""
+    token = secrets.token_hex(8)
+    redis = Redis.from_url(settings.redis_url, decode_responses=True)
+    return token if redis.set(f'fnr:manual_sync:{tenant.slug}', token, nx=True, ex=300) else None
+
+
+def _fnr_manual_sync_release(tenant: Tenant, token: str | None) -> None:
+    if not token:
+        return
+    try:
+        redis = Redis.from_url(settings.redis_url, decode_responses=True)
+        key = f'fnr:manual_sync:{tenant.slug}'
+        if redis.get(key) == token:
+            redis.delete(key)
+    except Exception:
+        logger.warning('fnr_manual_sync_release_failed', extra={'tenant_id': tenant.id})
+
+
+def _fnr_busy_redirect(request: Request) -> RedirectResponse:
+    query = dict(request.query_params)
+    for stale_key in ('expected_sync', 'expected_changed', 'stock_refreshed', 'stock_items', 'sync_busy'):
+        query.pop(stale_key, None)
+    query['sync_busy'] = '1'
+    return RedirectResponse(url=f'/tenant/fnr?{urlencode(query)}', status_code=303)
+
+
 @router.post('/tenant/fnr/sync-expected')
 async def tenant_fnr_sync_expected_orders(
     request: Request,
@@ -14875,6 +14905,9 @@ async def tenant_fnr_sync_expected_orders(
     # tenants on the SoftOne bridge, which this light read cannot reach.
     from app.services.expected_orders_sync import refresh_expected_orders
 
+    sync_token = _fnr_manual_sync_acquire(tenant)
+    if sync_token is None:
+        return _fnr_busy_redirect(request)
     fast: dict = {}
     try:
         async with ControlSessionLocal() as control_db:
@@ -14882,8 +14915,10 @@ async def tenant_fnr_sync_expected_orders(
     except Exception:
         logger.exception('fnr_expected_orders_fast_sync_failed', extra={'tenant_id': tenant.id})
         fast = {}
+    finally:
+        _fnr_manual_sync_release(tenant, sync_token)
     query = dict(request.query_params)
-    for stale_key in ('expected_sync', 'expected_changed'):
+    for stale_key in ('expected_sync', 'expected_changed', 'sync_busy'):
         query.pop(stale_key, None)
     if fast.get('status') == 'ok':
         try:
@@ -14912,6 +14947,9 @@ async def tenant_fnr_refresh_stock(
     the FnR is generated against current inventory (not a stale balance)."""
     from app.services.inventory_snapshot import refresh_inventory_snapshot
 
+    sync_token = _fnr_manual_sync_acquire(tenant)
+    if sync_token is None:
+        return _fnr_busy_redirect(request)
     result: dict = {'status': 'error'}
     try:
         async with ControlSessionLocal() as control_db:
@@ -14928,9 +14966,11 @@ async def tenant_fnr_refresh_stock(
         await invalidate_tenant_cache(str(tenant.id))
     except Exception:
         logger.exception('fnr_refresh_stock_failed', extra={'tenant_id': tenant.id})
+    finally:
+        _fnr_manual_sync_release(tenant, sync_token)
 
     query = dict(request.query_params)
-    for stale_key in ('stock_refreshed', 'stock_items'):
+    for stale_key in ('stock_refreshed', 'stock_items', 'sync_busy'):
         query.pop(stale_key, None)
     query['stock_refreshed'] = {'ok': '1', 'busy': 'busy'}.get(str(result.get('status')), 'err')
     if result.get('items'):

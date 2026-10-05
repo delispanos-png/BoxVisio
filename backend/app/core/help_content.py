@@ -1271,6 +1271,9 @@ CIRCUITS: tuple[dict[str, Any], ...] = (
                 'Τα φίλτρα εφαρμόζονται ΠΡΙΝ τον υπολογισμό των KPI.',
                 'Το Vendor MOQ μπορεί να ανεβάσει την ποσότητα πάνω από την καθαρή ανάγκη.',
                 'Είδη χωρίς τιμή αγοράς δεν αποτιμώνται, οπότε η αξία παραγγελίας υποεκτιμάται.',
+                'Τα κουμπιά «Ανανέωση αποθέματος» και «Συγχρονισμός αναμενόμενων» ολοκληρώνονται σε λίγα '
+                'δευτερόλεπτα και τρέχουν ένα κάθε φορά: όσο τρέχει ένας συγχρονισμός, τα κουμπιά κλειδώνουν και '
+                'δεύτερο πάτημα (και από άλλον χρήστη) δείχνει «Τρέχει ήδη άλλος συγχρονισμός».',
                 'Status 1 (ABCD) και Status 2 έρχονται από την καρτέλα είδους του SoftOne. Για τις παραγγελίες '
                 'αναγνωρίζονται οι κλάσεις A, B, C, D, S (και οι υποκλάσεις τους, π.χ. D3, B1). Είδος με άλλο status '
                 '(π.χ. Non-Core Selective, Legacy, Watchlist, RAW) εμφανίζεται με το status του και ακολουθεί την κλάση '
@@ -1284,6 +1287,9 @@ CIRCUITS: tuple[dict[str, Any], ...] = (
                 'Filters are applied BEFORE the KPIs are computed.',
                 'Vendor MOQ can push the quantity above the pure need.',
                 'Items with no purchase price are not valued, so the order value is understated.',
+                'The «Refresh stock» and «Sync expected» buttons finish in a few seconds and run one at a time: '
+                'while a sync is running the buttons lock, and a second press (also by another user) shows '
+                '«Another sync is already running».',
                 'Status 1 (ABCD) and Status 2 come from the SoftOne item card. Ordering recognises the classes '
                 'A, B, C, D, S (and their sub-classes, e.g. D3, B1). An item with any other status (e.g. Non-Core '
                 'Selective, Legacy, Watchlist, RAW) shows that status and follows the class configured for it in '

@@ -251,6 +251,9 @@
       </div>
       <div class="fnr-sync-note">
         <span><strong>Πριν την τελική παραγγελία:</strong> ανανέωσε το απόθεμα &amp; συγχρόνισε τα αναμενόμενα για να αφαιρεθούν παραγγελίες που μόλις μετασχηματίστηκαν ή ακυρώθηκαν.</span>
+        {% if request.query_params.get('sync_busy') == '1' %}
+        <span class="fnr-sync-ok" style="background:#fef3c7;color:#92400e;">Τρέχει ήδη άλλος συγχρονισμός. Περίμενε να ολοκληρωθεί και δοκίμασε ξανά.</span>
+        {% endif %}
         {% if request.query_params.get('stock_refreshed') == '1' %}
         <span class="fnr-sync-ok">Το απόθεμα ανανεώθηκε από το SoftOne{% if request.query_params.get('stock_items') %} ({{ request.query_params.get('stock_items') }} είδη){% endif %}.</span>
         {% elif request.query_params.get('stock_refreshed') == 'busy' %}
@@ -527,6 +530,24 @@
     });
     syncCascade();       // filter Κατ.2/Κατ.3 by the initial Κατ.1/Κατ.2 selection
     FIELDS.forEach((f) => mirror(f.prefix));
+    // One sync at a time: once either sync is sent, both buttons lock until the page
+    // comes back, so a second click (or the other button) cannot start another beside it.
+    const syncForms = ['fnrRefreshStockForm', 'fnrExpectedSyncForm'].map((id) => document.getElementById(id)).filter(Boolean);
+    const syncButtons = Array.from(document.querySelectorAll('button[form="fnrRefreshStockForm"], button[form="fnrExpectedSyncForm"]'));
+    let syncSent = false;
+    syncForms.forEach((form) => {
+      form.addEventListener('submit', (event) => {
+        if (syncSent) { event.preventDefault(); return; }
+        syncSent = true;
+        const active = syncButtons.find((btn) => btn.getAttribute('form') === form.id);
+        // Disabling inside the submit handler would drop the submission in some browsers.
+        window.setTimeout(() => {
+          syncButtons.forEach((btn) => { btn.disabled = true; });
+          if (active) active.innerHTML = '<span class="spinner-border spinner-border-sm" aria-hidden="true"></span> Συγχρονισμός…';
+        }, 0);
+      });
+    });
+
     const progressBox = document.querySelector('[data-fnr-sync-progress]');
     if (progressBox) {
       const label = progressBox.querySelector('[data-fnr-sync-label]');
