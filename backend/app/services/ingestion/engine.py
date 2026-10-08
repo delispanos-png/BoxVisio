@@ -142,7 +142,49 @@ async def _backfill_sales_cost_from_purchases(tenant_db: AsyncSession, *, recent
         """
     )
     result = await tenant_db.execute(sql, {'d': max(1, int(recent_days))})
-    return int(result.rowcount or 0)
+    filled = int(result.rowcount or 0)
+
+    # A line SoftOne priced with no cost at all lands as cost = net (the querypack's
+    # fallback). The pass above skips it whenever the purchase cost exceeds the line's
+    # net, which on a prescription receipt is the rule, not the exception: the net is
+    # only the patient's share, the fund's share sits on the ΤΣΥΠ. pharmacy295 ran whole
+    # months without a cost of sale in SoftOne (04, 05, 07, 11/2025, 01, 02/2026) and
+    # drug profit read 33% against 26%. Price those lines from the item's own cost on
+    # its other sales (median unit cost, last year), else the purchase average, with no
+    # margin guard, and say so in the payload.
+    estimate_sql = text(
+        """
+        WITH unit AS (
+            SELECT item_id, percentile_cont(0.5) WITHIN GROUP (ORDER BY cost_amount / qty) AS unit_cost
+            FROM fact_sales
+            WHERE doc_date >= CURRENT_DATE - 365 AND qty > 0 AND cost_amount > 0 AND cost_amount <> net_value
+              AND item_id IS NOT NULL AND ABS(net_value) < 1000000000
+            GROUP BY item_id
+        ),
+        wac AS (
+            SELECT item_id, SUM(net_value) / NULLIF(SUM(qty), 0) AS unit_cost
+            FROM fact_purchases
+            WHERE doc_date >= CURRENT_DATE - 365 AND qty > 0 AND net_value > 0 AND item_id IS NOT NULL
+            GROUP BY item_id
+        )
+        UPDATE fact_sales fs
+        SET cost_amount = round((COALESCE(u.unit_cost, w.unit_cost) * fs.qty)::numeric, 4),
+            profit_amount = fs.net_value - round((COALESCE(u.unit_cost, w.unit_cost) * fs.qty)::numeric, 4),
+            source_payload_json = COALESCE(fs.source_payload_json, '{}'::jsonb)
+                || jsonb_build_object('cost_source', 'estimated_missing_salescval', 'cost_before_estimate', fs.cost_amount),
+            updated_at = NOW()
+        FROM (SELECT 1) AS one
+        LEFT JOIN unit u ON TRUE
+        LEFT JOIN wac w ON w.item_id = u.item_id
+        WHERE fs.item_id = u.item_id
+          AND fs.qty > 0 AND fs.net_value > 0
+          AND fs.cost_amount = fs.net_value
+          AND COALESCE(u.unit_cost, w.unit_cost) > 0
+          AND fs.updated_at >= NOW() - make_interval(days => :d)
+        """
+    )
+    result = await tenant_db.execute(estimate_sql, {'d': max(1, int(recent_days))})
+    return filled + int(result.rowcount or 0)
 
 CONNECTORS = {
     'sql_connector': GenericSqlConnector(),
