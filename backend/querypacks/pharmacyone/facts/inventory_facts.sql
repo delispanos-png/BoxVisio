@@ -45,8 +45,8 @@ SELECT
   CAST(ISNULL(BR.NAME, CAST(ISNULL(NULLIF(W.WHOUSEG, 0), ISNULL(S.WHOUSE, 0)) AS nvarchar(255))) AS nvarchar(255)) AS branch_name,
   CAST(NULLIF(ISNULL(I.CODE1, ''), '') AS nvarchar(128)) AS barcode,
   CAST(NULL AS nvarchar(1024)) AS alternate_barcodes,
-  CAST(NULLIF(CAST(ISNULL(I.MTRMARK, 0) AS nvarchar(64)), '0') AS nvarchar(64)) AS brand_external_id,
-  CAST(ISNULL(MK.NAME, '') AS nvarchar(255)) AS brand_name,
+  CAST(NULLIF(CAST(ISNULL(COALESCE(MKC.MTRMARK, I.MTRMARK), 0) AS nvarchar(64)), '0') AS nvarchar(64)) AS brand_external_id,
+  CAST(ISNULL(COALESCE(MKC.NAME, MK.NAME), '') AS nvarchar(255)) AS brand_name,
   CAST(I.MTRMANFCTR AS nvarchar(128)) AS manufacturer_code,
   CAST(ISNULL(MF.NAME, '') AS nvarchar(255)) AS manufacturer_name,
   TRY_CAST(I.VAT AS decimal(18,4)) AS vat_rate,
@@ -156,6 +156,25 @@ LEFT JOIN MTRMANFCTR MF WITH (NOLOCK)
 LEFT JOIN MTRMARK MK WITH (NOLOCK)
   ON MK.MTRMARK = I.MTRMARK
  AND MK.COMPANY = I.COMPANY
+-- A brand is one record per company in SoftOne (HELPCAPS: 3381 in 1001, 1001 in the
+-- e-shop company 3000) and the BI keys brands by that id, so the same brand showed
+-- twice in every filter. Resolve every brand to the record of the same name in the
+-- primary company (the company holding most items), lowest id first.
+CROSS JOIN (
+  SELECT TOP 1 M.COMPANY AS COMPANY
+  FROM MTRL M WITH (NOLOCK)
+  WHERE ISNULL(M.SODTYPE, 0) = 51
+  GROUP BY M.COMPANY
+  ORDER BY COUNT(*) DESC
+) BRANDCO
+OUTER APPLY (
+  SELECT TOP 1 MKP.MTRMARK, MKP.NAME
+  FROM MTRMARK MKP WITH (NOLOCK)
+  WHERE MKP.COMPANY = BRANDCO.COMPANY
+    AND MKP.NAME = MK.NAME
+    AND ISNULL(MK.NAME, '') <> ''
+  ORDER BY MKP.MTRMARK
+) MKC
 LEFT JOIN MTRGROUP MG WITH (NOLOCK)
   ON MG.MTRGROUP = I.MTRGROUP
  AND MG.COMPANY = I.COMPANY
@@ -237,8 +256,8 @@ SELECT
   CAST(ISNULL(BR.NAME, CAST(F.BRANCH AS nvarchar(255))) AS nvarchar(255)) AS branch_name,
   CAST(NULLIF(ISNULL(I.CODE1, ''), '') AS nvarchar(128)) AS barcode,
   CAST(NULL AS nvarchar(1024)) AS alternate_barcodes,
-  CAST(NULLIF(CAST(ISNULL(I.MTRMARK, 0) AS nvarchar(64)), '0') AS nvarchar(64)) AS brand_external_id,
-  CAST(ISNULL(MK.NAME, '') AS nvarchar(255)) AS brand_name,
+  CAST(NULLIF(CAST(ISNULL(COALESCE(MKC.MTRMARK, I.MTRMARK), 0) AS nvarchar(64)), '0') AS nvarchar(64)) AS brand_external_id,
+  CAST(ISNULL(COALESCE(MKC.NAME, MK.NAME), '') AS nvarchar(255)) AS brand_name,
   CAST(I.MTRMANFCTR AS nvarchar(128)) AS manufacturer_code,
   CAST(ISNULL(MF.NAME, '') AS nvarchar(255)) AS manufacturer_name,
   TRY_CAST(I.VAT AS decimal(18,4)) AS vat_rate,
@@ -288,6 +307,25 @@ LEFT JOIN UTBL04 UT4 WITH (NOLOCK) ON UT4.UTBL04 = IX.UTBL04 AND UT4.COMPANY = I
 LEFT JOIN UTBL05 UT5 WITH (NOLOCK) ON UT5.UTBL05 = IX.UTBL05 AND UT5.COMPANY = IX.COMPANY AND UT5.SODTYPE = I.SODTYPE
 LEFT JOIN MTRMANFCTR MF WITH (NOLOCK) ON MF.MTRMANFCTR = I.MTRMANFCTR AND MF.COMPANY = I.COMPANY
 LEFT JOIN MTRMARK MK WITH (NOLOCK) ON MK.MTRMARK = I.MTRMARK AND MK.COMPANY = I.COMPANY
+-- A brand is one record per company in SoftOne (HELPCAPS: 3381 in 1001, 1001 in the
+-- e-shop company 3000) and the BI keys brands by that id, so the same brand showed
+-- twice in every filter. Resolve every brand to the record of the same name in the
+-- primary company (the company holding most items), lowest id first.
+CROSS JOIN (
+  SELECT TOP 1 M.COMPANY AS COMPANY
+  FROM MTRL M WITH (NOLOCK)
+  WHERE ISNULL(M.SODTYPE, 0) = 51
+  GROUP BY M.COMPANY
+  ORDER BY COUNT(*) DESC
+) BRANDCO
+OUTER APPLY (
+  SELECT TOP 1 MKP.MTRMARK, MKP.NAME
+  FROM MTRMARK MKP WITH (NOLOCK)
+  WHERE MKP.COMPANY = BRANDCO.COMPANY
+    AND MKP.NAME = MK.NAME
+    AND ISNULL(MK.NAME, '') <> ''
+  ORDER BY MKP.MTRMARK
+) MKC
 LEFT JOIN MTRGROUP MG WITH (NOLOCK) ON MG.MTRGROUP = I.MTRGROUP AND MG.COMPANY = I.COMPANY
 LEFT JOIN VAT VT WITH (NOLOCK) ON VT.VAT = I.VAT
 LEFT JOIN CCC88POCAT1 PC1 WITH (NOLOCK) ON PC1.CCC88POCAT1 = I.CCC88POCAT1

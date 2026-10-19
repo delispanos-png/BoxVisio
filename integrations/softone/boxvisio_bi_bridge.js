@@ -1,6 +1,6 @@
 /*
   BoxVisio BI Bridge for SoftOne Advanced JavaScript
-  Version: 2026-09-26_cash-line-ordinal
+  Version: 2026-10-19_brand-by-name
 
   Purpose
   - Extract Sales, Purchases, Inventory, Cash, Balances, Expenses data directly from SoftOne tables.
@@ -24,7 +24,7 @@
       /s1services/JS/myWS/GetAllForBI
 */
 
-var BVBI_VERSION = "2026-09-26_cash-line-ordinal";
+var BVBI_VERSION = "2026-10-19_brand-by-name";
 var _BVBI_COL_CACHE = {};
 
 function _bv_is_array(v) {
@@ -631,8 +631,8 @@ function _bv_sales_sql(cfg) {
   var sourceCreatedAt = "COALESCE(" + _bv_col_expr("F", "FINDOC", ["INSDATE", "CREATED", "CREATEDAT", "INSERTDATE"], "NULL") + ", " + c.updDate + ")";
   var isCancel = _bv_col_expr("F", "FINDOC", ["ISCANCEL"], "0");
   var finStates = _bv_col_expr("F", "FINDOC", ["FINSTATES"], "0");
-  var itemBrand = _bv_col_expr("I", "MTRL", ["MTRMARK"], "0");
-  var brandName = _bv_col_expr("MK", "MTRMARK", ["NAME"], "''");
+  var itemBrand = "COALESCE(MKC.MTRMARK, " + _bv_col_expr("I", "MTRL", ["MTRMARK"], "0") + ")";
+  var brandName = "COALESCE(MKC.NAME, " + _bv_col_expr("MK", "MTRMARK", ["NAME"], "''") + ")";
   var itemGroup = _bv_col_expr("I", "MTRL", ["MTRGROUP"], "0");
   var groupName = _bv_col_expr("MG", "MTRGROUP", ["NAME"], "''");
   var manualOrderInfo = _bv_item_manual_order_info("I");
@@ -1198,6 +1198,10 @@ function _bv_sales_sql(cfg) {
     // used as COGS fallback in lCost above when PURMTK is unavailable.
     (bvHasMac ? ("LEFT JOIN (SELECT COMPANY, MTRL, CASE WHEN SUM(ISNULL(PURQTY,0))>0 THEN SUM(ISNULL(PURVAL,0))/SUM(ISNULL(PURQTY,0)) ELSE 0 END AS UNIT_COST FROM MTRBALSHEET WHERE COMPANY=" + cfg.company + " GROUP BY COMPANY, MTRL) MAC ON MAC.COMPANY=L.COMPANY AND MAC.MTRL=L.MTRL ") : "") +
     "LEFT JOIN MTRMARK MK ON MK.MTRMARK=I.MTRMARK AND MK.COMPANY=I.COMPANY " +
+// A brand is one MTRMARK record per name in SoftOne only in theory: data entry leaves the same
+// name under two ids (pharmacy295: LAVISH CARE 3246/3634) and the BI then shows the brand twice.
+// Resolve every brand to the lowest id of the same name in the company, as the SQL querypack does.
+    "OUTER APPLY (SELECT TOP 1 MKP.MTRMARK, MKP.NAME FROM MTRMARK MKP WITH (NOLOCK) WHERE MKP.COMPANY=I.COMPANY AND MKP.NAME=MK.NAME AND ISNULL(MK.NAME,'')<>'' ORDER BY MKP.MTRMARK) MKC " +
     "LEFT JOIN MTRGROUP MG ON MG.MTRGROUP=I.MTRGROUP AND MG.COMPANY=I.COMPANY " +
     (_bv_table_exists("SALDOC") ? ("LEFT JOIN SALDOC SD ON SD.FINDOC=" + c.findoc + " AND SD.COMPANY=F.COMPANY ") : "") +
     "LEFT JOIN TRDBRANCH CB ON CB.TRDBRANCH=" +
@@ -1275,8 +1279,8 @@ function _bv_purchases_sql(cfg) {
   var manualOrderCategoryExpr = manualOrderInfo.expr;
   var commercialStatusExpr = manualOrderInfo.commercialStatusExpr;
   var itemExtraJoinSql = manualOrderInfo.joinSql;
-  var itemBrand = _bv_col_expr("I", "MTRL", ["MTRMARK"], "0");
-  var brandName = _bv_col_expr("MK", "MTRMARK", ["NAME"], "''");
+  var itemBrand = "COALESCE(MKC.MTRMARK, " + _bv_col_expr("I", "MTRL", ["MTRMARK"], "0") + ")";
+  var brandName = "COALESCE(MKC.NAME, " + _bv_col_expr("MK", "MTRMARK", ["NAME"], "''") + ")";
   var itemGroup = _bv_col_expr("I", "MTRL", ["MTRGROUP"], "0");
   var groupName = _bv_col_expr("MG", "MTRGROUP", ["NAME"], "''");
   var cat1Id = _bv_col_expr("I", "MTRL", ["CCC88POCAT1"], "0");
@@ -1569,6 +1573,10 @@ function _bv_purchases_sql(cfg) {
     lMtrl +
     " AND I.COMPANY=F.COMPANY " +
     "LEFT JOIN MTRMARK MK ON MK.MTRMARK=I.MTRMARK AND MK.COMPANY=I.COMPANY " +
+// A brand is one MTRMARK record per name in SoftOne only in theory: data entry leaves the same
+// name under two ids (pharmacy295: LAVISH CARE 3246/3634) and the BI then shows the brand twice.
+// Resolve every brand to the lowest id of the same name in the company, as the SQL querypack does.
+    "OUTER APPLY (SELECT TOP 1 MKP.MTRMARK, MKP.NAME FROM MTRMARK MKP WITH (NOLOCK) WHERE MKP.COMPANY=I.COMPANY AND MKP.NAME=MK.NAME AND ISNULL(MK.NAME,'')<>'' ORDER BY MKP.MTRMARK) MKC " +
     "LEFT JOIN MTRGROUP MG ON MG.MTRGROUP=I.MTRGROUP AND MG.COMPANY=I.COMPANY " +
     "LEFT JOIN CCC88POCAT1 PC1 ON PC1.CCC88POCAT1=I.CCC88POCAT1 " +
     "LEFT JOIN CCC88POCAT2 PC2 ON PC2.CCC88POCAT2=I.CCC88POCAT2 " +
@@ -1663,7 +1671,7 @@ function _bv_inventory_sql(cfg) {
   var iCat1 = _bv_col_expr("PC1", "CCC88POCAT1", ["NAME"], "''");
   var iCat2 = _bv_col_expr("PC2", "CCC88POCAT2", ["NAME"], "''");
   var iCat3 = _bv_col_expr("PC3", "CCC88POCAT3", ["NAME"], "''");
-  var iBrand = _bv_col_expr("I", "MTRL", ["MTRMARK"], "NULL");
+  var iBrand = "COALESCE(MKC.MTRMARK, " + _bv_col_expr("I", "MTRL", ["MTRMARK"], "NULL") + ")";
   var iManufacturer = _bv_col_expr("I", "MTRL", ["MTRMANFCTR"], "NULL");
   var iAltBarcodeExpr =
     "NULLIF(STUFF((SELECT ',' + CAST(MS.CODE AS VARCHAR(128)) " +
@@ -1769,8 +1777,8 @@ function _bv_inventory_sql(cfg) {
     "CAST(ISNULL(PC3.NAME,'') AS VARCHAR(255)) AS CATEGORY_3," +
     "CAST(ISNULL(" + manualOrderCategoryExpr + ", '') AS VARCHAR(128)) AS MANUAL_ORDER_CATEGORY," +
     "CAST(ISNULL(" + commercialStatusExpr + ", '') AS VARCHAR(128)) AS COMMERCIAL_STATUS," +
-    "CAST(NULLIF(CAST(ISNULL(I.MTRMARK,0) AS VARCHAR(64)), '0') AS VARCHAR(64)) AS BRAND_EXTERNAL_ID," +
-    "CAST(ISNULL(MK.NAME,'') AS VARCHAR(255)) AS BRAND_NAME," +
+    "CAST(NULLIF(CAST(ISNULL(COALESCE(MKC.MTRMARK, I.MTRMARK),0) AS VARCHAR(64)), '0') AS VARCHAR(64)) AS BRAND_EXTERNAL_ID," +
+    "CAST(ISNULL(COALESCE(MKC.NAME, MK.NAME),'') AS VARCHAR(255)) AS BRAND_NAME," +
     "CAST(NULLIF(CAST(ISNULL(I.MTRGROUP,0) AS VARCHAR(64)), '0') AS VARCHAR(64)) AS GROUP_EXTERNAL_ID," +
     "CAST(ISNULL(MG.NAME,'') AS VARCHAR(255)) AS GROUP_NAME," +
     "CAST(ISNULL(CG.NAME,'') AS VARCHAR(255)) AS COMMERCIAL_CATEGORY," +
@@ -1813,6 +1821,10 @@ function _bv_inventory_sql(cfg) {
     branchLimitSnapshotJoinSql +
     "LEFT JOIN VAT VT ON VT.VAT=I.VAT " +
     "LEFT JOIN MTRMARK MK ON MK.MTRMARK=I.MTRMARK AND MK.COMPANY=I.COMPANY " +
+// A brand is one MTRMARK record per name in SoftOne only in theory: data entry leaves the same
+// name under two ids (pharmacy295: LAVISH CARE 3246/3634) and the BI then shows the brand twice.
+// Resolve every brand to the lowest id of the same name in the company, as the SQL querypack does.
+    "OUTER APPLY (SELECT TOP 1 MKP.MTRMARK, MKP.NAME FROM MTRMARK MKP WITH (NOLOCK) WHERE MKP.COMPANY=I.COMPANY AND MKP.NAME=MK.NAME AND ISNULL(MK.NAME,'')<>'' ORDER BY MKP.MTRMARK) MKC " +
     "LEFT JOIN MTRMANFCTR MF ON MF.MTRMANFCTR=I.MTRMANFCTR AND MF.COMPANY=I.COMPANY " +
     "LEFT JOIN CCC88POCAT1 PC1 ON PC1.CCC88POCAT1=I.CCC88POCAT1 " +
     "LEFT JOIN CCC88POCAT2 PC2 ON PC2.CCC88POCAT2=I.CCC88POCAT2 " +
@@ -1901,7 +1913,7 @@ function _bv_inventory_sql(cfg) {
     "CAST(NULLIF(CAST(ISNULL(" +
     iBrand +
     ",0) AS VARCHAR(64)), '0') AS VARCHAR(64)) AS BRAND_EXTERNAL_ID," +
-    "CAST(ISNULL(MK.NAME, '') AS VARCHAR(255)) AS BRAND_NAME," +
+    "CAST(ISNULL(COALESCE(MKC.NAME, MK.NAME), '') AS VARCHAR(255)) AS BRAND_NAME," +
     "CAST(NULLIF(CAST(ISNULL(I.MTRGROUP,0) AS VARCHAR(64)), '0') AS VARCHAR(64)) AS GROUP_EXTERNAL_ID," +
     "CAST(ISNULL(MG.NAME, '') AS VARCHAR(255)) AS GROUP_NAME," +
     "CAST(ISNULL(CG.NAME, '') AS VARCHAR(255)) AS COMMERCIAL_CATEGORY," +
@@ -1975,6 +1987,10 @@ function _bv_inventory_sql(cfg) {
     branchLimitAdjustmentJoinSql +
     "LEFT JOIN VAT VT ON VT.VAT = I.VAT " +
     "LEFT JOIN MTRMARK MK ON MK.MTRMARK = I.MTRMARK AND MK.COMPANY = I.COMPANY " +
+// A brand is one MTRMARK record per name in SoftOne only in theory: data entry leaves the same
+// name under two ids (pharmacy295: LAVISH CARE 3246/3634) and the BI then shows the brand twice.
+// Resolve every brand to the lowest id of the same name in the company, as the SQL querypack does.
+    "OUTER APPLY (SELECT TOP 1 MKP.MTRMARK, MKP.NAME FROM MTRMARK MKP WITH (NOLOCK) WHERE MKP.COMPANY=I.COMPANY AND MKP.NAME=MK.NAME AND ISNULL(MK.NAME,'')<>'' ORDER BY MKP.MTRMARK) MKC " +
     "LEFT JOIN MTRMANFCTR MF ON MF.MTRMANFCTR = I.MTRMANFCTR AND MF.COMPANY = I.COMPANY " +
     "LEFT JOIN CCC88POCAT1 PC1 ON PC1.CCC88POCAT1 = I.CCC88POCAT1 " +
     "LEFT JOIN CCC88POCAT2 PC2 ON PC2.CCC88POCAT2 = I.CCC88POCAT2 " +
@@ -2003,7 +2019,7 @@ function _bv_item_master_sql(cfg) {
     "FOR XML PATH(''), TYPE).value('.', 'varchar(max)'), 1, 1, ''), '')";
   var soTypeExpr = _bv_col_expr("I", "MTRL", ["SODTYPE", "SOTYPE"], "0");
   var activeExpr = _bv_col_expr("I", "MTRL", ["ISACTIVE"], "1");
-  var brandExpr = _bv_col_expr("I", "MTRL", ["MTRMARK"], "NULL");
+  var brandExpr = "COALESCE(MKC.MTRMARK, " + _bv_col_expr("I", "MTRL", ["MTRMARK"], "NULL") + ")";
   var manufacturerExpr = _bv_col_expr("I", "MTRL", ["MTRMANFCTR"], "NULL");
   var hasMtrsup = _bv_has_column("MTRL", "MTRSUP");
   var preferredSupplierIdExpr = hasMtrsup ? "I.MTRSUP" : "NULL";
@@ -2055,7 +2071,7 @@ function _bv_item_master_sql(cfg) {
     "CAST(NULLIF(CAST(ISNULL(" +
     brandExpr +
     ", 0) AS VARCHAR(64)), '0') AS VARCHAR(64)) AS BRAND_EXTERNAL_ID," +
-    "CAST(ISNULL(MK.NAME, '') AS VARCHAR(255)) AS BRAND_NAME," +
+    "CAST(ISNULL(COALESCE(MKC.NAME, MK.NAME), '') AS VARCHAR(255)) AS BRAND_NAME," +
     "CAST(NULLIF(CAST(ISNULL(" +
     manufacturerExpr +
     ", 0) AS VARCHAR(128)), '0') AS VARCHAR(128)) AS MANUFACTURER_CODE," +
@@ -2102,6 +2118,10 @@ function _bv_item_master_sql(cfg) {
     "CAST(ISNULL(I.COMPANY,0) AS VARCHAR(64)) AS COMPANY_ID " +
     "FROM MTRL I " +
     "LEFT JOIN MTRMARK MK ON MK.MTRMARK = I.MTRMARK AND MK.COMPANY = I.COMPANY " +
+// A brand is one MTRMARK record per name in SoftOne only in theory: data entry leaves the same
+// name under two ids (pharmacy295: LAVISH CARE 3246/3634) and the BI then shows the brand twice.
+// Resolve every brand to the lowest id of the same name in the company, as the SQL querypack does.
+    "OUTER APPLY (SELECT TOP 1 MKP.MTRMARK, MKP.NAME FROM MTRMARK MKP WITH (NOLOCK) WHERE MKP.COMPANY=I.COMPANY AND MKP.NAME=MK.NAME AND ISNULL(MK.NAME,'')<>'' ORDER BY MKP.MTRMARK) MKC " +
     "LEFT JOIN MTRMANFCTR MF ON MF.MTRMANFCTR = I.MTRMANFCTR AND MF.COMPANY = I.COMPANY " +
     preferredSupplierJoinSql +
     itemExtraJoinSql +
