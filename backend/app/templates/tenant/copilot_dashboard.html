@@ -335,7 +335,12 @@
     });
     var rtModal = document.getElementById('bvcRoutinesModal');
     rtModal && rtModal.addEventListener('show.bs.modal', function () { loadRoutines(); });
-    if (location.hash === '#routines' && rtModal && window.bootstrap) { bootstrap.Modal.getOrCreateInstance(rtModal).show(); }
+    function openRoutinesFromHash() {
+      if (location.hash === '#routines' && rtModal && window.bootstrap) { bootstrap.Modal.getOrCreateInstance(rtModal).show(); }
+    }
+    window.addEventListener('hashchange', openRoutinesFromHash);
+    rtModal && rtModal.addEventListener('hidden.bs.modal', function () { if (location.hash === '#routines') history.replaceState(null, '', location.pathname); });
+    openRoutinesFromHash();
     syncFreq();
     loadRoutines();
   })();
