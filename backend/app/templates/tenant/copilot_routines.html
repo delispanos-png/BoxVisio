@@ -31,8 +31,14 @@
             <label class="form-label mb-0 small">Αναφορά (Report Builder)</label>
             <select class="form-select form-select-sm" name="report_id" id="bvcRoutineReport">
               <option value="">— Χωρίς αναφορά (ελεύθερο report Co-Pilot) —</option>
-              {% for r in copilot_saved_reports %}
-              <option value="{{ r.id }}" data-name="{{ r.name }}">{{ r.name }} · {{ r.kind_label }}</option>
+              {% for kind, label in [('analysis', 'Report Builder Πωλήσεων'), ('purchases_analysis', 'Report Builder Αγορών')] %}
+              <optgroup label="{{ label }}">
+                {% for r in copilot_saved_reports if r.kind == kind %}
+                <option value="{{ r.id }}" data-name="{{ r.name }}">{{ r.name }}</option>
+                {% else %}
+                <option value="" disabled>(καμία αποθηκευμένη αναφορά)</option>
+                {% endfor %}
+              </optgroup>
               {% endfor %}
             </select>
           </div>
