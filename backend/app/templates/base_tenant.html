@@ -167,6 +167,7 @@
         {% set _comparison_pages = ['compare_period', 'compare_branch', 'compare_category'] %}
         {% set _comparison_open = active_page in _comparison_pages %}
         {% set _exports_open = active_page in ['exports_reports', 'exports_csv_excel', 'exports_analysis', 'exports_purchases_analysis', 'exports_channels', 'exports_group_comparison'] %}
+        {% set _ai_open = active_page in ['copilot', 'copilot_routines'] %}
         {% set _help_pages = ['help_home', 'help_find', 'help_circuits', 'help_kpis', 'help_faq'] %}
         {% set _help_open = active_page in _help_pages %}
         <ul class="list">
@@ -503,17 +504,26 @@
           {% endif %}
 
           {% if not _menu_locked.get('copilot', true) %}
-          <li class="nav-item">
-            <a class="nav-link{% if active_page == 'copilot' %} active{% endif %}" href="/tenant/copilot">
+          <li class="nav-item bv-menu-group {% if _ai_open %}active open{% endif %}">
+            <button
+              type="button"
+              class="nav-link bv-group-toggle"
+              data-menu-group-toggle="tenant-ai"
+              data-menu-group-open="{{ '1' if _ai_open else '0' }}"
+              aria-expanded="{{ 'true' if _ai_open else 'false' }}"
+            >
               <svg class="sidemenu-icon bvc-brain" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"/><path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"/><path d="M6 18a4 4 0 0 1-1.967-.516"/><path d="M19.967 17.484A4 4 0 0 1 18 18"/></svg>
-              <span class="sidemenu-label">Co-Pilot</span>
-            </a>
-          </li>
-          <li class="nav-item">
-            <a class="nav-link{% if active_page == 'copilot_routines' %} active{% endif %}" href="/tenant/copilot#routines" title="Αυτόματες αναφορές με email">
-              <i class="fe fe-clock sidemenu-icon"></i>
-              <span class="sidemenu-label">Ρουτίνες</span>
-            </a>
+              <span class="sidemenu-label">AI</span>
+              <i class="fe fe-chevron-down bv-group-arrow"></i>
+            </button>
+            <ul class="bv-submenu" data-menu-group="tenant-ai">
+              <li class="{% if active_page == 'copilot' %}is-active{% endif %}">
+                <a class="bv-submenu-link" href="/tenant/copilot"><i class="fe fe-message-circle"></i><span>Co-Pilot</span></a>
+              </li>
+              <li class="{% if active_page == 'copilot_routines' %}is-active{% endif %}">
+                <a class="bv-submenu-link" href="/tenant/routines"><i class="fe fe-clock"></i><span>Ρουτίνες</span></a>
+              </li>
+            </ul>
           </li>
           {% endif %}
 

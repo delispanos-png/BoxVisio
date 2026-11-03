@@ -12501,12 +12501,24 @@ def _copilot_module_enabled(request: Request) -> bool:
     return not bool(locked.get('copilot', True))
 
 
+@router.get('/tenant/routines', response_class=HTMLResponse)
+async def tenant_routines_page(
+    request: Request,
+    tenant: Tenant = Depends(get_request_tenant),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_control_db),
+):
+    """«Ρουτίνες» in the AI menu: the Co-Pilot page with the routines panel open."""
+    return await tenant_copilot_page(request, tenant, user, db, open_routines=True)
+
+
 @router.get('/tenant/copilot', response_class=HTMLResponse)
 async def tenant_copilot_page(
     request: Request,
     tenant: Tenant = Depends(get_request_tenant),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_control_db),
+    open_routines: bool = False,
 ):
     config = await get_copilot_config(db, int(tenant.id))
     return templates.TemplateResponse(
@@ -12523,7 +12535,8 @@ async def tenant_copilot_page(
             'copilot_period_presets': _COPILOT_PERIOD_PRESETS,
             'copilot_compare_presets': _COPILOT_COMPARE_PRESETS,
             'email_configured': _email_delivery.email_configured(),
-            'active_page': 'copilot',
+            'open_routines': bool(open_routines),
+            'active_page': 'copilot_routines' if open_routines else 'copilot',
             'title': 'Co-Pilot',
         },
     )

@@ -316,13 +316,13 @@ CIRCUITS: tuple[dict[str, Any], ...] = (
         'steps': _tl(
             [
                 'Ρύθμιση (μία φορά, από διαχειριστή): Ρυθμίσεις → Co-Pilot → βάλε το κλειδί Anthropic και ενεργοποίησε.',
-                'Άνοιξε το Co-Pilot από το μενού, ή το πλωτό κουμπί (εγκέφαλος) κάτω δεξιά σε κάθε σελίδα.',
+                'Άνοιξε το Co-Pilot από το μενού AI → Co-Pilot, ή το πλωτό κουμπί (εγκέφαλος) κάτω δεξιά σε κάθε σελίδα.',
                 'Ρώτησε ό,τι θες — π.χ. «τι πωλήσεις έχω αυτόν τον μήνα;», «ποια είδη έχουν το μεγαλύτερο απόθεμα;».',
                 'Ζήτησέ του export — π.χ. «κάνε export σε Excel τα στατιστικά πωλήσεων ανά κατηγορία» — και θα εμφανίσει κουμπί λήψης του .xlsx.',
                 'Στη σελίδα Co-Pilot βλέπεις αριστερά το ιστορικό των συνομιλιών σου — κάνε κλικ για να ανοίξεις παλιά συνομιλία.',
                 'Το πλωτό κουμπί ξέρει σε ποια σελίδα βρίσκεσαι, οπότε το «τι κάνω εδώ;» απαντά για τη συγκεκριμένη οθόνη.',
                 'Ρουτίνες: πες του «κάθε μέρα στις 10:00 στείλε μου τις πωλήσεις χθες ανά κατάστημα» (ή κάθε Δευτέρα, ή την 1η κάθε μήνα) — θα δημιουργήσει ρουτίνα που παράγει το report αυτόματα και το στέλνει με email στους παραλήπτες που ορίζεις.',
-                'Στη σελίδα Co-Pilot → κουμπί «Ρουτίνες» βλέπεις όλες τις ρουτίνες, τις αλλάζεις (τι, πότε, σε ποιους), τις απενεργοποιείς, τις στέλνεις αμέσως με «Στείλε τώρα» και βλέπεις πότε έτρεξαν τελευταία και αν πέτυχαν.',
+                'Από το μενού AI → Ρουτίνες (ή το κουμπί «Ρουτίνες» στη σελίδα Co-Pilot) βλέπεις όλες τις ρουτίνες, τις αλλάζεις (τι, πότε, σε ποιους), τις απενεργοποιείς, τις στέλνεις αμέσως με «Στείλε τώρα» και βλέπεις πότε έτρεξαν τελευταία και αν πέτυχαν.',
             ],
             [
                 'Setup (once, by an admin): Settings → Co-Pilot → enter the Anthropic key and enable.',
@@ -330,7 +330,7 @@ CIRCUITS: tuple[dict[str, Any], ...] = (
                 'Ask anything — e.g. "what are my sales this month?", "which items have the most stock?".',
                 'The floating button knows which page you are on, so "what am I doing here?" answers for that screen.',
                 'Routines: tell it "every day at 10:00 email me yesterday\'s sales by store" (or every Monday, or on the 1st of each month) — it creates a routine that produces the report automatically and emails it to the recipients you name.',
-                'On the Co-Pilot page → "Routines" button you see every routine, edit it (what, when, to whom), pause it, send it immediately with "Send now" and see when it last ran and whether it succeeded.',
+                'From the AI menu → Routines (or the "Routines" button on the Co-Pilot page) you see every routine, edit it (what, when, to whom), pause it, send it immediately with "Send now" and see when it last ran and whether it succeeded.',
             ],
         ),
         'checks': _tl(
