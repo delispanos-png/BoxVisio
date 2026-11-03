@@ -13,6 +13,7 @@ from sqlalchemy import (
     Integer,
     LargeBinary,
     Numeric,
+    SmallInteger,
     String,
     Text,
     UniqueConstraint,
@@ -517,7 +518,22 @@ class CopilotSchedule(ControlBase):
     send_time: Mapped[str] = mapped_column(String(5), nullable=False, default='10:00')
     recipients: Mapped[str] = mapped_column(Text, nullable=False, default='')
     prompt: Mapped[str] = mapped_column(Text, nullable=False, default='')
+    # How often it runs: daily | weekdays (Mon-Fri) | weekly (on `weekday`, 0=Monday)
+    # | monthly (on `day_of_month`, clamped to the month's length).
+    frequency: Mapped[str] = mapped_column(String(16), nullable=False, default='daily')
+    weekday: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=0)
+    day_of_month: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=1)
+    # A routine is built on a saved Report Builder report (attached as Excel) with a
+    # rolling period (yesterday, month-to-date, …) and comparison; `prompt` is then an
+    # optional Co-Pilot commentary. Without report_id it is a plain Co-Pilot report.
+    report_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    period_preset: Mapped[str] = mapped_column(String(32), nullable=False, default='yesterday')
+    compare_preset: Mapped[str] = mapped_column(String(16), nullable=False, default='prev_year')
     last_sent: Mapped[date | None] = mapped_column(Date, nullable=True)
+    last_run_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_status: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 

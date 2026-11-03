@@ -112,9 +112,14 @@ from app.services.copilot_config import (
     list_schedules as _copilot_list_schedules,
     save_schedule as _copilot_save_schedule,
     schedules_view as _copilot_schedules_view,
+    list_saved_reports as _copilot_list_saved_reports,
+    saved_reports_view as _copilot_saved_reports_view,
+    PERIOD_PRESETS as _COPILOT_PERIOD_PRESETS,
+    COMPARE_PRESETS as _COPILOT_COMPARE_PRESETS,
     upsert_copilot_config,
 )
 from app.services.copilot_service import stream_answer as _copilot_stream_answer
+from app.services import email_delivery as _email_delivery
 from app.services import copilot_history as _copilot_history
 from app.db.control_session import ControlSessionLocal as _CopilotControlSession
 from app.services.era_exploration import (
@@ -12455,6 +12460,9 @@ async def tenant_copilot_schedule_save(
     recipients: str = Form(default=''),
     prompt: str = Form(default=''),
     enabled: str = Form(default=''),
+    frequency: str = Form(default='daily'),
+    weekday: str = Form(default='0'),
+    day_of_month: str = Form(default='1'),
     tenant: Tenant = Depends(get_request_tenant),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_control_db),
@@ -12469,6 +12477,8 @@ async def tenant_copilot_schedule_save(
         db, int(tenant.id), sid,
         title=title, send_time=send_time, recipients=recipients, prompt=prompt,
         enabled=str(enabled) in {'1', 'on', 'true'},
+        frequency=frequency, weekday=weekday, day_of_month=day_of_month,
+        created_by=str(getattr(user, 'email', '') or '') or None,
     )
     return RedirectResponse(url='/tenant/settings?copilot_saved=1#copilot', status_code=303)
 
@@ -12508,6 +12518,11 @@ async def tenant_copilot_page(
             **(await _tenant_navigation_context(tenant)),
             'copilot': copilot_settings_view(config),
             'copilot_module': _copilot_module_enabled(request),
+            'copilot_routines': _copilot_schedules_view(await _copilot_list_schedules(db, int(tenant.id)), await _copilot_list_saved_reports(db, int(tenant.id))),
+            'copilot_saved_reports': _copilot_saved_reports_view(await _copilot_list_saved_reports(db, int(tenant.id))),
+            'copilot_period_presets': _COPILOT_PERIOD_PRESETS,
+            'copilot_compare_presets': _COPILOT_COMPARE_PRESETS,
+            'email_configured': _email_delivery.email_configured(),
             'active_page': 'copilot',
             'title': 'Co-Pilot',
         },
@@ -12552,6 +12567,7 @@ async def tenant_copilot_ask(
     tenant_snapshot = tenant
     tenant_id = int(tenant.id)
     user_id = int(user.id)
+    user_email = str(getattr(user, 'email', '') or '') or None
     last_user_text = history[-1]['content']
 
     async def event_stream():
@@ -12567,7 +12583,7 @@ async def tenant_copilot_ask(
         except Exception:  # noqa: BLE001 — history must never break answering
             conv_id = conversation_id
         try:
-            async for ev in _copilot_stream_answer(config, tenant_snapshot, history, page_context=page_context):
+            async for ev in _copilot_stream_answer(config, tenant_snapshot, history, page_context=page_context, user_email=user_email):
                 et = ev.get('type')
                 if et == 'text':
                     answer_text += str(ev.get('text') or '')
@@ -12590,6 +12606,113 @@ async def tenant_copilot_ask(
         yield 'data: {"type": "end"}\n\n'
 
     return StreamingResponse(event_stream(), media_type='text/event-stream', headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+
+
+@router.get('/tenant/copilot/routines')
+async def tenant_copilot_routines(
+    request: Request,
+    tenant: Tenant = Depends(get_request_tenant),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_control_db),
+):
+    """Routines = scheduled Co-Pilot reports sent by email. Any user of the tenant sees
+    and manages them (they run with the tenant's own key either way)."""
+    if not _copilot_module_enabled(request):
+        return JSONResponse({'error': 'module_disabled'}, status_code=403)
+    reports = await _copilot_list_saved_reports(db, int(tenant.id))
+    items = _copilot_schedules_view(await _copilot_list_schedules(db, int(tenant.id)), reports)
+    return JSONResponse({'routines': items, 'reports': _copilot_saved_reports_view(reports), 'email_configured': _email_delivery.email_configured()})
+
+
+@router.post('/tenant/copilot/routines')
+async def tenant_copilot_routine_save(
+    request: Request,
+    tenant: Tenant = Depends(get_request_tenant),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_control_db),
+):
+    if not _copilot_module_enabled(request):
+        return JSONResponse({'error': 'Το Co-Pilot δεν είναι ενεργό.'}, status_code=403)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    body = body if isinstance(body, dict) else {}
+    try:
+        sid = int(body.get('id')) if body.get('id') else None
+    except (TypeError, ValueError):
+        sid = None
+    recipients = body.get('recipients') or ''
+    if isinstance(recipients, list):
+        recipients = ', '.join(str(r) for r in recipients)
+    report_id = body.get('report_id') or None
+    if not report_id and not str(body.get('prompt') or '').strip():
+        return JSONResponse({'error': 'Διάλεξε μια αποθηκευμένη αναφορά ή γράψε τι να περιέχει το report.'}, status_code=400)
+    if not str(recipients).strip():
+        return JSONResponse({'error': 'Δώσε τουλάχιστον ένα email παραλήπτη.'}, status_code=400)
+    sched = await _copilot_save_schedule(
+        db, int(tenant.id), sid,
+        title=str(body.get('title') or 'Report'),
+        send_time=str(body.get('send_time') or '10:00'),
+        recipients=str(recipients),
+        prompt=str(body.get('prompt') or ''),
+        enabled=bool(body.get('enabled', True)),
+        frequency=str(body.get('frequency') or 'daily'),
+        weekday=body.get('weekday'),
+        day_of_month=body.get('day_of_month'),
+        created_by=str(getattr(user, 'email', '') or '') or None,
+        report_id=report_id,
+        period_preset=str(body.get('period_preset') or 'yesterday'),
+        compare_preset=str(body.get('compare_preset') or 'prev_year'),
+    )
+    if sched is None:
+        return JSONResponse({'error': 'Η ρουτίνα δεν βρέθηκε.'}, status_code=404)
+    if report_id and not sched.report_id:
+        return JSONResponse({'error': 'Η αναφορά δεν βρέθηκε σε αυτόν τον λογαριασμό.'}, status_code=400)
+    reports = await _copilot_list_saved_reports(db, int(tenant.id))
+    return JSONResponse({'ok': True, 'routine': _copilot_schedules_view([sched], reports)[0]})
+
+
+@router.post('/tenant/copilot/routines/{routine_id}/delete')
+async def tenant_copilot_routine_delete(
+    routine_id: int,
+    request: Request,
+    tenant: Tenant = Depends(get_request_tenant),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_control_db),
+):
+    if not _copilot_module_enabled(request):
+        return JSONResponse({'error': 'Το Co-Pilot δεν είναι ενεργό.'}, status_code=403)
+    ok = await _copilot_delete_schedule(db, int(tenant.id), int(routine_id))
+    return JSONResponse({'ok': bool(ok)}, status_code=200 if ok else 404)
+
+
+@router.post('/tenant/copilot/routines/{routine_id}/run')
+async def tenant_copilot_routine_run(
+    routine_id: int,
+    request: Request,
+    tenant: Tenant = Depends(get_request_tenant),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_control_db),
+):
+    """«Στείλε τώρα»: run the routine once in the worker, ignoring its schedule."""
+    if not _copilot_module_enabled(request):
+        return JSONResponse({'error': 'Το Co-Pilot δεν είναι ενεργό.'}, status_code=403)
+    if not _email_delivery.email_configured():
+        return JSONResponse({'error': 'Δεν έχει ρυθμιστεί αποστολή email στον server.'}, status_code=400)
+    owned = [s for s in await _copilot_list_schedules(db, int(tenant.id)) if int(s.id) == int(routine_id)]
+    if not owned:
+        return JSONResponse({'error': 'Η ρουτίνα δεν βρέθηκε.'}, status_code=404)
+    if not owned[0].report_id:
+        config = await get_copilot_config(db, int(tenant.id))
+        if not copilot_is_ready(config):
+            return JSONResponse({'error': 'Το Co-Pilot δεν έχει ρυθμιστεί (κλειδί).'}, status_code=400)
+    try:
+        celery_client.send_task('worker.tasks.run_copilot_schedule', args=[int(routine_id)])
+    except Exception:  # noqa: BLE001
+        logger.exception('copilot_routine_run_enqueue_failed', extra={'tenant_id': tenant.id, 'routine_id': routine_id})
+        return JSONResponse({'error': 'Δεν μπόρεσα να ξεκινήσω την αποστολή. Δοκίμασε ξανά.'}, status_code=500)
+    return JSONResponse({'ok': True, 'queued': True})
 
 
 @router.get('/tenant/copilot/conversations')

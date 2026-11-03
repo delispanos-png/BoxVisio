@@ -149,10 +149,20 @@
               showThink();
             } else if (ev.type === 'tool') {
               thinkBuf = ''; think.textContent = '';
-              setPhase(ev.name === 'run_sql' ? 'Διαβάζω τα δεδομένα σου…' : ev.name === 'describe_schema' ? 'Ελέγχω τη δομή…' : 'Ψάχνω επεξηγήσεις…');
+              setPhase(ev.name === 'run_sql' ? 'Διαβάζω τα δεδομένα σου…' : ev.name === 'describe_schema' ? 'Ελέγχω τη δομή…'
+                : ev.name === 'create_routine' ? 'Αποθηκεύω τη ρουτίνα…' : ev.name === 'list_routines' ? 'Διαβάζω τις ρουτίνες…' : ev.name === 'list_saved_reports' ? 'Κοιτάω τις αποθηκευμένες αναφορές…'
+                : ev.name === 'export_excel' ? 'Φτιάχνω το Excel…' : 'Ψάχνω επεξηγήσεις…');
             } else if (ev.type === 'conversation') {
               currentConvId = ev.id;
               if (opts.onNewConversation) opts.onNewConversation(ev.id, ev.title);
+            } else if (ev.type === 'routine' && ev.routine) {
+              var rc = el('div', 'bvc-routine');
+              rc.innerHTML = '<i class="fe fe-clock"></i> <strong>Ρουτίνα:</strong> ' + String(ev.routine.title || '').replace(/</g, '&lt;') +
+                (ev.routine.report ? ' · 📎 ' + String(ev.routine.report).replace(/</g, '&lt;') + ' (' + String(ev.routine.period || '').replace(/</g, '&lt;') + ')' : '') +
+                ' · ' + String(ev.routine.when || '').replace(/</g, '&lt;') + ' · ' + String((ev.routine.recipients || []).join(', ')).replace(/</g, '&lt;') +
+                ' <a href="/tenant/copilot#routines">Ρουτίνες</a>';
+              botNode.appendChild(rc);
+              if (opts.onRoutineCreated) opts.onRoutineCreated(ev.routine);
             } else if (ev.type === 'export') {
               var dl = el('a', 'bvc-export');
               dl.href = ev.url; dl.setAttribute('download', ev.filename || 'export.xlsx');

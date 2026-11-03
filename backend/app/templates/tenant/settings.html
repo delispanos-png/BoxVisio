@@ -278,8 +278,8 @@
 
           <hr class="my-3">
           <div class="d-flex align-items-center justify-content-between mb-2">
-            <h6 class="mb-0"><i class="fe fe-calendar me-1"></i> Προγραμματισμένα Reports (email)</h6>
-            <small class="text-muted">Ημερολόγιο: τι report, τι ώρα, ποιος το λαμβάνει. Στέλνονται αυτόματα κάθε μέρα.</small>
+            <h6 class="mb-0"><i class="fe fe-calendar me-1"></i> Ρουτίνες (αυτόματα reports με email)</h6>
+            <small class="text-muted">Τι report, πότε (κάθε μέρα / εργάσιμες / εβδομάδα / μήνα) και ποιος το λαμβάνει. Διαχείριση και «Στείλε τώρα» στη σελίδα <a href="/tenant/copilot#routines">Co-Pilot → Ρουτίνες</a>.</small>
           </div>
           {% if not copilot.ready %}
           <div class="alert alert-warning py-2 mb-2">Ενεργοποίησε πρώτα το Co-Pilot (κλειδί + Ενεργοποίηση) για να στέλνονται τα reports.</div>
@@ -297,6 +297,27 @@
                 <label class="form-label mb-0 small">Ώρα</label>
                 <input class="form-control form-control-sm" type="time" name="send_time" value="{{ s.send_time }}">
               </div>
+              <div class="col-md-3">
+                <label class="form-label mb-0 small">Συχνότητα</label>
+                <select class="form-select form-select-sm bv-rt-freq" name="frequency">
+                  <option value="daily"{% if s.frequency == 'daily' %} selected{% endif %}>Κάθε μέρα</option>
+                  <option value="weekdays"{% if s.frequency == 'weekdays' %} selected{% endif %}>Δευτέρα-Παρασκευή</option>
+                  <option value="weekly"{% if s.frequency == 'weekly' %} selected{% endif %}>Κάθε εβδομάδα</option>
+                  <option value="monthly"{% if s.frequency == 'monthly' %} selected{% endif %}>Κάθε μήνα</option>
+                </select>
+              </div>
+              <div class="col-md-2 bv-rt-weekday"{% if s.frequency != 'weekly' %} style="display:none"{% endif %}>
+                <label class="form-label mb-0 small">Ημέρα</label>
+                <select class="form-select form-select-sm" name="weekday">
+                  {% for wd in ['Δευτέρα','Τρίτη','Τετάρτη','Πέμπτη','Παρασκευή','Σάββατο','Κυριακή'] %}
+                  <option value="{{ loop.index0 }}"{% if s.weekday == loop.index0 %} selected{% endif %}>{{ wd }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="col-md-2 bv-rt-dom"{% if s.frequency != 'monthly' %} style="display:none"{% endif %}>
+                <label class="form-label mb-0 small">Ημέρα μήνα</label>
+                <input class="form-control form-control-sm" type="number" min="1" max="31" name="day_of_month" value="{{ s.day_of_month }}" title="31 = τελευταία μέρα του μήνα">
+              </div>
               <div class="col-md-4">
                 <label class="form-label mb-0 small">Παραλήπτες (email, με κόμμα)</label>
                 <input class="form-control form-control-sm" name="recipients" value="{{ s.recipients }}" placeholder="owner@x.gr, manager@x.gr">
@@ -312,14 +333,14 @@
                 <textarea class="form-control form-control-sm" name="prompt" rows="2" placeholder="π.χ. Έσοδα ανά κατάστημα για χθες, με σύγκριση με προηγούμενη μέρα.">{{ s.prompt }}</textarea>
               </div>
             </form>
-            <form method="post" action="/tenant/copilot/schedules/{{ s.id }}/delete" class="mt-1" onsubmit="return confirm('Διαγραφή αυτού του προγραμματισμένου report;');">
+            <form method="post" action="/tenant/copilot/schedules/{{ s.id }}/delete" class="mt-1" onsubmit="return confirm('Διαγραφή αυτής της ρουτίνας;');">
               <button class="btn btn-link btn-sm text-danger p-0" type="submit"><i class="fe fe-trash-2 me-1"></i>Διαγραφή</button>
             </form>
           </div>
           {% endfor %}
 
           <div class="border rounded border-dashed p-2 mb-1" style="border-style:dashed">
-            <div class="small text-muted mb-1"><i class="fe fe-plus me-1"></i>Νέο προγραμματισμένο report</div>
+            <div class="small text-muted mb-1"><i class="fe fe-plus me-1"></i>Νέα ρουτίνα</div>
             <form method="post" action="/tenant/copilot/schedules" class="row g-2 align-items-end">
               <input type="hidden" name="schedule_id" value="">
               <input type="hidden" name="enabled" value="1">
@@ -330,6 +351,27 @@
               <div class="col-md-2">
                 <label class="form-label mb-0 small">Ώρα</label>
                 <input class="form-control form-control-sm" type="time" name="send_time" value="10:00">
+              </div>
+              <div class="col-md-3">
+                <label class="form-label mb-0 small">Συχνότητα</label>
+                <select class="form-select form-select-sm bv-rt-freq" name="frequency">
+                  <option value="daily"{% if true %} selected{% endif %}>Κάθε μέρα</option>
+                  <option value="weekdays"{% if false %} selected{% endif %}>Δευτέρα-Παρασκευή</option>
+                  <option value="weekly"{% if false %} selected{% endif %}>Κάθε εβδομάδα</option>
+                  <option value="monthly"{% if false %} selected{% endif %}>Κάθε μήνα</option>
+                </select>
+              </div>
+              <div class="col-md-2 bv-rt-weekday"{% if true %} style="display:none"{% endif %}>
+                <label class="form-label mb-0 small">Ημέρα</label>
+                <select class="form-select form-select-sm" name="weekday">
+                  {% for wd in ['Δευτέρα','Τρίτη','Τετάρτη','Πέμπτη','Παρασκευή','Σάββατο','Κυριακή'] %}
+                  <option value="{{ loop.index0 }}"{% if loop.index0 == 0 %} selected{% endif %}>{{ wd }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="col-md-2 bv-rt-dom"{% if true %} style="display:none"{% endif %}>
+                <label class="form-label mb-0 small">Ημέρα μήνα</label>
+                <input class="form-control form-control-sm" type="number" min="1" max="31" name="day_of_month" value="1" title="31 = τελευταία μέρα του μήνα">
               </div>
               <div class="col-md-4">
                 <label class="form-label mb-0 small">Παραλήπτες (email, με κόμμα)</label>
@@ -343,6 +385,18 @@
                 <textarea class="form-control form-control-sm" name="prompt" rows="2" placeholder="π.χ. Διαθέσιμες ποσότητες και ελλείψεις ημέρας ανά κατηγορία."></textarea>
               </div>
             </form>
+<script>
+  document.querySelectorAll('.bv-rt-freq').forEach(function (sel) {
+    function sync() {
+      var row = sel.closest('form');
+      var wd = row.querySelector('.bv-rt-weekday'), dm = row.querySelector('.bv-rt-dom');
+      if (wd) wd.style.display = sel.value === 'weekly' ? '' : 'none';
+      if (dm) dm.style.display = sel.value === 'monthly' ? '' : 'none';
+    }
+    sel.addEventListener('change', sync); sync();
+  });
+</script>
+
           </div>
         </div>
       </div>

@@ -281,6 +281,45 @@ TOOLS = [
             'required': ['query'],
         },
     },
+    {
+        'name': 'create_routine',
+        'description': (
+            'Δημιούργησε μια ΡΟΥΤΙΝΑ: μια αποθηκευμένη αναφορά του Report Builder (Πωλήσεων ή Αγορών) '
+            'που το BoxVisio θα παράγει αυτόματα σε τακτά διαστήματα για κυλιόμενη περίοδο (χθες, μήνας '
+            'μέχρι σήμερα, προηγούμενος μήνας…) και θα τη στέλνει με email ΣΥΝΗΜΜΕΝΗ ως Excel, προαιρετικά '
+            'με δικό σου σχόλιο. Κάλεσέ το όταν ο χρήστης ζητά «κάθε μέρα/εβδομάδα/μήνα στις ΧΧ:ΧΧ στείλε '
+            'μου/στείλε στον … την αναφορά …». Πρώτα κάλεσε list_saved_reports για να βρεις το ακριβές όνομα '
+            'της αναφοράς· αν ο χρήστης δεν είπε ποια, ρώτα τον δείχνοντάς του τις διαθέσιμες. Αν λείπουν '
+            'τα email ή η ώρα, ΡΩΤΑ αντί να μαντέψεις («στείλε μου» = το email του χρήστη, που σου δίνεται). '
+            'Χωρίς αναφορά (report_name κενό) η ρουτίνα γίνεται ελεύθερο Co-Pilot report από το prompt.'
+        ),
+        'input_schema': {
+            'type': 'object',
+            'properties': {
+                'title': {'type': 'string', 'description': 'Σύντομος τίτλος (θέμα email), π.χ. «Πωλήσεις ημέρας ανά κατάστημα».'},
+                'report_name': {'type': 'string', 'description': 'Το όνομα της αποθηκευμένης αναφοράς (από list_saved_reports).'},
+                'period_preset': {'type': 'string', 'enum': ['yesterday', 'today', 'last_7_days', 'week_to_date', 'previous_week', 'month_to_date', 'previous_month', 'last_30_days', 'year_to_date', 'saved'], 'description': 'Κυλιόμενη περίοδος της αναφοράς σε κάθε αποστολή. Προεπιλογή: yesterday για καθημερινές, previous_week για εβδομαδιαίες, previous_month για μηνιαίες.'},
+                'compare_preset': {'type': 'string', 'enum': ['prev_year', 'prev_period', 'none', 'saved'], 'description': 'Σύγκριση: ίδια περίοδος πέρσι (προεπιλογή), προηγούμενη ίση περίοδος, καμία.'},
+                'prompt': {'type': 'string', 'description': 'Προαιρετικό: τι σχόλιο να συνοδεύει την αναφορά (π.χ. «ανάδειξε τα καταστήματα με πτώση»). Χωρίς αναφορά: η πλήρης περιγραφή του report.'},
+                'frequency': {'type': 'string', 'enum': ['daily', 'weekdays', 'weekly', 'monthly'], 'description': 'daily=κάθε μέρα, weekdays=Δευτέρα-Παρασκευή, weekly=μία φορά την εβδομάδα, monthly=μία φορά τον μήνα.'},
+                'send_time': {'type': 'string', 'description': 'Ώρα αποστολής HH:MM (ώρα Ελλάδας), π.χ. 10:00.'},
+                'weekday': {'type': 'integer', 'description': 'Μόνο για weekly: 0=Δευτέρα … 6=Κυριακή.'},
+                'day_of_month': {'type': 'integer', 'description': 'Μόνο για monthly: ημέρα του μήνα 1-31 (31 = τελευταία μέρα).'},
+                'recipients': {'type': 'array', 'items': {'type': 'string'}, 'description': 'Email παραληπτών.'},
+            },
+            'required': ['title', 'frequency', 'send_time', 'recipients'],
+        },
+    },
+    {
+        'name': 'list_saved_reports',
+        'description': 'Οι αποθηκευμένες αναφορές του Report Builder (Πωλήσεων/Αγορών) του πελάτη, πάνω στις οποίες φτιάχνονται ρουτίνες.',
+        'input_schema': {'type': 'object', 'properties': {}},
+    },
+    {
+        'name': 'list_routines',
+        'description': 'Δείξε τις ρουτίνες (αυτόματα reports με email) που έχει ήδη ο πελάτης: τι, πότε, σε ποιους, πότε έτρεξαν τελευταία.',
+        'input_schema': {'type': 'object', 'properties': {}},
+    },
 ]
 
 
@@ -295,9 +334,11 @@ _DATA_GUIDE = (
 )
 
 
-def build_system_prompt(tenant: Tenant, *, page_context: str | None = None) -> str:
+def build_system_prompt(tenant: Tenant, *, page_context: str | None = None, user_email: str | None = None) -> str:
     company = getattr(tenant, 'display_name', None) or getattr(tenant, 'name', None) or 'η επιχείρηση'
     ctx = f"\nΟ χρήστης αυτή τη στιγμή βλέπει τη σελίδα: «{page_context}». Αν ρωτήσει «τι κάνω εδώ;» εξήγησε αυτή τη σελίδα." if page_context else ''
+    if user_email:
+        ctx += f"\nΤο email του χρήστη που σου μιλά είναι {user_email} («στείλε μου» = σε αυτό το email)."
     return (
         f"Είσαι ο Co-Pilot του BoxVisio BI για {company} — ένας έμπειρος αναλυτής "
         "επιχειρηματικής ευφυΐας για φαρμακείο. Απαντάς στα ελληνικά, με σαφήνεια και "
@@ -306,7 +347,12 @@ def build_system_prompt(tenant: Tenant, *, page_context: str | None = None) -> s
         "- run_sql: read-only SQL στη βάση (πωλήσεις, απόθεμα, αγορές, ταμείο, έξοδα κ.λπ.)\n"
         "- describe_schema: πίνακες/στήλες πριν γράψεις SQL\n"
         "- app_help: επεξηγήσεις εφαρμογής & ορισμοί KPI\n"
-        "- export_excel: φτιάχνει αρχείο Excel (.xlsx) για κατέβασμα, όταν ο χρήστης ζητά export/Excel/λίστα σε αρχείο\n\n"
+        "- export_excel: φτιάχνει αρχείο Excel (.xlsx) για κατέβασμα, όταν ο χρήστης ζητά export/Excel/λίστα σε αρχείο\n"
+        "- list_saved_reports / create_routine / list_routines: ρουτίνες = αποθηκευμένες αναφορές του Report Builder "
+        "που στέλνονται αυτόματα με email ΣΥΝΗΜΜΕΝΕΣ ως Excel (κάθε μέρα/εβδομάδα/μήνα, σε ώρα που ορίζει ο χρήστης, "
+        "για κυλιόμενη περίοδο), προαιρετικά με σχόλιό σου. Όταν ο χρήστης πει «κάθε μέρα στις 10 στείλε μου την "
+        "αναφορά Χ», βρες την αναφορά με list_saved_reports, συγκέντρωσε πότε/σε ποιους και κάλεσε create_routine· "
+        "μετά επιβεβαίωσέ του τι δημιουργήθηκε.\n\n"
         "Κανόνες: Ποτέ μην επινοείς νούμερα — αν χρειάζεσαι στοιχεία, κάλεσε εργαλείο. "
         "Οι ημερομηνίες εμφανίζονται ως dd/mm/yyyy. Τα ποσά σε €. Όταν δίνεις νούμερο, πες "
         "και την περίοδο. Αν ένα ερώτημα είναι ασαφές, κάνε τη λογική υπόθεση και ανάφερέ την. "
@@ -316,7 +362,95 @@ def build_system_prompt(tenant: Tenant, *, page_context: str | None = None) -> s
     )
 
 
-async def _dispatch_tool(tenant: Tenant, name: str, tool_input: dict, *, data_scope: str) -> dict:
+async def create_routine_tool(tenant: Tenant, tool_input: dict, *, user_email: str | None) -> dict:
+    """The create_routine tool: validate and store a CopilotSchedule for this tenant."""
+    from app.db.control_session import ControlSessionLocal
+    from app.services.copilot_config import describe_schedule, save_schedule
+
+    from app.services.copilot_config import PERIOD_PRESETS, list_saved_reports, saved_reports_view
+
+    recipients_raw = tool_input.get('recipients') or []
+    if isinstance(recipients_raw, str):
+        recipients_raw = re.split(r'[,;\s]+', recipients_raw)
+    recipients = [r.strip() for r in recipients_raw if r and re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]+$', r.strip())]
+    if not recipients:
+        return {'error': 'Δεν δόθηκε έγκυρο email παραλήπτη. Ρώτα τον χρήστη σε ποια email να στέλνεται.'}
+    prompt = str(tool_input.get('prompt') or '').strip()
+    report_name = str(tool_input.get('report_name') or '').strip()
+    frequency = str(tool_input.get('frequency') or 'daily')
+    async with ControlSessionLocal() as db:
+        report_id = None
+        if report_name:
+            reports = await list_saved_reports(db, int(tenant.id))
+            exact = [r for r in reports if r.name.strip().lower() == report_name.lower()]
+            partial = exact or [r for r in reports if report_name.lower() in r.name.lower() or r.name.lower() in report_name.lower()]
+            if len(partial) == 1:
+                report_id = int(partial[0].id)
+            else:
+                return {
+                    'error': ('Δεν βρέθηκε αναφορά με αυτό το όνομα.' if not partial else 'Το όνομα ταιριάζει σε περισσότερες αναφορές.')
+                             + ' Ρώτα τον χρήστη ποια από τις διαθέσιμες εννοεί.',
+                    'available_reports': saved_reports_view(reports),
+                }
+        elif len(prompt) < 10:
+            return {'error': 'Δώσε report_name (από list_saved_reports) ή, για ελεύθερο Co-Pilot report, πλήρες prompt.'}
+        period_preset = str(tool_input.get('period_preset') or '')
+        if period_preset not in PERIOD_PRESETS:
+            period_preset = {'weekly': 'previous_week', 'monthly': 'previous_month'}.get(frequency, 'yesterday')
+        sched = await save_schedule(
+            db, int(tenant.id), None,
+            title=str(tool_input.get('title') or (report_name or 'Report')),
+            send_time=str(tool_input.get('send_time') or '10:00'),
+            recipients=', '.join(recipients),
+            prompt=prompt,
+            enabled=True,
+            frequency=frequency,
+            weekday=tool_input.get('weekday'),
+            day_of_month=tool_input.get('day_of_month'),
+            created_by=user_email,
+            report_id=report_id,
+            period_preset=period_preset,
+            compare_preset=str(tool_input.get('compare_preset') or 'prev_year'),
+        )
+        if sched is None:
+            return {'error': 'Η ρουτίνα δεν αποθηκεύτηκε.'}
+        return {
+            'ok': True,
+            'routine': {
+                'id': sched.id, 'title': sched.title, 'when': describe_schedule(sched),
+                'recipients': recipients, 'prompt': sched.prompt,
+                'report': report_name or None, 'period': PERIOD_PRESETS.get(sched.period_preset, sched.period_preset),
+            },
+            'note': 'Η ρουτίνα αποθηκεύτηκε. Ο χρήστης τη βλέπει/αλλάζει/στέλνει αμέσως στη σελίδα Co-Pilot → Ρουτίνες.',
+        }
+
+
+async def list_saved_reports_tool(tenant: Tenant) -> dict:
+    from app.db.control_session import ControlSessionLocal
+    from app.services.copilot_config import list_saved_reports, saved_reports_view
+
+    async with ControlSessionLocal() as db:
+        return {'reports': saved_reports_view(await list_saved_reports(db, int(tenant.id)))}
+
+
+async def list_routines_tool(tenant: Tenant) -> dict:
+    from app.db.control_session import ControlSessionLocal
+    from app.services.copilot_config import list_schedules, schedules_view
+
+    from app.services.copilot_config import list_saved_reports
+
+    async with ControlSessionLocal() as db:
+        items = schedules_view(await list_schedules(db, int(tenant.id)), await list_saved_reports(db, int(tenant.id)))
+    return {'routines': [{**{k: v for k, v in it.items() if k != 'prompt'}, 'prompt': (it.get('prompt') or '')[:300]} for it in items]}
+
+
+async def _dispatch_tool(tenant: Tenant, name: str, tool_input: dict, *, data_scope: str, user_email: str | None = None) -> dict:
+    if name == 'create_routine':
+        return await create_routine_tool(tenant, tool_input, user_email=user_email)
+    if name == 'list_routines':
+        return await list_routines_tool(tenant)
+    if name == 'list_saved_reports':
+        return await list_saved_reports_tool(tenant)
     if name == 'run_sql':
         return await run_sql(tenant, str(tool_input.get('query') or ''), data_scope=data_scope)
     if name == 'describe_schema':
@@ -335,6 +469,7 @@ async def stream_answer(
     *,
     page_context: str | None = None,
     max_rounds: int = 6,
+    user_email: str | None = None,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Run the agentic loop and yield SSE-friendly events:
       {'type':'text','text':...} | {'type':'tool','name':...} | {'type':'done','usage':...}
@@ -349,7 +484,7 @@ async def stream_answer(
         return
 
     client = anthropic.AsyncAnthropic(api_key=api_key)
-    system = build_system_prompt(tenant, page_context=page_context)
+    system = build_system_prompt(tenant, page_context=page_context, user_email=user_email)
     data_scope = config.data_scope or 'row_level'
     messages: list[dict[str, Any]] = list(history)
     out_tokens = 0
@@ -395,9 +530,11 @@ async def stream_answer(
             for block in final.content:
                 if getattr(block, 'type', None) == 'tool_use':
                     yield {'type': 'tool', 'name': block.name}
-                    result = await _dispatch_tool(tenant, block.name, dict(block.input or {}), data_scope=data_scope)
+                    result = await _dispatch_tool(tenant, block.name, dict(block.input or {}), data_scope=data_scope, user_email=user_email)
                     if block.name == 'export_excel' and isinstance(result, dict) and result.get('download_url'):
                         yield {'type': 'export', 'url': result['download_url'], 'filename': result.get('filename', 'export.xlsx')}
+                    if block.name == 'create_routine' and isinstance(result, dict) and result.get('ok'):
+                        yield {'type': 'routine', 'routine': result.get('routine')}
                     tool_results.append({
                         'type': 'tool_result',
                         'tool_use_id': block.id,

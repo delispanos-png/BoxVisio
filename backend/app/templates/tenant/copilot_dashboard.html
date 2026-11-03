@@ -1,11 +1,16 @@
 {% extends "base_tenant.html" %}
 
 {% block content %}
-<link href="/static/css/bv-copilot.css?v=20260812cp4" rel="stylesheet">
+<link href="/static/css/bv-copilot.css?v=20261103rt1" rel="stylesheet">
 <div class="card content-card">
   <div class="card-header d-flex align-items-center justify-content-between flex-wrap gap-2">
     <h5 class="mb-0 d-inline-flex align-items-center gap-2"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"/><path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"/><path d="M6 18a4 4 0 0 1-1.967-.516"/><path d="M19.967 17.484A4 4 0 0 1 18 18"/></svg>Co-Pilot</h5>
-    <span class="badge {{ 'bg-success' if copilot.ready else 'bg-secondary' }}">{{ 'Έτοιμο' if copilot.ready else 'Μη ρυθμισμένο' }}</span>
+    <div class="d-flex align-items-center gap-2">
+      {% if copilot.ready %}
+      <button type="button" class="btn btn-outline-primary btn-sm" id="bvcRoutinesBtn" data-bs-toggle="modal" data-bs-target="#bvcRoutinesModal"><i class="fe fe-clock me-1"></i>Ρουτίνες <span class="badge bg-primary ms-1" id="bvcRoutinesCount">{{ copilot_routines|length }}</span></button>
+      {% endif %}
+      <span class="badge {{ 'bg-success' if copilot.ready else 'bg-secondary' }}">{{ 'Έτοιμο' if copilot.ready else 'Μη ρυθμισμένο' }}</span>
+    </div>
   </div>
   <div class="card-body">
     {% if not copilot.ready %}
@@ -31,8 +36,107 @@
     {% endif %}
   </div>
 </div>
+
 {% if copilot.ready %}
-<script src="/static/js/bv-copilot.js?v=20260821cp5"></script>
+<!-- Ρουτίνες: αυτόματα reports με email -->
+<div class="modal fade" id="bvcRoutinesModal" tabindex="-1" aria-labelledby="bvcRoutinesTitle" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title d-inline-flex align-items-center gap-2" id="bvcRoutinesTitle"><i class="fe fe-clock"></i>Ρουτίνες — αυτόματα reports με email</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Κλείσιμο"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted small mb-3">Κάθε ρουτίνα στέλνει με email, στην ώρα που ορίζεις (ώρα Ελλάδας), μια αποθηκευμένη αναφορά του Report Builder <strong>συνημμένη ως Excel</strong> για κυλιόμενη περίοδο (χθες, μήνας μέχρι σήμερα, προηγούμενος μήνας…), προαιρετικά με σχόλιο του Co-Pilot. Μπορείς να τη φτιάξεις και μέσα από τη συνομιλία: «κάθε μέρα στις 10:00 στείλε μου την αναφορά MTD ανά μαγαζί».</p>
+        {% if not copilot_saved_reports %}
+        <div class="alert alert-info py-2">Δεν υπάρχουν ακόμη αποθηκευμένες αναφορές. Φτιάξε μία στο <a href="/tenant/exports/analysis">Report Builder Πωλήσεων</a> ή <a href="/tenant/exports/purchases-analysis">Αγορών</a> και αποθήκευσέ την, για να τη στέλνεις αυτόματα.</div>
+        {% endif %}
+        {% if not email_configured %}
+        <div class="alert alert-warning py-2">Δεν έχει ρυθμιστεί αποστολή email στον server — οι ρουτίνες αποθηκεύονται αλλά δεν θα στέλνονται.</div>
+        {% endif %}
+        <div id="bvcRoutineList" class="bvc-rt-list"></div>
+        <div class="bvc-rt-empty text-muted small" id="bvcRoutineEmpty" style="display:none">Δεν υπάρχουν ρουτίνες ακόμη.</div>
+        <hr>
+        <form id="bvcRoutineForm" class="row g-2 align-items-end" autocomplete="off">
+          <input type="hidden" name="id" value="">
+          <div class="col-12 d-flex align-items-center justify-content-between">
+            <strong id="bvcRoutineFormTitle">Νέα ρουτίνα</strong>
+            <button type="button" class="btn btn-link btn-sm p-0" id="bvcRoutineReset" style="display:none">Ακύρωση επεξεργασίας</button>
+          </div>
+          <div class="col-md-5">
+            <label class="form-label mb-0 small">Αναφορά (Report Builder)</label>
+            <select class="form-select form-select-sm" name="report_id" id="bvcRoutineReport">
+              <option value="">— Χωρίς αναφορά (ελεύθερο report Co-Pilot) —</option>
+              {% for r in copilot_saved_reports %}
+              <option value="{{ r.id }}" data-name="{{ r.name }}">{{ r.name }} · {{ r.kind_label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-4" data-rt="period">
+            <label class="form-label mb-0 small">Περίοδος αναφοράς</label>
+            <select class="form-select form-select-sm" name="period_preset">
+              {% for k, v in copilot_period_presets.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="col-md-3" data-rt="compare">
+            <label class="form-label mb-0 small">Σύγκριση</label>
+            <select class="form-select form-select-sm" name="compare_preset">
+              {% for k, v in copilot_compare_presets.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="col-md-5">
+            <label class="form-label mb-0 small">Τίτλος (θέμα email)</label>
+            <input class="form-control form-control-sm" name="title" maxlength="120" placeholder="π.χ. Πωλήσεις ημέρας ανά κατάστημα" required>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label mb-0 small">Συχνότητα</label>
+            <select class="form-select form-select-sm" name="frequency">
+              <option value="daily">Κάθε μέρα</option>
+              <option value="weekdays">Δευτέρα-Παρασκευή</option>
+              <option value="weekly">Κάθε εβδομάδα</option>
+              <option value="monthly">Κάθε μήνα</option>
+            </select>
+          </div>
+          <div class="col-md-2" data-rt="weekday" style="display:none">
+            <label class="form-label mb-0 small">Ημέρα</label>
+            <select class="form-select form-select-sm" name="weekday">
+              <option value="0">Δευτέρα</option><option value="1">Τρίτη</option><option value="2">Τετάρτη</option><option value="3">Πέμπτη</option><option value="4">Παρασκευή</option><option value="5">Σάββατο</option><option value="6">Κυριακή</option>
+            </select>
+          </div>
+          <div class="col-md-2" data-rt="dom" style="display:none">
+            <label class="form-label mb-0 small">Ημέρα μήνα</label>
+            <input class="form-control form-control-sm" type="number" name="day_of_month" min="1" max="31" value="1" title="31 = τελευταία μέρα του μήνα">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label mb-0 small">Ώρα</label>
+            <input class="form-control form-control-sm" type="time" name="send_time" value="10:00" required>
+          </div>
+          <div class="col-md-8">
+            <label class="form-label mb-0 small">Παραλήπτες (email, με κόμμα)</label>
+            <input class="form-control form-control-sm" name="recipients" placeholder="owner@x.gr, manager@x.gr" value="{{ user.email or '' }}" required>
+          </div>
+          <div class="col-md-4 d-flex align-items-center gap-3">
+            <div class="form-check form-switch mt-3">
+              <input class="form-check-input" type="checkbox" role="switch" name="enabled" id="bvcRoutineEnabled" checked>
+              <label class="form-check-label small" for="bvcRoutineEnabled">Ενεργή</label>
+            </div>
+          </div>
+          <div class="col-12">
+            <label class="form-label mb-0 small" id="bvcRoutinePromptLabel">Σχόλιο Co-Pilot που θα συνοδεύει την αναφορά (προαιρετικό)</label>
+            <textarea class="form-control form-control-sm" name="prompt" rows="3" placeholder="π.χ. Ανάδειξε τα καταστήματα με πτώση σε σχέση με πέρσι και πρότεινε πού να δοθεί προσοχή."></textarea>
+          </div>
+          <div class="col-12 d-flex align-items-center gap-2">
+            <button class="btn btn-primary btn-sm" type="submit" id="bvcRoutineSave"><i class="fe fe-save me-1"></i>Αποθήκευση</button>
+            <span class="small text-muted" id="bvcRoutineMsg"></span>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% if copilot.ready %}
+<script src="/static/js/bv-copilot.js?v=20261103rt1"></script>
 <script>
   (function () {
     var mountEl = document.getElementById('bvCopilotPage');
@@ -88,6 +192,7 @@
     var app = window.BvCopilot.mount(mountEl, {
       suggestions: true,
       pageContext: 'Σελίδα Co-Pilot',
+      onRoutineCreated: function () { if (typeof loadRoutines === 'function') loadRoutines(); },
       onNewConversation: function (id, title) {
         var row = rowFor({ id: id, title: title, updated_at: '' });
         listEl.insertBefore(row, listEl.firstChild);
@@ -97,6 +202,142 @@
     newBtn && newBtn.addEventListener('click', function () { app.newChat(); setActive(null); });
     loadList();
     app.focus();
+
+    // ---- Ρουτίνες -------------------------------------------------------
+    var rtList = document.getElementById('bvcRoutineList');
+    var rtEmpty = document.getElementById('bvcRoutineEmpty');
+    var rtForm = document.getElementById('bvcRoutineForm');
+    var rtCount = document.getElementById('bvcRoutinesCount');
+    var rtMsg = document.getElementById('bvcRoutineMsg');
+    var rtReset = document.getElementById('bvcRoutineReset');
+    var FREQ = { daily: 'Κάθε μέρα', weekdays: 'Δευτέρα-Παρασκευή', weekly: 'Κάθε εβδομάδα', monthly: 'Κάθε μήνα' };
+    function csrfHeaders() { return { 'Content-Type': 'application/json', 'X-CSRF-Token': cookie('csrf_token') }; }
+    function syncFreq() {
+      var f = rtForm.frequency.value;
+      rtForm.querySelector('[data-rt="weekday"]').style.display = f === 'weekly' ? '' : 'none';
+      rtForm.querySelector('[data-rt="dom"]').style.display = f === 'monthly' ? '' : 'none';
+      var hasReport = !!rtForm.report_id.value;
+      rtForm.querySelector('[data-rt="period"]').style.display = hasReport ? '' : 'none';
+      rtForm.querySelector('[data-rt="compare"]').style.display = hasReport ? '' : 'none';
+      rtForm.prompt.required = !hasReport;
+      document.getElementById('bvcRoutinePromptLabel').textContent = hasReport
+        ? 'Σχόλιο Co-Pilot που θα συνοδεύει την αναφορά (προαιρετικό)'
+        : 'Τι να περιέχει το report (χωρίς αναφορά: το γράφει ο Co-Pilot από τα δεδομένα σου)';
+    }
+    rtForm && rtForm.frequency.addEventListener('change', function () {
+      // sensible rolling period for the cadence, unless the user already chose one
+      var f = rtForm.frequency.value;
+      if (!rtForm.period_preset.dataset.touched) rtForm.period_preset.value = f === 'weekly' ? 'previous_week' : f === 'monthly' ? 'previous_month' : 'yesterday';
+      syncFreq();
+    });
+    rtForm && rtForm.period_preset.addEventListener('change', function () { rtForm.period_preset.dataset.touched = '1'; });
+    rtForm && rtForm.report_id.addEventListener('change', function () {
+      var opt = rtForm.report_id.selectedOptions[0];
+      if (opt && opt.dataset.name && !rtForm.title.value) rtForm.title.value = opt.dataset.name;
+      syncFreq();
+    });
+    function resetForm() {
+      rtForm.reset(); rtForm.id.value = ''; rtForm.recipients.value = {{ (user.email or '')|tojson }}; delete rtForm.period_preset.dataset.touched;
+      document.getElementById('bvcRoutineFormTitle').textContent = 'Νέα ρουτίνα';
+      rtReset.style.display = 'none'; rtMsg.textContent = ''; syncFreq();
+    }
+    rtReset && rtReset.addEventListener('click', resetForm);
+    function statusBadge(r) {
+      if (!r.last_run_at) return '<span class="badge bg-light text-muted border">Δεν έχει τρέξει</span>';
+      var cls = r.last_status === 'ok' ? 'bg-success' : (r.last_status === 'partial' ? 'bg-warning text-dark' : 'bg-danger');
+      var label = r.last_status === 'ok' ? 'Στάλθηκε' : (r.last_status === 'partial' ? 'Μερική αποστολή' : 'Σφάλμα');
+      return '<span class="badge ' + cls + '" title="' + (r.last_error || '').replace(/"/g, '&quot;') + '">' + label + ' · ' + r.last_run_at + '</span>';
+    }
+    function esc(t) { return String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+    function renderRoutines(items) {
+      rtList.innerHTML = '';
+      rtEmpty.style.display = items.length ? 'none' : '';
+      if (rtCount) rtCount.textContent = items.length;
+      items.forEach(function (r) {
+        var card = document.createElement('div');
+        card.className = 'bvc-rt' + (r.enabled ? '' : ' is-off');
+        card.innerHTML =
+          '<div class="bvc-rt-head"><div><strong>' + esc(r.title) + '</strong>' + (r.enabled ? '' : ' <span class="badge bg-secondary">Ανενεργή</span>') +
+          '<div class="small text-muted"><i class="fe fe-clock me-1"></i>' + esc(r.when) + ' &middot; <i class="fe fe-mail me-1"></i>' + esc(r.recipients) + '</div>' +
+          (r.report_id ? '<div class="small"><i class="fe fe-paperclip me-1"></i><strong>' + esc(r.report_name) + '</strong> · ' + esc(r.report_kind_label) + ' · ' + esc(r.period_label) + (r.compare_preset !== 'none' ? ' · ' + esc(r.compare_label) : '') + ' · Excel συνημμένο</div>' : '<div class="small"><i class="fe fe-cpu me-1"></i>Ελεύθερο report Co-Pilot</div>') + '</div>' +
+          '<div class="bvc-rt-actions">' + statusBadge(r) +
+          ' <button type="button" class="btn btn-outline-success btn-sm" data-act="run" title="Παραγωγή και αποστολή τώρα"><i class="fe fe-send"></i> Στείλε τώρα</button>' +
+          ' <button type="button" class="btn btn-outline-secondary btn-sm" data-act="edit"><i class="fe fe-edit-2"></i></button>' +
+          ' <button type="button" class="btn btn-outline-danger btn-sm" data-act="del"><i class="fe fe-trash-2"></i></button></div></div>' +
+          (r.prompt ? '<div class="bvc-rt-prompt small">' + (r.report_id ? 'Σχόλιο: ' : '') + esc(r.prompt) + '</div>' : '') +
+          (r.last_status === 'error' && r.last_error ? '<div class="small text-danger mt-1">' + esc(r.last_error) + '</div>' : '');
+        card.querySelector('[data-act="run"]').addEventListener('click', function (e) { runRoutine(r, e.currentTarget); });
+        card.querySelector('[data-act="edit"]').addEventListener('click', function () { editRoutine(r); });
+        card.querySelector('[data-act="del"]').addEventListener('click', function () { deleteRoutine(r); });
+        rtList.appendChild(card);
+      });
+    }
+    function loadRoutines() {
+      return fetch('/tenant/copilot/routines', { headers: { 'Accept': 'application/json' } })
+        .then(function (r) { return r.json(); })
+        .then(function (j) { renderRoutines(j.routines || []); })
+        .catch(function () {});
+    }
+    function editRoutine(r) {
+      rtForm.id.value = r.id; rtForm.title.value = r.title; rtForm.frequency.value = r.frequency || 'daily';
+      rtForm.weekday.value = String(r.weekday || 0); rtForm.day_of_month.value = r.day_of_month || 1;
+      rtForm.send_time.value = r.send_time; rtForm.recipients.value = r.recipients; rtForm.prompt.value = r.prompt;
+      rtForm.report_id.value = r.report_id ? String(r.report_id) : '';
+      rtForm.period_preset.value = r.period_preset || 'yesterday'; rtForm.period_preset.dataset.touched = '1';
+      rtForm.compare_preset.value = r.compare_preset || 'prev_year';
+      rtForm.enabled.checked = !!r.enabled; syncFreq();
+      document.getElementById('bvcRoutineFormTitle').textContent = 'Επεξεργασία: ' + r.title;
+      rtReset.style.display = ''; rtMsg.textContent = '';
+      rtForm.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    function deleteRoutine(r) {
+      if (!confirm('Διαγραφή της ρουτίνας «' + r.title + '»;')) return;
+      fetch('/tenant/copilot/routines/' + r.id + '/delete', { method: 'POST', headers: csrfHeaders() })
+        .then(function () { loadRoutines(); if (String(rtForm.id.value) === String(r.id)) resetForm(); });
+    }
+    function runRoutine(r, btn) {
+      btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Στέλνεται…';
+      fetch('/tenant/copilot/routines/' + r.id + '/run', { method: 'POST', headers: csrfHeaders() })
+        .then(function (res) { return res.json().then(function (j) { return { ok: res.ok, j: j }; }); })
+        .then(function (x) {
+          if (!x.ok) { alert(x.j.error || 'Σφάλμα.'); btn.disabled = false; btn.innerHTML = '<i class="fe fe-send"></i> Στείλε τώρα'; return; }
+          btn.innerHTML = '<i class="fe fe-check"></i> Σε εξέλιξη';
+          // The report takes a minute or two; poll the list so the status badge updates.
+          var tries = 0;
+          var t = setInterval(function () {
+            tries += 1;
+            loadRoutines();
+            if (tries >= 24) clearInterval(t);
+          }, 10000);
+        })
+        .catch(function () { btn.disabled = false; btn.innerHTML = '<i class="fe fe-send"></i> Στείλε τώρα'; });
+    }
+    rtForm && rtForm.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var payload = {
+        id: rtForm.id.value || null, title: rtForm.title.value, frequency: rtForm.frequency.value,
+        weekday: parseInt(rtForm.weekday.value, 10), day_of_month: parseInt(rtForm.day_of_month.value, 10),
+        send_time: rtForm.send_time.value, recipients: rtForm.recipients.value, prompt: rtForm.prompt.value,
+        enabled: rtForm.enabled.checked,
+        report_id: rtForm.report_id.value ? parseInt(rtForm.report_id.value, 10) : null,
+        period_preset: rtForm.period_preset.value, compare_preset: rtForm.compare_preset.value
+      };
+      document.getElementById('bvcRoutineSave').disabled = true;
+      fetch('/tenant/copilot/routines', { method: 'POST', headers: csrfHeaders(), body: JSON.stringify(payload) })
+        .then(function (res) { return res.json().then(function (j) { return { ok: res.ok, j: j }; }); })
+        .then(function (x) {
+          document.getElementById('bvcRoutineSave').disabled = false;
+          if (!x.ok) { rtMsg.textContent = x.j.error || 'Σφάλμα.'; rtMsg.className = 'small text-danger'; return; }
+          rtMsg.textContent = 'Αποθηκεύτηκε.'; rtMsg.className = 'small text-success';
+          loadRoutines().then(function () { setTimeout(resetForm, 600); });
+        })
+        .catch(function () { document.getElementById('bvcRoutineSave').disabled = false; rtMsg.textContent = 'Πρόβλημα σύνδεσης.'; });
+    });
+    var rtModal = document.getElementById('bvcRoutinesModal');
+    rtModal && rtModal.addEventListener('show.bs.modal', function () { loadRoutines(); });
+    if (location.hash === '#routines' && rtModal && window.bootstrap) { bootstrap.Modal.getOrCreateInstance(rtModal).show(); }
+    syncFreq();
+    loadRoutines();
   })();
 </script>
 {% endif %}

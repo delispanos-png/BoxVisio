@@ -6067,16 +6067,123 @@ def _hhmm_to_minutes(value: str) -> int:
         return 600
 
 
+async def _run_copilot_schedule(db, sched, *, cfg, tenant, now) -> bool:
+    """Produce one routine's report and email it. Records the outcome on the row.
+    Returns True when at least one email went out."""
+    from app.services import email_delivery
+    from app.services.copilot_config import add_usage, describe_schedule
+    from app.services.copilot_service import DAILY_REPORT_PROMPT, generate_report
+
+    from app.services.copilot_config import copilot_is_ready
+    from app.services.copilot_routines import XLSX_MIME, build_routine_report, routine_commentary
+
+    today = now.date()
+    tid = int(sched.tenant_id)
+    recipients = [e.strip() for e in str(sched.recipients or '').replace(';', ',').split(',') if e.strip()]
+    tname = getattr(tenant, 'display_name', None) or getattr(tenant, 'name', None) or getattr(tenant, 'slug', '') or 'BoxVisio'
+    sched.last_run_at = now.replace(tzinfo=None)
+    try:
+        if not recipients:
+            raise RuntimeError('Δεν έχουν οριστεί παραλήπτες.')
+        title = sched.title or 'Report'
+        attachments: list[tuple[str, bytes, str]] = []
+        out_tokens = 0
+        if sched.report_id:
+            # Report-based routine: the saved Report Builder report as Excel, plus an
+            # optional Co-Pilot commentary when the tenant has the Co-Pilot configured.
+            report = await build_routine_report(db, tenant, sched, today)
+            attachments.append((report['filename'], report['content'], XLSX_MIME))
+            # The Co-Pilot commentary is a bonus: if the key is out of credit or the
+            # model errors, the report still goes out and the note says why.
+            commentary_note = ''
+            try:
+                commentary, out_tokens = await routine_commentary(cfg, tenant, sched, report)
+            except Exception as exc:  # noqa: BLE001
+                commentary, out_tokens = '', 0
+                commentary_note = f'Σχόλιο Co-Pilot: {str(exc).splitlines()[0][:200]}'
+                logger.warning('copilot_routine_commentary_failed schedule=%s tenant=%s err=%s', sched.id, tid, str(exc)[:200])
+            report_text = (
+                f"Συνημμένη η αναφορά «{report['report_name']}» ({report['kind_label']}) για την περίοδο {report['period']}."
+                + (f"\n\n{commentary}" if commentary.strip() else '')
+            )
+        else:
+            commentary_note = ''
+            if not copilot_is_ready(cfg):
+                raise RuntimeError('Η ρουτίνα χωρίς αναφορά χρειάζεται ρυθμισμένο Co-Pilot (κλειδί) ή διάλεξε μια αποθηκευμένη αναφορά.')
+            report_text, out_tokens = await generate_report(cfg, tenant, prompt=(sched.prompt or DAILY_REPORT_PROMPT))
+            if not report_text.strip():
+                raise RuntimeError('Ο Co-Pilot δεν επέστρεψε κείμενο.')
+        html_body = _copilot_report_html(tname, report_text, today, title)
+        subject = f'{title} — {tname} — {today.strftime("%d/%m/%Y")}'
+        delivered = 0
+        errors: list[str] = []
+        for email in recipients:
+            try:
+                email_delivery.send_email(to_email=email, subject=subject, text_body=report_text, html_body=html_body, attachments=attachments)
+                delivered += 1
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f'{email}: {str(exc)[:120]}')
+                logger.warning('copilot_report_email_failed to=%s err=%s', email, str(exc)[:150])
+        if not delivered:
+            raise RuntimeError('Αποτυχία αποστολής email: ' + '; '.join(errors)[:400])
+        sched.last_sent = today
+        sched.last_status = 'ok' if not errors else 'partial'
+        sched.last_error = ('; '.join([*errors, *([commentary_note] if commentary_note else [])])[:1000] or None)
+        await db.commit()
+        if out_tokens:
+            try:
+                await add_usage(db, tid, 0, int(out_tokens))
+            except Exception:  # noqa: BLE001
+                pass
+        logger.info('copilot_report_sent schedule=%s tenant=%s when=%s recipients=%s', sched.id, tid, describe_schedule(sched), delivered)
+        return True
+    except Exception as exc:  # noqa: BLE001
+        sched.last_status = 'error'
+        sched.last_error = str(exc).splitlines()[0][:1000]
+        await db.commit()
+        logger.warning('copilot_report_failed schedule=%s tenant=%s err=%s', sched.id, tid, str(exc)[:200])
+        return False
+
+
 @shared_task(name='worker.tasks.send_scheduled_copilot_reports')
 def send_scheduled_copilot_reports() -> dict:
     return _run_coro(_send_scheduled_copilot_reports())
 
 
+@shared_task(name='worker.tasks.run_copilot_schedule')
+def run_copilot_schedule(schedule_id: int) -> dict:
+    """«Στείλε τώρα» from the Routines panel: run one routine regardless of its schedule."""
+    return _run_coro(_run_copilot_schedule_now(int(schedule_id)))
+
+
+async def _run_copilot_schedule_now(schedule_id: int) -> dict:
+    from app.models.control import CopilotConfig, CopilotSchedule
+    from app.services.copilot_config import copilot_is_ready
+
+    now = datetime.now(ZoneInfo('Europe/Athens'))
+    async with ControlSessionLocal() as db:
+        sched = (await db.execute(select(CopilotSchedule).where(CopilotSchedule.id == schedule_id))).scalar_one_or_none()
+        if sched is None:
+            return {'status': 'missing'}
+        tid = int(sched.tenant_id)
+        cfg = (await db.execute(select(CopilotConfig).where(CopilotConfig.tenant_id == tid))).scalar_one_or_none()
+        tenant = (await db.execute(select(Tenant).where(Tenant.id == tid))).scalar_one_or_none()
+        if tenant is None or (not sched.report_id and not copilot_is_ready(cfg)):
+            sched.last_run_at = now.replace(tzinfo=None)
+            sched.last_status = 'error'
+            sched.last_error = 'Το Co-Pilot δεν είναι ρυθμισμένο (κλειδί/ενεργοποίηση).'
+            await db.commit()
+            return {'status': 'not_ready'}
+        ok = await _run_copilot_schedule(db, sched, cfg=cfg, tenant=tenant, now=now)
+        return {'status': 'ok' if ok else 'error', 'schedule_id': schedule_id}
+
+
 async def _send_scheduled_copilot_reports() -> dict:
+    """Every 5 min (beat): run each enabled routine once its day (frequency) and
+    time (Europe/Athens) have arrived and it hasn't run today."""
     from app.models.control import CopilotConfig, CopilotSchedule
     from app.services import email_delivery
-    from app.services.copilot_config import add_usage, copilot_is_ready
-    from app.services.copilot_service import DAILY_REPORT_PROMPT, generate_report
+    from app.services.copilot_config import copilot_is_ready, schedule_runs_on
 
     now = datetime.now(ZoneInfo('Europe/Athens'))
     today = now.date()
@@ -6094,44 +6201,23 @@ async def _send_scheduled_copilot_reports() -> dict:
         for sched in schedules:
             if sched.last_sent == today:
                 continue
+            if sched.last_run_at and sched.last_run_at.date() == today and sched.last_status == 'error':
+                continue  # failed today already; don't retry every 5 minutes (the user can «Στείλε τώρα»)
+            if not schedule_runs_on(sched, today):
+                continue
             if _hhmm_to_minutes(sched.send_time) > now_minutes:
                 continue  # its time today hasn't arrived yet
-            recipients = [e.strip() for e in str(sched.recipients or '').replace(';', ',').split(',') if e.strip()]
-            if not recipients:
-                continue
             tid = int(sched.tenant_id)
             if tid not in config_cache:
                 config_cache[tid] = (await db.execute(select(CopilotConfig).where(CopilotConfig.tenant_id == tid))).scalar_one_or_none()
             cfg = config_cache[tid]
-            if not copilot_is_ready(cfg):
+            if not sched.report_id and not copilot_is_ready(cfg):
                 continue
             if tid not in tenant_cache:
                 tenant_cache[tid] = (await db.execute(select(Tenant).where(Tenant.id == tid))).scalar_one_or_none()
             tenant = tenant_cache[tid]
             if tenant is None:
                 continue
-            tname = getattr(tenant, 'display_name', None) or getattr(tenant, 'name', None) or getattr(tenant, 'slug', '') or 'BoxVisio'
-            try:
-                report_text, out_tokens = await generate_report(cfg, tenant, prompt=(sched.prompt or DAILY_REPORT_PROMPT))
-            except Exception as exc:  # noqa: BLE001
-                logger.warning('copilot_report_failed schedule=%s tenant=%s err=%s', sched.id, tid, str(exc)[:200])
-                continue
-            if not report_text.strip():
-                continue
-            html_body = _copilot_report_html(tname, report_text, today, sched.title or 'Report')
-            subject = f'{sched.title or "Report"} — {tname} — {today.strftime("%d/%m/%Y")}'
-            for email in recipients:
-                try:
-                    email_delivery.send_email(to_email=email, subject=subject, text_body=report_text, html_body=html_body)
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning('copilot_report_email_failed to=%s err=%s', email, str(exc)[:150])
-            sched.last_sent = today
-            await db.commit()
-            if out_tokens:
-                try:
-                    await add_usage(db, tid, 0, int(out_tokens))
-                except Exception:  # noqa: BLE001
-                    pass
-            sent += 1
-            logger.info('copilot_report_sent schedule=%s tenant=%s recipients=%s', sched.id, tid, len(recipients))
+            if await _run_copilot_schedule(db, sched, cfg=cfg, tenant=tenant, now=now):
+                sent += 1
     return {'sent': sent}

@@ -321,12 +321,16 @@ CIRCUITS: tuple[dict[str, Any], ...] = (
                 'Ζήτησέ του export — π.χ. «κάνε export σε Excel τα στατιστικά πωλήσεων ανά κατηγορία» — και θα εμφανίσει κουμπί λήψης του .xlsx.',
                 'Στη σελίδα Co-Pilot βλέπεις αριστερά το ιστορικό των συνομιλιών σου — κάνε κλικ για να ανοίξεις παλιά συνομιλία.',
                 'Το πλωτό κουμπί ξέρει σε ποια σελίδα βρίσκεσαι, οπότε το «τι κάνω εδώ;» απαντά για τη συγκεκριμένη οθόνη.',
+                'Ρουτίνες: πες του «κάθε μέρα στις 10:00 στείλε μου τις πωλήσεις χθες ανά κατάστημα» (ή κάθε Δευτέρα, ή την 1η κάθε μήνα) — θα δημιουργήσει ρουτίνα που παράγει το report αυτόματα και το στέλνει με email στους παραλήπτες που ορίζεις.',
+                'Στη σελίδα Co-Pilot → κουμπί «Ρουτίνες» βλέπεις όλες τις ρουτίνες, τις αλλάζεις (τι, πότε, σε ποιους), τις απενεργοποιείς, τις στέλνεις αμέσως με «Στείλε τώρα» και βλέπεις πότε έτρεξαν τελευταία και αν πέτυχαν.',
             ],
             [
                 'Setup (once, by an admin): Settings → Co-Pilot → enter the Anthropic key and enable.',
                 'Open Co-Pilot from the menu, or the floating brain button at the bottom-right of every page.',
                 'Ask anything — e.g. "what are my sales this month?", "which items have the most stock?".',
                 'The floating button knows which page you are on, so "what am I doing here?" answers for that screen.',
+                'Routines: tell it "every day at 10:00 email me yesterday\'s sales by store" (or every Monday, or on the 1st of each month) — it creates a routine that produces the report automatically and emails it to the recipients you name.',
+                'On the Co-Pilot page → "Routines" button you see every routine, edit it (what, when, to whom), pause it, send it immediately with "Send now" and see when it last ran and whether it succeeded.',
             ],
         ),
         'checks': _tl(
@@ -335,6 +339,7 @@ CIRCUITS: tuple[dict[str, Any], ...] = (
                 'Το κλειδί αποθηκεύεται κρυπτογραφημένο και δεν εμφανίζεται ποτέ ξανά.',
                 'Ο Co-Pilot διαβάζει μόνο (read-only) τη βάση σου· δεν αλλάζει δεδομένα.',
                 'Μπορείς να βάλεις μηνιαίο όριο tokens και να επιλέξεις αν στέλνονται μόνο σύνολα ή και αναλυτικές γραμμές.',
+                'Οι ρουτίνες τρέχουν με το ίδιο κλειδί (χρεώνονται στον λογαριασμό σου) στην ώρα Ελλάδας που ορίζεις· αν μια αποστολή αποτύχει, φαίνεται το σφάλμα στη λίστα ρουτινών και μπορείς να την ξαναστείλεις με «Στείλε τώρα».',
             ],
             [
                 'Requires your own Anthropic key (console.anthropic.com) — usage is billed to you.',

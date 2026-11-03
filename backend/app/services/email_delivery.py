@@ -50,7 +50,15 @@ def email_configured() -> bool:
     return bool(settings.smtp_host and (settings.smtp_from_email or settings.smtp_username))
 
 
-def send_email(*, to_email: str, subject: str, text_body: str, html_body: str | None = None) -> dict[str, object]:
+def send_email(
+    *,
+    to_email: str,
+    subject: str,
+    text_body: str,
+    html_body: str | None = None,
+    attachments: list[tuple[str, bytes, str]] | None = None,
+) -> dict[str, object]:
+    """`attachments` = [(filename, bytes, mime type)], e.g. a Report Builder .xlsx."""
     if not email_configured():
         return {'status': 'skipped', 'reason': 'smtp_not_configured'}
 
@@ -62,6 +70,9 @@ def send_email(*, to_email: str, subject: str, text_body: str, html_body: str | 
     msg.set_content(text_body)
     if html_body:
         msg.add_alternative(html_body, subtype='html')
+    for filename, payload, mime in (attachments or []):
+        maintype, _, subtype = (mime or 'application/octet-stream').partition('/')
+        msg.add_attachment(payload, maintype=maintype or 'application', subtype=subtype or 'octet-stream', filename=filename)
 
     with smtplib.SMTP(settings.smtp_host, int(settings.smtp_port), timeout=20) as smtp:
         if settings.smtp_use_tls:

@@ -77,3 +77,13 @@ body.tenant-shell[data-theme='dark'] {
 .bvc-panel-close { background: transparent; border: none; color: #fff; font-size: 18px; cursor: pointer; opacity: .9; }
 .bvc-panel .bvc-root { flex: 1 1 auto; min-height: 0; }
 @media (max-width: 480px) { .bvc-panel { right: 8px; left: 8px; width: auto; } }
+
+/* ---- routines (scheduled email reports) ---- */
+.bvc-routine { align-self: flex-start; display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 2px; padding: 8px 12px; border-radius: 10px; background: rgba(111,66,193,.12); color: var(--bvc-ink); font-size: 13px; border: 1px solid rgba(111,66,193,.3); }
+.bvc-routine a { color: var(--bvc-accent); font-weight: 700; }
+.bvc-rt-list { display: flex; flex-direction: column; gap: 10px; }
+.bvc-rt { border: 1px solid var(--bvc-line); border-radius: 12px; padding: 10px 12px; background: var(--bvc-bg); }
+.bvc-rt.is-off { opacity: .65; }
+.bvc-rt-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; flex-wrap: wrap; }
+.bvc-rt-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.bvc-rt-prompt { margin-top: 6px; color: var(--bvc-muted); white-space: pre-wrap; }
