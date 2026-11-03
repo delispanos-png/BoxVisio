@@ -12508,8 +12508,29 @@ async def tenant_routines_page(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_control_db),
 ):
-    """«Ρουτίνες» in the AI menu: the Co-Pilot page with the routines panel open."""
-    return await tenant_copilot_page(request, tenant, user, db, open_routines=True)
+    """«Ρουτίνες» in the AI menu: its own page (list + form). Report-based routines
+    work without the Co-Pilot key; the key only matters for commentary/free text."""
+    if not _copilot_module_enabled(request):
+        return RedirectResponse(url='/tenant/dashboard', status_code=303)
+    config = await get_copilot_config(db, int(tenant.id))
+    reports = await _copilot_list_saved_reports(db, int(tenant.id))
+    return templates.TemplateResponse(
+        'tenant/copilot_routines.html',
+        {
+            'request': request,
+            'tenant': tenant,
+            'user': user,
+            **(await _tenant_navigation_context(tenant)),
+            'copilot': copilot_settings_view(config),
+            'copilot_routines': _copilot_schedules_view(await _copilot_list_schedules(db, int(tenant.id)), reports),
+            'copilot_saved_reports': _copilot_saved_reports_view(reports),
+            'copilot_period_presets': _COPILOT_PERIOD_PRESETS,
+            'copilot_compare_presets': _COPILOT_COMPARE_PRESETS,
+            'email_configured': _email_delivery.email_configured(),
+            'active_page': 'copilot_routines',
+            'title': 'Ρουτίνες',
+        },
+    )
 
 
 @router.get('/tenant/copilot', response_class=HTMLResponse)
