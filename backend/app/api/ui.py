@@ -120,6 +120,7 @@ from app.services.copilot_config import (
 )
 from app.services.copilot_service import stream_answer as _copilot_stream_answer
 from app.services import email_delivery as _email_delivery
+from app.services import addon_terms as _addon_terms
 from app.services import copilot_history as _copilot_history
 from app.db.control_session import ControlSessionLocal as _CopilotControlSession
 from app.services.era_exploration import (
@@ -7141,11 +7142,27 @@ async def admin_subscriptions(
         }
         for plan in PlanName
     }
+    # Commercial terms of priced add-ons (Co-Pilot): catalogue + what each tenant has.
+    _pricing_rows = await _addon_terms.get_addon_pricing(db)
+    addon_pricing = {key: _addon_terms.pricing_view(row) for key, row in _pricing_rows.items()}
+    addon_terms_by_tenant = {
+        int(t.id): {
+            key: _addon_terms.terms_view(
+                _addon_terms.get_terms(subscriptions_by_tenant[int(t.id)], key), pricing,
+                enabled=bool(subscription_features_by_tenant[int(t.id)].get(key)),
+            )
+            for key, pricing in addon_pricing.items()
+        }
+        for t in tenants
+    }
     return templates.TemplateResponse(
         'admin/subscriptions.html',
         {
             'request': request,
             'tenants': tenants,
+            'addon_pricing': addon_pricing,
+            'addon_terms_by_tenant': addon_terms_by_tenant,
+            'addon_billing_choices': _addon_terms.BILLING_CHOICES,
             'subscriptions_by_tenant': subscriptions_by_tenant,
             'subscription_features_by_tenant': subscription_features_by_tenant,
             'subscription_feature_allowed_by_tenant': subscription_feature_allowed_by_tenant,
@@ -7375,10 +7392,13 @@ async def admin_subscription_update(
     catalog_rows = (
         await db.execute(select(PlanFeatureCatalog).where(PlanFeatureCatalog.is_active == True).order_by(PlanFeatureCatalog.group, PlanFeatureCatalog.label))
     ).scalars().all()
+    _kept_addon_terms = dict(sub.feature_flags or {}).get(_addon_terms.TERMS_KEY)
     sub.feature_flags = {
         feature.key: feature.key in selected_features
         for feature in (*SUBSCRIPTION_FEATURES, *(_catalog_to_subscription_feature(row) for row in catalog_rows))
     }
+    if isinstance(_kept_addon_terms, dict):
+        sub.feature_flags[_addon_terms.TERMS_KEY] = _kept_addon_terms
     for row in catalog_rows:
         if not _catalog_feature_allowed(row, selected_plan, int(tenant.id)):
             sub.feature_flags[row.feature_key] = False
@@ -7424,6 +7444,115 @@ async def admin_subscription_update(
         return RedirectResponse(url=f'{redirect_target}?saved=0&reason=commit_failed', status_code=303)
     sep = '&' if '?' in redirect_target else '?'
     return RedirectResponse(url=f'{redirect_target}{sep}saved=1', status_code=303)
+
+
+@router.post('/admin/subscriptions/{tenant_id}/addon-terms')
+async def admin_subscription_addon_terms(
+    tenant_id: int,
+    feature_key: str = Form(default='copilot'),
+    billing: str = Form(default='none'),
+    free_until: str = Form(default=''),
+    discount_pct: str = Form(default='0'),
+    note: str = Form(default=''),
+    next_url: str = Form(default='/admin/subscriptions'),
+    _: object = Depends(require_roles(RoleName.cloudon_admin)),
+    db: AsyncSession = Depends(get_control_db),
+):
+    """Commercial terms of a priced add-on for one tenant: free until a date, monthly or
+    annual. Any agreement other than «none» also switches the add-on on."""
+    next_url = (next_url or '/admin/subscriptions').strip()
+    redirect_target = next_url if next_url.startswith('/admin/') else '/admin/subscriptions'
+    feature_key = (feature_key or '').strip()
+    if feature_key not in ADD_ON_FEATURE_KEYS:
+        return RedirectResponse(url=f'{redirect_target}?saved=0&reason=invalid_addon', status_code=303)
+    tenant = (await db.execute(select(Tenant).where(Tenant.id == tenant_id))).scalar_one_or_none()
+    if not tenant:
+        return RedirectResponse(url=f'{redirect_target}?saved=0&reason=tenant_not_found', status_code=303)
+    billing = (billing or 'none').strip()
+    if billing == 'free' and not _addon_terms.parse_date(free_until):
+        return RedirectResponse(url=f'{redirect_target}?saved=0&reason=bad_free_until', status_code=303)
+    sub = await get_or_create_subscription(db, tenant)
+    terms = _addon_terms.set_terms(sub, feature_key, billing=billing, free_until=free_until, discount_pct=discount_pct, note=note)
+    flags = dict(sub.feature_flags or {})
+    flags[feature_key] = billing != 'none'
+    sub.feature_flags = flags
+    flag_modified(sub, 'feature_flags')
+    await sync_tenant_from_subscription(db, tenant, sub)
+    flag_modified(tenant, 'feature_flags')
+    await invalidate_tenant_cache(str(tenant.id))
+    db.add(
+        AuditLog(
+            tenant_id=tenant.id,
+            action='addon_terms_updated',
+            entity_type='subscription',
+            entity_id=str(sub.id),
+            payload={'feature_key': feature_key, 'terms': terms, 'enabled': billing != 'none'},
+        )
+    )
+    try:
+        await db.commit()
+    except Exception:
+        logger.exception('addon_terms_update_failed', extra={'tenant_id': tenant_id})
+        await db.rollback()
+        return RedirectResponse(url=f'{redirect_target}?saved=0&reason=commit_failed', status_code=303)
+    sep = '&' if '?' in redirect_target else '?'
+    return RedirectResponse(url=f'{redirect_target}{sep}addon_terms=1', status_code=303)
+
+
+@router.post('/admin/subscriptions/addon-free-bulk')
+async def admin_subscription_addon_free_bulk(
+    feature_key: str = Form(default='copilot'),
+    free_until: str = Form(default=''),
+    note: str = Form(default=''),
+    tenant_ids: list[str] = Form(default=[]),
+    all_tenants: str = Form(default=''),
+    _: object = Depends(require_roles(RoleName.cloudon_admin)),
+    db: AsyncSession = Depends(get_control_db),
+):
+    """Give an add-on free until a date to several (or all active) tenants at once."""
+    feature_key = (feature_key or '').strip()
+    if feature_key not in ADD_ON_FEATURE_KEYS or not _addon_terms.parse_date(free_until):
+        return RedirectResponse(url='/admin/subscriptions?saved=0&reason=bad_free_until', status_code=303)
+    stmt = select(Tenant)
+    if str(all_tenants) in {'1', 'on', 'true'}:
+        stmt = stmt.where(Tenant.status == TenantStatus.active)
+    else:
+        ids = []
+        for raw in tenant_ids or []:
+            try:
+                ids.append(int(raw))
+            except (TypeError, ValueError):
+                continue
+        if not ids:
+            return RedirectResponse(url='/admin/subscriptions?saved=0&reason=no_tenants', status_code=303)
+        stmt = stmt.where(Tenant.id.in_(ids))
+    tenants = (await db.execute(stmt)).scalars().all()
+    for tenant in tenants:
+        sub = await get_or_create_subscription(db, tenant)
+        terms = _addon_terms.set_terms(sub, feature_key, billing='free', free_until=free_until, discount_pct=0, note=note)
+        flags = dict(sub.feature_flags or {})
+        flags[feature_key] = True
+        sub.feature_flags = flags
+        flag_modified(sub, 'feature_flags')
+        await sync_tenant_from_subscription(db, tenant, sub)
+        flag_modified(tenant, 'feature_flags')
+        await invalidate_tenant_cache(str(tenant.id))
+        db.add(
+            AuditLog(
+                tenant_id=tenant.id,
+                action='addon_terms_updated',
+                entity_type='subscription',
+                entity_id=str(sub.id),
+                payload={'feature_key': feature_key, 'terms': terms, 'enabled': True, 'bulk': True},
+            )
+        )
+    try:
+        await db.commit()
+    except Exception:
+        logger.exception('addon_free_bulk_failed')
+        await db.rollback()
+        return RedirectResponse(url='/admin/subscriptions?saved=0&reason=commit_failed', status_code=303)
+    return RedirectResponse(url=f'/admin/subscriptions?addon_free_bulk={len(tenants)}', status_code=303)
 
 
 @router.post('/admin/subscriptions/{tenant_id}/temporary-upgrade')
@@ -7618,10 +7747,39 @@ async def admin_plans(
                 {'value': 'custom', 'label': 'Custom / πελάτη'},
             ],
             'tenants': tenants,
+            'addon_pricing': {key: _addon_terms.pricing_view(row) for key, row in (await _addon_terms.get_addon_pricing(db)).items()},
+            'priced_addons': [f for f in SUBSCRIPTION_FEATURES if f.key in ('copilot',)],
             'active_page': 'plans',
             'title': 'title_plan_features',
         },
     )
+
+
+@router.post('/admin/plans/addon-pricing')
+async def admin_plans_addon_pricing(
+    feature_key: str = Form(default='copilot'),
+    monthly_price: str = Form(default='0'),
+    monthly_discount_pct: str = Form(default='0'),
+    annual_discount_pct: str = Form(default='0'),
+    _: object = Depends(require_roles(RoleName.cloudon_admin)),
+    db: AsyncSession = Depends(get_control_db),
+):
+    feature_key = (feature_key or '').strip()
+    if feature_key not in ADD_ON_FEATURE_KEYS:
+        return RedirectResponse(url='/admin/plans?saved=0&reason=invalid_addon', status_code=303)
+    try:
+        row = await _addon_terms.upsert_addon_pricing(
+            db, feature_key, monthly_price=monthly_price.replace(',', '.'),
+            monthly_discount_pct=monthly_discount_pct.replace(',', '.'), annual_discount_pct=annual_discount_pct.replace(',', '.'),
+        )
+        db.add(AuditLog(tenant_id=None, action='addon_pricing_updated', entity_type='addon_pricing', entity_id=feature_key,
+                        payload={'monthly_price': str(row.monthly_price), 'monthly_discount_pct': str(row.monthly_discount_pct), 'annual_discount_pct': str(row.annual_discount_pct)}))
+        await db.commit()
+    except Exception:
+        logger.exception('addon_pricing_update_failed')
+        await db.rollback()
+        return RedirectResponse(url='/admin/plans?saved=0&reason=commit_failed', status_code=303)
+    return RedirectResponse(url='/admin/plans?addon_pricing=1', status_code=303)
 
 
 async def _cascade_plan_feature_flags_to_subscriptions(
@@ -12402,6 +12560,7 @@ async def tenant_settings(
             'call_center_3cx': await _tenant_call_center_settings(db, tenant.id),
             'copilot': copilot_settings_view(await get_copilot_config(db, int(tenant.id))),
             'copilot_schedules': _copilot_schedules_view(await _copilot_list_schedules(db, int(tenant.id))),
+            'copilot_addon': await _addon_terms.tenant_addon_view(db, await get_or_create_subscription(db, tenant), 'copilot', enabled=_copilot_module_enabled(request)),
             'active_page': 'tenant_settings',
             'title': 'Settings',
         },
@@ -12527,6 +12686,7 @@ async def tenant_routines_page(
             'copilot_period_presets': _COPILOT_PERIOD_PRESETS,
             'copilot_compare_presets': _COPILOT_COMPARE_PRESETS,
             'email_configured': _email_delivery.email_configured(),
+            'copilot_addon': await _addon_terms.tenant_addon_view(db, await get_or_create_subscription(db, tenant), 'copilot', enabled=_copilot_module_enabled(request)),
             'active_page': 'copilot_routines',
             'title': 'Ρουτίνες',
         },
@@ -12556,6 +12716,7 @@ async def tenant_copilot_page(
             'copilot_period_presets': _COPILOT_PERIOD_PRESETS,
             'copilot_compare_presets': _COPILOT_COMPARE_PRESETS,
             'email_configured': _email_delivery.email_configured(),
+            'copilot_addon': await _addon_terms.tenant_addon_view(db, await get_or_create_subscription(db, tenant), 'copilot', enabled=_copilot_module_enabled(request)),
             'open_routines': bool(open_routines),
             'active_page': 'copilot_routines' if open_routines else 'copilot',
             'title': 'Co-Pilot',

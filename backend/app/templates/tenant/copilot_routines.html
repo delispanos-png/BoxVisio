@@ -6,6 +6,7 @@
   <div class="card-header d-flex align-items-center justify-content-between flex-wrap gap-2">
     <h5 class="mb-0 d-inline-flex align-items-center gap-2"><i class="fe fe-clock"></i>Ρουτίνες <span class="badge bg-primary" id="bvcRoutinesCount">{{ copilot_routines|length }}</span></h5>
     <div class="d-flex align-items-center gap-2">
+      {% if copilot_addon and copilot_addon.billing != 'none' %}<span class="badge {{ 'bg-success' if copilot_addon.tone == 'success' else ('bg-warning text-dark' if copilot_addon.tone == 'warning' else ('bg-danger' if copilot_addon.tone == 'danger' else 'bg-primary')) }}" title="{{ copilot_addon.list_monthly }} · {{ copilot_addon.list_annual }}">{{ copilot_addon.summary }}</span>{% endif %}
       <a class="btn btn-outline-primary btn-sm" href="/tenant/copilot"><i class="fe fe-message-circle me-1"></i>Co-Pilot</a>
       <span class="badge {{ 'bg-success' if copilot.ready else 'bg-secondary' }}" title="Το Co-Pilot χρειάζεται μόνο για το σχόλιο και τις ρουτίνες ελεύθερου κειμένου">Co-Pilot: {{ 'έτοιμο' if copilot.ready else 'μη ρυθμισμένο' }}</span>
     </div>

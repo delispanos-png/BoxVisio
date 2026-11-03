@@ -4,6 +4,10 @@
 <div class="alert alert-success mt-3">Οι αλλαγές αποθηκεύτηκαν επιτυχώς.</div>
 {% elif request.query_params.get('trial_upgrade') == '1' %}
 <div class="alert alert-success mt-3">Η προσωρινή αναβάθμιση ενεργοποιήθηκε.</div>
+{% elif request.query_params.get('addon_terms') == '1' %}
+<div class="alert alert-success mt-3">Οι εμπορικοί όροι του πρόσθετου αποθηκεύτηκαν.</div>
+{% elif request.query_params.get('addon_free_bulk') %}
+<div class="alert alert-success mt-3">Δωρεάν διάθεση ενεργοποιήθηκε σε {{ request.query_params.get('addon_free_bulk') }} πελάτες.</div>
 {% elif request.query_params.get('trial_upgrade_cancelled') == '1' %}
 <div class="alert alert-success mt-3">Η προσωρινή αναβάθμιση ακυρώθηκε και το πακέτο επανήλθε.</div>
 {% elif request.query_params.get('saved') == '0' or request.query_params.get('updated') == '0' %}
@@ -54,7 +58,47 @@
   <p class="subs-empty" id="subsEmpty" hidden>Κανένας πελάτης δεν ταιριάζει με την αναζήτηση.</p>
 
   <div class="subs-admin-list">
-    {% for t in tenants %}
+      {% if addon_pricing %}
+  <details class="subs-bulk-free mb-3">
+    <summary class="btn btn-sm btn-outline-success"><i class="fe fe-gift"></i> Δωρεάν διάθεση πρόσθετου σε πελάτες</summary>
+    <form method="post" action="/admin/subscriptions/addon-free-bulk" class="border rounded p-3 mt-2 bg-white">
+      <div class="row g-2 align-items-end">
+        <div class="col-md-3">
+          <label class="form-label small mb-0">Πρόσθετο</label>
+          <select class="form-select form-select-sm" name="feature_key">
+            {% for feature in subscription_features if feature.key in addon_pricing %}
+            <option value="{{ feature.key }}">{{ feature.label }} — {{ addon_pricing[feature.key].monthly_label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label small mb-0">Δωρεάν έως</label>
+          <input class="form-control form-control-sm" type="date" name="free_until" required>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label small mb-0">Σημείωση</label>
+          <input class="form-control form-control-sm" name="note" placeholder="π.χ. δοκιμή AI 3 μηνών">
+        </div>
+        <div class="col-md-2">
+          <div class="form-check mt-3">
+            <input class="form-check-input" type="checkbox" name="all_tenants" value="1" id="bulkAllTenants">
+            <label class="form-check-label small" for="bulkAllTenants">Όλοι οι ενεργοί πελάτες</label>
+          </div>
+        </div>
+        <div class="col-md-2">
+          <button class="btn btn-sm btn-success w-100" type="submit"><i class="fe fe-gift"></i> Ενεργοποίηση</button>
+        </div>
+        <div class="col-12">
+          <label class="form-label small mb-0">Ή επίλεξε πελάτες (Ctrl για πολλαπλή επιλογή)</label>
+          <select class="form-select form-select-sm" name="tenant_ids" multiple size="5">
+            {% for t in tenants %}<option value="{{ t.id }}">{{ t.name }} ({{ t.slug }})</option>{% endfor %}
+          </select>
+        </div>
+      </div>
+    </form>
+  </details>
+  {% endif %}
+{% for t in tenants %}
     {% set sub = subscriptions_by_tenant.get(t.id) %}
     {% set feature_values = subscription_features_by_tenant.get(t.id, {}) %}
     {% set feature_allowed_values = subscription_feature_allowed_by_tenant.get(t.id, {}) %}
@@ -107,6 +151,9 @@
             {% if temporary_upgrade and temporary_upgrade.get('active') %}
             <span class="subs-chip is-warning"><i class="fe fe-unlock"></i>Trial upgrade έως {{ temporary_upgrade.get('expires_at') }}</span>
             {% endif %}
+            {% for key, terms in addon_terms_by_tenant.get(t.id, {}).items() if terms.billing != 'none' %}
+            <span class="subs-chip {% if terms.tone == 'success' %}is-active{% elif terms.tone == 'warning' %}is-warning{% elif terms.tone == 'danger' %}is-danger{% else %}is-active{% endif %}" title="{{ terms.note }}"><i class="fe fe-cpu"></i>AI: {{ terms.summary }}</span>
+            {% endfor %}
           </div>
         </div>
         <div class="subs-card-actions">
@@ -224,6 +271,26 @@
             </div>
           </div>
         </form>
+
+        {% for feature in subscription_features if feature.key in addon_pricing %}
+        {% set terms = addon_terms_by_tenant.get(t.id, {}).get(feature.key) %}
+        {% set pricing = addon_pricing[feature.key] %}
+        <form method="post" action="/admin/subscriptions/{{ t.id }}/addon-terms" class="subs-trial subs-addon-terms" data-addon-terms>
+          <input type="hidden" name="next_url" value="/admin/subscriptions">
+          <input type="hidden" name="feature_key" value="{{ feature.key }}">
+          <span class="subs-trial-label" title="Τιμοκατάλογος: {{ pricing.monthly_label }} · {{ pricing.annual_label }}">{{ feature.label }} — όροι</span>
+          <select class="form-select form-select-sm" name="billing" data-addon-billing>
+            {% for value, label in addon_billing_choices.items() %}
+            <option value="{{ value }}" {% if terms and terms.billing == value %}selected{% endif %}>{{ label }}{% if value == 'monthly' %} ({{ pricing.monthly_label }}){% elif value == 'annual' %} ({{ pricing.annual_label }}){% endif %}</option>
+            {% endfor %}
+          </select>
+          <input class="form-control form-control-sm" type="date" name="free_until" value="{{ terms.free_until if terms else '' }}" title="Δωρεάν έως" data-addon-free-until {% if not terms or terms.billing != 'free' %}style="display:none"{% endif %}>
+          <input class="form-control form-control-sm" type="number" step="0.5" min="0" max="100" name="discount_pct" value="{{ terms.discount_pct if terms else 0 }}" title="Επιπλέον έκπτωση %" placeholder="έκπτωση %" data-addon-discount {% if not terms or terms.billing not in ['monthly', 'annual'] %}style="display:none"{% endif %}>
+          <input class="form-control form-control-sm" name="note" value="{{ terms.note if terms else '' }}" placeholder="Σημείωση συμφωνίας">
+          <button class="btn btn-sm btn-primary" type="submit"><i class="fe fe-save"></i> Αποθήκευση</button>
+          {% if terms and terms.billing != 'none' %}<small class="text-muted ms-2">{{ terms.summary }}</small>{% endif %}
+        </form>
+        {% endfor %}
 
         <form method="post" action="/admin/subscriptions/{{ t.id }}/temporary-upgrade" class="subs-trial">
           <input type="hidden" name="next_url" value="/admin/subscriptions">
@@ -405,5 +472,17 @@
       });
     });
   })();
+</script>
+
+<script>
+  document.querySelectorAll('[data-addon-terms]').forEach(function (form) {
+    var sel = form.querySelector('[data-addon-billing]');
+    function sync() {
+      var v = sel.value;
+      form.querySelector('[data-addon-free-until]').style.display = v === 'free' ? '' : 'none';
+      form.querySelector('[data-addon-discount]').style.display = (v === 'monthly' || v === 'annual') ? '' : 'none';
+    }
+    sel.addEventListener('change', sync); sync();
+  });
 </script>
 {% endblock %}

@@ -163,6 +163,53 @@
   ('Υποστήριξη', 'Email', 'Email + Chat', 'Priority', 'Dedicated')
 ] %}
 
+{% if request.query_params.get('addon_pricing') == '1' %}
+<div class="alert alert-success mt-3">Ο τιμοκατάλογος των πρόσθετων αποθηκεύτηκε.</div>
+{% endif %}
+<div class="bv-admin-panel mt-4">
+  <div class="bv-admin-panel-head">
+    <div>
+      <h5>Τιμοκατάλογος πρόσθετων (add-ons)</h5>
+      <p>Τιμή ανά μήνα, έκπτωση μηνιαίας και έκπτωση ετήσιας προπληρωμής. Η τιμολόγηση γίνεται εκτός εφαρμογής· εδώ ορίζεται τι βλέπουν ο admin και ο πελάτης.</p>
+    </div>
+  </div>
+  <div class="bv-admin-panel-body">
+    <div class="table-responsive">
+      <table class="table table-bordered align-middle bv-unified-table">
+        <thead>
+          <tr>
+            <th style="min-width:200px">Πρόσθετο</th>
+            <th>Τιμή / μήνα (€)</th>
+            <th>Έκπτωση μηνιαίας %</th>
+            <th>Έκπτωση ετήσιας %</th>
+            <th>Μηνιαία τελική</th>
+            <th>Ετήσια τελική</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for feature in priced_addons %}
+          {% set pricing = addon_pricing.get(feature.key) %}
+          <tr>
+            <form method="post" action="/admin/plans/addon-pricing">
+              <input type="hidden" name="feature_key" value="{{ feature.key }}">
+              <td class="fw-semibold">{{ feature.label }}<div class="text-muted small">{{ feature.key }}</div></td>
+              <td><input class="form-control form-control-sm" name="monthly_price" type="number" step="0.01" min="0" value="{{ pricing.monthly_price if pricing else 0 }}"></td>
+              <td><input class="form-control form-control-sm" name="monthly_discount_pct" type="number" step="0.5" min="0" max="100" value="{{ pricing.monthly_discount_pct if pricing else 0 }}"></td>
+              <td><input class="form-control form-control-sm" name="annual_discount_pct" type="number" step="0.5" min="0" max="100" value="{{ pricing.annual_discount_pct if pricing else 0 }}"></td>
+              <td class="text-nowrap">{{ pricing.monthly_label if pricing else '—' }}</td>
+              <td class="text-nowrap">{{ pricing.annual_label if pricing else '—' }}</td>
+              <td><button class="btn btn-sm btn-primary" type="submit"><i class="fe fe-save"></i> Αποθήκευση</button></td>
+            </form>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="text-muted small mb-0">Η δωρεάν διάθεση σε πελάτη ή πελάτες για όσο διάστημα θέλουμε ορίζεται στις <a href="/admin/subscriptions">Συνδρομές</a> (ανά πελάτη ή μαζικά).</p>
+  </div>
+</div>
+
 <div class="bv-admin-panel mt-4">
   <div class="bv-admin-panel-head">
     <div>

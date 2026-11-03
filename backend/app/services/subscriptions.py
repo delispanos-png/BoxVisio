@@ -88,7 +88,7 @@ async def sync_tenant_from_subscription(db: AsyncSession, tenant: Tenant, sub: S
     tenant_flags = {
         key: value
         for key, value in dict(tenant.feature_flags or {}).items()
-        if key not in FEATURE_KEYS and key != '_temporary_upgrade'
+        if key not in FEATURE_KEYS and key not in ('_temporary_upgrade', '_addon_terms')
     }
     sub_flags = dict(sub.feature_flags or {})
     normalized_flags = normalize_subscription_feature_flags(sub.plan, sub_flags)
@@ -96,6 +96,10 @@ async def sync_tenant_from_subscription(db: AsyncSession, tenant: Tenant, sub: S
     cleaned_sub_flags = dict(normalized_flags)
     for key, enabled in sub_flags.items():
         if key == '_temporary_upgrade' and isinstance(enabled, dict):
+            tenant_flags[key] = enabled
+            cleaned_sub_flags[key] = enabled
+        elif key == '_addon_terms' and isinstance(enabled, dict):
+            # Commercial terms of add-ons (free until / monthly / annual) — see addon_terms.py.
             tenant_flags[key] = enabled
             cleaned_sub_flags[key] = enabled
         elif key == 'custom_agreement_notes' and isinstance(enabled, str):
@@ -187,6 +191,21 @@ async def apply_subscription_time_transitions(db: AsyncSession, tenant: Tenant, 
                 )
             )
             changed = True
+
+    # Add-ons given free until a date switch off the day after it passes.
+    from app.services.addon_terms import expire_addon_free_periods
+
+    for expired_key in expire_addon_free_periods(sub, now.date()):
+        db.add(
+            AuditLog(
+                tenant_id=tenant.id,
+                action='addon_free_period_expired',
+                entity_type='subscription',
+                entity_id=str(sub.id),
+                payload={'feature_key': expired_key, 'expired_at': now.isoformat()},
+            )
+        )
+        changed = True
 
     if sub.status == SubscriptionStatus.trial and sub.trial_ends_at and sub.trial_ends_at < now:
         sub.status = SubscriptionStatus.suspended

@@ -1,3 +1,4 @@
+from decimal import Decimal
 from datetime import date, datetime
 from enum import Enum
 
@@ -445,6 +446,22 @@ class SavedReport(ControlBase):
     params: Mapped[str] = mapped_column(Text, nullable=False, default='')
     is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+
+class AddonPricing(ControlBase):
+    """Commercial price of an add-on module (e.g. Co-Pilot AI): list price per month,
+    an optional monthly promo discount and the annual-prepay discount. Billing itself
+    happens outside the app (WHMCS); this is the catalogue the admin screens and the
+    tenant's settings show."""
+
+    __tablename__ = 'addon_pricing'
+
+    feature_key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    monthly_price: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False, default=0)
+    monthly_discount_pct: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False, default=0)
+    annual_discount_pct: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False, default=0)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False, default='EUR')
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
 
