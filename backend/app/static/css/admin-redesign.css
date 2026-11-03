@@ -4307,3 +4307,7 @@ body.bv-admin-shell[data-theme='dark'] .bv-rules-overview .bg-light {
   .users-table .user-actions .btn,
   .users-table .user-actions .btn.bv-action-key { width: 100%; }
 }
+
+/* add-on terms: «Δωρεάν έως» date with its label */
+.subs-addon-until { display: inline-flex; align-items: center; gap: 6px; margin: 0; }
+.subs-addon-until .form-control { width: auto; }

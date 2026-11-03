@@ -18,6 +18,14 @@
     Δεν μπορείς να δηλώσεις λιγότερους ταυτόχρονους χρήστες από τους ήδη ενεργούς.
   {% elif _reason == 'bad_max_users' %}
     Ο αριθμός ταυτόχρονων χρηστών δεν είναι έγκυρος.
+  {% elif _reason == 'free_until_required' %}
+    Για δωρεάν διάθεση πρόσθετου συμπλήρωσε την ημερομηνία «Δωρεάν έως» (μέχρι πότε ισχύει).
+  {% elif _reason == 'bad_free_until' %}
+    Η ημερομηνία «Δωρεάν έως» δεν είναι έγκυρη. Δώσε τη μορφή ηη/μμ/εεεε.
+  {% elif _reason == 'invalid_addon' %}
+    Το πρόσθετο δεν αναγνωρίζεται.
+  {% elif _reason == 'tenant_not_found' %}
+    Ο πελάτης δεν βρέθηκε.
   {% else %}
     Αιτία: {{ _reason }}
   {% endif %}
@@ -284,7 +292,9 @@
             <option value="{{ value }}" {% if terms and terms.billing == value %}selected{% endif %}>{{ label }}{% if value == 'monthly' %} ({{ pricing.monthly_label }}){% elif value == 'annual' %} ({{ pricing.annual_label }}){% endif %}</option>
             {% endfor %}
           </select>
-          <input class="form-control form-control-sm" type="date" name="free_until" value="{{ terms.free_until if terms else '' }}" title="Δωρεάν έως" data-addon-free-until {% if not terms or terms.billing != 'free' %}style="display:none"{% endif %}>
+          <label class="subs-addon-until" data-addon-free-until {% if not terms or terms.billing != 'free' %}style="display:none"{% endif %}><span class="small text-muted">Δωρεάν έως</span>
+            <input class="form-control form-control-sm" type="date" name="free_until" lang="el-GR" value="{{ terms.free_until if terms else '' }}" title="Δωρεάν έως (υποχρεωτικό)" data-addon-free-until-input {% if terms and terms.billing == 'free' %}required{% endif %}>
+          </label>
           <input class="form-control form-control-sm" type="number" step="0.5" min="0" max="100" name="discount_pct" value="{{ terms.discount_pct if terms else 0 }}" title="Επιπλέον έκπτωση %" placeholder="έκπτωση %" data-addon-discount {% if not terms or terms.billing not in ['monthly', 'annual'] %}style="display:none"{% endif %}>
           <input class="form-control form-control-sm" name="note" value="{{ terms.note if terms else '' }}" placeholder="Σημείωση συμφωνίας">
           <button class="btn btn-sm btn-primary" type="submit"><i class="fe fe-save"></i> Αποθήκευση</button>
@@ -480,6 +490,12 @@
     function sync() {
       var v = sel.value;
       form.querySelector('[data-addon-free-until]').style.display = v === 'free' ? '' : 'none';
+      var until = form.querySelector('[data-addon-free-until-input]');
+      until.required = v === 'free';
+      if (v === 'free' && !until.value) {
+        var d = new Date(); d.setDate(d.getDate() + 30);
+        until.value = d.toISOString().slice(0, 10);
+      }
       form.querySelector('[data-addon-discount]').style.display = (v === 'monthly' || v === 'annual') ? '' : 'none';
     }
     sel.addEventListener('change', sync); sync();

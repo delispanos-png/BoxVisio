@@ -67,7 +67,7 @@ def parse_date(value: Any) -> date | None:
     raw = str(value or '').strip()
     if not raw:
         return None
-    for fmt in ('%Y-%m-%d', '%d/%m/%Y'):
+    for fmt in ('%Y-%m-%d', '%d/%m/%Y', '%d-%m-%Y', '%d.%m.%Y', '%Y/%m/%d', '%d/%m/%y'):
         try:
             return datetime.strptime(raw, fmt).date()
         except ValueError:

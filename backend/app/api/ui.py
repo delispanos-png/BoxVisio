@@ -7469,8 +7469,11 @@ async def admin_subscription_addon_terms(
     if not tenant:
         return RedirectResponse(url=f'{redirect_target}?saved=0&reason=tenant_not_found', status_code=303)
     billing = (billing or 'none').strip()
-    if billing == 'free' and not _addon_terms.parse_date(free_until):
-        return RedirectResponse(url=f'{redirect_target}?saved=0&reason=bad_free_until', status_code=303)
+    if billing == 'free':
+        if not (free_until or '').strip():
+            return RedirectResponse(url=f'{redirect_target}?saved=0&reason=free_until_required', status_code=303)
+        if not _addon_terms.parse_date(free_until):
+            return RedirectResponse(url=f'{redirect_target}?saved=0&reason=bad_free_until', status_code=303)
     sub = await get_or_create_subscription(db, tenant)
     terms = _addon_terms.set_terms(sub, feature_key, billing=billing, free_until=free_until, discount_pct=discount_pct, note=note)
     flags = dict(sub.feature_flags or {})
@@ -7511,7 +7514,11 @@ async def admin_subscription_addon_free_bulk(
 ):
     """Give an add-on free until a date to several (or all active) tenants at once."""
     feature_key = (feature_key or '').strip()
-    if feature_key not in ADD_ON_FEATURE_KEYS or not _addon_terms.parse_date(free_until):
+    if feature_key not in ADD_ON_FEATURE_KEYS:
+        return RedirectResponse(url='/admin/subscriptions?saved=0&reason=invalid_addon', status_code=303)
+    if not (free_until or '').strip():
+        return RedirectResponse(url='/admin/subscriptions?saved=0&reason=free_until_required', status_code=303)
+    if not _addon_terms.parse_date(free_until):
         return RedirectResponse(url='/admin/subscriptions?saved=0&reason=bad_free_until', status_code=303)
     stmt = select(Tenant)
     if str(all_tenants) in {'1', 'on', 'true'}:
