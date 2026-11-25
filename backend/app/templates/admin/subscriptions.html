@@ -22,6 +22,8 @@
     Για δωρεάν διάθεση πρόσθετου συμπλήρωσε την ημερομηνία «Δωρεάν έως» (μέχρι πότε ισχύει).
   {% elif _reason == 'bad_free_until' %}
     Η ημερομηνία «Δωρεάν έως» δεν είναι έγκυρη. Δώσε τη μορφή ηη/μμ/εεεε.
+  {% elif _reason == 'bad_access_limit' %}
+    Τα όρια ρυθμού πρέπει να είναι ακέραιοι αριθμοί (0 = χωρίς όριο).
   {% elif _reason == 'invalid_addon' %}
     Το πρόσθετο δεν αναγνωρίζεται.
   {% elif _reason == 'tenant_not_found' %}
@@ -150,6 +152,12 @@
                     title="Δείτε ποιοι είναι συνδεδεμένοι και από πότε">
               <i class="fe fe-wifi"></i>{{ limit_values.active_sessions or 0 }} / {{ limit_values.max_concurrent_sessions or 1 }} συνδεδεμένοι
             </button>
+            {% set _agent = agent_recent_by_tenant.get(t.id, {}) %}
+            {% set _agent_hard = (_agent.get('agent_blocked', 0) + _agent.get('automation_flagged', 0) + _agent.get('rate_limit_lock', 0)) %}
+            <span class="subs-chip {% if _agent_hard > 0 %}is-danger{% elif _agent %}is-active{% endif %}"
+                  title="Τελευταίες 7 ημέρες — AI browser: {{ _agent.get('agent_blocked', 0) }} · αυτοματισμός: {{ _agent.get('automation_flagged', 0) }} · κλειδώματα: {{ _agent.get('rate_limit_lock', 0) }} · υπερβάσεις ορίου: {{ _agent.get('rate_limit_exceeded', 0) }} · όριο εξαγωγών: {{ _agent.get('export_quota_exceeded', 0) }}">
+              <i class="fe fe-cpu"></i>AI/agent: {{ _agent_hard }}{% if _agent.get('rate_limit_exceeded', 0) %} (+{{ _agent.get('rate_limit_exceeded', 0) }} 429){% endif %}
+            </span>
             {% set _blocked = blocked_recent_by_tenant.get(t.id, 0) %}
             <button type="button" class="subs-chip subs-chip-btn {% if _blocked > 0 %}is-danger{% endif %}"
                     data-blocked-url="/admin/subscriptions/{{ t.id }}/blocked-attempts" data-tenant-name="{{ t.name }}"
@@ -217,6 +225,17 @@
                     <span class="input-group-text">{{ limit_values.active_sessions or 0 }} online</span>
                   </div>
                 </div>
+                <div class="subs-subgroup" title="Όρια ανά χρήστη έναντι αυτοματοποιημένης άντλησης δεδομένων (AI agents, scrapers). Κενό = προεπιλογή, 0 = χωρίς όριο.">Όρια ρυθμού (ανά χρήστη)</div>
+                {% set _al = limit_values.access_limits or {} %}
+                {% for _k, _label in access_limit_labels.items() %}
+                <div>
+                  <label class="form-label">{{ _label }}</label>
+                  <div class="input-group input-group-sm">
+                    <input class="form-control" type="number" min="0" max="100000" step="1" name="{{ _k }}" value="{{ _al.get(_k, access_limit_defaults.get(_k, 0)) }}" title="Προεπιλογή: {{ access_limit_defaults.get(_k, 0) }}">
+                    {% if _al.get(_k) is not none and _al.get(_k) != access_limit_defaults.get(_k) %}<span class="input-group-text" title="Διαφέρει από την προεπιλογή {{ access_limit_defaults.get(_k, 0) }}">custom</span>{% endif %}
+                  </div>
+                </div>
+                {% endfor %}
                 <div>
                   <label class="form-label">Μέγιστοι λογαριασμοί</label>
                   <div class="input-group input-group-sm">

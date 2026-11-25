@@ -121,6 +121,7 @@ from app.services.copilot_config import (
 from app.services.copilot_service import stream_answer as _copilot_stream_answer
 from app.services import email_delivery as _email_delivery
 from app.services import addon_terms as _addon_terms
+from app.services import access_policy as _access_policy
 from app.services import copilot_history as _copilot_history
 from app.db.control_session import ControlSessionLocal as _CopilotControlSession
 from app.services.era_exploration import (
@@ -7126,6 +7127,16 @@ async def admin_subscriptions(
             )
         ).all()
     }
+    _agent_actions = ('agent_blocked', 'automation_flagged', 'rate_limit_lock', 'rate_limit_exceeded', 'export_quota_exceeded')
+    agent_recent_by_tenant: dict[int, dict[str, int]] = {}
+    for tid, action, cnt in (
+        await db.execute(
+            select(AuditLog.tenant_id, AuditLog.action, func.count(AuditLog.id))
+            .where(AuditLog.action.in_(_agent_actions), AuditLog.created_at >= _blocked_since, AuditLog.tenant_id.isnot(None))
+            .group_by(AuditLog.tenant_id, AuditLog.action)
+        )
+    ).all():
+        agent_recent_by_tenant.setdefault(int(tid), {})[str(action)] = int(cnt)
     await db.commit()
     plan_choices = [
         {'value': PlanName.standard.value, 'label': 'Standard'},
@@ -7170,6 +7181,9 @@ async def admin_subscriptions(
             'subscription_limits_by_tenant': subscription_limits_by_tenant,
             'subscription_state_by_tenant': subscription_state_by_tenant,
             'blocked_recent_by_tenant': blocked_recent_by_tenant,
+            'agent_recent_by_tenant': agent_recent_by_tenant,
+            'access_limit_labels': _access_policy.LIMIT_LABELS,
+            'access_limit_defaults': _access_policy.default_limits(),
             'subscription_features': all_subscription_features,
             'plan_choices': plan_choices,
             'addon_feature_keys': addon_feature_keys,
@@ -7285,6 +7299,11 @@ async def admin_subscription_update(
     max_users: str = Form(default=''),
     max_concurrent_sessions: str = Form(default=''),
     max_branches: str = Form(default=''),
+    rate_per_minute: str = Form(default=''),
+    rate_per_hour: str = Form(default=''),
+    list_pages_per_minute: str = Form(default=''),
+    detail_per_minute: str = Form(default=''),
+    exports_per_day: str = Form(default=''),
     enabled_features: list[str] = Form(default=[]),
     custom_agreement_notes: str = Form(default=''),
     custom_exclusive_implementations: str = Form(default=''),
@@ -7350,6 +7369,36 @@ async def admin_subscription_update(
             db.add(conc_row)
         else:
             conc_row.limit_value = requested_concurrent
+    # Access-policy limits (per user): blank keeps the current value; 0 disables that rule.
+    _access_form = {
+        'rate_per_minute': rate_per_minute, 'rate_per_hour': rate_per_hour,
+        'list_pages_per_minute': list_pages_per_minute, 'detail_per_minute': detail_per_minute,
+        'exports_per_day': exports_per_day,
+    }
+    _access_changed = False
+    for _akey, _araw in _access_form.items():
+        _araw = (_araw or '').strip()
+        if not _araw:
+            continue
+        try:
+            _aval = max(0, min(int(_araw), 100000))
+        except ValueError:
+            return RedirectResponse(url=f'{redirect_target}?saved=0&reason=bad_access_limit', status_code=303)
+        _arow = (
+            await db.execute(
+                select(SubscriptionLimit).where(
+                    SubscriptionLimit.subscription_id == sub.id, SubscriptionLimit.limit_key == _akey,
+                )
+            )
+        ).scalar_one_or_none()
+        if _arow is None:
+            db.add(SubscriptionLimit(subscription_id=sub.id, limit_key=_akey, limit_value=_aval, used_value=0))
+            _access_changed = True
+        elif int(_arow.limit_value or 0) != _aval:
+            _arow.limit_value = _aval
+            _access_changed = True
+    if _access_changed:
+        _access_policy.invalidate_tenant_limits(Redis.from_url(settings.redis_url, decode_responses=True), int(tenant_id))
     requested_max_branches_raw = (max_branches or '').strip()
     requested_max_branches = int(limit_context.get('max_branches') or 1)
     if requested_max_branches_raw:
@@ -12088,7 +12137,26 @@ async def _tenant_user_license_context(db: AsyncSession, tenant: Tenant) -> dict
         'total_users': int(total_users or 0),
         'max_concurrent_sessions': await _tenant_max_concurrent_sessions(db, sub),
         'active_sessions': len(await _tenant_active_session_user_ids(db, tenant.id)),
+        'access_limits': await _tenant_access_limits(db, sub),
     }
+
+
+async def _tenant_access_limits(db: AsyncSession, sub) -> dict[str, int]:
+    """Per-user request / export limits of this tenant: defaults from settings, overridden by
+    subscription_limits rows with the access-policy keys."""
+    limits = _access_policy.default_limits()
+    rows = (
+        await db.execute(
+            select(SubscriptionLimit.limit_key, SubscriptionLimit.limit_value).where(
+                SubscriptionLimit.subscription_id == sub.id,
+                SubscriptionLimit.limit_key.in_(list(_access_policy.LIMIT_KEYS)),
+            )
+        )
+    ).all()
+    for key, value in rows:
+        if value is not None:
+            limits[str(key)] = int(value)
+    return limits
 
 
 # --- Concurrent-session licensing: the tenant buys N simultaneous connections. It may open many
@@ -12808,6 +12876,20 @@ async def tenant_copilot_ask(
         yield 'data: {"type": "end"}\n\n'
 
     return StreamingResponse(event_stream(), media_type='text/event-stream', headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+
+
+@router.post('/tenant/agent-guard/flag', include_in_schema=False)
+async def tenant_agent_guard_flag(
+    request: Request,
+    tenant: Tenant = Depends(get_request_tenant),
+    user: User = Depends(require_roles(RoleName.tenant_admin, RoleName.tenant_user)),
+):
+    """The page reports `navigator.webdriver` (scripted / headless browser): flag this session so the
+    access guard refuses it for a while. Audit + CloudOn email happen on the next request."""
+    subject = _access_policy.resolve_subject(request)
+    if subject is not None:
+        _access_policy.flag_agent(request.app.state.redis, subject)
+    return Response(status_code=204)
 
 
 @router.get('/tenant/copilot/routines')

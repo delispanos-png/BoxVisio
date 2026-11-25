@@ -183,7 +183,12 @@ class Settings(BaseSettings):
     ingest_recovery_limit: int = 500
     ingest_recovery_max_jobs: int = 5000
     ingest_recovery_streams_csv: str = 'sales_documents,purchase_documents,inventory_documents,cash_transactions,operating_expenses,supplier_orders'
-    rate_limit_per_minute: int = 120
+    # Access policy (per user; see services/access_policy.py). Humans observed at p99 = 12 req/min.
+    rate_limit_per_minute: int = 30
+    rate_limit_per_hour: int = 400
+    rate_limit_list_pages_per_minute: int = 6
+    rate_limit_detail_per_minute: int = 20
+    rate_limit_exports_per_day: int = 10
     ingest_tenant_lock_ttl_seconds: int = 300
     ingest_throttle_jobs_per_window: int = 120
     ingest_throttle_window_seconds: int = 60

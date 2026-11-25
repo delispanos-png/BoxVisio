@@ -2471,5 +2471,18 @@
   </script>
   {% endif %}
 
+<script>
+  // Access policy: a scripted / headless browser exposes navigator.webdriver. Report it once so the
+  // server refuses automated sessions (AI agents driving the UI bypass the Co-Pilot add-on).
+  (function () {
+    try {
+      if (navigator.webdriver === true && !sessionStorage.getItem('bvAgentFlagged')) {
+        sessionStorage.setItem('bvAgentFlagged', '1');
+        var m = document.cookie.match('(^|;)\\s*csrf_token\\s*=\\s*([^;]+)');
+        fetch('/tenant/agent-guard/flag', { method: 'POST', headers: { 'X-CSRF-Token': m ? decodeURIComponent(m.pop()) : '' }, keepalive: true }).catch(function () {});
+      }
+    } catch (_) {}
+  })();
+</script>
 </body>
 </html>

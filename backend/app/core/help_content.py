@@ -1781,11 +1781,20 @@ CIRCUITS: tuple[dict[str, Any], ...] = (
                 'Δεν μπορείς να ενεργοποιήσεις χρήστη αν έχεις φτάσει το όριο αδειών.',
                 'Μην απενεργοποιείς τον εαυτό σου αν είσαι ο μόνος διαχειριστής.',
                 'Η πρόσκληση έχει χρονική λήξη.',
+                'Η πρόσβαση μέσω AI browser ή αυτοματοποιημένων εργαλείων (π.χ. Claude Desktop browser, Comet, '
+                'Playwright) δεν επιτρέπεται και μπλοκάρεται. Ισχύουν όρια ανά χρήστη: 30 αιτήματα το λεπτό, 400 την ώρα, '
+                '6 σελίδες λίστας το λεπτό, 10 εξαγωγές Excel την ημέρα. Τρεις υπερβάσεις μέσα σε 10 λεπτά κλειδώνουν '
+                'την πρόσβαση για 15 λεπτά. Για ανάλυση με AI και προγραμματισμένες αναφορές χρησιμοποίησε τον Co-Pilot '
+                'και τις Ρουτίνες.',
             ],
             [
                 'You cannot activate a user once the licence limit is reached.',
                 'Do not deactivate yourself if you are the only administrator.',
                 'Invitations expire.',
+                'Access through AI browsers or automation tools (e.g. Claude Desktop browser, Comet, Playwright) is not '
+                'allowed and is blocked. Per-user limits apply: 30 requests per minute, 400 per hour, 6 list pages per '
+                'minute, 10 Excel exports per day. Three violations within 10 minutes lock access for 15 minutes. For AI '
+                'analysis and scheduled reports use the Co-Pilot and its Routines.',
             ],
         ),
         'related': ['tenant-profile', 'tenant-settings'],
