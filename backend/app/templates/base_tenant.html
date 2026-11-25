@@ -2475,6 +2475,23 @@
   // Access policy: a scripted / headless browser exposes navigator.webdriver. Report it once so the
   // server refuses automated sessions (AI agents driving the UI bypass the Co-Pilot add-on).
   (function () {
+    // Page-leave beacon: did a human touch this page? Agents driving a real browser click targets
+    // directly and never produce mouse-move, wheel, touch or key streams.
+    var t0 = Date.now(), moves = 0, human = false, sent = false;
+    function mark() { human = true; }
+    window.addEventListener('mousemove', function () { if (++moves >= 3) human = true; }, { passive: true });
+    ['wheel', 'touchstart', 'keydown', 'scroll'].forEach(function (ev) { window.addEventListener(ev, mark, { passive: true }); });
+    function send() {
+      if (sent) return; sent = true;
+      try {
+        var m = document.cookie.match('(^|;)\\s*csrf_token\\s*=\\s*([^;]+)');
+        var csrf = m ? decodeURIComponent(m.pop()) : '';
+        var payload = JSON.stringify({ human: human, dwell: Date.now() - t0, path: location.pathname });
+        navigator.sendBeacon('/tenant/agent-guard/signal?csrf_token=' + encodeURIComponent(csrf), new Blob([payload], { type: 'application/json' }));
+      } catch (_) {}
+    }
+    window.addEventListener('pagehide', send);
+    document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'hidden') send(); });
     try {
       if (navigator.webdriver === true && !sessionStorage.getItem('bvAgentFlagged')) {
         sessionStorage.setItem('bvAgentFlagged', '1');

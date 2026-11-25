@@ -12892,6 +12892,26 @@ async def tenant_agent_guard_flag(
     return Response(status_code=204)
 
 
+@router.post('/tenant/agent-guard/signal', include_in_schema=False)
+async def tenant_agent_guard_signal(
+    request: Request,
+    tenant: Tenant = Depends(get_request_tenant),
+    user: User = Depends(require_roles(RoleName.tenant_admin, RoleName.tenant_user)),
+):
+    """Page-leave beacon: whether the page saw human input (mouse / wheel / touch / keys) and how long
+    it was open. Consecutive pages without input feed the behavioural agent score."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    subject = _access_policy.resolve_subject(request)
+    if subject is not None and isinstance(body, dict):
+        _access_policy.report_page_signal(
+            request.app.state.redis, subject, human=bool(body.get('human')), dwell_ms=int(body.get('dwell') or 0),
+        )
+    return Response(status_code=204)
+
+
 @router.get('/tenant/copilot/routines')
 async def tenant_copilot_routines(
     request: Request,

@@ -121,6 +121,16 @@ async def rate_limit_middleware(request: Request, call_next):
 
         if subject.browser_session and path.startswith('/v1/') and ap.LIST_PATH.match(path):
             ap.clamp_list_limit(request)
+
+        # Level 3: behavioural pattern of an agent inside a normal browser.
+        score, signals = ap.observe(redis, subject, path, dict(request.query_params))
+        if score >= ap.SCORE_THRESHOLD:
+            ap.flag_agent(redis, subject)
+            await ap.record_event(
+                redis, subject, action='automation_flagged', path=path, user_agent=ua, notify=True,
+                extra={'score': score, 'signals': signals},
+            )
+            return _refuse(request, 403, 'agent')
     except Exception:
         logger.exception('access_guard_failed path=%s', path)
         return await call_next(request)

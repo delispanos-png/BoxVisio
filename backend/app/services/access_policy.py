@@ -21,6 +21,7 @@ import asyncio
 import json
 import logging
 import re
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -366,3 +367,105 @@ async def record_event(
                 await asyncio.to_thread(send_email, to_email=settings.default_admin_email, subject=f'[BoxVisio] {label} — tenant {subject.tenant_id}', text_body=body)
         except Exception:
             logger.exception('access_policy_mail_failed')
+
+
+# ---------------------------------------------------------------- behavioural detection (level 3)
+# Catches agents that run inside a real browser with a normal user agent (e.g. the Claude for
+# Chrome extension). Each request is scored from four windowed signals; the score is recomputed
+# from current state (not accumulated), so a human who stops the suspicious pattern drops back.
+#   paging      : >= PAGING_RUN consecutive requests to the same list path with increasing offset/page
+#   detail_sweep: >= DETAIL_SWEEP distinct document details within 2 minutes (+1 if ids ascend)
+#   cadence     : >= CADENCE_MIN requests with no pause >= CADENCE_GAP_S between any two
+#   no_human    : >= NO_HUMAN_PAGES consecutive pages left without mouse / wheel / touch / key input
+# Score >= SCORE_THRESHOLD → session flagged (403 for AGENT_FLAG_SECONDS), audit + email.
+SCORE_THRESHOLD = 5
+SIGNAL_WEIGHTS = {'paging': 3, 'detail_sweep': 2, 'detail_ascending': 1, 'cadence': 2, 'no_human': 3}
+PAGING_RUN = 4
+PAGING_WINDOW_S = 180
+DETAIL_SWEEP = 10
+DETAIL_WINDOW_S = 120
+CADENCE_MIN = 15
+CADENCE_GAP_S = 4.0
+NO_HUMAN_PAGES = 5
+NO_HUMAN_MAX_DWELL_MS = 45000
+PAGING_PARAMS = ('offset', 'page', 'skip', 'start')
+TIMING_EXEMPT = re.compile(r'/(?:progress|status|poll|heartbeat|ping|agent-guard)(?:/|$)|\.json$')
+DETAIL_ID = re.compile(r'/documents/([^/]+)/detail')
+
+
+def observe(redis: Redis, subject: Subject, path: str, query: dict[str, str]) -> tuple[int, list[str]]:
+    """Update the behavioural windows with this request, then score ALL signals from current state
+    (so a paging run plus a detail sweep add up even when the last request is neither)."""
+    now = time.time()
+    signals: list[str] = []
+    pg_key, det_key, ts_key = f'ag:pg:{subject.key}', f'ag:det:{subject.key}', f'ag:ts:{subject.key}'
+
+    pipe = redis.pipeline()
+    offset = next((query[k] for k in PAGING_PARAMS if k in query), None)
+    if offset is not None and offset.lstrip('-').isdigit():
+        pipe.rpush(pg_key, f'{path}|{int(offset)}|{int(now)}')
+        pipe.ltrim(pg_key, -12, -1)
+        pipe.expire(pg_key, PAGING_WINDOW_S + 60)
+    m = DETAIL_ID.search(path)
+    if m:
+        pipe.zadd(det_key, {m.group(1): now})
+        pipe.expire(det_key, DETAIL_WINDOW_S + 60)
+    pipe.zremrangebyscore(det_key, '-inf', now - DETAIL_WINDOW_S)
+    if not TIMING_EXEMPT.search(path):
+        pipe.rpush(ts_key, f'{now:.3f}')
+        pipe.ltrim(ts_key, -20, -1)
+        pipe.expire(ts_key, 300)
+    pipe.lrange(pg_key, 0, -1)
+    pipe.zrange(det_key, 0, -1)
+    pipe.lrange(ts_key, 0, -1)
+    pipe.get(f'ag:nohuman:{subject.key}')
+    results = pipe.execute()
+    paging_items, detail_ids, ts_raw, no_human_raw = results[-4], results[-3], results[-2], results[-1]
+
+    # paging run: trailing requests to the same list path with increasing offsets, close in time
+    items = [e.split('|') for e in paging_items]
+    run = 1 if items else 0
+    for i in range(len(items) - 1, 0, -1):
+        cur, prev = items[i], items[i - 1]
+        if cur[0] == prev[0] and int(cur[1]) > int(prev[1]) and int(cur[2]) - int(prev[2]) <= PAGING_WINDOW_S:
+            run += 1
+        else:
+            break
+    if run >= PAGING_RUN and items and now - int(items[-1][2]) <= PAGING_WINDOW_S:
+        signals.append(f'paging:{run}')
+
+    # detail sweep
+    if len(detail_ids) >= DETAIL_SWEEP:
+        signals.append(f'detail_sweep:{len(detail_ids)}')
+        nums = [int(x) for x in detail_ids[-6:] if str(x).isdigit()]
+        if len(nums) >= 5 and all(a < b for a, b in zip(nums, nums[1:])):
+            signals.append('detail_ascending')
+
+    # cadence
+    ts = [float(x) for x in ts_raw]
+    if len(ts) >= CADENCE_MIN and now - ts[-1] < 60:
+        gaps = [b - a for a, b in zip(ts, ts[1:])]
+        if gaps and max(gaps) < CADENCE_GAP_S:
+            signals.append(f'cadence:{len(ts)}in{int(ts[-1] - ts[0])}s')
+
+    # pages without human input (reported by the page beacon)
+    try:
+        no_human = int(no_human_raw or 0)
+    except (TypeError, ValueError):
+        no_human = 0
+    if no_human >= NO_HUMAN_PAGES:
+        signals.append(f'no_human:{no_human}')
+
+    score = sum(SIGNAL_WEIGHTS.get(sig.split(':', 1)[0], 0) for sig in signals)
+    return score, signals
+
+
+def report_page_signal(redis: Redis, subject: Subject, *, human: bool, dwell_ms: int) -> int:
+    """Page beacon: human input seen → reset; left quickly without any input → count it."""
+    key = f'ag:nohuman:{subject.key}'
+    if human:
+        redis.delete(key)
+        return 0
+    if dwell_ms > NO_HUMAN_MAX_DWELL_MS:
+        return int(redis.get(key) or 0)
+    return _incr(redis, key, 1800)
