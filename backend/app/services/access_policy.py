@@ -72,8 +72,10 @@ AI_BROWSER_UA = re.compile(
 EXEMPT_PREFIXES = ('/static/', '/favicon', '/health', '/ready', '/metrics', '/login', '/logout', '/admin', '/.well-known')
 GUARDED_PREFIXES = ('/tenant/', '/v1/')
 
+# Paginated / bulk list endpoints. KPI summaries (decision pack, POS summary) are NOT lists: an agent
+# fanning them out per store is throttled by the general per-minute limit instead.
 LIST_PATH = re.compile(
-    r'^(?:/v1/kpi/[^/]+/(?:documents|items)|/v1/kpi/sales/decision-pack|/v1/streams/[^/]+/(?:documents|items)|'
+    r'^(?:/v1/kpi/[^/]+/(?:documents|items)|/v1/streams/[^/]+/(?:documents|items)|'
     r'/tenant/exports/(?:analysis|purchases-analysis)|/tenant/items|/tenant/supplier-orders)/?$'
 )
 DETAIL_PATH = re.compile(r'^/v1/kpi/[^/]+/documents/[^/]+/detail/?$')
