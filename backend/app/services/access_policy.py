@@ -139,7 +139,43 @@ def default_limits() -> dict[str, int]:
     return {key: int(getattr(settings, attr, 0) or 0) for key, attr in LIMIT_KEYS.items()}
 
 
-async def _load_tenant_overrides(tenant_id: int) -> dict[str, int]:
+POLICY_KEY = '_access_policy'  # subscription.feature_flags[POLICY_KEY] = {'ai_browser_allowed_user_ids': [..]}
+
+
+def ai_browser_allowed_ids(sub) -> list[int]:
+    policy = dict(sub.feature_flags or {}).get(POLICY_KEY)
+    if not isinstance(policy, dict):
+        return []
+    out: list[int] = []
+    for value in policy.get('ai_browser_allowed_user_ids') or []:
+        try:
+            out.append(int(value))
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def set_ai_browser_allowed_ids(sub, user_ids: list[int]) -> None:
+    """Mutates sub.feature_flags in place (caller commits + invalidates the Redis cache)."""
+    from sqlalchemy.orm.attributes import flag_modified
+
+    flags = dict(sub.feature_flags or {})
+    policy = dict(flags.get(POLICY_KEY) or {}) if isinstance(flags.get(POLICY_KEY), dict) else {}
+    ids = sorted({int(x) for x in user_ids})
+    if ids:
+        policy['ai_browser_allowed_user_ids'] = ids
+        flags[POLICY_KEY] = policy
+    else:
+        policy.pop('ai_browser_allowed_user_ids', None)
+        if policy:
+            flags[POLICY_KEY] = policy
+        else:
+            flags.pop(POLICY_KEY, None)
+    sub.feature_flags = flags
+    flag_modified(sub, 'feature_flags')
+
+
+async def _load_tenant_policy(tenant_id: int) -> dict:
     from app.db.control_session import ControlSessionLocal
     from app.models.control import Subscription, SubscriptionLimit
 
@@ -151,35 +187,60 @@ async def _load_tenant_overrides(tenant_id: int) -> dict[str, int]:
                 .where(Subscription.tenant_id == tenant_id, SubscriptionLimit.limit_key.in_(list(LIMIT_KEYS)))
             )
         ).all()
-    return {str(k): int(v) for k, v in rows if v is not None}
+        sub = (await db.execute(select(Subscription).where(Subscription.tenant_id == tenant_id))).scalar_one_or_none()
+    policy = {str(k): int(v) for k, v in rows if v is not None}
+    policy['_ai_allowed'] = ai_browser_allowed_ids(sub) if sub is not None else []
+    return policy
+
+
+async def tenant_policy(redis: Redis, tenant_id: int | None) -> tuple[dict[str, int], set[int]]:
+    """(effective limits, user ids allowed to use an AI browser) for the tenant; Redis-cached."""
+    limits = default_limits()
+    if tenant_id is None:
+        return limits, set()
+    cache_key = f'rl:cfg:{tenant_id}'
+    raw = None
+    try:
+        cached = redis.get(cache_key)
+        raw = json.loads(cached) if cached else None
+    except Exception:
+        raw = None
+    if not isinstance(raw, dict):
+        try:
+            raw = await _load_tenant_policy(tenant_id)
+        except Exception:
+            logger.exception('access_policy_cfg_load_failed tenant=%s', tenant_id)
+            raw = {}
+        try:
+            redis.set(cache_key, json.dumps(raw), ex=CFG_CACHE_SECONDS)
+        except Exception:
+            pass
+    allowed = {int(x) for x in (raw.get('_ai_allowed') or [])}
+    limits.update({k: int(v) for k, v in raw.items() if k in LIMIT_KEYS})
+    return limits, allowed
 
 
 async def tenant_limits(redis: Redis, tenant_id: int | None) -> dict[str, int]:
-    limits = default_limits()
-    if tenant_id is None:
-        return limits
-    cache_key = f'rl:cfg:{tenant_id}'
-    try:
-        cached = redis.get(cache_key)
-    except Exception:
-        cached = None
-    if cached:
-        try:
-            limits.update({k: int(v) for k, v in json.loads(cached).items()})
-            return limits
-        except Exception:
-            pass
-    try:
-        overrides = await _load_tenant_overrides(tenant_id)
-    except Exception:
-        logger.exception('access_policy_cfg_load_failed tenant=%s', tenant_id)
-        overrides = {}
-    try:
-        redis.set(cache_key, json.dumps(overrides), ex=CFG_CACHE_SECONDS)
-    except Exception:
-        pass
-    limits.update(overrides)
+    limits, _ = await tenant_policy(redis, tenant_id)
     return limits
+
+
+async def revoke_ai_browser_allowance(redis: Redis, tenant_id: int, user_id: int) -> bool:
+    """An allowed user behaved like a scraper again: drop the exemption (admin can re-grant)."""
+    from app.db.control_session import ControlSessionLocal
+    from app.models.control import Subscription
+
+    async with ControlSessionLocal() as db:
+        sub = (await db.execute(select(Subscription).where(Subscription.tenant_id == tenant_id))).scalar_one_or_none()
+        if sub is None:
+            return False
+        ids = ai_browser_allowed_ids(sub)
+        if user_id not in ids:
+            return False
+        set_ai_browser_allowed_ids(sub, [x for x in ids if x != user_id])
+        await db.commit()
+    invalidate_tenant_limits(redis, tenant_id)
+    return True
 
 
 def invalidate_tenant_limits(redis: Redis, tenant_id: int) -> None:

@@ -156,7 +156,7 @@
             {% set _agent_hard = (_agent.get('agent_blocked', 0) + _agent.get('automation_flagged', 0) + _agent.get('rate_limit_lock', 0)) %}
             <span class="subs-chip {% if _agent_hard > 0 %}is-danger{% elif _agent %}is-active{% endif %}"
                   title="Τελευταίες 7 ημέρες — AI browser: {{ _agent.get('agent_blocked', 0) }} · αυτοματισμός: {{ _agent.get('automation_flagged', 0) }} · κλειδώματα: {{ _agent.get('rate_limit_lock', 0) }} · υπερβάσεις ορίου: {{ _agent.get('rate_limit_exceeded', 0) }} · όριο εξαγωγών: {{ _agent.get('export_quota_exceeded', 0) }}">
-              <i class="fe fe-cpu"></i>AI/agent: {{ _agent_hard }}{% if _agent.get('rate_limit_exceeded', 0) %} (+{{ _agent.get('rate_limit_exceeded', 0) }} 429){% endif %}
+              <i class="fe fe-cpu"></i>AI/agent: {{ _agent_hard }}{% if _agent.get('rate_limit_exceeded', 0) %} (+{{ _agent.get('rate_limit_exceeded', 0) }} 429){% endif %}{% if _agent.get('ai_browser_used', 0) %} · εξαίρεση σε χρήση{% endif %}
             </span>
             {% set _blocked = blocked_recent_by_tenant.get(t.id, 0) %}
             <button type="button" class="subs-chip subs-chip-btn {% if _blocked > 0 %}is-danger{% endif %}"
@@ -297,6 +297,18 @@
               </div>
             </div>
           </div>
+        </form>
+
+        {% set _ai_allowed = ai_allowed_by_tenant.get(t.id, []) %}
+        <form method="post" action="/admin/subscriptions/{{ t.id }}/ai-browser-allow" class="subs-trial">
+          <span class="subs-trial-label" title="Χρήστες που επιτρέπεται να μπαίνουν από AI browser (Claude Desktop κ.λπ.). Τα όρια ρυθμού και η ανίχνευση συμπεριφοράς ισχύουν κανονικά· σε κλείδωμα ή σήμανση αυτοματισμού η εξαίρεση ανακαλείται αυτόματα.">AI browser — εξαιρέσεις{% if _ai_allowed %} <span class="badge bg-warning text-dark">{{ _ai_allowed|length }}</span>{% endif %}</span>
+          <select class="form-select form-select-sm" name="user_ids" multiple size="{{ [3, [tenant_users_by_tenant.get(t.id, [])|length, 1]|max]|min }}" style="min-width:280px" title="Ctrl για πολλαπλή επιλογή· κενή επιλογή = καμία εξαίρεση">
+            {% for u in tenant_users_by_tenant.get(t.id, []) %}
+            <option value="{{ u.id }}" {% if u.id in _ai_allowed %}selected{% endif %}>{{ u.email }}{% if not u.is_active %} (ανενεργός){% endif %}</option>
+            {% endfor %}
+          </select>
+          <input class="form-control form-control-sm" name="note" placeholder="Σημείωση (π.χ. ποιος το ενέκρινε)">
+          <button class="btn btn-sm btn-outline-warning" type="submit"><i class="fe fe-unlock"></i> Αποθήκευση εξαιρέσεων</button>
         </form>
 
         {% for feature in subscription_features if feature.key in addon_pricing %}

@@ -7093,6 +7093,7 @@ async def admin_subscriptions(
     subscription_feature_allowed_by_tenant: dict[int, dict[str, bool]] = {}
     subscription_customer_feature_keys_by_tenant: dict[int, set[str]] = {}
     subscription_state_by_tenant: dict[int, dict] = {}
+    ai_allowed_by_tenant: dict[int, set[int]] = {}
     for t in tenants:
         sub = await get_or_create_subscription(db, t)
         await sync_tenant_from_subscription(db, t, sub)
@@ -7108,6 +7109,7 @@ async def admin_subscriptions(
         subscriptions_by_tenant[int(t.id)] = sub
         subscription_features_by_tenant[int(t.id)] = feature_values
         subscription_limits_by_tenant[int(t.id)] = limit_context
+        ai_allowed_by_tenant[int(t.id)] = set(_access_policy.ai_browser_allowed_ids(limit_context['subscription']))
         subscription_feature_allowed_by_tenant[int(t.id)] = allowed_values
         subscription_customer_feature_keys_by_tenant[int(t.id)] = {row.feature_key for row in catalog_rows if row.tenant_id == t.id}
     # Over-licence connection attempts (blocked by the concurrent-session limit) in the last 7 days,
@@ -7127,7 +7129,16 @@ async def admin_subscriptions(
             )
         ).all()
     }
-    _agent_actions = ('agent_blocked', 'automation_flagged', 'rate_limit_lock', 'rate_limit_exceeded', 'export_quota_exceeded')
+    _agent_actions = ('agent_blocked', 'automation_flagged', 'rate_limit_lock', 'rate_limit_exceeded', 'export_quota_exceeded', 'ai_browser_used', 'ai_browser_allowance_revoked')
+    tenant_users_by_tenant: dict[int, list[dict]] = {}
+    for _uid, _uemail, _utid, _uactive in (
+        await db.execute(
+            select(User.id, User.email, User.tenant_id, User.is_active)
+            .where(User.role.in_([RoleName.tenant_admin, RoleName.tenant_user]), User.tenant_id.isnot(None))
+            .order_by(User.email)
+        )
+    ).all():
+        tenant_users_by_tenant.setdefault(int(_utid), []).append({'id': int(_uid), 'email': _uemail, 'is_active': bool(_uactive)})
     agent_recent_by_tenant: dict[int, dict[str, int]] = {}
     for tid, action, cnt in (
         await db.execute(
@@ -7182,6 +7193,8 @@ async def admin_subscriptions(
             'subscription_state_by_tenant': subscription_state_by_tenant,
             'blocked_recent_by_tenant': blocked_recent_by_tenant,
             'agent_recent_by_tenant': agent_recent_by_tenant,
+            'tenant_users_by_tenant': tenant_users_by_tenant,
+            'ai_allowed_by_tenant': ai_allowed_by_tenant,
             'access_limit_labels': _access_policy.LIMIT_LABELS,
             'access_limit_defaults': _access_policy.default_limits(),
             'subscription_features': all_subscription_features,
@@ -7442,12 +7455,15 @@ async def admin_subscription_update(
         await db.execute(select(PlanFeatureCatalog).where(PlanFeatureCatalog.is_active == True).order_by(PlanFeatureCatalog.group, PlanFeatureCatalog.label))
     ).scalars().all()
     _kept_addon_terms = dict(sub.feature_flags or {}).get(_addon_terms.TERMS_KEY)
+    _kept_access_policy = dict(sub.feature_flags or {}).get(_access_policy.POLICY_KEY)
     sub.feature_flags = {
         feature.key: feature.key in selected_features
         for feature in (*SUBSCRIPTION_FEATURES, *(_catalog_to_subscription_feature(row) for row in catalog_rows))
     }
     if isinstance(_kept_addon_terms, dict):
         sub.feature_flags[_addon_terms.TERMS_KEY] = _kept_addon_terms
+    if isinstance(_kept_access_policy, dict):
+        sub.feature_flags[_access_policy.POLICY_KEY] = _kept_access_policy
     for row in catalog_rows:
         if not _catalog_feature_allowed(row, selected_plan, int(tenant.id)):
             sub.feature_flags[row.feature_key] = False
@@ -7549,6 +7565,48 @@ async def admin_subscription_addon_terms(
         return RedirectResponse(url=f'{redirect_target}?saved=0&reason=commit_failed', status_code=303)
     sep = '&' if '?' in redirect_target else '?'
     return RedirectResponse(url=f'{redirect_target}{sep}addon_terms=1', status_code=303)
+
+
+@router.post('/admin/subscriptions/{tenant_id}/ai-browser-allow')
+async def admin_subscription_ai_browser_allow(
+    tenant_id: int,
+    user_ids: list[str] = Form(default=[]),
+    note: str = Form(default=''),
+    _: object = Depends(require_roles(RoleName.cloudon_admin)),
+    db: AsyncSession = Depends(get_control_db),
+):
+    """Users of this tenant allowed to use an AI browser (Claude Desktop etc.). Rate limits and the
+    behavioural detection still apply to them; a lock or automation flag revokes the exemption."""
+    tenant = (await db.execute(select(Tenant).where(Tenant.id == tenant_id))).scalar_one_or_none()
+    if not tenant:
+        return RedirectResponse(url='/admin/subscriptions?saved=0&reason=tenant_not_found', status_code=303)
+    valid_ids = {
+        int(x)
+        for x in (
+            await db.execute(select(User.id).where(User.tenant_id == tenant_id, User.role.in_([RoleName.tenant_admin, RoleName.tenant_user])))
+        ).scalars().all()
+    }
+    requested: list[int] = []
+    for raw in user_ids or []:
+        try:
+            value = int(str(raw).strip())
+        except ValueError:
+            continue
+        if value in valid_ids:
+            requested.append(value)
+    sub = await get_or_create_subscription(db, tenant)
+    before = set(_access_policy.ai_browser_allowed_ids(sub))
+    _access_policy.set_ai_browser_allowed_ids(sub, requested)
+    await sync_tenant_from_subscription(db, tenant, sub)
+    db.add(
+        AuditLog(
+            tenant_id=tenant.id, actor_user_id=None, action='ai_browser_allowance_changed', entity_type='access_policy',
+            entity_id=str(tenant.id), payload={'before': sorted(before), 'after': sorted(set(requested)), 'note': (note or '').strip()[:300]},
+        )
+    )
+    await db.commit()
+    _access_policy.invalidate_tenant_limits(Redis.from_url(settings.redis_url, decode_responses=True), int(tenant_id))
+    return RedirectResponse(url='/admin/subscriptions?saved=1', status_code=303)
 
 
 @router.post('/admin/subscriptions/addon-free-bulk')

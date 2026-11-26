@@ -88,7 +88,7 @@ async def sync_tenant_from_subscription(db: AsyncSession, tenant: Tenant, sub: S
     tenant_flags = {
         key: value
         for key, value in dict(tenant.feature_flags or {}).items()
-        if key not in FEATURE_KEYS and key not in ('_temporary_upgrade', '_addon_terms')
+        if key not in FEATURE_KEYS and key not in ('_temporary_upgrade', '_addon_terms', '_access_policy')
     }
     sub_flags = dict(sub.feature_flags or {})
     normalized_flags = normalize_subscription_feature_flags(sub.plan, sub_flags)
@@ -100,6 +100,10 @@ async def sync_tenant_from_subscription(db: AsyncSession, tenant: Tenant, sub: S
             cleaned_sub_flags[key] = enabled
         elif key == '_addon_terms' and isinstance(enabled, dict):
             # Commercial terms of add-ons (free until / monthly / annual) — see addon_terms.py.
+            tenant_flags[key] = enabled
+            cleaned_sub_flags[key] = enabled
+        elif key == '_access_policy' and isinstance(enabled, dict):
+            # Access-policy exemptions (users allowed to use an AI browser) — see access_policy.py.
             tenant_flags[key] = enabled
             cleaned_sub_flags[key] = enabled
         elif key == 'custom_agreement_notes' and isinstance(enabled, str):

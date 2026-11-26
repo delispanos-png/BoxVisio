@@ -64,6 +64,19 @@ def _refuse(request: Request, status: int, kind: str, *, retry_after: int = 0, *
     )
 
 
+async def _revoke_allowance(redis, subject, path: str, ua: str, *, reason: str) -> None:
+    try:
+        revoked = await ap.revoke_ai_browser_allowance(redis, int(subject.tenant_id), int(subject.user_id))
+    except Exception:
+        logger.exception('ai_browser_allowance_revoke_failed subject=%s', subject.key)
+        revoked = False
+    if revoked:
+        await ap.record_event(
+            redis, subject, action='ai_browser_allowance_revoked', path=path, user_agent=ua, notify=True,
+            throttle_seconds=1, extra={'reason': reason},
+        )
+
+
 async def rate_limit_middleware(request: Request, call_next):
     path = request.url.path
     if not ap.is_guarded_path(path):
@@ -79,18 +92,24 @@ async def rate_limit_middleware(request: Request, call_next):
         redis = getattr(request.app.state, 'redis', None) or Redis.from_url(settings.redis_url, decode_responses=True)
         ua = request.headers.get('user-agent') or ''
 
-        if ap.is_ai_browser(ua):
+        limits, ai_allowed_ids = await ap.tenant_policy(redis, subject.tenant_id)
+        ai_allowed = subject.user_id is not None and subject.user_id in ai_allowed_ids
+        ai_ua = ap.is_ai_browser(ua)
+
+        if ai_ua and not ai_allowed:
             await ap.record_event(redis, subject, action='agent_blocked', path=path, user_agent=ua, notify=True)
             return _refuse(request, 403, 'agent')
-        if ap.is_flagged_agent(redis, subject):
+        if not ai_allowed and ap.is_flagged_agent(redis, subject):
             await ap.record_event(redis, subject, action='automation_flagged', path=path, user_agent=ua, notify=True)
             return _refuse(request, 403, 'agent')
+        if ai_ua and ai_allowed:
+            # Exempted user on an AI browser: allowed, visible in the audit once per hour, still rate-limited.
+            await ap.record_event(redis, subject, action='ai_browser_used', path=path, user_agent=ua, throttle_seconds=3600)
 
         lock_left = ap.is_locked(redis, subject)
         if lock_left:
             return _refuse(request, 429, 'locked', retry_after=lock_left, minutes=max(1, lock_left // 60))
 
-        limits = await ap.tenant_limits(redis, subject.tenant_id)
         violation = ap.check_request(redis, subject, limits, path)
         if violation:
             strikes, newly_locked = ap.register_strike(redis, subject)
@@ -99,6 +118,8 @@ async def rate_limit_middleware(request: Request, call_next):
                     redis, subject, action='rate_limit_lock', path=path, user_agent=ua, notify=True, throttle_seconds=60,
                     extra={'rule': violation.rule, 'limit': violation.limit, 'current': violation.current, 'strikes': strikes},
                 )
+                if ai_allowed:
+                    await _revoke_allowance(redis, subject, path, ua, reason=f'rate_limit_lock:{violation.rule}')
                 return _refuse(request, 429, 'locked', retry_after=ap.LOCK_SECONDS, minutes=ap.LOCK_SECONDS // 60)
             await ap.record_event(
                 redis, subject, action='rate_limit_exceeded', path=path, user_agent=ua, throttle_seconds=300,
@@ -125,11 +146,16 @@ async def rate_limit_middleware(request: Request, call_next):
         # Level 3: behavioural pattern of an agent inside a normal browser.
         score, signals = ap.observe(redis, subject, path, dict(request.query_params))
         if score >= ap.SCORE_THRESHOLD:
-            ap.flag_agent(redis, subject)
             await ap.record_event(
                 redis, subject, action='automation_flagged', path=path, user_agent=ua, notify=True,
-                extra={'score': score, 'signals': signals},
+                extra={'score': score, 'signals': signals, 'ai_allowed': ai_allowed},
             )
+            if ai_allowed:
+                # Exempted user scraping again: drop the exemption and lock the session for a while.
+                redis.set(f'rl:lock:{subject.key}', '1', ex=ap.LOCK_SECONDS)
+                await _revoke_allowance(redis, subject, path, ua, reason='automation:' + ','.join(signals))
+                return _refuse(request, 429, 'locked', retry_after=ap.LOCK_SECONDS, minutes=ap.LOCK_SECONDS // 60)
+            ap.flag_agent(redis, subject)
             return _refuse(request, 403, 'agent')
     except Exception:
         logger.exception('access_guard_failed path=%s', path)
